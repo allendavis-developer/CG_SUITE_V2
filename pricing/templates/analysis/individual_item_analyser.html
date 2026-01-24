@@ -1,0 +1,1926 @@
+{% extends "analysis/base_item_analysis.html" %}
+{% load static %}
+
+{% block title %}Pricing Analysis{% endblock %}
+
+{% block header_title %}PRICING ANALYSIS{% endblock %}
+
+{% block panel_title %}INPUT PANEL{% endblock %}
+
+{% block search_term %}
+
+<link href="https://cdn.jsdelivr.net/npm/tom-select/dist/css/tom-select.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/tom-select/dist/js/tom-select.complete.min.js"></script>
+
+<div class="tomselect-stack">
+  <!-- Display original prefilled data as a heading -->
+  {% if prefilled_data.name %}
+    <h3 id="original-search-term" class="prefill-heading">
+      {{ prefilled_data.name }}
+    </h3>
+  {% endif %}
+
+  <!-- Prefill the forms -->
+  <script src="{% static 'analysis/prefill_form_analyser.js' %}"></script>
+
+  <div class="tomselect-row">
+    <div class="tomselect-field">
+      <label for="category" class="input-label">Category</label>
+      <div class="tomselect-control">
+        <select id="category" class="tomselect-input" autocomplete="off">
+          <option value="" selected disabled></option>
+          {% for cat in categories %}
+          <option value="{{ cat.id }}">{{ cat.name }}</option>
+          {% endfor %}
+        </select>
+        <button type="button" class="add-btn" onclick="openAddModal('category')">+</button>
+      </div>
+    </div>
+
+    <div class="tomselect-field">
+      <label for="subcategory" class="input-label">Subcategory</label>
+      <div class="tomselect-control">
+        <select id="subcategory" class="tomselect-input" autocomplete="off" disabled>
+          <option value="" selected disabled></option>
+        </select>
+        <button type="button" class="add-btn" onclick="openAddModal('subcategory')" disabled>+</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="tomselect-row">
+    <div class="tomselect-field" style="flex: 1;">
+      <label for="model" class="input-label">Model</label>
+      <div class="tomselect-control">
+        <select id="model" class="tomselect-input" autocomplete="off" disabled>
+          <option value="" selected disabled></option>
+        </select>
+        <button type="button" class="add-btn" onclick="openAddModal('model')" disabled>+</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+  <div id="attributes-container" style="margin-top: 10px;"></div>
+
+
+  <div class="input-row">
+    <div class="input-group" style="flex: 2;">
+      <label class="input-label">Search Term Used for Scraping</label>
+      <input
+        type="text"
+        id="item-name"
+        class="input-field"
+        value="{{ prefilled_data.name|default:'' }}"
+        placeholder="This will be filled automatically when you select a model, you can then change it to try different search terms."
+      >
+    </div>
+  </div>
+{% endblock search_term %}
+
+
+{% block description %}
+  <div class="input-group">
+    <label class="input-label">Description</label>
+    <textarea
+      id="description"
+      class="input-field description-field"
+      required>{{ prefilled_data.description|default:'' }}</textarea>
+  </div>
+{% endblock description %}
+
+{% block urgency %} {% endblock urgency %}
+
+{% block after_description %}
+  {% block scraped_nospos_data %}
+  <div class="input-row">
+    <div class="input-group" style="flex: 1;">
+      <label class="input-label" for="cost-price">Cost Price (£)</label>
+      <input
+        type="number"
+        id="cost-price"
+        class="input-field"
+        placeholder="Enter cost price"
+        step="0.01"
+        min="0"
+        value="{{ prefilled_data.cost_price|default_if_none:'' }}"
+        required
+        readonly
+      >
+    </div>
+
+    <div class="input-group" style="flex: 1;">
+      <label class="input-label" for="barserial">Barserial</label>
+      <input
+        type="text"
+        id="barserial"
+        class="input-field"
+        placeholder="e.g., SN1234567890"
+        value="{{ prefilled_data.barserial|default_if_none:'' }}"
+        required
+        readonly
+      >
+    </div>
+
+     <div class="input-group" style="flex: 1;">
+      <label class="input-label" for="branch">Branch</label>
+      <input
+        type="text"
+        id="branch"
+        class="input-field"
+        value="{{ prefilled_data.branch|default:'' }}"
+        readonly
+      >
+    </div>
+
+  </div>
+  {% endblock scraped_nospos_data %}
+
+
+    <div class="input-group" style="margin-top: 16px;">
+      <label class="input-label">Select Websites to Scrape</label>
+      <div id="competitor-checkboxes" style="display: flex; flex-wrap: wrap; gap: 12px; margin-top: 6px;">
+        <label><input type="checkbox" name="competitors" value="CashConverters" checked> CashConverters</label>
+        <label><input type="checkbox" name="competitors" value="CashGenerator" checked> CashGenerator</label>
+        {% comment %} <label><input type="checkbox" name="competitors" value="CEX"> CEX</label> {% endcomment %}
+        <label><input id="ebay-source-checkbox" type="checkbox" name="competitors" value="eBay" checked> eBay</label>
+
+        <!-- After your existing eBay checkbox -->
+        <div id="ebay-filter-container" style="display: block; margin-left: 1.5rem; margin-top: 0.5rem;">
+            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <input type="checkbox" id="ebay-sold" style="cursor: pointer;" checked>
+                <span class="input-label" style="margin: 0;">eBay - Filter for Completed & Sold?</span>
+            </label>
+
+            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <input type="checkbox" id="ebay-ukonly" style="cursor: pointer;" checked>
+                <span class="input-label" style="margin: 0;">eBay - Filter for UK Only?</span>
+            </label>
+
+            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <input type="checkbox" id="ebay-used" style="cursor: pointer;" checked>
+                <span class="input-label" style="margin: 0;">eBay - Filter for Used?</span>
+            </label>
+
+        </div>
+      </div>
+    </div>
+
+{% endblock after_description %}
+
+
+{% block analyze_button %}
+    <button type="button" id="scrape-btn" class="analyze-button" onclick="scrapePrices()">
+      <span id="button-text">SCRAPE PRICES</span>
+      <span id="button-spinner" class="loading-spinner hidden"></span>
+    </button>
+    {% comment %} {% block analyze_range_button %}
+      <button type="button" id="analyze-btn" class="analyze-button" onclick="analyzeTable()">
+        <span id="button-text">GET SUGGESTIVE PRICE FROM RANGE</span>
+        <span id="button-spinner" class="loading-spinner hidden"></span>
+      </button>
+    {% endblock analyze_range_button %} {% endcomment %}
+    {% block analysis_actions %}
+  {% block confirm_list_btn %}
+  <button id="confirm-list-btn" class="analyze-button" style="margin-bottom:20px;">
+    CONFIRM & LIST
+  </button>
+  {% endblock confirm_list_btn %}
+
+{% endblock %}
+  {% endblock analyze_button %}
+
+{% block modals %}
+<div id="list-modal" class="hidden" style="
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background-color: rgba(0,0,0,0.8);
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+">
+  <div style="
+      background-color: #111;
+      border: 1px solid #333;
+      border-radius: 8px;
+      width: 480px;
+      max-width: 90%;
+      padding: 20px;
+      color: #fff;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+  ">
+    <span id="modal-close" style="
+        position: absolute;
+        top: 12px;
+        right: 16px;
+        cursor: pointer;
+        font-size: 18px;
+        color: #888;
+    ">&times;</span>
+
+    <h2 style="margin-bottom: 16px; font-size: 16px; text-transform: uppercase;">Confirm Listing</h2>
+
+    <div style="margin-bottom: 12px;">
+      <label style="font-size: 11px; color: #888; text-transform: uppercase;">Item Name</label>
+      <input id="modal-item-name" type="text" style="
+          width: 100%;
+          padding: 10px;
+          background-color: #1a1a1a;
+          border: 1px solid #333;
+          color: #fff;
+          border-radius: 4px;
+          margin-top: 4px;
+      ">
+    </div>
+
+    <div style="margin-bottom: 12px;">
+      <label style="font-size: 11px; color: #888; text-transform: uppercase;">Description</label>
+      <textarea id="modal-description" style="
+          width: 100%;
+          padding: 10px;
+          background-color: #1a1a1a;
+          border: 1px solid #333;
+          color: #fff;
+          border-radius: 4px;
+          min-height: 80px;
+          margin-top: 4px;
+          resize: vertical;
+          max-height: 400px;
+      "></textarea>
+    </div>
+
+    <div style="margin-bottom: 16px;">
+      <label style="font-size: 11px; color: #888; text-transform: uppercase;">Serial Number</label>
+      <input id="modal-serial-number" type="text" readonly style="
+          width: 100%;
+          padding: 10px;
+          background-color: #1a1a1a;
+          border: 1px solid #333;
+          color: #fff;
+          border-radius: 4px;
+          margin-top: 4px;
+      ">
+    </div>
+
+    <div style="margin-bottom: 12px;">
+    <label style="font-size: 11px; color: #888; text-transform: uppercase;">Branch</label>
+    <input id="modal-branch" type="text" readonly style="
+        width: 100%;
+        padding: 10px;
+        background-color: #1a1a1a;
+        border: 1px solid #333;
+        color: #fff;
+        border-radius: 4px;
+        margin-top: 4px;
+    ">
+    </div>
+
+    <div style="margin-bottom: 16px;">
+      <label style="font-size: 11px; color: #888; text-transform: uppercase;">Price</label>
+      <input id="modal-price" type="text" style="
+          width: 100%;
+          padding: 10px;
+          background-color: #1a1a1a;
+          border: 1px solid #333;
+          color: #fff;
+          border-radius: 4px;
+          margin-top: 4px;
+      ">
+    </div>
+
+    <button id="modal-submit" style="
+        width: 100%;
+        padding: 14px;
+        background-color: #fff;
+        color: #000;
+        font-weight: 600;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        text-transform: uppercase;
+    ">List Item</button>
+  </div>
+</div>
+{% endblock %}
+
+{% block analysis_section %}
+<div class="analysis-section analysis-scroll-container" id="analysis-section" style="display: none;">
+    <div class="analysis-header">
+        <div class="analysis-status">{% block analysis_status %}⚡ ANALYSIS COMPLETE{% endblock %}</div>
+        <div class="analysis-time" id="analysis-time">{% block analysis_time %}just now{% endblock %}</div>
+    </div>
+
+    <div class="reasoning">
+        <div class="reasoning-title">REASONING:</div>
+        <div class="reasoning-text" id="reasoning-text">
+            {% block reasoning_placeholder %}{% endblock %}
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+
+{% block extra_style %}
+  .prefill-heading {
+    margin-bottom: 10px;
+    color: #fff;
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+
+  .tomselect-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .tomselect-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+
+  .tomselect-field {
+    flex: 1;
+    min-width: 220px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .tomselect-control {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+
+  .tomselect-input {
+    flex: 1;
+  }
+
+  .ts-wrapper,
+  .ts-dropdown {
+    background-color: #1e1e1e;
+    color: #f5f5f5;
+    border-color: #333;
+    font-size: 0.95rem;
+  }
+
+  .ts-control {
+    background-color: #1e1e1e;
+    color: #f5f5f5;
+    border: 1px solid #333;
+    border-radius: 0.5rem;
+  }
+
+  .ts-control input {
+    color: #ccc;
+  }
+
+  .ts-dropdown .option {
+    background-color: #1e1e1e;
+    color: #e0e0e0;
+  }
+
+  .ts-dropdown .option:hover,
+  .ts-dropdown .active {
+    background-color: #333;
+    color: #fff;
+  }
+
+  .ts-wrapper.multi .item {
+    background-color: #333;
+    border: 1px solid #555;
+    color: #fff;
+    border-radius: 0.4rem;
+  }
+
+  .ts-control.focus {
+    border-color: #666;
+    box-shadow: 0 0 0 1px #666;
+  }
+
+  /* Checkbox container styling */
+  #competitor-checkboxes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 6px;
+  }
+
+  /* Make the search field obviously readonly */
+#item-name[readonly] {
+    background-color: #2a2a2a; /* darker gray */
+    color: #ccc;               /* lighter text */
+    cursor: not-allowed;
+}
+
+#item-name[readonly]::placeholder {
+    color: #888;               /* gray placeholder */
+}
+
+/* Optional: add a tooltip */
+#item-name[readonly]:hover {
+    position: relative;
+}
+
+#item-name[readonly]:hover::after {
+    content: "Auto-generated — cannot edit";
+    position: absolute;
+    top: 100%;
+    left: 0;
+    background: #111;
+    color: #fff;
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    white-space: nowrap;
+    margin-top: 2px;
+    z-index: 10;
+}
+
+
+  /* Label wrapper */
+  #competitor-checkboxes label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background-color: #111;
+    color: #fff;
+    padding: 10px 14px;
+    border: 1px solid #333;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease-in-out;
+    font-size: 13px;
+    user-select: none;
+  }
+
+  /* Hover effect */
+  #competitor-checkboxes label:hover {
+    background-color: #1a1a1a;
+    border-color: #555;
+  }
+
+  /* Checkbox input */
+  #competitor-checkboxes input[type="checkbox"] {
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border: 2px solid #888;
+    border-radius: 4px;
+    background-color: #000;
+    transition: all 0.2s ease-in-out;
+    position: relative;
+    cursor: pointer;
+  }
+
+  /* Checked state */
+  #competitor-checkboxes input[type="checkbox"]:checked {
+    background-color: #fff;
+    border-color: #fff;
+  }
+
+  /* Custom checkmark */
+  #competitor-checkboxes input[type="checkbox"]:checked::after {
+    content: "✔";
+    color: #000;
+    position: absolute;
+    font-size: 11px;
+    top: 0;
+    left: 2px;
+  }
+
+{% endblock %}
+
+{% block extra_script %}
+<script>
+const primaryTomSelects = {};
+
+
+// Add this to your existing script gsection
+document.addEventListener('DOMContentLoaded', () => {
+  const ebayCheckbox = document.getElementById('ebay-source-checkbox'); // Your main eBay checkbox
+  const ebayFilterContainer = document.getElementById('ebay-filter-container');
+  const ebaySoldCheckbox = document.getElementById('ebay-sold');
+
+  if (ebayCheckbox && ebayFilterContainer) {
+    ebayCheckbox.addEventListener('change', function() {
+      if (this.checked) {
+        ebayFilterContainer.style.display = 'block';
+      } else {
+        ebayFilterContainer.style.display = 'none';
+      }
+    });
+  }
+});
+
+function getPrimaryTomSelect(id) {
+    return primaryTomSelects[id] || document.getElementById(id)?.tomselect || null;
+}
+
+function initPrimaryTomSelects() {
+    const selectConfigs = [
+        { id: 'category', placeholder: 'Select category...' },
+        { id: 'subcategory', placeholder: 'Select subcategory...' },
+        { id: 'model', placeholder: 'Select model...' }
+    ];
+
+    selectConfigs.forEach(({ id, placeholder }) => {
+        const element = document.getElementById(id);
+        if (!element) return;
+
+        if (primaryTomSelects[id]) {
+            primaryTomSelects[id].destroy();
+        }
+
+        primaryTomSelects[id] = new TomSelect(`#${id}`, {
+            placeholder,
+            create: false,
+            allowEmptyOption: true,
+            sortField: [
+                { field: 'text', direction: 'asc' }
+            ]
+        });
+
+        if (element.disabled) {
+            primaryTomSelects[id].disable();
+        }
+    });
+
+}
+
+function setPrimarySelectDisabled(id, disabled) {
+    const select = document.getElementById(id);
+    if (select) {
+        select.disabled = disabled;
+    }
+    const ts = getPrimaryTomSelect(id);
+    if (ts) {
+        disabled ? ts.disable() : ts.enable();
+    }
+}
+
+
+function replacePrimarySelectOptions(id, options, placeholderLabel) {
+    const select = document.getElementById(id);
+    if (!select) return;
+
+    select.innerHTML = '';
+    const placeholderOption = document.createElement('option');
+    placeholderOption.value = '';
+    placeholderOption.textContent = placeholderLabel;
+    placeholderOption.disabled = true;
+    placeholderOption.selected = true;
+    placeholderOption.hidden = true;
+    select.appendChild(placeholderOption);
+
+    const normalized = options
+        .map(opt => {
+            const rawValue = opt.id ?? opt.value ?? opt.pk ?? null;
+            const rawLabel = opt.name ?? opt.text ?? opt.label ?? opt.title ?? '';
+            if (rawValue === null || rawValue === undefined) return null;
+            return {
+                value: String(rawValue),
+                label: rawLabel
+            };
+        })
+        .filter(Boolean);
+
+    normalized.forEach(opt => {
+        const optionEl = document.createElement('option');
+        optionEl.value = opt.value;
+        optionEl.textContent = opt.label;
+        select.appendChild(optionEl);
+    });
+
+    const ts = getPrimaryTomSelect(id);
+    if (ts) {
+        ts.clear(true);
+        ts.clearOptions();
+        ts.settings.placeholder = placeholderLabel;
+        normalized.forEach(opt => ts.addOption({ value: opt.value, text: opt.label }));
+        ts.refreshOptions(false);
+    }
+
+    console.log("replacing options");
+    setPrimarySelectValue(id, '', { emitChange: false });
+}
+
+function setPrimarySelectValue(id, value, options = {}) {
+    const emitChange = options.emitChange !== false;
+    const select = document.getElementById(id);
+    if (select) {
+        select.value = value;
+    }
+    const ts = getPrimaryTomSelect(id);
+    if (ts) {
+        if (value === undefined || value === null || value === '') {
+            ts.clear(true);
+        } else {
+            ts.setValue(value, false);
+        }
+        ts.refreshItems();
+    }
+    if (select && emitChange) {
+        select.dispatchEvent(new Event('change'));
+    }
+
+    console.log("setting ", id, " to ", value);
+}
+
+function getPrimarySelectLabel(id) {
+    const ts = getPrimaryTomSelect(id);
+    if (ts) {
+        const value = ts.getValue();
+        if (!value) return '';
+        const option = ts.options?.[value];
+        return option?.text ?? '';
+    }
+    const select = document.getElementById(id);
+    return select?.options[select.selectedIndex]?.text?.trim() || '';
+}
+
+function getPrimarySelectValue(id) {
+    const ts = getPrimaryTomSelect(id);
+    if (ts) {
+        const value = ts.getValue();
+        return Array.isArray(value) ? value[0] : value;
+    }
+    return document.getElementById(id)?.value || '';
+}
+
+function upsertPrimarySelectOption(id, value, label) {
+    const select = document.getElementById(id);
+    if (select) {
+        const exists = Array.from(select.options).some(opt => opt.value === value);
+        if (!exists) {
+            const optionEl = document.createElement('option');
+            optionEl.value = value;
+            optionEl.textContent = label;
+            select.appendChild(optionEl);
+        }
+    }
+
+    const ts = getPrimaryTomSelect(id);
+    if (ts && !ts.options[value]) {
+        ts.addOption({ value, text: label });
+        ts.refreshOptions(false);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', initPrimaryTomSelects);
+
+function toggleModal(modal, show = true) {
+    modal.style.display = show ? 'flex' : 'none';
+    modal.classList.toggle('hidden', !show);
+}
+
+function roundToNearest2(value) {
+    return Math.round(value / 2) * 2;
+}
+
+const modal = document.getElementById('list-modal');
+const modalClose = document.getElementById('modal-close');
+const modalItemName = document.getElementById('modal-item-name');
+const modalDescription = document.getElementById('modal-description');
+const modalPrice = document.getElementById('modal-price');
+const confirmListBtn = document.getElementById('confirm-list-btn');
+const modalSubmitBtn = document.getElementById('modal-submit');
+const priceSourceSelect = document.getElementById('price-source-select');
+
+toggleModal(modal, false);
+
+/* Maps price source → table cell ID */
+const priceCellMap = {
+    "Suggested RRP": "cex-discount-cell",
+    "Cash Converters": "recommended-price-cashconverters",
+    "Cash Generator": "recommended-price-cashgenerator",
+    "eBay": "recommended-price-ebay",
+    "Retail Price": "current-retail-price",
+
+};
+
+confirmListBtn.addEventListener('click', () => {
+    toggleModal(modal, true);
+
+    modalItemName.value = document.getElementById('item-name').value;
+    modalDescription.value = document.getElementById('description').value;
+    document.getElementById('modal-serial-number').value = document.getElementById('barserial').value;
+    document.getElementById('modal-branch').value = document.getElementById('branch').value;
+
+    /* Fetch price from whichever column is selected */
+    const selectedCellId = priceCellMap[window.currentPriceSource];
+    let priceValue = document.getElementById(selectedCellId)?.textContent.trim() || "";
+    const match = priceValue.match(/\d+(\.\d+)?/);
+    const parsed = match ? parseFloat(match[0]) : 0;
+    console.log(parsed); // 399.99
+
+    modalPrice.value = parsed;
+});
+
+
+modalClose.addEventListener('click', () => {
+    toggleModal(modal, false);
+});
+
+window.addEventListener('click', (e) => {
+    if (e.target === modal) {
+        toggleModal(modal, false);
+    }
+});
+
+
+modalSubmitBtn.addEventListener('click', async function() {
+    let price = modalPrice.value.trim();
+
+    // Close and reset modal immediately
+    toggleModal(modal, false);
+    modalSubmitBtn.disabled = false;
+    modalSubmitBtn.textContent = 'List Item';
+
+
+    if (!price) {
+        alert("Please specify a price either by selecting a recommended price or entering one manually.");
+        // Reset the modal state and close
+        toggleModal(modal, false);;
+        modalSubmitBtn.disabled = false;
+        modalSubmitBtn.textContent = 'List Item';
+        return;
+    }
+
+    price = parseFloat(price.replace(/[^0-9.]/g, '')).toFixed(2);
+    const branch = document.getElementById('modal-branch').value; 
+    const serialNumber = document.getElementById('modal-serial-number').value;
+
+    try {
+        const response = await sendExtensionMessage({
+            action: "createWebEposListing",
+                data: {
+                item_name: modalItemName.value,
+                description: modalDescription.value,
+                price,
+                serial_number: serialNumber,
+                branch,
+            },
+        });
+
+        if (response.success) {
+            console.log("Opened WebEpos succesfully!");
+        } else {
+            alert(`Listing failed: ${response.error || "Unknown error"}`);
+        }
+    } catch (err) {
+        console.error("Extension communication error:", err);
+        alert("Automation failed due to an unexpected error.");
+    } finally {
+        modalSubmitBtn.disabled = false;
+        modalSubmitBtn.textContent = 'List Item';
+        // Close modal after attempt
+        toggleModal(modal, false);
+    }
+});
+
+
+// -------------------------------
+// 🧱 SCRAPING PHASE
+// -------------------------------
+async function scrapePrices() {
+    clearCompetitorData();  
+    console.log("scraping");
+    const itemName = document.getElementById('item-name').value.trim();
+    if (!itemName) {
+        alert('Please enter an item name first.');
+        return;
+    }
+
+    const scrapeBtn = document.getElementById('scrape-btn');
+    scrapeBtn.disabled = true;
+    scrapeBtn.textContent = 'Scraping...';
+
+    const selectedCompetitors = Array.from(document.querySelectorAll('input[name="competitors"]:checked'))
+        .map(cb => cb.value);
+
+    if (selectedCompetitors.length === 0) {
+        alert('Please select at least one website to scrape.');
+        scrapeBtn.disabled = false;
+        scrapeBtn.textContent = 'Scrape Prices';
+        return;
+    }
+
+    const data = collectAttributeData();
+    if (!data) {
+        alert('Please select both category and model before scraping.');
+        scrapeBtn.disabled = false;
+        scrapeBtn.textContent = 'Scrape Prices';
+        return;
+    }
+
+    // Check if eBay completed & sold filter is enabled
+    const ebayCheckbox = document.getElementById('ebay-source-checkbox');
+    const ebaySoldCheckbox = document.getElementById('ebay-sold');
+    const ebayFilterSold = ebayCheckbox?.checked && ebaySoldCheckbox?.checked;
+    
+    // Check if eBay used filter is enabled
+    const ebayUsedCheckbox = document.getElementById('ebay-used');
+    const ebayFilterUsed = ebayCheckbox?.checked && ebayUsedCheckbox?.checked;
+    
+    // Check if eBay completed & sold filter is enabled
+    const ebayUKOnlyCheckbox = document.getElementById('ebay-ukonly');
+    const ebayFilterUKOnly = ebayCheckbox?.checked && ebayUKOnlyCheckbox?.checked;
+
+    nameInDB = await getSearchTermFromModelAndAttributes(true);
+
+    try {
+        // Send to extension with eBay filter status
+        const response = await sendExtensionMessage({
+            action: "scrape",
+            data: {
+                query: itemName,
+                competitors: selectedCompetitors,
+                category: data.categoryName,
+                subcategory: data.subcategoryName,
+                model: data.modelName,
+                attributes: data.attributes,
+                ebayFilterSold: ebayFilterSold, 
+                ebayFilterUsed: ebayFilterUsed, 
+                ebayFilterUKOnly: ebayFilterUKOnly  
+
+            }
+        });
+
+        if (response.success) {
+            const formattedData = response.results.map(item => {
+                return `${item.competitor} | ${item.title || ""} | £${item.price} | ${item.store || ""} | ${item.url || ""}`;
+            });
+            
+            console.log("saved data successfully", formattedData);
+
+            updateCompetitorData(formattedData, selectedCompetitors);
+            if (response.partial) {
+                alert("Scraping partially completed. Some sites may have timed out.");
+            } 
+            
+        } else {
+            alert("Scraping failed: " + (response.error || "Unknown error"));
+        }
+
+    } catch (error) {
+        console.error('Scraping error:', error);
+        alert('Error running scraper: ' + error.message);
+    } finally {
+        scrapeBtn.disabled = false;
+        scrapeBtn.textContent = 'Scrape Prices';
+    }
+}
+
+
+function getCCAndCGData() {
+    // Get ALL data first (not just checked)
+    const allCompetitorData = extractAllCompetitorTableData();
+    
+    const cashConvertersData = allCompetitorData.filter(
+        item => item.competitor.toLowerCase() === 'cashconverters'
+    );
+    const cashGeneratorData = allCompetitorData.filter(
+        item => item.competitor.toLowerCase() === 'cashgenerator'
+    );
+
+    if (cashConvertersData.length === 0 && cashGeneratorData.length === 0) {
+        alert("Please scrape and mark relevant rows for Cash Converters or Cash Generators first.");
+        return null;
+    }
+
+    const anyRanges =
+        cashConvertersData.some(d => d.range) ||
+        cashGeneratorData.some(d => d.range);
+
+    if (!anyRanges) {
+        // AUTO-SELECT 3RD LOWEST
+        
+        // Auto-select for CashConverters
+        if (cashConvertersData.length > 0) {
+            const sortedCC = [...cashConvertersData].sort((a, b) => a.price - b.price);
+            const targetIndex = Math.min(2, sortedCC.length - 1);
+            const targetItem = sortedCC[targetIndex];
+            
+            // Check the checkbox using the stored reference
+            if (targetItem.checkbox) {
+                targetItem.checkbox.checked = true;
+                targetItem.range = true;
+            }
+        }
+        
+        // Auto-select for CashGenerator
+        if (cashGeneratorData.length > 0) {
+            const sortedCG = [...cashGeneratorData].sort((a, b) => a.price - b.price);
+            const targetIndex = Math.min(2, sortedCG.length - 1);
+            const targetItem = sortedCG[targetIndex];
+            
+            // Check the checkbox using the stored reference
+            if (targetItem.checkbox) {
+                targetItem.checkbox.checked = true;
+                targetItem.range = true;
+            }
+        }
+    }
+
+    // Now return only the checked items (after auto-selection if needed)
+    return {
+        cashConvertersData: cashConvertersData.filter(d => d.range),
+        cashGeneratorData: cashGeneratorData.filter(d => d.range)
+    };
+}
+
+async function analyzeTable() {
+    const costPrice = parseFloat(document.getElementById('cost-price').value) || 0;
+
+    const analysisSection = document.getElementById('analysis-section');
+    const reasoningText = document.getElementById('reasoning-text');
+    
+    // Clear previous results
+    document.getElementById('recommended-price-cashconverters').innerHTML = '-';
+    document.getElementById('recommended-price-cashgenerator').innerHTML = '-';
+    reasoningText.innerHTML = '';
+    analysisSection.style.display = 'none';
+
+    let hasAnyData = false;
+
+    // Get current mode
+    const mode = getRRPMode(); // Returns 'mode' or 'average'
+
+    function getRRPValueFromStats(sourceKey, mode) {
+        const stats = getSourceStats(sourceKey);
+        if (!stats) return NaN;
+
+        if (mode === 'average') {
+            return stats.average || NaN;
+        }
+        
+        if (mode === 'median') {
+            return stats.median || NaN;
+        }
+
+        return stats.mode || NaN; // default/old system
+    }
+
+    function getNearestMultipleOf2(value, modeType) {
+        const whole = Math.floor(value);
+
+        if (modeType === 'average') {
+            // Round to nearest even number
+            const up = whole + (whole % 2 === 0 ? 0 : 1);
+            const down = whole - (whole % 2);
+            
+            // Choose nearest
+            return (value - down < up - value) ? down : up;
+        }
+
+        // MODE behaviour → always round DOWN to nearest even
+        if (whole % 2 === 0) {
+            return whole - 2;   // even
+        } else {
+            return whole - 1;   // odd
+        }
+    }
+
+
+    // Helper function to calculate and format margin
+    function getMarginHTML(price) {
+        if (costPrice > 0) {
+            const margin = ((price - costPrice) / price) * 100;
+            return ` (<span>${margin.toFixed(1)}%</span> margin)`;
+        }
+        return ` (<span style="color:#888;">n/a</span>)`;
+    }
+
+    // Read Cash Converters Mode
+    const ccValue = getRRPValueFromStats('CASHCONVERTERS', mode);
+    if (!isNaN(ccValue) && ccValue > 0) {
+        const rounded = getNearestMultipleOf2(ccValue, mode);
+        document.getElementById('recommended-price-cashconverters').innerHTML =
+            `£${rounded.toFixed(2)}${getMarginHTML(rounded)}`;
+        hasAnyData = true;
+    }
+
+
+    // Read Cash Generator Mode
+    const cgValue = getRRPValueFromStats('CASHGENERATOR', mode);
+    if (!isNaN(cgValue) && cgValue > 0) {
+        const rounded = getNearestMultipleOf2(cgValue, mode);
+        document.getElementById('recommended-price-cashgenerator').innerHTML =
+            `£${rounded.toFixed(2)}${getMarginHTML(rounded)}`;
+        hasAnyData = true;
+    }
+
+    // Read eBay Mode
+    const ebayValue = getRRPValueFromStats('EBAY', mode);
+    if (!isNaN(ebayValue) && ebayValue > 0) {
+        const rounded = getNearestMultipleOf2(ebayValue, mode);
+        document.getElementById('recommended-price-ebay').innerHTML =
+            `£${rounded.toFixed(2)}${getMarginHTML(rounded)}`;
+        hasAnyData = true;
+    }
+
+
+    // Read CEX Discount (Suggested RRP)
+    const cexPriceCell = document.getElementById('cex-mode');
+    if (cexPriceCell && cexPriceCell.textContent.trim() !== '-' && cexPriceCell.textContent.trim() !== '') {
+        const text = cexPriceCell.textContent;
+        const match = text.match(/\d+(\.\d+)?/); // first number only
+        const baseValue = parseFloat(match[0]);
+
+        const rawRRP = baseValue * cexDiscountPct;
+        const roundedRRP = Math.round(rawRRP);
+
+        if (!isNaN(roundedRRP) && roundedRRP > 0) {
+            document.getElementById('cex-discount-cell').innerHTML = 
+                `£${roundedRRP.toFixed(2)}${getMarginHTML(roundedRRP)} (${cexDiscountPct * 100}% of CEX Price)`;
+            hasAnyData = true;
+        }
+    }
+
+    // Show analysis section if any data was found
+    if (hasAnyData) {
+        reasoningText.innerHTML = 'Prices rounded down to nearest multiple of £2.';
+        analysisSection.style.display = 'block';
+    }
+
+    const minMargin = 20;
+    const ebayCell = document.getElementById('recommended-price-ebay');
+
+    // Extract numeric price from eBay result (before margin)
+    let ebayPriceValue = ebayCell?.textContent.match(/£(\d+(\.\d+)?)/);
+    ebayPriceValue = ebayPriceValue ? parseFloat(ebayPriceValue[1]) : NaN;
+
+    console.log(ebayPriceValue);
+
+    if (!isNaN(ebayPriceValue) && costPrice > 0) {
+        const ebayMargin = ((ebayPriceValue - costPrice) / ebayPriceValue) * 100;
+
+        if (ebayMargin < minMargin) {
+            ebayCell.style.backgroundColor = "rgba(255,0,0,0.2)";
+            ebayCell.style.borderLeft = "3px solid red";
+            ebayCell.classList.add("low-margin-ebay");
+        } else {
+            ebayCell.style.backgroundColor = "";
+            ebayCell.style.borderLeft = "";
+            ebayCell.classList.remove("low-margin-ebay");
+        }
+    }
+}
+
+// Extract ALL competitor data (regardless of checkbox state)
+function extractAllCompetitorTableData() {
+    const rows = allCompetitorRows;
+    return Array.from(rows)
+        .map(row => {
+            const cells = row.querySelectorAll('td');
+            const rangeCheckbox = cells[4]?.querySelector('.range-checkbox');
+            return {
+                competitor: cells[0]?.textContent.trim() || '',
+                price: parseFloat(cells[2]?.textContent.replace(/[^0-9.]/g, '')) || 0,
+                condition: cells[1]?.textContent.trim() || '',
+                link: cells[3]?.querySelector('a')?.href || '',
+                range: rangeCheckbox ? rangeCheckbox.checked : false,
+                checkbox: rangeCheckbox  // Keep reference to the actual checkbox element
+            };
+        })
+        .filter(item => item.competitor && item.price > 0);  // Just filter out empty rows
+}
+
+// TODO: Can we remove this 
+// Extract table data for analysis
+function extractCheckedCompetitorTableData() {
+    const rows = allCompetitorRows;
+    return Array.from(rows)
+        .map(row => {
+            const cells = row.querySelectorAll('td');
+            const rangeCheckbox = cells[4]?.querySelector('.range-checkbox');
+            return {
+                competitor: cells[0]?.textContent.trim() || '',
+                price: parseFloat(cells[2]?.textContent.replace(/[^0-9.]/g, '')) || 0,
+                condition: cells[1]?.textContent.trim() || '',
+                link: cells[3]?.querySelector('a')?.href || '',
+                range: rangeCheckbox ? rangeCheckbox.checked : false
+            };
+        })
+        // only include rows that have a range checkbox checked
+      .filter(item => item.range && item.competitor);
+}
+
+// Remove irrelevant competitor rows
+function removeIrrelevantCompetitors() {
+    const rows = document.querySelectorAll('#competitor-table tbody tr');
+    rows.forEach(row => {
+        if (row.getAttribute('data-relevant') === 'No') {
+            row.remove();
+        }
+    });
+}
+
+function displayDualAnalysis(reasoning, suggestedPrice, source) {
+    const analysisSection = document.getElementById('analysis-section');
+    const reasoningText = document.getElementById('reasoning-text');
+    const analysisTime = document.getElementById('analysis-time');
+
+    // Ensure suggested price is a number
+    const priceValue = parseFloat(suggestedPrice.toString().replace(/[^0-9.]/g, ''));
+    const costPrice = parseFloat(document.getElementById('cost-price').value) || 0;
+    const minMargin = parseFloat(document.getElementById('minimum-margin')?.value) || 0;
+
+    // Calculate margin percentage
+    let marginText = "";
+    if (priceValue && costPrice > 0) {
+        const margin = ((priceValue - costPrice) / priceValue) * 100;
+        const color = margin < minMargin ? '#f00' : '#0f0'; // red if below min margin
+        marginText = ` (<span style="color:${color};">${margin.toFixed(1)}%</span> margin)`;
+    } else {
+        marginText = ` (<span style="color:#888;">n/a</span>)`;
+    }
+
+
+    // In displayDualAnalysis, update priceValue
+    const roundedPrice = roundToNearest2(priceValue);
+
+    // Update the recommended price for the correct source using roundedPrice
+    if (source === 'CashConverters') {
+        document.getElementById('recommended-price-cashconverters').innerHTML = `£${roundedPrice.toFixed(2)}${marginText}`;
+    } else if (source === 'CashGenerator') {
+        document.getElementById('recommended-price-cashgenerator').innerHTML = `£${roundedPrice.toFixed(2)}${marginText}`;
+    }
+
+    // Append reasoning instead of replacing
+    reasoningText.innerHTML += `<div style="margin-top: 1rem;"><strong>[${source}]</strong><br>${reasoning}</div>`;
+
+    // Show analysis section
+    analysisSection.style.display = 'block';
+    analysisSection.scrollIntoView({ behavior: 'smooth' });
+
+    // Update analysis timestamp
+    analysisTime.textContent = 'just now';
+}
+
+
+
+
+function collectListingData() {
+    const itemName = document.getElementById('item-name').value;
+    const description = document.getElementById('description').value;
+    const margin = parseFloat(document.getElementById('minimum-margin').value || 37.5);
+    const marketRange = document.getElementById('price-range').textContent;
+    const marketAverage = document.getElementById('price-average').textContent;
+    const recommendedPriceCC = document.getElementById('recommended-price-cashconverters').textContent;
+    const recommendedPriceCG = document.getElementById('recommended-price-cashgenerator').textContent;
+    const branch = document.getElementById('branch').value;
+    const serialNumber = document.getElementById('barserial').value;
+
+    const reasoning = document.getElementById('reasoning-text').innerText;
+    const costPrice = parseFloat(document.getElementById('cost-price').value) || 0;
+
+    const analysisTds = document.querySelectorAll('#analysis-tbody tr td');
+    
+    // Extract the actual listing price from modal (if available)
+    const listingPrice = document.getElementById('modal-price').value || null;
+    const data = {
+        item_name: itemName,
+        description,
+        cost_price: currentCostPrice,
+        user_margin: margin,
+        market_range: marketRange,
+        market_average: marketAverage,
+        cex_avg: analysisTds[0]?.textContent || null,
+        cex_discounted: analysisTds[1]?.textContent || null,
+        rrp_with_margin: analysisTds[2]?.textContent || null,
+        cc_lowest: analysisTds[3]?.textContent || null,
+        cc_avg: analysisTds[4]?.textContent || null,
+        cg_lowest: analysisTds[5]?.textContent || null,
+        cg_avg: analysisTds[6]?.textContent || null,
+        cc_recommended_price: recommendedPriceCC,
+        cg_recommended_price: recommendedPriceCG,
+        listing_price: listingPrice,  
+        branch: branch,  
+        serial_number: serialNumber,  
+        reasoning,
+        timestamp: new Date().toISOString(),
+        competitors: allCompetitorRows.map(row => ({
+            source: row.cells[0].textContent.trim(),
+            title: row.cells[1].textContent.trim(),
+            price: row.cells[2].textContent.trim(),
+            store: row.cells[3].textContent.trim(),
+            selected: row.querySelector('.range-checkbox')?.checked || false
+        }))
+    };
+
+    return data;
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    const costInput = document.getElementById('cost-price');
+    if (costInput && costInput.value) {
+        setRRPAfterTable(costInput.value);
+    }
+
+    function getRetailPriceFromURL() {
+        const params = new URLSearchParams(window.location.search);
+        const retail = parseFloat(params.get("retail_price")) || 0;
+        console.log(retail);
+        return retail;
+    }
+
+      // Helper function to calculate and format margin. TODO: THIS IS DUPLICATED IN ANALYZE_TABLE!!!#
+    const costPrice = costInput.value;
+    function getMarginHTML(price) {
+        if (costPrice > 0) {
+            const margin = ((price - costPrice) / price) * 100;
+            return ` (<span>${margin.toFixed(1)}%</span> margin)`;
+        }
+        return ` (<span style="color:#888;">n/a</span>)`;
+    }
+
+
+    // RRP from Retail Price (URL)
+    const retailValue = getRetailPriceFromURL()
+    if (!isNaN(retailValue) && retailValue > 0) {
+
+        document.getElementById('current-retail-price').innerHTML =
+            `£${retailValue.toFixed(2)}${getMarginHTML(retailValue)}`;
+
+        hasAnyData = true;
+    }
+});
+
+window.addEventListener('message', async (event) => {
+    if (event.source !== window) return;
+    if (event.data.type === 'EXTENSION_EVENT' && event.data.action === 'webEposSaveCompleted') {
+        console.log('WebEpos item saved!', event.data.data);
+        
+        // Save snapshot to Django
+        const listingData = collectListingData();  
+
+        const saveResponse = await fetch("/save_listing/", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRFToken": getCookie("csrftoken"),
+            },
+            body: JSON.stringify(listingData),
+        });
+
+        const saveResult = await saveResponse.json();
+        if (saveResult.success) {
+            console.log("Listing snapshot saved:", saveResult);
+            alert(`✅ Listing saved successfully!\nPrice: £${saveResult.listing_price}`);
+        } else {
+            console.error("Failed to save snapshot:", saveResult.error);
+            alert("❌ Failed to save snapshot: " + saveResult.error);
+        }    
+    }
+});
+
+let currentAddType = null;
+let currentSelectElement = null;
+
+function openAddModal(type, extraData = null) {
+   currentAddType = type;
+
+  if (type === 'attribute_option') {
+    currentAttributeId = extraData.attributeId;
+    currentSelectElement = extraData.selectElement;
+  }
+
+  document.getElementById('add-modal-title').textContent =
+    'Add new ' +
+    (type === 'attribute_option'
+      ? 'option'
+      : type.charAt(0).toUpperCase() + type.slice(1));
+
+  document.getElementById('new-item-name').value = '';
+  document.getElementById('add-modal').classList.remove('hidden');
+}
+
+function closeAddModal() {
+  document.getElementById('add-modal').classList.add('hidden');
+  currentAttributeId = null;
+}
+
+// Save a new category/subcategory/model/attribute_option
+async function saveNewItem() {
+  const name = document.getElementById('new-item-name').value.trim();
+  if (!name) return alert('Please enter a name.');
+
+  const csrftoken = getCookie('csrftoken');
+  const data = { name };
+  let url = `/api/add_${currentAddType}/`;
+
+  // Handle model dependencies
+  if (currentAddType === 'model') {
+    const categoryId = getPrimarySelectValue('category');
+    const subcategoryId = getPrimarySelectValue('subcategory');
+
+    if (!categoryId || !subcategoryId) {
+      alert('Please select both a category and subcategory first.');
+      return;
+    }
+
+    data.category = categoryId;
+    data.subcategory = subcategoryId;
+  }
+
+  // Handle attribute option creation
+  if (currentAddType === 'attribute_option') {
+    if (!currentAttributeId || !currentSelectElement) {
+      alert('Internal error: missing attribute info.');
+      return;
+    }
+    url = '/api/add_attribute_option/';
+    data.attribute_id = currentAttributeId;
+    data.option = name;
+  }
+
+  if (currentAddType === 'subcategory') {
+    const categoryId = getPrimarySelectValue('category');
+    if (!categoryId) {
+        alert('Please select a category first.');
+        return;
+    }
+    data.category_id = categoryId;  // this will be sent to backend
+}
+
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken
+      },
+      body: JSON.stringify(data)
+    });
+
+    if (!response.ok) {
+      console.error('Add API error:', response.status, await response.text());
+      return alert('Error adding item.');
+    }
+
+    const result = await response.json();
+    if (result.error) {
+      alert(`Error: ${result.error}`);
+      return;
+    }
+
+    alert(`${currentAddType.replace('_', ' ')} added successfully.`);
+    closeAddModal();
+    console.log(currentAddType);
+
+    // Handle Category refresh
+    if (currentAddType === 'category') {
+      if (typeof loadCategories === 'function') {
+        await loadCategories();
+      }
+      const newIdStr = String(result.id);
+      upsertPrimarySelectOption('category', newIdStr, result.name);
+      setPrimarySelectValue('category', newIdStr);
+    }
+
+    // Handle Subcategory refresh
+    else if (currentAddType === 'subcategory') {
+      const subcategorySelect = document.getElementById('subcategory');
+      const newIdStr = String(result.id);
+      setPrimarySelectDisabled('subcategory', false);
+      upsertPrimarySelectOption('subcategory', newIdStr, result.name);
+      setPrimarySelectValue('subcategory', newIdStr);
+    }
+
+    // Handle Model refresh
+    else if (currentAddType === 'model') {
+      const modelSelect = document.getElementById('model');
+      const newIdStr = String(result.id);
+      setPrimarySelectDisabled('model', false);
+      upsertPrimarySelectOption('model', newIdStr, result.name);
+      console.log("setting model to at 1");
+      setPrimarySelectValue('model', newIdStr);
+    }
+
+    // Handle Attribute Option refresh
+    else if (currentAddType === 'attribute_option') {
+        const options = result.options || [];  // Get full list of options from backend
+        const select = currentSelectElement;
+        select.disabled = false;
+
+        // Clear and repopulate the select with all options
+        select.innerHTML = `<option value="" selected disabled>-- Select ${select.previousElementSibling?.textContent || 'Option'} --</option>`;
+        
+        options.forEach(opt => {
+            const option = document.createElement('option');
+            option.value = opt;
+            option.textContent = opt;
+            select.appendChild(option);
+        });
+
+        // Select the newly added option
+        select.value = name;  // 'name' is the new option we just added
+        select.dispatchEvent(new Event('change'));
+    }
+
+  } catch (err) {
+    console.error('Error in saveNewItem:', err);
+    alert('Network error while adding item.');
+  }
+}
+
+
+// Add this:
+async function loadCategoryAttributes(categoryId) {
+  try {
+    const res = await fetch(`/api/category_attributes/?category=${categoryId}`);
+    const data = await res.json();
+    renderAttributes(data);
+  } catch (err) {
+    console.error("Error loading category attributes:", err);
+  }
+}
+
+
+// -------------------------------
+// 🧱 ATTRIBUTE COLLECTION
+// -------------------------------
+function collectAttributeData() {
+    const categoryId = getPrimarySelectValue('category');
+    const subcategoryId = getPrimarySelectValue('subcategory');
+    const modelId = getPrimarySelectValue('model');
+
+    if (!categoryId || !subcategoryId || !modelId) {
+        console.warn("Category, subcategory, or model not selected yet.");
+        return null;
+    }
+
+    // Add IDs and names for all three
+    const categoryName = getPrimarySelectLabel('category');
+    const subcategoryName = getPrimarySelectLabel('subcategory');
+    const modelName = getPrimarySelectLabel('model');
+
+    // Collect attributes the same way as before
+    const attributeInputs = document.querySelectorAll('#attributes-container .input-field');
+    const attributes = {};
+
+    attributeInputs.forEach(input => {
+        const inputGroup = input.closest('.input-group');
+        const label = inputGroup?.querySelector('label');
+        const labelText = label?.textContent?.trim() || '';
+
+        if (!labelText) return;
+
+        const key = labelText.toLowerCase().replace(/\s+/g, '_');
+        const value = input.value.trim();
+        if (value) attributes[key] = value;
+    });
+
+    return {
+        categoryId,
+        categoryName,
+        subcategoryId,
+        subcategoryName,
+        modelId,
+        modelName,
+        attributes
+    };
+}
+
+
+
+// -------------------------------
+// 🧱 FETCH GENERATED SEARCH TERM
+// -------------------------------
+// Alternative approach: only check when ALL attributes have values
+function setSearchTerm() {
+    const data = collectAttributeData();
+
+    if (!data) return;
+
+    fetch('/api/generate_search_term/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCookie('csrftoken')
+        },
+        body: JSON.stringify({
+            category: data.categoryName,
+            subcategory: data.subcategoryName,
+            model: data.modelName,
+            attributes: data.attributes,
+            is_online: true,
+        })
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.success) {
+            console.log(result.data.generated_search_term);
+            document.getElementById('item-name').value = result.data.generated_search_term;
+            
+            // Only fetch prices when ALL attributes are filled
+            if (areAllAttributesFilled()) {
+                fetchSellingAndBuyingPrice();
+            }
+        } else {
+            console.error("Error generating search term:", result.error);
+        }
+    })
+    .catch(err => {
+        console.error("Network error:", err);
+    });
+}
+
+function areAllAttributesFilled() {
+    const container = document.getElementById('attributes-container');
+    const allInputs = container.querySelectorAll('.input-field');
+    
+    // Return true if all inputs have a value
+    return Array.from(allInputs).every(input => {
+        const value = input.value.trim();
+        return value !== '' && value !== '-- Select' && !value.startsWith('--');
+    });
+}
+
+let cexDiscountPct = 0.8; 
+
+async function fetchSellingAndBuyingPrice() {
+    const data = collectAttributeData();
+    if (!data) return;
+
+    // Get the elements where prices will be displayed
+    const cexModeEl = document.getElementById('cex-mode');
+    const cexDiscountEl = document.getElementById('cex-discount-cell');
+    
+    // Store original content
+    const originalCexMode = cexModeEl.textContent;
+    const originalCexDiscount = cexDiscountEl.textContent;
+    
+    // Show spinners
+    cexModeEl.innerHTML = '<span class="loading-spinner" style="width: 14px; height: 14px; border-width: 2px;"></span>';
+    cexDiscountEl.innerHTML = '<span class="loading-spinner" style="width: 14px; height: 14px; border-width: 2px;"></span>';
+
+    try {
+        const response = await fetch('/api/get-selling-and-buying-price/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: JSON.stringify({
+                categoryId: data.categoryId,
+                subcategoryId: data.subcategoryId,
+                modelId: data.modelId,
+                category: data.categoryName,
+                subcategory: data.subcategoryName,
+                model: data.modelName,
+                attributes: data.attributes
+            })
+        });
+
+        const result = await response.json();
+
+        if (!result.success) {
+            console.error("Failed getting prices:", result.error);
+            // Restore original content or show error
+            cexModeEl.textContent = originalCexMode || '-';
+            cexDiscountEl.textContent = originalCexDiscount || '-';
+            return;
+        }
+-
+        console.log("Fetched Prices:", result);
+
+        // Clear competitor table
+        clearCompetitorData();
+
+        // Update with fetched prices
+        cexModeEl.innerHTML = `<a href="${result.cex_url}" target="_blank" rel="noopener noreferrer">£${result.cex_selling_price}</a>`;
+        cexDiscountEl.textContent = `£${result.selling_price} (${result.cex_rrp_pct*100}% of CEX Result)`;
+        cexDiscountPct = result.cex_rrp_pct;
+        resetSummaryAndSuggestedTables();
+
+    } catch (err) {
+        console.error("Network error:", err);
+        // Restore original content on error
+        cexModeEl.textContent = originalCexMode || '-';
+        cexDiscountEl.textContent = originalCexDiscount || '-';
+    }
+}
+
+function resetSummaryAndSuggestedTables() {
+    document.getElementById('cc-min').textContent = "-"; // reset these
+    document.getElementById('cc-mode').textContent = "-"; // reset these
+    document.getElementById('cc-avg').textContent = "-"; // reset these
+    document.getElementById('cc-median').textContent = "-"; // reset these
+
+    document.getElementById('cg-min').textContent = "-"; // reset these
+    document.getElementById('cg-mode').textContent = "-"; // reset these
+    document.getElementById('cg-median').textContent = "-"; // reset these
+    document.getElementById('cg-avg').textContent = "-"; // reset these
+
+    document.getElementById('ebay-min').textContent = "-"; // reset these
+    document.getElementById('ebay-mode').textContent = "-"; // reset these
+    document.getElementById('ebay-median').textContent = "-"; // reset these
+    document.getElementById('ebay-avg').textContent = "-"; // reset these
+
+    document.getElementById('recommended-price-cashconverters').textContent = "-"; // reset these
+    document.getElementById('recommended-price-cashgenerator').textContent = "-"; // reset these
+    document.getElementById('recommended-price-ebay').textContent = "-"; // reset these
+}
+
+
+async function getSearchTermFromModelAndAttributes(isOnline = false) {
+    const data = collectAttributeData();
+    if (!data) return;
+
+    try {
+        const response = await fetch('/api/generate_search_term/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: JSON.stringify({
+                category: data.categoryName,
+                subcategory: data.subcategoryName,
+                model: data.modelName,
+                attributes: data.attributes,
+                is_online: isOnline,
+            })
+        });
+
+        const result = await response.json();
+        if (result.success) {
+            return result.data.generated_search_term;
+            console.log("Generated Search Term:", result.data.generated_search_term);
+        } else {
+            console.error("Error generating search term:", result.error);
+        }
+    } catch (err) {
+        console.error("Network error:", err);
+    }
+}
+
+// --------------------
+// Render attributes 
+// --------------------
+
+
+// Update renderAttributes function
+function renderAttributes(attributes) {
+    const container = document.getElementById('attributes-container');
+    container.innerHTML = '';
+
+    if (!attributes || attributes.length === 0) {
+        return;
+    }
+
+    attributes.forEach((attr, index) => {
+        const inputGroup = document.createElement('div');
+        inputGroup.classList.add('input-group');
+
+        const label = document.createElement('label');
+        label.textContent = attr.label || attr.name;
+
+        if (attr.field_type === 'select') {
+            const wrapper = document.createElement('div');
+            wrapper.style.display = 'flex';
+            wrapper.style.gap = '0.5rem';
+            wrapper.style.alignItems = 'center';
+
+            const select = document.createElement('select');
+            select.id = `attr_${attr.name}`;
+            select.classList.add('input-field');
+            select.style.flex = '1';
+            select.innerHTML = `<option value="" selected>-- Select ${attr.label} (optional) --</option>`;
+            
+            (attr.options || []).forEach(opt => {
+                const o = document.createElement('option');
+                o.value = opt;
+                o.textContent = opt;
+                select.appendChild(o);
+            });
+
+            // Add change listener to update search term and check existing items
+            select.addEventListener('change', () => {
+                setSearchTerm();
+            });
+
+            // Optional: Add button to suggest valid combinations
+            const addBtn = document.createElement('button');
+            addBtn.type = 'button';
+            addBtn.classList.add('add-btn');
+            addBtn.textContent = '?';
+            addBtn.title = 'Show valid combinations';
+            addBtn.onclick = () => showValidCombinations(attr.name);
+
+            wrapper.appendChild(select);
+            wrapper.appendChild(addBtn);
+            inputGroup.appendChild(label);
+            inputGroup.appendChild(wrapper);
+        } else {
+            const input = document.createElement('input');
+            input.type = attr.field_type === 'number' ? 'number' : 'text';
+            input.id = `attr_${attr.name}`;
+            input.classList.add('input-field');
+            
+            input.addEventListener('input', () => {
+                setSearchTerm();
+            });
+            
+            inputGroup.appendChild(label);
+            inputGroup.appendChild(input);
+        }
+
+        container.appendChild(inputGroup);
+        
+        // Setup Enter key navigation
+        const inputElement = inputGroup.querySelector('input, select');
+        if (inputElement) {
+            inputElement.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    
+                    if (index < attributes.length - 1) {
+                        const nextAttr = attributes[index + 1];
+                        const nextInput = document.getElementById(`attr_${nextAttr.name}`);
+                        if (nextInput) {
+                            nextInput.focus();
+                        }
+                    } else {
+                        document.getElementById('scrape-btn').focus();
+                    }
+                }
+            });
+        }
+    });
+}
+
+
+
+document.getElementById('category').addEventListener('change', async (e) => {
+    const categoryId = e.target.value;
+
+    // Clear competitor table
+    clearCompetitorData();
+    setPrimarySelectDisabled('subcategory', true);
+    setPrimarySelectDisabled('model', true);
+    setPrimarySelectValue('subcategory', '', { emitChange: false });
+      console.log("setting model to at 2");
+    setPrimarySelectValue('model', '', { emitChange: false });
+    console.log("emptying model");
+    document.getElementById('attributes-container').innerHTML = '';
+
+    const subcategorySelect = document.getElementById('subcategory');
+    const subcategoryAddBtn = subcategorySelect?.nextElementSibling;
+    if (subcategoryAddBtn) subcategoryAddBtn.disabled = true;
+
+    const modelSelect = document.getElementById('model');
+    const modelAddBtn = modelSelect?.nextElementSibling;
+    if (modelAddBtn) modelAddBtn.disabled = true;
+
+    // Fetch subcategorys for this category
+    const response = await fetch(`/api/subcategorys/?category=${categoryId}`);
+    const subcategorys = await response.json();
+
+    replacePrimarySelectOptions('subcategory', subcategorys, '-- Select Subcategory --');
+    setPrimarySelectDisabled('subcategory', false);
+
+    if (subcategoryAddBtn) subcategoryAddBtn.disabled = false;
+    resetCEXData();
+
+});
+
+function resetCEXData() {
+    const cexModeEl = document.getElementById('cex-mode');
+    const cexDiscountEl = document.getElementById('cex-discount-cell');
+
+    cexModeEl.innerHTML = '-'
+    cexDiscountEl.innerHTML = '-'
+
+}
+
+document.getElementById('subcategory').addEventListener('change', async (e) => {
+    loadModelsAndPopulate();
+    resetCEXData();
+});
+
+async function loadModelsAndPopulate() {
+    const categoryId = getPrimarySelectValue('category');
+    const subcategoryId = getPrimarySelectValue('subcategory');
+
+    // Clear competitor table
+    clearCompetitorData();
+
+    const modelSelect = document.getElementById('model');
+    const modelAddBtn = modelSelect?.nextElementSibling;
+    setPrimarySelectDisabled('model', true);
+    
+    // Store current model value to restore it if it exists in new options
+    const currentModelValue = getPrimarySelectValue('model');
+    
+    if (modelAddBtn) modelAddBtn.disabled = true;
+
+    // Fetch models for category + subcategory
+    const response = await fetch(`/api/models/?category=${categoryId}&subcategory=${subcategoryId}`);
+    const models = await response.json();
+    console.log(response);
+
+    // Sort models alphabetically by name
+    models.sort((a, b) => a.name.localeCompare(b.name));
+
+    replacePrimarySelectOptions('model', models, '-- Select Model --');
+
+    console.log("currentmodelvalue", currentModelValue);
+    
+    // Restore model value if it exists in the new options
+    if (currentModelValue && models.some(m => String(m.id) === String(currentModelValue))) {
+        setPrimarySelectValue('model', currentModelValue, { emitChange: false });
+    }
+    
+    setPrimarySelectDisabled('model', false);
+    if (modelAddBtn) modelAddBtn.disabled = false;
+}
+
+document.getElementById('model').addEventListener('change', async (e) => {
+    const modelId = getPrimarySelectValue('model') || e.target.value;
+    await sendFieldUpdate('model', modelId);
+    setSearchTerm();
+    resetCEXData();
+}); 
+
+async function loadListings() {
+    const modelId = getPrimarySelectValue('model') || e.target.value;
+    
+    // Clear competitor table
+    clearCompetitorData();
+        
+    // Send model selection to backend - this will return variants
+    await sendFieldUpdate('model', modelId);
+    
+    // Generate search term after attributes are rendered
+    setSearchTerm();
+    
+}
+
+
+// TODO: DUPLICATED IN add_item_modal.js
+// Update sendFieldUpdate to handle model variants
+async function sendFieldUpdate(fieldName, value) {
+    try {
+        const res = await fetch('/api/save_input/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken'),
+            },
+            body: JSON.stringify({ field: fieldName, value }),
+        });
+
+        const data = await res.json();
+        console.log('Backend response:', data);
+
+        // Handle model selection and variants
+        if (fieldName === 'model' && data.variants) {
+            console.log('Received variants from backend:', data.variants);
+
+            // Build attribute objects from variants
+            const attrs = Object.keys(data.variants).map((attrName, idx) => ({
+                id: `model_${attrName}_${idx}`,
+                name: attrName,
+                label: attrName.charAt(0).toUpperCase() + attrName.slice(1).replace(/_/g, ' '),
+                field_type: 'select',
+                options: data.variants[attrName] || []
+            }));
+
+            // Render the model-specific attributes
+            renderAttributes(attrs);
+            
+            // Store combinations if provided
+            if (data.combinations) {
+                window.modelCombinations = data.combinations;
+                console.log('Stored attribute combinations:', data.combinations);
+            }
+        }
+    } catch (err) {
+        console.error(`Failed to send ${fieldName}:`, err);
+    }
+}
+
+
+
+// Listen for both user and programmatic changes (like the prefiller)
+const attrContainer = document.getElementById('attributes-container');
+['input', 'change'].forEach(event =>
+    attrContainer.addEventListener(event, setSearchTerm)
+);
+
+</script>
+
+{% block buying_logic %} {% endblock %}
+{% endblock %}

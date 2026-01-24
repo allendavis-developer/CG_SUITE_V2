@@ -1,0 +1,882 @@
+.rw-hidden {
+  display: none !important;
+}
+
+/* ===================== Wizard Pages ===================== */
+.rw-page {
+  display: none;
+  flex-direction: column;
+}
+
+.rw-page.rw-active {
+  display: flex;
+}
+
+.rw-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+.rw-backdrop.rw-visible {
+  opacity: 1;
+}
+
+.rw-modal {
+  position: relative;
+  width: min(95vw, 1600px);
+  max-height: 85vh;
+  background: #000;
+  border-radius: 12px;
+  border: 1px solid #222;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 30px 80px rgba(0,0,0,0.7);
+  overflow-y: auto;
+}
+
+body.rw-open {
+  overflow: hidden;
+}
+
+.rw-close {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  background: transparent;
+  border: none;
+  color: #aaa;
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 6px;
+  transition: color 0.2s ease, background 0.2s ease, transform 0.15s ease;
+}
+
+.rw-close:hover {
+  color: #fff;
+  background: rgba(255,255,255,0.08);
+}
+
+.rw-close:active {
+  transform: scale(0.92);
+}
+
+.rw-title {
+  font-size: clamp(36px, 5vw, 56px);
+  font-weight: 800;
+  margin-bottom: 50px;
+  letter-spacing: 0.5px;
+  color: #fff;
+}
+
+.rw-options {
+  display: flex;
+  gap: 32px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.rw-option {
+  min-width: 220px;
+  padding: 28px 40px;
+  font-size: 28px;
+  font-weight: 700;
+  border-radius: 16px;
+  border: 2px solid #333;
+  background: #111;
+  color: #fff;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.rw-option:hover {
+  background: #1a1a1a;
+  border-color: #555;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+}
+
+.rw-option:active {
+  transform: scale(0.96);
+}
+
+.rw-page-overview {
+  display: none;
+  flex-direction: column;
+  padding: 32px 48px;
+  background: #000;
+  color: #fff;
+  height: 100%;
+  overflow: hidden;
+}
+
+.overview-table-wrapper {
+  background: #0b0b0b;
+  border: 1px solid #1f1f1f;
+  border-radius: 18px;
+  padding: 40px;
+}
+
+.overview-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.overview-table th,
+.overview-table td {
+  padding: 22px 16px;
+  text-align: left;
+}
+
+.overview-table th {
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: #777;
+  padding-bottom: 18px;
+}
+
+.overview-table td {
+  font-size: 28px;
+  font-weight: 900;
+  border-top: 1px solid #1f1f1f;
+}
+
+.overview-table .source {
+  font-size: 24px;
+  letter-spacing: 1px;
+}
+
+.overview-table .price,
+.overview-table .rrp {
+  color: #e5e5e5;
+}
+
+.overview-table .offer {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.offer-meta {
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid #2a2a2a;
+  color: #aaa;
+}
+
+.offer.safe .offer-meta {
+  border-color: #22c55e;
+  color: #22c55e;
+}
+
+.offer.mid .offer-meta {
+  border-color: #eab308;
+  color: #eab308;
+}
+
+.offer.risky .offer-meta {
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+.rrp-percentage {
+  font-size: 0.6em;
+  color: #999;
+  margin-right: 6px;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+/* ===================== Buttons ===================== */
+.overview-table .row-btn {
+  padding: 10px 16px;
+  font-size: 16px;
+  font-weight: 900;
+  border-radius: 12px;
+  border: 2px solid #333;
+  cursor: pointer;
+  text-transform: uppercase;
+  margin-right: 8px;
+  transition: all 0.2s ease;
+}
+
+.overview-table .row-btn:active,
+.rw-modal .rw-back:active,
+.rw-modal .rw-continue:active,
+.rw-modal .rw-confirm:active,
+.rw-modal .rw-page-overview .rw-restart:active {
+  transform: scale(0.95);
+}
+
+.overview-table .row-btn.compute,
+.overview-table .row-btn.compute-quick {
+  background: #111;
+  color: #aaa;
+  border-color: #444;
+}
+
+.overview-table .row-btn.compute:hover,
+.overview-table .row-btn.compute-quick:hover {
+  background: #1a1a1a;
+  color: #fff;
+  border-color: #666;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.6);
+}
+
+.overview-table .row-btn.complete {
+  background: #22c55e;
+  color: #000;
+  border-color: #16a34a;
+}
+
+.overview-table .row-btn.complete:hover {
+  background: #16a34a;
+  color: #fff;
+  border-color: #15803d;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+}
+
+.overview-table .row-btn.compute-research {
+  background: #0d6efd;
+  color: #fff;
+  border-color: #0b5ed7;
+}
+
+.overview-table .row-btn.compute-research:hover {
+  background: #0b5ed7;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+}
+
+/* ===================== Wizard Footer Buttons ===================== */
+.rw-modal .rw-back,
+.rw-modal .rw-continue,
+.rw-modal .rw-confirm {
+  padding: 14px 28px;
+  font-size: 20px;
+  font-weight: 900;
+  border-radius: 14px;
+  border: 2px solid #333;
+  cursor: pointer;
+  text-transform: uppercase;
+  transition: all 0.2s ease;
+  min-width: 140px;
+  margin: 0 8px;
+}
+
+.rw-modal .rw-back {
+  background: #111;
+  color: #aaa;
+  border-color: #444;
+}
+
+.rw-modal .rw-back:hover {
+  background: #1a1a1a;
+  color: #fff;
+  border-color: #666;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.6);
+}
+
+.rw-modal .rw-continue {
+  background: #0d6efd;
+  color: #fff;
+  border-color: #0b5ed7;
+}
+
+.rw-modal .rw-continue:hover {
+  background: #0b5ed7;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+}
+
+.rw-modal .rw-confirm {
+  background: #22c55e;
+  color: #000;
+  border-color: #16a34a;
+}
+
+.rw-modal .rw-confirm:hover {
+  background: #16a34a;
+  color: #fff;
+  border-color: #15803d;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+}
+
+.rw-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 24px 32px;
+  border-top: 1px solid #222;
+  background: #0b0b0b;
+  border-radius: 0 0 12px 12px;
+}
+
+.rw-modal .rw-page-overview .rw-restart {
+  background: #ef4444;
+  color: #fff;
+  border: 2px solid #b91c1c;
+  font-size: 18px;
+  font-weight: 900;
+  border-radius: 12px;
+  padding: 12px 24px;
+  cursor: pointer;
+  text-transform: uppercase;
+  transition: all 0.2s ease;
+  margin-left: 16px;
+}
+
+.rw-modal .rw-page-overview .rw-restart:hover {
+  background: #b91c1c;
+  border-color: #7f1d1d;
+  box-shadow: 0 6px 20px rgba(239, 68, 68, 0.5);
+}
+
+/* Overview Container */
+#overviewContent {
+  padding: 0;
+  max-width: 100%;
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Two Pane Layout */
+.overview-two-pane-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 48px;
+  height: calc(100vh - 200px); /* Increased to account for footer and padding */
+  min-height: 600px;
+  max-height: calc(100vh - 200px);
+  overflow: hidden;
+}
+
+/* Left Pane: Cards */
+.overview-cards-pane {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding-right: 16px;
+  padding-bottom: 24px; /* Ensure Research buttons are visible */
+}
+
+/* Cards Stacked Horizontally (Side by Side) - Shared Border */
+.overview-cards {
+  display: flex;
+  flex-direction: row;
+  gap: 0;
+  width: 100%;
+  align-items: flex-start;
+  border: 1px solid #1f1f1f;
+  background: #0b0b0b;
+  min-height: fit-content; /* Ensure cards can expand to show all content */
+}
+
+/* Custom scrollbar for cards pane */
+.overview-cards-pane::-webkit-scrollbar {
+  width: 8px;
+}
+
+.overview-cards-pane::-webkit-scrollbar-track {
+  background: #0b0b0b;
+}
+
+.overview-cards-pane::-webkit-scrollbar-thumb {
+  background: #2a2a2a;
+  border-radius: 4px;
+}
+
+.overview-cards-pane::-webkit-scrollbar-thumb:hover {
+  background: #3a3a3a;
+}
+
+@media (max-width: 1200px) {
+  .overview-two-pane-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+    height: auto;
+    max-height: calc(100vh - 200px); /* Match main height calculation */
+  }
+
+  .overview-cards-pane {
+    max-height: 500px;
+    padding-right: 0;
+    padding-bottom: 24px; /* Ensure Research buttons are visible on smaller screens */
+  }
+
+  .overview-cards {
+    flex-direction: column; /* Stack vertically on smaller screens */
+  }
+
+  .overview-final-pane {
+    padding-left: 0;
+    padding-top: 24px;
+  }
+
+  .overview-final {
+    position: static;
+  }
+}
+
+/* Market Card Base Styles - Static and Simple */
+.market-card {
+  flex: 1;
+  min-width: 0; /* Allows flex items to shrink below content size */
+  background: #0b0b0b;
+  border-radius: 0;
+  padding: 32px;
+  padding-bottom: 40px; /* Extra padding at bottom for Research button */
+  border: none;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-height: fit-content; /* Ensure card can expand to show all content */
+}
+
+/* Add border between cards */
+.market-card:not(:last-child) {
+  border-right: 1px solid #1f1f1f;
+}
+
+.market-card.ebay h3 {
+  color: #e5e5e5;
+}
+
+.market-card.cex h3 {
+  color: #e5e5e5;
+}
+
+/* Card Header */
+.market-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #1f1f1f;
+  margin-bottom: 0;
+}
+
+.market-card h3 {
+  font-size: 28px;
+  font-weight: 900;
+  margin: 0;
+  letter-spacing: 1px;
+  flex: 1;
+}
+
+/* Section Styles */
+.market-card section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.market-card h4 {
+  font-size: 13px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: #777;
+  margin: 0;
+}
+
+/* Row Layout for Stats */
+.market-card .row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid #1f1f1f;
+}
+
+.market-card .row:last-child {
+  border-bottom: none;
+}
+
+.market-card .row span:first-child {
+  color: #999;
+  font-weight: 600;
+  font-size: 16px;
+  letter-spacing: 0.5px;
+}
+
+.market-card .row span:last-child {
+  color: #e5e5e5;
+  font-weight: 900;
+  font-size: 20px;
+}
+
+/* Big Value Display */
+.market-card .big {
+  font-size: 28px;
+  font-weight: 900;
+  color: #e5e5e5;
+  line-height: 1.2;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.market-card .big small {
+  font-size: 12px;
+  font-weight: 600;
+  color: #999;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+/* Risk Indicators for CeX Offers */
+.market-card .big.safe,
+.market-card .big.low-risk,
+.market-card .big.mid,
+.market-card .big.medium-risk,
+.market-card .big.risky,
+.market-card .big.high-risk {
+  color: #e5e5e5;
+}
+
+/* Research Button - Static */
+.research-btn {
+  padding: 12px 24px;
+  font-size: 14px;
+  font-weight: 900;
+  border-radius: 6px;
+  border: 1px solid #1f1f1f;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: #111;
+  color: #fff;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+  margin-left: 16px;
+}
+
+.research-btn:hover {
+  background: #1a1a1a;
+  border-color: #333;
+  color: #fff;
+}
+
+/* Empty State */
+.market-card .empty-state {
+  text-align: center;
+  padding: 2rem 1rem;
+  color: #666;
+  font-style: italic;
+  font-size: 16px;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .rw-page-overview {
+    padding: 24px;
+  }
+
+  .overview-two-pane-layout {
+    gap: 24px;
+  }
+
+  .market-card {
+    padding: 24px;
+  }
+
+  .market-card .big {
+    font-size: 28px;
+  }
+
+  .overview-final {
+    padding: 24px;
+  }
+
+  .market-card h3 {
+    font-size: 24px;
+  }
+}
+
+/* Action Buttons Area (for Restart/Confirm) */
+.rw-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  padding: 24px 32px;
+  border-top: 1px solid #222;
+  margin-top: 0;
+  background: #0b0b0b;
+}
+
+.rw-restart {
+  background: #ef4444;
+  color: #fff;
+  border: 2px solid #b91c1c;
+  font-size: 18px;
+  font-weight: 900;
+  border-radius: 12px;
+  padding: 12px 24px;
+  cursor: pointer;
+  text-transform: uppercase;
+  transition: all 0.2s ease;
+}
+
+.rw-restart:hover {
+  background: #b91c1c;
+  border-color: #7f1d1d;
+  box-shadow: 0 6px 20px rgba(239, 68, 68, 0.5);
+}
+
+.rw-restart:active {
+  transform: scale(0.95);
+}
+
+.rw-confirm {
+  background: #22c55e;
+  color: #000;
+  border: 2px solid #16a34a;
+  font-size: 18px;
+  font-weight: 900;
+  border-radius: 12px;
+  padding: 12px 24px;
+  cursor: pointer;
+  text-transform: uppercase;
+  transition: all 0.2s ease;
+}
+
+.rw-confirm:hover {
+  background: #16a34a;
+  color: #fff;
+  border-color: #15803d;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+
+.rw-confirm:active {
+  transform: scale(0.95);
+}
+
+/* Loading State */
+.market-card.loading {
+  opacity: 0.6;
+  pointer-events: none;
+  position: relative;
+}
+
+.market-card.loading::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 40px;
+  height: 40px;
+  border: 3px solid #1f1f1f;
+  border-top-color: #0d6efd;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+
+/* ===================== Read-only style input (until focus) ===================== */
+.market-card input.ebay-search-term {
+  background: transparent;
+  border: 1px solid transparent;
+  color: #e5e5e5;
+  font-size: 18px;
+  font-weight: 700;
+  padding: 10px 12px;
+  border-radius: 10px;
+  outline: none;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    color 0.2s ease;
+  cursor: text;
+}
+
+/* Placeholder should feel muted and intentional */
+.market-card input.ebay-search-term::placeholder {
+  color: #666;
+  font-weight: 600;
+}
+
+/* Subtle affordance on hover */
+.market-card input.ebay-search-term:hover {
+  background: rgba(255,255,255,0.03);
+  border-color: #222;
+}
+
+/* Fully editable state */
+.market-card input.ebay-search-term:focus {
+  background: #111;
+  border-color: #555;
+  box-shadow: 0 0 0 2px rgba(13,110,253,0.25);
+  color: #fff;
+}
+
+/* Prevent browser autofill ruining the vibe */
+.market-card input.ebay-search-term:-webkit-autofill {
+  -webkit-box-shadow: 0 0 0px 1000px #111 inset;
+  -webkit-text-fill-color: #fff;
+}
+
+/* ===================== Overview Final Pricing ===================== */
+/* Right Pane: Final Pricing */
+.overview-final-pane {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding-left: 16px;
+}
+
+.overview-final {
+  width: 100%;
+  padding: 32px;
+  background: #0b0b0b;
+  border: 1px solid #1f1f1f;
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  position: sticky;
+  top: 0;
+}
+
+/* Custom scrollbar for final pane */
+.overview-final-pane::-webkit-scrollbar {
+  width: 8px;
+}
+
+.overview-final-pane::-webkit-scrollbar-track {
+  background: #0b0b0b;
+}
+
+.overview-final-pane::-webkit-scrollbar-thumb {
+  background: #2a2a2a;
+  border-radius: 4px;
+}
+
+.overview-final-pane::-webkit-scrollbar-thumb:hover {
+  background: #3a3a3a;
+}
+
+.overview-final h3 {
+  font-size: 24px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  margin: 0;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #1f1f1f;
+  color: #e5e5e5;
+}
+
+
+.overview-final .row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.overview-final label {
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: #777;
+}
+
+
+.overview-final input {
+  background: transparent;
+  border: 2px solid #2a2a2a;
+  color: #e5e5e5;
+  font-size: 32px;
+  font-weight: 900;
+  padding: 16px 20px;
+  border-radius: 14px;
+  outline: none;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    color 0.2s ease;
+}
+
+.overview-final input:focus {
+  border-color: #fff;
+  background: #111;
+}
+
+/* Placeholder = intentional silence */
+.overview-final input::placeholder {
+  color: #666;
+  font-weight: 700;
+}
+
+.cex-offer-row {
+  display: grid;
+  grid-template-columns: 1.4fr auto auto;
+  align-items: center;
+  gap: 24px;
+  padding: 20px 24px;
+  background: #0f0f0f;
+  border: 1px solid #1f1f1f;
+  border-radius: 16px;
+  transition: all 0.25s ease;
+}
+
+
+.cex-offer-row .label {
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: #d1d1d1;
+}
+
+.cex-offer-row .price {
+  font-size: 28px;
+  font-weight: 900;
+  color: #ffffff;
+  letter-spacing: 0.4px;
+}
+
+
+.cex-offer-row .margin {
+  font-size: 16px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 2px solid #2a2a2a;
+  color: #bdbdbd;
+}
+
+
+.cex-offer-row.safe .margin {
+  color: #22c55e;
+  border-color: #22c55e;
+}
+
+.cex-offer-row.mid .margin {
+  color: #eab308;
+  border-color: #eab308;
+}
+
+.cex-offer-row.risky .margin {
+  color: #ef4444;
+  border-color: #ef4444;
+}

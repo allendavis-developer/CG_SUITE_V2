@@ -1,0 +1,1643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}Pricing Analysis{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  a { color: #ffffff !important; text-decoration: underline; }
+
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  html {
+    font-size: 16px;
+  }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background-color: #000000;
+    color: #ffffff;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    font-size: 0.875rem;
+    overflow: hidden;
+  }
+
+  .header {
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid #333333;
+    background-color: #111111;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
+  }
+
+  .header h1 {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: #ffffff;
+    letter-spacing: 0.03em;
+  }
+
+  .main-content {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .input-panel {
+    width: clamp(320px, 25vw, 400px);
+    border-right: 1px solid #333333;
+    background-color: #111111;
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    flex-shrink: 0;
+  }
+
+  .competitor-panel {
+    flex: 1;
+    background-color: #0a0a0a;
+    padding: 1.25rem;
+    overflow-y: auto;
+    min-width: 0;
+  }
+
+  .panel-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #888888;
+    margin-bottom: 1rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+
+  .input-group {
+    margin-bottom: 1rem;
+  }
+
+  .input-label {
+    display: block;
+    font-size: 0.6875rem;
+    color: #888888;
+    margin-bottom: 0.25rem;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+
+  .input-field {
+    width: 100%;
+    padding: 0.75rem;
+    background-color: #1a1a1a;
+    border: 1px solid #333333;
+    color: #ffffff;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.875rem;
+    border-radius: 0.25rem;
+  }
+
+  .input-field:focus {
+    outline: none;
+    border-color: #555555;
+    background-color: #222222;
+  }
+
+  .input-row {
+    display: flex;
+    gap: 0.75rem;
+  }
+
+  .description-field {
+    min-height: 6.25rem;
+    resize: vertical;
+  }
+
+  .analyze-button {
+    padding: 1rem 1.5rem;
+    background-color: #ffffff;
+    color: #000000;
+    border: none;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin-top: 1.25rem;
+    border-radius: 0.25rem;
+    width: 100%;
+  }
+
+  .analyze-button:hover:not(:disabled) {
+    background-color: #e6e6e6;
+  }
+
+  .analyze-button:disabled {
+    background-color: #333333;
+    color: #666666;
+    cursor: not-allowed;
+  }
+
+  .competitor-count {
+    font-size: 0.75rem;
+    color: #666666;
+    margin-bottom: 1rem;
+  }
+
+  .table-container {
+    max-height: 400px;       /* adjust height as desired */
+    overflow-y: auto;        /* enables scrolling */
+  }
+
+
+.competitor-table thead th {
+  position: sticky;
+  top: 0;
+  background-color: #1a1a1a;  /* same as table header bg */
+  z-index: 1;                /* ensures header stays on top */
+}
+
+
+  .competitor-table {
+    border: 1px solid #333333;
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 1.25rem;
+    font-size: 0.8125rem;
+  }
+
+  .competitor-table th,
+  .competitor-table td {
+    padding: 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid #333333;
+  }
+
+  .competitor-table th {
+    background-color: #1a1a1a;
+    color: #888888;
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.6875rem;
+    white-space: nowrap;
+  }
+
+  .competitor-table td {
+    word-wrap: break-word;
+  }
+
+  .market-stats {
+    background-color: #111111;
+    padding: 1rem;
+    border: 1px solid #333333;
+    margin-bottom: 1.25rem;
+    border-radius: 0.25rem;
+  }
+
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+    font-size: 0.8125rem;
+  }
+
+  .stat-label {
+    color: #888888;
+    text-transform: uppercase;
+    font-size: 0.6875rem;
+  }
+
+  .stat-value {
+    color: #ffffff;
+    font-weight: 600;
+  }
+
+  .warning {
+    background-color: #1a1100;
+    border: 1px solid #444400;
+    padding: 0.75rem;
+    margin-bottom: 1.25rem;
+    color: #ffff88;
+    font-size: 0.75rem;
+    border-radius: 0.25rem;
+  }
+
+  .analysis-section {
+    background-color: #111111;
+    border-top: 1px solid #333333;
+    padding: 1.25rem;
+    max-height: 30vh;
+    overflow-y: auto;
+    flex-shrink: 0;
+  }
+
+  .analysis-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+  }
+
+  .analysis-status {
+    font-size: 0.75rem;
+    color: #00ff00;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+
+  .analysis-time {
+    font-size: 0.6875rem;
+    color: #666666;
+  }
+
+  .recommended-price {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: #ffffff;
+    margin-bottom: 1.25rem;
+  }
+
+  .reasoning {
+    margin-bottom: 1.25rem;
+  }
+
+  .reasoning-title {
+    font-size: 0.75rem;
+    color: #888888;
+    font-weight: 600;
+    text-transform: uppercase;
+    margin-bottom: 0.5rem;
+  }
+
+  .reasoning-text {
+    font-size: 1rem;
+    line-height: 1.6;
+    color: #cccccc;
+  }
+
+  .controls {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .controls label {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: #888888;
+    text-transform: uppercase;
+    margin-right: 0.25rem;
+  }
+
+  .controls select {
+    padding: 0.375rem 0.625rem;
+    background-color: #1a1a1a;
+    border: 1px solid #333333;
+    border-radius: 0.25rem;
+    color: #ffffff;
+    font-size: 0.75rem;
+    cursor: pointer;
+    min-width: 8.75rem;
+    transition: border-color 0.2s ease, background-color 0.2s ease;
+  }
+
+  .controls select:focus {
+    outline: none;
+    border-color: #555555;
+    background-color: #222222;
+  }
+
+  .loading-spinner {
+    display: inline-block;
+    width: 1rem;
+    height: 1rem;
+    border: 2px solid #333333;
+    border-top: 2px solid #ffffff;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+#market-stats {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap; /* allow wrapping if container is narrow */
+  width: auto; /* take only as much space as needed */
+  margin-bottom: 1rem;
+}
+
+#market-stats .stat-row {
+  flex: none; /* remove equal expansion */
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem; /* optional, for spacing between label and value */
+  font-size: 0.75rem;
+}
+
+#market-stats .stat-label {
+  white-space: nowrap; /* prevent label wrapping */
+}
+
+#market-stats .stat-value {
+  margin-left: 0.25rem; /* small spacing from label */
+}
+
+
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+
+  .hidden {
+    display: none !important;
+  }
+
+  .header .menu-card {
+    padding: 0.375rem 0.75rem;
+    background: #444;
+    color: #fff;
+    border-radius: 0.25rem;
+    text-decoration: none;
+    font-size: 0.75rem;
+    white-space: nowrap;
+  }
+
+  .header-right {
+    font-size: 0.6875rem;
+    color: #666666;
+    white-space: nowrap;
+  }
+.competitor-table th:nth-child(5),
+.competitor-table td:nth-child(5) {
+  width: 60px;       /* narrow column width */
+  text-align: center; /* visually centered */
+  white-space: nowrap;
+}
+
+  .price-highlight {
+    color: #00e0ff; /* cyan for averages */
+  }
+
+  .price-range {
+    color: #ffaa00; /* amber for ranges */
+  }
+
+  .source-highlight {
+    color: #666666;
+  }
+
+
+/* === SCALE FIX === */
+    html {
+      font-size: 14px; /* down from 16px — ~87.5% scaling */
+    }
+
+    body {
+        min-height: 100vh;
+        overflow-y: auto; /* allow normal scrolling */
+    }
+
+    .input-panel, .competitor-panel, .analysis-section {
+      padding: 1.5rem;
+    }
+
+    .input-field,
+    textarea,
+    select {
+      font-size: 0.8125rem;
+    }
+
+    .header h1 {
+      font-size: 1rem;
+    }
+
+    /* === Scrollable Analysis Container === */
+  .resize-handle {
+    height: 16px;
+    background-color: #1a1a1a;
+    border: 1px solid #333;
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    cursor: ns-resize;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+  }
+
+  .resize-handle:hover {
+    background-color: #222;
+  }
+
+  .resize-handle:active {
+    background-color: #2a2a2a;
+  }
+
+  .resize-grip {
+    width: 40px;
+    height: 4px;
+    background-color: #444;
+    border-radius: 2px;
+    position: relative;
+  }
+
+  .resize-grip::before,
+  .resize-grip::after {
+    content: '';
+    position: absolute;
+    width: 40px;
+    height: 4px;
+    background-color: #444;
+    border-radius: 2px;
+  }
+
+  .resize-grip::before { top: -6px; }
+  .resize-grip::after { top: 6px; }
+
+  .analysis-scroll-container {
+    height: 30vh;
+    min-height: 200px;
+    max-height: 80vh;
+    overflow-y: auto;
+    border: 1px solid #333;
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+    padding: 20px;
+    background-color: #0a0a0a;
+  }
+
+  .relevance-select {
+    background-color: transparent;
+    border: 1px solid #333333;
+    color: #ffffff;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.8125rem;
+    padding: 0.25rem 0.5rem;
+    cursor: pointer;
+    border-radius: 0.25rem;
+    width: 100%;
+  }
+
+  .relevance-select:focus {
+    outline: none;
+    border-color: #555555;
+    background-color: #1a1a1a;
+  }
+
+  .relevance-select option {
+    background-color: #1a1a1a;
+    color: #ffffff;
+  }
+
+  /* Visual feedback for relevance state */
+  tr[data-relevant="No"] {
+    opacity: 0.3;
+  }
+
+  tr[data-relevant="Yes"] {
+    opacity: 1;
+  }
+
+  /* WebKit browsers (Chrome, Safari, Edge) */
+    ::-webkit-scrollbar {
+      width: 10px;               /* Width of vertical scrollbar */
+      height: 10px;              /* Height of horizontal scrollbar */
+    }
+
+    ::-webkit-scrollbar-track {
+      background: #111111;       /* Track background */
+      border-radius: 8px;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background-color: #444;    /* Scroll thumb */
+      border-radius: 8px;
+      border: 2px solid #111111; /* Padding around thumb */
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background-color: #666;    /* Hover effect */
+    }
+
+    /* Firefox */
+    * {
+      scrollbar-width: thin;      /* "auto" or "thin" */
+      scrollbar-color: #444 #111; /* thumb color, track color */
+    }
+
+    .highlight-range {
+      background-color: #141414 !important;
+      border-left: 3px solid #00e0ff;
+    }
+
+    .mode-highlight {
+      background-color: #1a1a00 !important;
+      border-left: 3px solid #ffaa00;
+    }
+
+
+    .add-btn {
+      background-color: #333;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      width: 28px;
+      height: 28px;
+      cursor: pointer;
+      font-size: 1.1rem;
+      font-weight: bold;
+    }
+    .add-btn:hover {
+      background-color: #555;
+    }
+
+    /* Ensure modal is always on top */
+  #add-modal {
+    z-index: 9999 !important;
+    }
+
+#price-switcher {
+  margin-bottom: 1rem;
+}
+
+#price-switcher .price-viewer {
+  margin: 0.5rem 0 1rem 0;
+}
+
+/* Arrow buttons styled like the dark UI */
+.arrow-btn {
+  cursor: pointer;
+  user-select: none;
+  font-size: 1.25rem;
+  padding: 6px 10px;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 6px;
+  color: #ccc;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.arrow-btn:hover {
+  background: #222;
+  color: #fff;
+  border-color: #555;
+}
+
+.arrow-btn:active {
+  background: #333;
+  border-color: #666;
+}
+
+/* Label between arrows */
+#current-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #aaa;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* Highlighted price column */
+#price-switcher .highlight {
+  background-color: #1a1a1a !important;
+  border-left: 3px solid #00e0ff;
+  transition: background-color 0.2s, border-left-color 0.2s;
+}
+
+
+
+  {% block extra_style %}{% endblock %}
+</style>
+</head>
+<body>
+<div class="header" style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+  {% block back_button %}
+  <a href="{% url 'home' %}" class="menu-card" style="
+      padding:6px 12px;
+      background:#444;
+      color:#fff;
+      border-radius:4px;
+      text-decoration:none;
+      font-size:12px;
+  ">BACK TO HOME PAGE</a>
+  {% endblock %}
+
+  <h1>{% block header_title %}PRICING ANALYSIS{% endblock %}</h1>
+  <div style="font-size: 11px; color: #666666;">CASH GENERATOR SYSTEM</div>
+</div>
+
+<!-- MAIN CONTENT (TAB CONTAINER) -->
+<div class="main-content">
+  <div id="product-tabs-container" style="width: 100%; height: 100%; display: flex; flex-direction: column;">
+    <div id="active-tab-content" style="flex: 1; display: flex; min-height: 0; overflow: hidden;">
+      
+      <!-- INPUT PANEL -->
+      <div class="input-panel">
+        <div class="panel-title">{% block panel_title %}INPUT PANEL{% endblock %}</div>
+        {% block input_panel_content %}
+          
+        {% block search_term %}
+            <div class="input-row">
+              <div class="input-group" style="flex: 2;">
+                <label class="input-label">Search Term</label>
+                <input type="text" id="item-name" class="input-field" placeholder="iPhone 14" required>
+              </div>
+            </div>
+        {% endblock search_term %}
+
+        {% comment %} {% block margin %}
+          <div class="input-group">
+            <label class="input-label">Minimum Margin (%)</label>
+            <input type="number" id="minimum-margin" class="input-field" placeholder="28" value="28" step="0.1" min="0" max="100">
+          </div>
+        {% endblock margin %}
+ {% endcomment %}
+        {% block description %}
+          <div class="input-group">
+            <label class="input-label">Description</label>
+            <textarea id="description" class="input-field description-field" placeholder="Good condition, minor scratches, original box included..." required></textarea>
+          </div>
+        {% endblock description %}
+
+        {% block after_description %}{% endblock after_description %}
+
+        {% block urgency %}
+          <div class="input-group">
+            <label class="input-label" for="urgency">Sale Urgency</label>
+            <select id="urgency" class="input-field" style="cursor: pointer;">
+              <option value="1">1 - No Rush (Max Profit)</option>
+              <option value="2">2 - Standard Timeline</option>
+              <option value="3" selected>3 - Moderate Urgency</option>
+              <option value="4">4 - High Urgency</option>
+              <option value="5">5 - Must Sell ASAP</option>
+            </select>
+          </div>
+        {% endblock urgency %}
+
+        {% block analyze_button %}
+          <button type="button" id="analyze-btn" class="analyze-button" onclick="analyzeItem()">
+            <span id="button-text">ANALYZE PRICING</span>
+            <span id="button-spinner" class="loading-spinner hidden"></span>
+          </button>
+
+        {% block analysis_actions %}{% endblock %}
+
+        {% endblock analyze_button %}
+        {% endblock input_panel_content %}
+      </div>
+
+      <!-- COMPETITOR PANEL -->
+      <div class="competitor-panel">
+        <div class="panel-title" style="margin-top: 1.5rem; font-size: 0.75rem; text-transform: uppercase; color: #888;">MARKET SUMMARY</div>
+
+        <table class="competitor-table" id="analysis-table">
+          <thead>
+            <tr>
+              <th>CEX Result</th>
+              {% comment %} <th>Suggested RRP</th> {% endcomment %}
+              <th>CC Min</th>
+              <th>CC AVG</th>
+              <th>CC Mode</th>
+              <th>CC Median</th>
+
+              <th>CG Min</th>
+              <th>CG AVG</th>
+              <th>CG Mode</th>
+              <th>CG Median</th>
+              
+              <th>eBay Min</th>
+              <th>ebay AVG</th>
+              <th>ebay Mode</th>
+              <th>ebay Median</th>
+              
+            </tr>
+          </thead>
+          <tbody id="analysis-tbody">
+            <tr>
+              <td id="cex-mode">-</td>
+              {% comment %} <td id="cex-discount-cell">-</td> {% endcomment %}
+              <td id="cc-min">-</td>
+              <td id="cc-avg">-</td>
+              <td id="cc-mode">-</td>
+              <td id="cc-median">-</td>
+
+              <td id="cg-min">-</td>
+              <td id="cg-avg">-</td>
+              <td id="cg-mode">-</td>
+              <td id="cg-median">-</td>
+
+              <td id="ebay-min">-</td>
+              <td id="ebay-avg">-</td>
+              <td id="ebay-mode">-</td>
+              <td id="ebay-median">-</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="panel-title" style="margin-top: 1.5rem; font-size: 0.75rem; text-transform: uppercase; color: #888;">SUGGESTED PRICES</div>
+        <!-- Add this after the "SUGGESTED PRICES" panel title and before the price-switcher -->
+
+        <div class="rrp-mode-selector" style="margin-bottom: 1rem;">
+          <label style="font-size: 0.6875rem; font-weight: 600; color: #888888; text-transform: uppercase; margin-bottom: 0.5rem; display: block;">
+            RRP Calculation Method
+          </label>
+          
+          <div style="display: flex; gap: 1rem; align-items: center;">
+            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; padding: 0.5rem 0.75rem; background-color: #1a1a1a; border: 1px solid #333333; border-radius: 0.25rem; transition: all 0.2s;">
+              <input 
+                type="radio" 
+                name="rrp-mode" 
+                value="mode" 
+                checked
+              >
+              <span style="font-size: 0.8125rem; color: #ffffff;">Use Mode</span>
+            </label>
+
+            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; padding: 0.5rem 0.75rem; background-color: #1a1a1a; border: 1px solid #333333; border-radius: 0.25rem; transition: all 0.2s;">
+              <input 
+                type="radio" 
+                name="rrp-mode" 
+                value="average"
+              >
+              <span style="font-size: 0.8125rem; color: #ffffff;">Use Average</span>
+            </label>
+
+            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; padding: 0.5rem 0.75rem; background-color: #1a1a1a; border: 1px solid #333333; border-radius: 0.25rem; transition: all 0.2s;">
+              <input 
+                type="radio" 
+                name="rrp-mode" 
+                value="median"
+              >
+              <span style="font-size: 0.8125rem; color: #ffffff;">Use Median</span>
+            </label>
+
+          </div>
+        </div>
+
+        <style>
+        /* Radio button styling */
+        input[type="radio"][name="rrp-mode"] {
+          appearance: none !important;
+          -webkit-appearance: none !important;
+          -moz-appearance: none !important;
+          width: 16px;
+          height: 16px;
+          border: 2px solid #666;
+          border-radius: 50%;
+          background-color: #000;
+          cursor: pointer;
+          position: relative;
+          transition: all 0.2s;
+          flex-shrink: 0;
+        }
+
+        input[type="radio"][name="rrp-mode"]:checked {
+          background-color: #fff !important;
+          border-color: #fff !important;
+        }
+
+        input[type="radio"][name="rrp-mode"]:checked::after {
+          content: "" !important;
+          position: absolute;
+          width: 8px;
+          height: 8px;
+          background-color: #000;
+          border-radius: 50%;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          display: block;
+        }
+
+        /* Hover effects for labels */
+        .rrp-mode-selector label:has(input:checked) {
+          background-color: #222222 !important;
+          border-color: #555555 !important;
+        }
+
+        .rrp-mode-selector label:hover {
+          background-color: #222222;
+          border-color: #555555;
+        }
+
+        input[type="radio"][name="rrp-mode"]:hover {
+          border-color: #888;
+        }
+        </style>
+
+        <script>
+          // Add event listener to handle mode changes
+          document.addEventListener('DOMContentLoaded', () => {
+            const radioButtons = document.querySelectorAll('input[name="rrp-mode"]');
+            
+            radioButtons.forEach(radio => {
+              radio.addEventListener('change', (e) => {
+                const selectedMode = e.target.value;
+                console.log('RRP Mode changed to:', selectedMode);
+                
+                analyzeTable();
+                
+                // You can trigger analyzeTable() or another function here
+                if (typeof analyzeTable === 'function') {
+                  // analyzeTable();
+                }
+              });
+            });
+          });
+
+          // Helper function to get current RRP mode
+          function getRRPMode() {
+            const selected = document.querySelector('input[name="rrp-mode"]:checked');
+            return selected ? selected.value : 'mode';
+          }
+        </script>
+
+        <div id="price-switcher">
+          <div class="price-viewer" style="display:flex; align-items:center; gap:1rem;">
+            <span id="arrow-left" class="arrow-btn">&#9664;</span>
+            <span id="current-label">Suggested RRP</span>
+            <span id="arrow-right" class="arrow-btn">&#9654;</span>
+          </div>
+
+          <table class="competitor-table" id="price-table">
+            <thead>
+              <tr>
+                <th data-label="Retail Price">Retail Price</th>
+                <th data-label="Suggested RRP">Suggested RRP</th>
+                <th data-label="Cash Converters">Cash Converters</th>
+                <th data-label="Cash Generator">Cash Generator</th>
+                <th data-label="eBay">eBay</th>
+
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td id="current-retail-price">-</td>
+                <td id="cex-discount-cell">-</td>
+                <td id="recommended-price-cashconverters">-</td>
+                <td id="recommended-price-cashgenerator">-</td>
+                <td id="recommended-price-ebay">-</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+       <div id="market-stats" style="display: flex; gap: 1rem; align-items: center;">
+        <div class="stat-row" style="margin: 0;">
+          <span class="stat-label">MARKET RANGE:</span>
+          <span class="stat-value" id="price-range">-</span>
+        </div>
+        <div class="stat-row" style="margin: 0;">
+          <span class="stat-label">AVERAGE:</span>
+          <span class="stat-value" id="price-average">-</span>
+        </div>
+      </div>
+
+        <div class="controls">
+          <label for="sort-price">Sort by:</label>
+          <select id="sort-price">
+            <option value="none">Page Order</option>
+            <option value="asc" selected>Lowest → Highest</option>
+            <option value="desc">Highest → Lowest</option>
+          </select>
+
+          <label for="filter-source">Filter by:</label>
+          <select id="filter-source">
+            <option value="all">All Sources</option>
+            <option value="CashConverters">CashConverters</option>
+            <option value="CashGenerator" selected>CashGenerator</option>
+            <option value="CeX">CeX</option>
+            <option value="eBay">eBay</option>
+          </select>
+
+        </div>
+
+        <div class="competitor-count" id="competitor-count">
+          SOURCES FOUND: <span id="competitor-number">0</span>
+        </div>
+
+       <div class="table-container">
+          <table class="competitor-table" id="competitor-table">
+            <thead>
+              <tr>
+                <th>SOURCE</th>
+                <th>ITEM</th>
+                <th>PRICE</th>
+                <th>STORE</th>
+                <th>RANGE</th>
+              </tr>
+            </thead>
+            <tbody id="competitor-tbody">
+              <tr>
+                <td colspan="4" style="text-align: center; color: #666666; font-style: italic;">
+                  {% block competitor_empty_state %}No competitor data available{% endblock %}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="warning" id="data-warning" style="display: none;">
+          ⚠ LIMITED DATA<br>
+          Only <span id="warning-count">0</span> competitors found. Consider additional research.
+        </div>
+      </div>
+
+    </div><!-- End #active-tab-content -->
+  </div><!-- End #product-tabs-container -->
+</div><!-- End .main-content -->
+
+<!-- ANALYSIS SECTION (OUTSIDE TAB STRUCTURE) -->
+<div class="resize-handle">
+  <div class="resize-grip"></div>
+</div>
+
+{% block analysis_section %}
+<div class="analysis-section analysis-scroll-container" id="analysis-section" style="display: none;">
+    <div class="analysis-header">
+        <div class="analysis-status">{% block analysis_status %}⚡ ANALYSIS COMPLETE{% endblock %}</div>
+        <div class="analysis-time" id="analysis-time">{% block analysis_time %}just now{% endblock %}</div>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 1.5rem; margin-bottom: 1rem; flex-wrap: wrap;">
+        <div class="recommended-price" style="margin-bottom: 0;">
+            RECOMMENDED PRICE: <span id="recommended-price">-</span>
+        </div>
+    </div>
+
+    <div class="reasoning">
+      <div class="reasoning-title">REASONING:</div>
+      <div class="reasoning-text" id="reasoning-text">
+        {% block reasoning_placeholder %}Analysis will appear here...{% endblock %}
+      </div>
+    </div>
+</div>
+{% endblock %}
+
+<!-- MODALS -->
+<div id="add-modal" class="hidden" style="
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(0,0,0,0.8); display: flex; justify-content: center; align-items: center;
+">
+  <div style="background: #111; padding: 1.5rem; border-radius: 8px; width: 300px;">
+    <h3 id="add-modal-title" style="margin-bottom: 1rem; color: #fff; font-size: 1rem;"></h3>
+    <input type="text" id="new-item-name" class="input-field" placeholder="Enter name">
+    <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1rem;">
+      <button type="button" onclick="closeAddModal()" class="add-btn" style="background:#444;">✕</button>
+      <button type="button" onclick="saveNewItem()" class="add-btn" style="background:#00b894;">✔</button>
+    </div>
+  </div>
+</div>
+
+{% block buying_price_panel %}{% endblock %}
+{% block modals %}{% endblock %}
+
+<script>
+// Shared utility functions
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+
+const wrapper = document.getElementById("price-switcher");
+const table = wrapper.querySelector("#price-table");
+const headers = table.querySelectorAll("thead th");
+const cells = table.querySelectorAll("tbody td");
+const label = wrapper.querySelector("#current-label");
+
+/* LABEL MAP: easy to read + accessible elsewhere */
+const sources = Array.from(headers).map(h => h.dataset.label);
+
+/* DEFAULT: Set eBay as the starting index */
+let index = sources.indexOf("Retail Price");
+
+/* Expose selected source globally */
+window.currentPriceSource = sources[index];
+
+function updateHighlight() {
+  headers.forEach(h => h.classList.remove("highlight"));
+  cells.forEach(c => c.classList.remove("highlight"));
+
+  headers[index].classList.add("highlight");
+  cells[index].classList.add("highlight");
+
+  label.textContent = sources[index];
+
+  /* Update global reference */
+  window.currentPriceSource = sources[index];
+}
+
+wrapper.querySelector("#arrow-left").onclick = () => {
+  index = (index - 1 + headers.length) % headers.length;
+  updateHighlight();
+};
+
+wrapper.querySelector("#arrow-right").onclick = () => {
+  index = (index + 1) % headers.length;
+  updateHighlight();
+};
+
+updateHighlight(); // initializes with eBay highlighted
+
+
+
+let allCompetitorRows = [];
+let currentCostPrice = null; // ✅ Store cost price globally
+
+function updateCompetitorData(competitorData, scrapedCompetitors) {
+    const tbody = document.getElementById('competitor-tbody');
+    const competitorNumber = document.getElementById('competitor-number');
+    const marketStats = document.getElementById('market-stats');
+    const dataWarning = document.getElementById('data-warning');
+    const warningCount = document.getElementById('warning-count');
+
+    // Remove only the rows for scraped competitors
+    allCompetitorRows = allCompetitorRows.filter(row => {
+        const competitorName = row.cells[0].textContent;
+        return !scrapedCompetitors.includes(competitorName);
+    });
+
+    const lines = typeof competitorData === 'string' ? competitorData.trim().split('\n').filter(line => line.trim()) : competitorData;
+    
+    lines.forEach(line => {
+        if (typeof line !== 'string') return;
+        
+        const parts = line.split(' | ');
+        
+        if (parts.length < 5) return;
+        
+        const priceIndex = parts.findIndex(part =>
+            /^£\s*\d[\d,]*(\.\d{1,2})?$/.test(part.trim())
+        );
+        
+        if (priceIndex === -1) return;
+        
+        const competitor = parts[0].trim();
+        const listingTitle = parts.slice(1, priceIndex).join(' | ').trim();
+        const price = parts[priceIndex].trim();
+        const storeName = parts[priceIndex + 1]?.trim() || 'N/A';
+        const url = parts[priceIndex + 2]?.trim() || '';
+
+        const numericPrice = parseFloat(price.replace(/[^0-9.-]+/g, ""));
+        
+        if (!isNaN(numericPrice) && numericPrice > 0) {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${competitor}</td>
+                <td><a href="${url}" target="_blank" rel="noopener noreferrer">${listingTitle}</a></td>
+                <td>${price}</td>
+                <td>${storeName}</td>
+                <td class="range-cell">
+                    <input type="checkbox" class="range-checkbox" onchange="handleRangeSelect(this)">
+                </td>
+            `;
+            allCompetitorRows.push(row);
+        }
+    });
+
+
+    competitorNumber.textContent = allCompetitorRows.length;
+
+    if (allCompetitorRows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #666666; font-style: italic;">No competitor data available</td></tr>';
+        marketStats.style.display = 'none';
+        dataWarning.style.display = 'none';
+        return;
+    }
+
+    applySortAndFilter();
+    console.log("computing averages");
+}
+
+function clearCompetitorData() {
+    const tbody = document.getElementById('competitor-tbody');
+    const competitorNumber = document.getElementById('competitor-number');
+    const marketStats = document.getElementById('market-stats');
+    const dataWarning = document.getElementById('data-warning');
+
+    // Wipe the DOM
+    tbody.innerHTML = '';
+
+    // Wipe your internal state
+    allCompetitorRows = [];
+
+    // Reset indicators
+    competitorNumber.textContent = '0';
+    marketStats.style.display = 'none';
+    dataWarning.style.display = 'none';
+}
+
+
+// Add this event listener in your DOMContentLoaded or script section
+document.getElementById('filter-source').addEventListener('change', function() {
+    computeFilteredStatistics();
+});
+
+function computeFilteredStatistics() {
+    // Get currently visible rows from the tbody
+    const tbody = document.getElementById('competitor-tbody');
+    const visibleRows = Array.from(tbody.querySelectorAll('tr')).filter(row => {
+        // Skip empty state rows
+        return row.cells.length >= 4 && !row.cells[0].hasAttribute('colspan');
+    });
+
+    if (visibleRows.length === 0) {
+        // No data to compute
+        document.getElementById('price-range').textContent = '-';
+        document.getElementById('price-average').textContent = '-';
+        return;
+    }
+
+    // Extract prices from visible rows
+    const prices = visibleRows.map(row => {
+        const priceText = row.cells[2].textContent;
+        return parseFloat(priceText.replace(/[^0-9.-]+/g, ""));
+    }).filter(price => !isNaN(price) && price > 0);
+
+    if (prices.length === 0) return;
+
+    // Compute statistics
+    const minPrice = Math.min(...prices);
+    const maxPrice = Math.max(...prices);
+    const avgPrice = prices.reduce((a, b) => a + b, 0) / prices.length;
+
+    // Median
+    const sortedPrices = [...prices].sort((a, b) => a - b);
+    const medianPrice = sortedPrices.length % 2 === 0
+        ? (sortedPrices[sortedPrices.length / 2 - 1] + sortedPrices[sortedPrices.length / 2]) / 2
+        : sortedPrices[Math.floor(sortedPrices.length / 2)];
+
+    // Mode
+    const frequencyMap = {};
+    let modePrice = null;
+    let highestFrequency = 0;
+
+    prices.forEach(price => {
+        frequencyMap[price] = (frequencyMap[price] || 0) + 1;
+        if (frequencyMap[price] > highestFrequency) {
+            highestFrequency = frequencyMap[price];
+            modePrice = price;
+        }
+    });
+
+    // Update UI
+    document.getElementById('price-range').textContent = `£${minPrice} - £${maxPrice}`;
+    document.getElementById('price-average').textContent = `£${avgPrice.toFixed(0)}`;
+}
+
+// Keep a global or higher-scope object to track last clicked per source
+let lastCheckedIndexBySource = {};
+
+let selectionStateBySource = {};
+
+function handleRangeSelect(checkbox) {
+    const row = checkbox.closest('tr');
+    const source = row.cells[0].textContent.trim().toUpperCase();
+    const allCheckboxes = Array.from(document.querySelectorAll('.range-checkbox'))
+        .filter(cb => cb.closest('tr').cells[0].textContent.trim().toUpperCase() === source);
+
+    const currentIndex = allCheckboxes.indexOf(checkbox);
+
+    // Initialize state if not existing
+    if (!selectionStateBySource[source]) {
+        selectionStateBySource[source] = { anchor: undefined, last: undefined };
+    }
+
+    const state = selectionStateBySource[source];
+
+    if (checkbox.checked) {
+        // If no anchor, set it
+        if (state.anchor === undefined) {
+            state.anchor = currentIndex;
+        }
+
+        // Check if user clicked an already-selected checkbox within the current range
+        const inCurrentRange =
+            state.last !== undefined &&
+            currentIndex >= Math.min(state.anchor, state.last) &&
+            currentIndex <= Math.max(state.anchor, state.last);
+
+        // Only clear & reselect if it’s a *new* range selection
+        if (!inCurrentRange) {
+            allCheckboxes.forEach(cb => cb.checked = false);
+
+            const minIdx = Math.min(state.anchor, currentIndex);
+            const maxIdx = Math.max(state.anchor, currentIndex);
+
+            for (let i = minIdx; i <= maxIdx; i++) {
+                const cb = allCheckboxes[i];
+                cb.checked = true;
+
+            }
+
+            state.last = currentIndex;
+        }
+    } else {
+        // If unchecking, reset anchor and last
+        state.anchor = undefined;
+        state.last = undefined;
+    }
+
+    // Highlight checked rows
+    document.querySelectorAll('#competitor-tbody tr').forEach(r => {
+        const cb = r.querySelector('.range-checkbox');
+        if (!cb) return;
+        {% comment %} r.classList.toggle('highlight-range', cb.checked); {% endcomment %}
+    });
+
+    computeSourceAverages();
+}
+
+
+function applySortAndFilter() {
+    const tbody = document.getElementById('competitor-tbody');
+    let rows = [...allCompetitorRows];
+
+    const sortValue = document.getElementById('sort-price').value;
+    const filterValue = document.getElementById('filter-source').value.toLowerCase();
+
+    // 1️⃣ Filtering
+    rows = rows.filter(row => {
+        if (row.cells[0].colSpan === 4) return false;
+        const source = row.cells[0].textContent.trim().toLowerCase();
+        return filterValue === 'all' || source === filterValue;
+    });
+
+    // 2️⃣ Sorting
+    if (sortValue !== 'none') {
+        // price sort
+        rows.sort((a, b) => {
+            const priceA = parseFloat(a.cells[2].textContent.replace(/[^0-9.-]+/g, "")) || 0;
+            const priceB = parseFloat(b.cells[2].textContent.replace(/[^0-9.-]+/g, "")) || 0;
+            return sortValue === 'asc' ? priceA - priceB : priceB - priceA;
+        });
+    } else if (filterValue === 'all') {
+        // ✅ Custom default ordering
+        const sourceOrder = {
+            "cashgenerator": 1,  // cg
+            "cex": 2,
+            "cashconverters": 3, // cc
+            "ebay": 4
+        };
+
+        rows.sort((a, b) => {
+            const sourceA = a.cells[0].textContent.trim().toLowerCase();
+            const sourceB = b.cells[0].textContent.trim().toLowerCase();
+            return (sourceOrder[sourceA] || 99) - (sourceOrder[sourceB] || 99);
+        });
+    }
+
+    // 3️⃣ Render
+    tbody.innerHTML = '';
+    if (rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #666666; font-style: italic;">No competitor data matches filter</td></tr>';
+    } else {
+        rows.forEach(row => tbody.appendChild(row));
+    }
+
+    document.getElementById('competitor-number').textContent = rows.length;
+        // Recompute averages/stats after re-render so summary matches current checkbox state
+
+    requestAnimationFrame(() => computeSourceAverages());
+        // ✅ Compute statistics based on currently visible rows
+    computeFilteredStatistics();
+
+}
+
+document.getElementById('sort-price').addEventListener('change', applySortAndFilter);
+document.getElementById('filter-source').addEventListener('change', applySortAndFilter);
+
+let currentCexMode = null;
+
+
+// Global variables to store source statistics
+let sourceStats = {
+    CEX: null,
+    CASHCONVERTERS: null,
+    CASHGENERATOR: null,
+    EBAY: null
+};
+
+function computeSourceAverages() {
+    const rows = allCompetitorRows;
+
+    const sourceData = {};       // Prices actually included per source
+    const sourceModeData = {};   // All prices per source for mode calculation
+    const relevantPrices = [];   // All prices included for market stats
+    const relevantVisiblePrices = [];   // All prices included for market stats
+
+    // Determine if any checkboxes are checked per source
+    const sourceCheckedState = {};
+    rows.forEach(row => {
+        if (row.cells.length < 5) return;
+        const source = row.cells[0].textContent.trim().toUpperCase();
+        const checkbox = row.querySelector('.range-checkbox');
+        if (!sourceCheckedState[source]) sourceCheckedState[source] = false;
+        if (checkbox && checkbox.checked) sourceCheckedState[source] = true;
+    });
+
+    // Collect prices based on selection logic and track rows for mode highlighting
+    const sourceRowsMap = {}; // Map price to rows for each source
+    rows.forEach(row => {
+        if (row.cells.length < 5) return;
+
+        const source = row.cells[0].textContent.trim().toUpperCase();
+        const price = parseFloat(row.cells[2].textContent.replace(/[^0-9.-]+/g, ""));
+        if (isNaN(price)) return;
+
+        // Save all prices for mode calculation
+        if (!sourceModeData[source]) sourceModeData[source] = [];
+        sourceModeData[source].push(price);
+
+        // Track rows by source and price for mode highlighting
+        if (!sourceRowsMap[source]) sourceRowsMap[source] = {};
+        if (!sourceRowsMap[source][price]) sourceRowsMap[source][price] = [];
+        sourceRowsMap[source][price].push(row);
+
+        const checkbox = row.querySelector('.range-checkbox');
+        // Is this row currently in the visible tbody?
+        const isVisible = row.closest('#competitor-tbody') !== null;
+
+        let includeRow = false;
+        let includeInVisibleSet = false;
+
+        if (sourceCheckedState[source]) {
+            // Some rows checked → include only checked
+            includeRow = checkbox && checkbox.checked;
+            includeInVisibleSet = includeRow && isVisible;
+        } else {
+            // No rows checked → include all
+            includeRow = true;
+            includeInVisibleSet = isVisible;
+        }
+
+        if (includeRow) {
+            if (!sourceData[source]) sourceData[source] = [];
+            sourceData[source].push(price);
+            relevantPrices.push(price);
+        }
+
+        if (includeInVisibleSet) {
+            relevantVisiblePrices.push(price);
+        }
+    });
+
+    // Compute averages, min, max, mode
+    const sourceAverages = {};
+    const sourceModes = {}; // Track mode price for each source
+    Object.keys(sourceData).forEach(source => {
+        const prices = sourceData[source];
+        const avg = prices.reduce((a, b) => a + b, 0) / prices.length;
+        const min = Math.min(...prices);
+        const max = Math.max(...prices);
+        // Add this median calculation
+      const sortedPrices = [...prices].sort((a, b) => a - b);
+      const median = sortedPrices.length % 2 === 0
+          ? (sortedPrices[sortedPrices.length / 2 - 1] + sortedPrices[sortedPrices.length / 2]) / 2
+          : sortedPrices[Math.floor(sortedPrices.length / 2)];
+
+
+        let mode;
+        let modeFrequency = 0;
+
+        // Compute mode
+        const freq = {};
+        prices.forEach(p => { 
+            const rounded = (source === 'EBAY') ? Math.round(p / 5) * 5 : p; 
+            freq[rounded] = (freq[rounded] || 0) + 1; 
+        });
+
+        let highest = 0;
+        Object.keys(freq).forEach(k => {
+            if (freq[k] > highest) {
+                highest = freq[k];
+                mode = parseFloat(k);
+                modeFrequency = freq[k];
+            }
+        });
+
+        sourceModes[source] = mode; // Store mode for highlighting
+        sourceAverages[source] = { 
+          average: avg, 
+          min, 
+          max, 
+          median,  // Add this line
+          count: prices.length, 
+          mode, 
+          modeFrequency 
+      };
+    });
+
+    // Store in global variables for external access
+    const normalized = {};
+    Object.keys(sourceAverages).forEach(k => normalized[k.toUpperCase()] = sourceAverages[k]);
+    
+    sourceStats.CEX = normalized['CEX'] || null;
+    sourceStats.CASHCONVERTERS = normalized['CASHCONVERTERS'] || null;
+    sourceStats.CASHGENERATOR = normalized['CASHGENERATOR'] || null;
+    sourceStats.EBAY = normalized['EBAY'] || null;
+
+    // Highlight mode rows (including all prices that round to the mode)
+    rows.forEach(row => {
+        row.classList.remove('mode-highlight');
+        if (row.cells.length < 5) return;
+        
+        const source = row.cells[0].textContent.trim().toUpperCase();
+        const price = parseFloat(row.cells[2].textContent.replace(/[^0-9.-]+/g, ""));
+        
+        if (!isNaN(price) && sourceModes[source] !== undefined) {
+            const roundedPrice = (source === 'EBAY') ? Math.round(price / 5) * 5 : price;
+            const roundedMode = (source === 'EBAY') ? Math.round(sourceModes[source] / 5) * 5 : sourceModes[source];
+
+            if (roundedPrice === roundedMode) {
+                row.classList.add('mode-highlight');
+            }
+        }
+    });
+
+    // Update market stats based only on the visible prices
+    const marketStats = document.getElementById('market-stats');
+    if (relevantVisiblePrices.length > 0) {
+        const minPrice = Math.min(...relevantVisiblePrices);
+        const maxPrice = Math.max(...relevantVisiblePrices);
+        const avgPrice = relevantVisiblePrices.reduce((a, b) => a + b, 0) / relevantVisiblePrices.length;
+
+        document.getElementById('price-range').textContent = `£${minPrice} - £${maxPrice}`;
+        document.getElementById('price-average').textContent = `£${avgPrice.toFixed(0)}`;
+        marketStats.style.display = 'flex';
+    } else {
+        document.getElementById('price-range').textContent = '-';
+        document.getElementById('price-average').textContent = '-';
+    }
+
+    // Populate analysis table
+    const tbody = document.getElementById('analysis-tbody');
+    if (!tbody) return;
+
+    const cex = sourceStats.CEX || {};
+    const cc = sourceStats.CASHCONVERTERS || {};
+    const cg = sourceStats.CASHGENERATOR || {};
+    const ebay = sourceStats.EBAY || {};
+
+    currentCexMode = cex.mode || null; // store globally for use by the event listener
+    cexMinusDiscount = 0.8 * cex.mode;
+
+    document.getElementById('cc-mode').textContent =
+        cc.mode ? `£${cc.mode.toFixed(0)} (${cc.modeFrequency || 0}/${cc.count || 0})` : '-';
+
+    document.getElementById('cc-min').textContent =
+        cc.min ? `£${cc.min.toFixed(0)}` : '-';
+
+    document.getElementById('cc-avg').textContent =
+          cc.average ? `£${cc.average.toFixed(0)}` : '-';
+
+      document.getElementById('cc-median').textContent =
+          cc.median ? `£${cc.median.toFixed(0)}` : '-';
+        
+    document.getElementById('ebay-mode').textContent =
+        ebay.mode ? `£${ebay.mode.toFixed(0)} (${ebay.modeFrequency || 0}/${ebay.count || 0})` : '-';
+        
+    document.getElementById('cg-mode').textContent =
+        cg.mode ? `£${cg.mode.toFixed(0)} (${cg.modeFrequency || 0}/${cg.count || 0})` : '-';
+
+    document.getElementById('cg-min').textContent =
+        cg.min ? `£${cg.min.toFixed(0)}` : '-';
+
+      {% comment %} document.getElementById('cex-mode').textContent =
+          cex.mode ? `£${cex.mode.toFixed(0)} (${cex.modeFrequency || 0}/${cex.count || 0})` : '-'; {% endcomment %}
+    
+
+    
+          // --- CASH CONVERTERS ---
+
+
+
+      // --- CASH GENERATOR ---
+      document.getElementById('cg-avg').textContent =
+          cg.average ? `£${cg.average.toFixed(0)}` : '-';
+
+      document.getElementById('cg-median').textContent =
+          cg.median ? `£${cg.median.toFixed(0)}` : '-';
+
+
+      // --- EBAY ---
+      document.getElementById('ebay-min').textContent =
+          ebay.min ? `£${ebay.min.toFixed(0)}` : '-';
+
+      document.getElementById('ebay-avg').textContent =
+          ebay.average ? `£${ebay.average.toFixed(0)}` : '-';
+
+      document.getElementById('ebay-median').textContent =
+          ebay.median ? `£${ebay.median.toFixed(0)}` : '-';
+
+
+    analyzeTable(); // this exists in individual_item_analyser
+}
+
+// Helper function to get stats for a specific source
+function getSourceStats(sourceName) {
+    const normalized = sourceName.toUpperCase();
+    return sourceStats[normalized] || null;
+}
+
+// Helper function to get all source stats
+function getAllSourceStats() {
+    return { ...sourceStats };
+}
+
+// Store cost price
+function setRRPAfterTable(costPrice) {
+    currentCostPrice = parseFloat(costPrice);
+    if (isNaN(currentCostPrice)) {
+        console.warn("No valid cost price provided — skipping RRP update.");
+        currentCostPrice = null;
+        return;
+    }
+    console.log('Cost price stored:', currentCostPrice);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+computeSourceAverages();
+
+    const discountSlider = document.getElementById('custom-slider');
+    if (discountSlider) {
+      discountSlider.addEventListener('input', () => {
+        updateCEXDiscountCell(currentCexMode);
+      });
+    }
+});
+
+// === Scroll Container Resizing Logic ===
+document.addEventListener('DOMContentLoaded', function() {
+  const resizeHandle = document.querySelector('.resize-handle');
+  const container = document.querySelector('.analysis-scroll-container');
+
+  if (!resizeHandle || !container) return;
+
+  let isResizing = false;
+  let startY = 0;
+  let startHeight = 0;
+
+  resizeHandle.addEventListener('mousedown', function(e) {
+    isResizing = true;
+    startY = e.clientY;
+    startHeight = container.offsetHeight;
+    document.body.style.cursor = 'ns-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', function(e) {
+    if (!isResizing) return;
+    const deltaY = e.clientY - startY;
+    const newHeight = startHeight - deltaY; // Drag up increases height
+    const minHeight = 200;
+    const maxHeight = window.innerHeight * 0.8;
+
+    if (newHeight >= minHeight && newHeight <= maxHeight) {
+      container.style.height = newHeight + 'px';
+    }
+  });
+
+  document.addEventListener('mouseup', function() {
+    if (isResizing) {
+      isResizing = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    }
+  });
+});
+
+
+</script>
+{% load static %}
+<script src="{% static 'extension_bridge.js' %}"></script>
+
+{% block extra_script %}{% endblock %}
+
+
+</body>
+</html>

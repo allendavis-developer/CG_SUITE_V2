@@ -1,0 +1,29 @@
+{% load static %}
+
+<div id="researchWizardModal" class="rw-backdrop rw-hidden">
+  <div class="rw-modal">
+    <button class="rw-close" aria-label="Close research wizard">&times;</button>
+
+    {% include "analysis/research_wizard/cex.html" %}
+    {% include "analysis/research_wizard/ebay.html" %}
+
+    <!-- OVERVIEW PAGE -->
+    <div class="rw-page rw-page-overview">
+      <h1 class="rw-title">Research Overview</h1>
+
+      <div id="overviewContent" class="overview-content"></div>
+
+      <div class="rw-actions">
+        <button class="rw-confirm">Confirm & Continue</button>
+      </div>
+    </div>
+
+
+  </div>
+
+</div>
+
+<script src="{% static 'analysis/research_wizard/cex.js' %}"></script>
+<link rel="stylesheet" href="{% static 'analysis/research_wizard/cex.css' %}">
+<link rel="stylesheet" href="{% static 'analysis/research_wizard/ebay_modal.css' %}">
+<script src="{% static 'analysis/research_wizard/ebay_modal.js' %}"></script>

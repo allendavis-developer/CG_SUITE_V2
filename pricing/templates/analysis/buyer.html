@@ -1,0 +1,783 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Buyer{% endblock %}
+{% block header_title %}BUYER DASHBOARD{% endblock %}
+
+{% block extra_style %}
+.main-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 2rem;
+}
+
+.main-content > div:first-child {
+  text-align: center;
+  margin-bottom: 10px;
+}
+
+.main-content h3 {
+  font-size: 1.6rem;
+  font-weight: 700;
+  margin-top: 30px;
+  margin-bottom: 10px;
+  color: #fff;
+}
+
+/* Buttons */
+.qty-btn, .modal-btn {
+  cursor: pointer;
+  border: 1px solid #333;
+  background: #1a1a1a;
+  color: #fff;
+  border-radius: 3px;
+  transition: background 0.2s;
+}
+.qty-btn { 
+  padding: 2px 6px; 
+  margin: 0 2px; 
+  font-size: 12px; 
+}
+.qty-btn:hover { background: #222; }
+
+.modal-btn {
+  width: 100%;
+  padding: 14px;
+  background-color: #fff;
+  color: #000;
+  font-weight: 600;
+  border: none;
+  border-radius: 6px;
+  text-transform: uppercase;
+}
+.modal-btn:hover { background-color: #e0e0e0; }
+
+
+/* Quantity Input (modern inline style) */
+.qty-input {
+  width: 80px;
+  padding: 6px 10px;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 14px;
+  text-align: center;
+  transition: all 0.2s ease;
+  -moz-appearance: textfield; /* remove spinners in Firefox */
+}
+
+.qty-input::-webkit-outer-spin-button,
+.qty-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0; /* remove spinners in Chrome/Safari/Edge */
+}
+
+.qty-input:focus {
+  outline: none;
+  border-color: #4da6ff;
+  background: #222;
+  box-shadow: 0 0 6px rgba(77,166,255,0.3);
+}
+
+/* Manual Offer Input (when starting price is zero) */
+.manual-offer-input {
+  width: 90px;
+  padding: 6px 10px;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 14px;
+  text-align: center;
+  transition: all 0.2s ease;
+  -moz-appearance: textfield;
+}
+
+
+.manual-offer-input::-webkit-inner-spin-button,
+.manual-offer-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+
+
+.current-offer, .cex-offer {
+  text-align: center;
+  color: #0f0;
+  font-weight: 600;
+}
+.cex-offer {
+  color: #4da6ff;
+}
+
+.out-of-stock-tag {
+  color: #d9534f; /* a quiet red */
+  font-weight: bold;
+  margin-left: 6px;
+}
+
+
+/* Modal */
+.modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0,0,0,0.85);
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+.modal.active { display: flex; }
+
+.modal-content {
+  background-color: #111;
+  border: 1px solid #333;
+  border-radius: 8px;
+  width: 400px;
+  max-width: 90%;
+  padding: 24px;
+  position: relative;
+}
+.modal-close {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  cursor: pointer;
+  font-size: 24px;
+  color: #888;
+  transition: color 0.2s;
+}
+.modal-close:hover { color: #fff; }
+
+
+/* =====================
+   Item Table Styling
+===================== */
+.item-table {
+  width: 100%;
+  border-collapse: collapse;
+  background-color: #111;
+  border: 1px solid #333;
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: 14px;
+  color: #ddd;
+  margin-top: 10px;
+}
+
+.item-table thead {
+  background-color: #1a1a1a;
+}
+
+.item-table th, 
+.item-table td {
+  padding: 12px 16px;
+  text-align: left;
+  border-bottom: 1px solid #333;
+}
+
+.item-table th {
+  font-weight: 700;
+  color: #fff;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.item-table tbody tr:hover {
+  background-color: #1f1f1f;
+}
+
+.item-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+
+/* Buying Range Adjust Buttons */
+.buying-range-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;                    /* more breathing space */
+  justify-content: flex-start;
+}
+
+.buying-range-cell .qty-btn {
+  background: #2a2a2a;
+  border: 1px solid #444;
+  color: #fff;
+  font-size: 16px;             /* increased from 12px */
+  font-weight: bold;
+  width: 32px;                 /* increased from ~20px */
+  height: 32px;                /* more tappable */
+  border-radius: 6px;          /* smoother corners */
+  transition: background 0.2s, transform 0.15s;
+}
+
+.buying-range-cell .qty-btn:hover {
+  background: #333;
+  transform: scale(1.05);
+}
+
+.buying-range-cell .buying-value {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #0f0;                 /* subtle green tint for price visibility */
+}
+
+#summaryContainer {
+  color: #fff;
+  font-weight: 700;           
+  text-transform: uppercase;   
+  width: 100%;                 
+  box-sizing: border-box;
+  margin: 0 auto;
+  padding: 16px;
+  background: #1a1a1a;
+  border: 2px solid #333;
+  border-radius: 8px;
+  /* Force horizontal layout */
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+}
+
+#totalSection, #cexSection {
+  width: 50% !important; /* Force equal width */
+  flex-shrink: 0 !important; /* Prevent shrinking */
+  box-sizing: border-box;
+  padding: 0 20px;
+}
+
+#totalSection h3, #cexSection h3 {
+  font-size: 2.5rem;
+  margin: 0 0 20px 0; /* Remove top margin, keep bottom margin */
+  color: #00ff00;
+}
+
+#cexSection h3 {
+  color: #ff0000 !important; /* Force red color for CEX */
+  margin: 0 0 20px 0; /* Ensure consistent margins */
+}
+
+#summaryContainer p {
+  font-size: 1.25rem;  /* Much larger text */
+  margin: 15px 0;
+}
+
+#summaryContainer span {
+  font-size: 2rem;  /* Even larger for the actual numbers */
+}
+
+/* Rectangular unified button style */
+.action-btn {
+  min-width: 160px;           /* enough width for longer text */
+  height: 60px;               /* rectangular height */
+  background-color: #1a1a1a;
+  font-weight: bold;
+  font-size: 20px;            /* readable size */
+  font-family: 'Arial', sans-serif; /* or your preferred font */
+  border: 2px solid #333;
+  border-radius: 8px;         /* slightly rounded corners */
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-transform: uppercase;
+  transition: transform 0.2s, background-color 0.2s;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+
+
+.action-btn:hover {
+  background-color: #222;
+}
+
+/* Add button - muted green */
+.add-btn {
+  color: #6ca06c; /* muted green */
+  margin-right: 20px;
+}
+
+
+/* Analyse All button - muted yellow */
+.analyse-all-btn {
+  color: #d4c264; /* muted yellow */
+}
+
+.add-btn-container {
+  width: 100%;                  /* full width */
+  display: flex;
+  justify-content: center;      /* center horizontally */
+  gap: 20px;                    /* spacing between buttons */
+  margin-bottom: 30px;          /* space below buttons */
+}
+
+/* Offer color coding */
+.offer-green { color: #4caf50 !important; }
+.offer-yellow { color: #ffc107 !important; }
+.offer-red { color: #f44336 !important; }
+
+.loading-spinner {
+  border: 3px solid #333;
+  border-top: 3px solid #4da6ff;
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  animation: spin 0.7s linear infinite;
+  margin: 0 auto;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Max Offer - Hidden State (Blacked Out) */
+.max-offer-hidden {
+  background: #000;
+  color: transparent;
+  user-select: none;
+  cursor: pointer;
+  position: relative;
+  padding: 8px 12px;
+  border-radius: 4px;
+  transition: all 0.3s ease;
+  display: inline-block;
+  min-width: 120px;
+  text-align: center;
+}
+
+
+/* URL input field styling */
+.cex-url-input {
+  flex: 1;
+  max-width: 500px;
+  height: 60px;
+  background-color: #1a1a1a;
+  border: 2px solid #333;
+  border-radius: 8px;
+  padding: 0 20px;
+  color: #fff;
+  font-size: 16px;
+  font-family: 'Arial', sans-serif;
+  transition: border-color 0.2s, background-color 0.2s;
+}
+
+.cex-url-input:focus {
+  outline: none;
+  border-color: #4da6ff;
+  background-color: #222;
+}
+
+.cex-url-input::placeholder {
+  color: #666;
+}
+
+/* CEX URL button - muted blue */
+.cex-url-btn {
+  color: #6ca0d4; /* muted blue */
+  white-space: nowrap;
+}
+
+.done-btn {
+  color: #ff4141ff; /* red */
+  white-space: nowrap;
+}
+
+/* "Click to reveal" overlay text */
+.max-offer-hidden::before {
+  content: "Click to reveal";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #888;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+
+/* Hover effect on hidden state */
+.max-offer-hidden:hover {
+  background: #1a1a1a;
+}
+
+.max-offer-hidden:hover::before {
+  color: #aaa;
+}
+
+/* Revealed state with animation */
+.max-offer-revealed {
+  animation: reveal 0.3s ease;
+}
+
+@keyframes reveal {
+  from {
+    background: #000;
+    color: transparent;
+  }
+  to {
+    background: transparent;
+    color: inherit;
+  }
+}
+
+/* Category Color Coding for Model and CEX Price cells */
+.category-high {
+  background-color: rgba(76, 175, 80, 0.2) !important; /* Green with transparency */
+  border-left: 3px solid #4caf50 !important;
+}
+
+.category-medium {
+  background-color: rgba(255, 193, 7, 0.2) !important; /* Yellow with transparency */
+  border-left: 3px solid #ffc107 !important;
+}
+
+.category-low {
+  background-color: rgba(244, 67, 54, 0.2) !important; /* Red with transparency */
+  border-left: 3px solid #f44336 !important;
+}
+
+/* Make links inside colored cells more visible */
+.category-high a,
+.category-medium a,
+.category-low a {
+  font-weight: 600;
+}
+
+/* Optional: Add a subtle animation on category assignment */
+.category-high,
+.category-medium,
+.category-low {
+  animation: categoryFadeIn 0.4s ease;
+}
+
+@keyframes categoryFadeIn {
+  from {
+    background-color: transparent;
+    border-left-color: transparent;
+  }
+}
+
+.competitor-table thead th {
+  position: sticky;
+  top: 0;
+  background-color: #1a1a1a;  /* same as table header bg */
+  z-index: 1;                /* ensures header stays on top */
+}
+
+
+.competitor-table {
+  border: 1px solid #333333;
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1.25rem;
+  font-size: 0.8125rem;
+}
+
+.competitor-table th,
+.competitor-table td {
+  padding: 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid #333333;
+}
+
+.competitor-table th {
+  background-color: #1a1a1a;
+  color: #888888;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.6875rem;
+  white-space: nowrap;
+}
+
+.competitor-table td {
+  word-wrap: break-word;
+}
+
+
+
+
+{% endblock %}
+
+{% block content %}
+<div class="main-content">
+  <div class="add-btn-container">
+    <button id="researchWizard" class="action-btn cex-url-btn">Deep Research</button>
+    <button id="quickCexBtn" class="action-btn cex-url-btn">Quick CeX</button>
+    {% include "analysis/research_wizard/research_wizard.html" %}
+  </div>
+<div id="summaryContainer">
+  
+  <div id="totalSection">
+    <h3>Summary</h3>
+    <p>Total Buying Price: <span id="totalBuying">£0.00 - £0.00</span></p>
+    <p>Total Selling Price: <span id="totalSelling">£0.00</span></p>
+  </div>
+
+</div>
+
+
+  <div id="tablesContainer"></div>  
+
+</div>
+
+</div>
+
+<!-- Tom Select CSS -->
+<link href="https://cdn.jsdelivr.net/npm/tom-select/dist/css/tom-select.css" rel="stylesheet">
+<!-- Tom Select JS -->
+<script src="https://cdn.jsdelivr.net/npm/tom-select/dist/js/tom-select.complete.min.js"></script>
+
+<script>
+// Buyer dashboard JS (Deep Research / Quick CeX driven item adding)
+const tablesContainer = document.getElementById('tablesContainer');
+const quickCexBtn = document.getElementById('quickCexBtn');
+const categories = {{ categories|safe }};
+
+document.addEventListener('DOMContentLoaded', updateSummary);
+
+// Quick CeX button: open wizard directly on CeX page
+if (quickCexBtn) {
+  quickCexBtn.addEventListener('click', () => {
+    if (window.ResearchWizard && typeof window.ResearchWizard.showCexQuickAdd === 'function') {
+      window.ResearchWizard.showCexQuickAdd();
+    }
+  });
+}
+
+// Constants
+const MAX_OFFER_MARGIN = 0.28; // 28% margin for max offer
+const CATEGORY_COLOR_MAP = {
+  fast: 'High',
+  medium: 'Medium',
+  slow: 'Low'
+};
+
+let globalTableBody = null;
+
+function showRowSpinner(row) {
+  const cellsToSpin = [
+    '.suggested-rrp',
+    '.offer',
+    '.cex-movement-category',
+    '.cex-price-last-updated',
+    '.cex-price',
+    '.cc-mode',
+    '.cg-mode',
+    '.margin'
+  ];
+
+  cellsToSpin.forEach(selector => {
+    const cell = row.querySelector(selector);
+    if (!cell) return;
+    cell.dataset.oldContent = cell.innerHTML;
+    cell.innerHTML = `<div class="loading-spinner"></div>`;
+  });
+}
+
+function hideRowSpinner(row) {
+  const cells = row.querySelectorAll('[data-old-content]');
+  cells.forEach(cell => {
+    cell.innerHTML = cell.dataset.oldContent;
+    delete cell.dataset.oldContent;
+  });
+}
+
+function applyCategoryColor(modelCell, cexCell, movementCategory) {
+  // Remove any existing category classes
+  modelCell.classList.remove('category-high', 'category-medium', 'category-low');
+  cexCell.classList.remove('category-high', 'category-medium', 'category-low');
+
+  // Add the appropriate class based on category
+  if (movementCategory === 'High') {
+    modelCell.classList.add('category-high');
+    cexCell.classList.add('category-high');
+  } else if (movementCategory === 'Medium') {
+    modelCell.classList.add('category-medium');
+    cexCell.classList.add('category-medium');
+  } else if (movementCategory === 'Low') {
+    modelCell.classList.add('category-low');
+    cexCell.classList.add('category-low');
+  }
+}
+
+
+function createCategoryTable() {
+  // Return existing table body if table already exists
+  if (globalTableBody) return globalTableBody;
+
+  // Create the single table
+  const table = document.createElement('table');
+  table.className = 'item-table';
+  const columns = [
+    'Quantity',
+    'Category',
+    'Subcategory',
+    'Item Name',
+    'Suggested RRP',
+    'OFFER',
+    'Margin'
+  ];
+
+  table.innerHTML = `
+    <thead><tr>${columns.map(c => `<th>${c}</th>`).join('')}</tr></thead>
+    <tbody><tr class="placeholder"><td colspan="${columns.length}" style="text-align:center; color:#777;">No items added yet. Double-click any row to delete.</td></tr></tbody>
+  `;
+  
+  tablesContainer.append(table);
+  globalTableBody = table.querySelector('tbody');
+  return globalTableBody;
+}
+
+function attachQuantityListeners() {
+  document.querySelectorAll('.item-table tbody tr:not(.placeholder) .qty-input').forEach(input => {
+    // Check if listener is already attached to avoid duplicates
+    if (!input.dataset.listenerAttached) {
+      input.addEventListener('input', updateSummary);
+      input.dataset.listenerAttached = 'true';
+    }
+  });
+}
+
+
+// Manual and CEX URL item-adding flows removed;
+// rows are now added exclusively via the Deep Research wizard.
+
+function addSimpleItemToTable({ category, name, rrp, offer }) {
+  const tbody = createCategoryTable();
+  if (tbody.querySelector('.placeholder')) tbody.innerHTML = '';
+
+  const rrpNum = Number(rrp);
+  const offerValue = Number(offer || 0);
+  const marginPct =
+    rrpNum > 0
+      ? (((rrpNum - offerValue) / rrpNum) * 100).toFixed(1) + '%'
+      : '—';
+
+  const row = document.createElement('tr');
+  
+  // If offer is zero, use manual input
+  let offerCellContent;
+  if (offerValue === 0) {
+    offerCellContent = `<td class="offer"><input type="number" class="manual-offer-input" min="0" step="0.01" value="" placeholder="Enter offer"></td>`;
+  } else {
+    offerCellContent = `<td class="offer">£${offerValue.toFixed(2)}</td>`;
+  }
+  
+  row.innerHTML = [
+    `<td><input type="number" class="qty-input" min="1" value="1"></td>`,
+    `<td class="category-cell">${category || '—'}</td>`,
+    `<td class="subcategory-cell">—</td>`,
+    `<td class="item-name-cell">${name}</td>`,
+    `<td class="suggested-rrp">£${rrpNum.toFixed(2)}</td>`,
+    offerCellContent,
+    `<td class="margin">${marginPct}</td>`
+  ].join('');
+
+  Object.assign(row.dataset, {
+    itemName: name,
+    rrp: rrpNum,
+    offer: offerValue,
+    margin: marginPct
+  });
+
+  // Attach quantity input listener to the new row's input
+  const qtyInput = row.querySelector('.qty-input');
+  if (qtyInput) {
+    qtyInput.addEventListener('input', updateSummary);
+    qtyInput.dataset.listenerAttached = 'true';
+  }
+
+  // Set up manual input listener if needed
+  if (offerValue === 0) {
+    const offerInput = row.querySelector('.manual-offer-input');
+    offerInput.addEventListener('input', () => {
+      const val = parseFloat(offerInput.value) || 0;
+      row.dataset.offer = val;
+      // Recalculate margin
+      const margin = rrpNum > 0 ? (((rrpNum - val) / rrpNum) * 100).toFixed(1) + '%' : '—';
+      row.querySelector('.margin').textContent = margin;
+      updateSummary();
+    });
+  }
+
+  row.addEventListener('dblclick', e => {
+    if (['INPUT', 'BUTTON', 'A'].includes(e.target.tagName)) return;
+
+    if (confirm('Delete this item?')) {
+      const tb = row.parentElement;
+      row.remove();
+      if (!tb.children.length) {
+        const colCount = tb.parentElement.querySelectorAll('th').length;
+        tb.innerHTML = `
+          <tr class="placeholder">
+            <td colspan="${colCount}" style="text-align:center; color:#777;">
+              No items added yet. Double-click any row to delete.
+            </td>
+          </tr>`;
+      }
+      updateSummary();
+    }
+  });
+
+  tbody.appendChild(row);
+  // Update summary after adding the item
+  updateSummary();
+}
+
+
+
+
+function updateSummary() {
+  let totalBuying = 0;
+  let totalRetail = 0;
+  let hasItems = false;
+
+  document.querySelectorAll('.item-table tbody tr:not(.placeholder)').forEach(row => {
+    hasItems = true;
+    const qty = parseInt(row.querySelector('.qty-input')?.value) || 1;
+
+    // Get RRP (retail price)
+    const rrp = parseFloat(row.querySelector('.suggested-rrp')?.textContent.replace(/[£,]/g, '')) || 0;
+    
+    // Get offer value - either from input field or from text content
+    let offer = 0;
+    const offerCell = row.querySelector('.offer');
+    const offerInput = offerCell?.querySelector('.manual-offer-input');
+    if (offerInput) {
+      offer = parseFloat(offerInput.value) || 0;
+    } else {
+      offer = parseFloat(offerCell?.textContent.replace(/[£,]/g, '')) || 0;
+    }
+    
+    totalRetail += rrp * qty;
+    totalBuying += offer * qty;
+  });
+
+  const summaryContainer = document.getElementById('summaryContainer');
+  summaryContainer.style.display = hasItems ? 'flex' : 'none';
+
+  if (hasItems) {
+    document.getElementById('totalBuying').textContent = `£${totalBuying.toFixed(2)}`;
+    document.getElementById('totalSelling').textContent = `£${totalRetail.toFixed(2)}`;
+  } else {
+    document.getElementById('totalBuying').textContent = '£0.00';
+    document.getElementById('totalSelling').textContent = '£0.00';
+  }
+}
+
+
+
+
+</script>
+
+<link rel="stylesheet" href="{% static 'analysis/research_wizard/research_wizard.css' %}">
+<script defer src="{% static 'analysis/research_wizard/research_wizard.js' %}"></script>
+{% comment %} <link rel="stylesheet" href="{% static 'analysis/research_wizard/ebay_modal.css' %}">
+<script src="{% static 'analysis/research_wizard/ebay_modal.js' %}"></script> {% endcomment %}
+<script src="{% static 'extension_bridge.js' %}"></script>
+
+{% endblock %}
