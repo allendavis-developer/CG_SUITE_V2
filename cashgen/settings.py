@@ -100,12 +100,8 @@ WSGI_APPLICATION = 'cashgen.wsgi.application'
 
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": "cgdb_local",
-        "USER": "postgres",
-        "PASSWORD": "allendavis",
-        "HOST": "localhost",
-        "PORT": "5432",
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": BASE_DIR / "db.sqlite3",  # SQLite database file
     }
 }
 

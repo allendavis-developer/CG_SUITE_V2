@@ -25,14 +25,15 @@ from django.utils import timezone
 
 class ProductCategory(models.Model):
     """
-    Category hierarchy. Every category must have a parent.
-    Even the top level points to a synthetic root (self-referential root).
+    Category hierarchy. Top level categories have parent category ID = null
     """
     category_id = models.AutoField(primary_key=True)
     parent_category = models.ForeignKey(
-        'self',
+        "self",
         on_delete=models.CASCADE,
-        related_name='children',
+        null=True,
+        blank=True,
+        related_name="children",
         db_column='parent_category_id',
         help_text="Parent category. Root categories point to themselves."
     )

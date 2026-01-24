@@ -27,9 +27,7 @@ from pricing.models import (
 import json, requests, traceback, re
 from decimal import Decimal, InvalidOperation
 
-from pricing.utils.ai_utils import call_gemini_sync, generate_price_analysis, generate_bulk_price_analysis
 from pricing.utils.competitor_utils import get_competitor_data
-from pricing.utils.analysis_utils import process_item_analysis, save_analysis_to_db
 from pricing.utils.search_term import build_search_term, get_model_variants
 from pricing.utils.pricing import get_effective_margin
 from pricing.utils.ebay_filters import extract_filters, extract_ebay_search_params
@@ -46,13 +44,6 @@ def get_prefilled_data(request):
     }
 
 
-def handle_item_analysis_request(request):
-    """Handle JSON POST request for item analysis"""
-    try:
-        data = json.loads(request.body)
-        return process_item_analysis(data)
-    except Exception as e:
-        return JsonResponse({"success": False, "error": str(e)}, status=500)
 
 
 
@@ -727,23 +718,9 @@ def individual_item_analyser_view(request):
 
     categories = Category.objects.all()
 
-    if request.method == "POST" and request.headers.get("Content-Type") == "application/json":
-        return handle_item_analysis_request(request)
-    
     # GET (render page)
     return render(request, "analysis/individual_item_analyser.html", {"prefilled_data": prefilled_data, "categories": categories})
 
-
-def item_buying_analyser_view(request):
-    # Handle prefilled data from URL parameters
-    prefilled_data = get_prefilled_data(request)
-    categories = Category.objects.all()
-
-    if request.method == "POST" and request.headers.get("Content-Type") == "application/json":
-        return handle_item_analysis_request(request)
-
-    # GET (render page)
-    return render(request, "analysis/item_buying_analyser.html", {"prefilled_data": prefilled_data, "categories": categories})
 
 
 @csrf_exempt
