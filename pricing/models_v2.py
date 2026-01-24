@@ -35,7 +35,7 @@ class ProductCategory(models.Model):
         blank=True,
         related_name="children",
         db_column='parent_category_id',
-        help_text="Parent category. Root categories point to themselves."
+        help_text="Parent category. Root categories have this empty."
     )
     name = models.CharField(max_length=255, db_index=True)
 
@@ -234,7 +234,6 @@ class Variant(models.Model):
 
     class Meta:
         db_table = 'pricing_variant'
-        unique_together = [['product', 'condition_grade', 'variant_signature']]
         indexes = [
             models.Index(fields=['product', 'condition_grade']),
             models.Index(fields=['cex_sku']),
