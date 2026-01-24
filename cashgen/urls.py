@@ -10,7 +10,8 @@ urlpatterns = [
     path("repricer/", v.repricer_view, name="repricer"),
     path("scraper/", v.scraper_view, name="scraper"),
     path("buyer/", v.buyer_view, name="buyer"),
-    
+    path("react/", v.react_app),
+
 
     # ----------------------------- API -----------------------------
     

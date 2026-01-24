@@ -1872,3 +1872,9 @@ class ItemModelAutocomplete(autocomplete.Select2QuerySetView):
         if self.q:
             qs = qs.filter(name__icontains=self.q)
         return qs
+
+
+# react setup
+
+def react_app(request):
+    return render(request, "react.html")
