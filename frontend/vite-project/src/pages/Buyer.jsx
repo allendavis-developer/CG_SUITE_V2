@@ -189,14 +189,7 @@ const MainContent = ({ selectedCategory, availableModels }) => {
                   <span> - {Object.values(attributeValues).filter(v => v).join(' / ')}</span>
               )}
           </h1>
-            <div className="mt-1 flex items-center gap-3">
-              <p className="text-sm text-gray-500 flex items-center gap-2">
-                <Icon name="barcode_scanner" className="text-xs" />
-                UPC: 195949048456
-              </p>
-              <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
-              <span className="text-blue-900 font-semibold text-xs uppercase tracking-wider">Active Eligibility</span>
-            </div>
+   
           </div>
           <Button variant="primary" icon="add_shopping_cart">
             Add to Cart
@@ -246,10 +239,7 @@ const MainContent = ({ selectedCategory, availableModels }) => {
         <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-xl p-6">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
-              <h3 className="text-xs font-bold text-gray-900 uppercase tracking-widest">Refine Variant</h3>
-              <Badge variant="warning">
-                <Icon name="info" className="text-sm inline" /> Multiple matches found
-              </Badge>
+              <h3 className="text-xs font-bold text-gray-900 uppercase tracking-widest">Variant</h3>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
