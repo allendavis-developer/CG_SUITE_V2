@@ -136,81 +136,62 @@ export const CustomDropdown = ({ label, value, options, onChange }) => {
 };
 
 export const SearchableDropdown = ({ label, value, options, onChange, placeholder = "Select..." }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const [search, setSearch] = useState('');
-  const dropdownRef = useRef(null);
+  const selectRef = useRef(null);
+  const tomSelectInstance = useRef(null);
+  const onChangeRef = useRef(onChange);
 
-  const filteredOptions = options.filter(opt =>
-    opt.toLowerCase().includes(search.toLowerCase())
-  );
-
+  // Keep onChange ref up to date
   useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-        setIsOpen(false);
-        setSearch(''); // reset search when closing
+    onChangeRef.current = onChange;
+  }, [onChange]);
+
+  // Initialize TomSelect only once
+  useEffect(() => {
+    if (selectRef.current && !tomSelectInstance.current) {
+      tomSelectInstance.current = new TomSelect(selectRef.current, {
+        create: false,
+        onChange: (val) => {
+          onChangeRef.current(val); // Use the ref instead
+        },
+        placeholder,
+      });
+    }
+
+    // Cleanup on unmount
+    return () => {
+      if (tomSelectInstance.current) {
+        tomSelectInstance.current.destroy();
+        tomSelectInstance.current = null;
       }
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  }, []); // Empty dependency array - run only once
 
-  const handleSelect = (option) => {
-    onChange(option);
-    setIsOpen(false);
-    setSearch('');
-  };
+  // Update options when they change
+  useEffect(() => {
+    if (tomSelectInstance.current) {
+      tomSelectInstance.current.clearOptions();
+      tomSelectInstance.current.addOptions(
+        options.map(opt => ({ value: opt, text: opt }))
+      );
+    }
+  }, [options]);
+
+  // Update selected value
+  useEffect(() => {
+    if (tomSelectInstance.current && value) {
+      tomSelectInstance.current.setValue(value, true); // true = silent (no onChange trigger)
+    }
+  }, [value]);
 
   return (
-    <div className="space-y-1.5 relative" ref={dropdownRef}>
+    <div className="space-y-1.5">
       {label && <label className="text-xs font-bold text-gray-500 uppercase">{label}</label>}
-      <div>
-        <button
-          type="button"
-          onClick={() => setIsOpen(!isOpen)}
-          className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-900 text-left flex items-center justify-between hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 transition-all"
-        >
-          <span className="font-medium">{value || placeholder}</span>
-          <Icon name="expand_more" className={`text-gray-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
-        </button>
-
-        {isOpen && (
-          <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden max-h-60">
-            <input
-              type="text"
-              autoFocus
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search..."
-              className="w-full px-3 py-2 text-sm border-b border-gray-200 focus:outline-none focus:ring-1 focus:ring-yellow-500"
-            />
-            <div className="max-h-48 overflow-y-auto">
-              {filteredOptions.length > 0 ? (
-                filteredOptions.map((option) => (
-                  <button
-                    key={option}
-                    type="button"
-                    onClick={() => handleSelect(option)}
-                    className={`w-full px-3 py-2 text-sm text-left hover:bg-gray-50 transition-colors ${
-                      value === option
-                        ? 'bg-yellow-500/10 text-blue-900 font-semibold'
-                        : 'text-gray-700'
-                    }`}
-                  >
-                    {option}
-                  </button>
-                ))
-              ) : (
-                <div className="px-3 py-2 text-sm text-gray-400 italic">No results</div>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
+      <select ref={selectRef} className="w-full">
+        <option value="">{placeholder}</option>
+      </select>
     </div>
   );
 };
-
 
 // Input Component
 export const Input = ({ placeholder, icon, value, onChange, className = '' }) => (

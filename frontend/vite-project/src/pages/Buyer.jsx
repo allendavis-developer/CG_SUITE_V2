@@ -1,5 +1,5 @@
 // Buyer.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Icon,
   Button,
@@ -80,16 +80,15 @@ const EmptyState = () => (
 );
 
 // Main Content Component
-const MainContent = ({ selectedCategory, availableModels }) => {
+const MainContent = ({ selectedCategory, availableModels, selectedModel, setSelectedModel }) => {
   const [activeTab, setActiveTab] = useState('info');
-  const [selectedModel, setSelectedModel] = useState(null); // Store the whole model object
   const [variant, setVariant] = useState('');
 
   // Dynamic attributes
   const [attributes, setAttributes] = useState([]);
   const [attributeValues, setAttributeValues] = useState({});
   const [dependencies, setDependencies] = useState([]);
-  const [variants, setVariants] = useState([]); // Store all variants
+  const [variants, setVariants] = useState([]);
 
   useEffect(() => {
     if (!selectedModel?.product_id) return;
@@ -116,10 +115,26 @@ const MainContent = ({ selectedCategory, availableModels }) => {
   }, [selectedModel]);
 
   useEffect(() => {
-    if (!selectedModel && availableModels.length > 0) {
-      setSelectedModel(availableModels[0]);
+    if (variants.length === 0 || Object.keys(attributeValues).length === 0) return;
+
+    // Find matching variants based on current attribute selections
+    const matchingVariants = variants.filter(variant => {
+      return Object.entries(attributeValues).every(([attrCode, attrValue]) => {
+        return variant.attribute_values[attrCode] === attrValue;
+      });
+    });
+
+    // Auto-select if only one match
+    if (matchingVariants.length === 1) {
+      setVariant(matchingVariants[0].cex_sku);
+    } else if (matchingVariants.length > 1) {
+      // If multiple matches and current variant is not in the list, clear it
+      const isCurrentVariantValid = matchingVariants.some(v => v.cex_sku === variant);
+      if (!isCurrentVariantValid) {
+        setVariant('');
+      }
     }
-  }, [availableModels, selectedModel]);
+  }, [attributeValues, variants]);
 
 
   // Handle intelligent attribute changes
@@ -235,29 +250,46 @@ const MainContent = ({ selectedCategory, availableModels }) => {
           </div>
         </div>
 
-        {/* Variant Section */}
-        <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-xl p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <h3 className="text-xs font-bold text-gray-900 uppercase tracking-widest">Variant</h3>
+        {/* Variant Section - Only show if there are multiple matching variants */}
+        {(() => {
+          // Find matching variants based on current attribute selections
+          const matchingVariants = variants.filter(variant => {
+            return Object.entries(attributeValues).every(([attrCode, attrValue]) => {
+              return variant.attribute_values[attrCode] === attrValue;
+            });
+          });
+
+          // Only show if there are multiple matches
+          if (matchingVariants.length <= 0) return null;
+
+          return (
+            <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-xl p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <h3 className="text-xs font-bold text-gray-900 uppercase tracking-widest">Select Variant</h3>
+                  <Badge variant="warning">
+                    <Icon name="info" className="text-sm inline" /> {matchingVariants.length} matches found
+                  </Badge>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {matchingVariants.map((v) => (
+                  <button
+                    key={v.variant_id}
+                    onClick={() => setVariant(v.cex_sku)}
+                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                      variant === v.cex_sku
+                        ? 'border-2 border-yellow-500 bg-yellow-500 text-blue-900 shadow-sm'
+                        : 'border border-gray-200 bg-white text-gray-900 hover:border-yellow-500'
+                    }`}
+                  >
+                    {v.cex_sku}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {['A3102 (Global)', 'A2848 (USA)', 'A3101 (Canada/Japan)'].map((v) => (
-              <button
-                key={v}
-                onClick={() => setVariant(v)}
-                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-                  variant === v
-                    ? 'border-2 border-yellow-500 bg-yellow-500 text-blue-900 shadow-sm'
-                    : 'border border-gray-200 bg-white text-gray-900 hover:border-yellow-500'
-                }`}
-              >
-                {v}
-              </button>
-            ))}
-          </div>
-        </div>
+          );
+        })()}
 
         {/* Market Comparisons */}
         <Card noPadding>
@@ -366,12 +398,23 @@ const CartSidebar = () => {
 export default function Buyer() {
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [availableModels, setAvailableModels] = useState([]);
+  const [selectedModel, setSelectedModel] = useState(null);
+  const hasAutoSelected = useRef(false);
 
   const handleCategorySelect = async (category) => {
     setSelectedCategory(category);
+    setSelectedModel(null);
+    hasAutoSelected.current = false; // Reset the flag
     const models = await fetchProductModels(category);
-    setAvailableModels(models); // Store the full model objects
+    setAvailableModels(models);
   };
+
+  useEffect(() => {
+    if (availableModels.length > 0 && !hasAutoSelected.current) {
+      setSelectedModel(availableModels[0]);
+      hasAutoSelected.current = true;
+    }
+  }, [availableModels]);
 
   return (
     <div className="bg-gray-50 text-gray-900 min-h-screen flex flex-col text-sm">
@@ -385,7 +428,12 @@ export default function Buyer() {
       <Header onSearch={(val) => console.log('Search:', val)} />
       <main className="flex flex-1 overflow-hidden h-[calc(100vh-61px)]">
         <Sidebar onCategorySelect={handleCategorySelect} />
-        <MainContent selectedCategory={selectedCategory} availableModels={availableModels}  />
+        <MainContent 
+          selectedCategory={selectedCategory} 
+          availableModels={availableModels}
+          selectedModel={selectedModel}
+          setSelectedModel={setSelectedModel}
+        />
         <CartSidebar />
       </main>
     </div>
