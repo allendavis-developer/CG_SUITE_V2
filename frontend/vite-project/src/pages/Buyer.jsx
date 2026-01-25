@@ -127,10 +127,10 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
       setDependencies(data.dependencies);
       setVariants(data.variants);
 
-      // Initialize selected values with the first option of each attribute
+      // Initialize with EMPTY values instead of first option
       const initialValues = {};
       data.attributes.forEach(attr => {
-        initialValues[attr.code] = attr.values[0] || '';
+        initialValues[attr.code] = '';  // Changed from attr.values[0] to ''
       });
       setAttributeValues(initialValues);
     };
@@ -163,23 +163,14 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
 
   // Handle intelligent attribute changes
   const handleAttributeChange = (code, value) => {
+    const changedAttrIndex = attributes.findIndex(a => a.code === code);
+    
     const newValues = { ...attributeValues, [code]: value };
 
-    // Apply dependencies from your API format
-    dependencies.forEach(dep => {
-      if (dep.attribute === code) {
-        // This attribute was changed, update dependent attributes
-        return;
-      }
-
-      // Check if any dependency affects the current selection
-      if (dep.depends_on && dep.depends_on[code]) {
-        const allowedValues = dep.depends_on[code][value] || [];
-        
-        // If current value is not allowed, select first allowed value
-        if (!allowedValues.includes(newValues[dep.attribute])) {
-          newValues[dep.attribute] = allowedValues[0] || '';
-        }
+    // Clear all selections after this attribute
+    attributes.forEach((attr, index) => {
+      if (index > changedAttrIndex) {
+        newValues[attr.code] = '';
       }
     });
 
@@ -239,31 +230,71 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
       {/* Configuration & Condition */}
       <div className="p-8 space-y-8">
         <div className="bg-gray-50 p-6 rounded-xl border border-gray-200">
-          <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">Configuration & Condition</h3>
-          <div className="grid grid-cols-3 gap-6">
-            {attributes.map(attr => {
-              // Get base options from attribute definition
-              let options = attr.values;
+          <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">
+            Configuration & Condition
+          </h3>
+          <div className="space-y-8">
+            {attributes.map((attr, index) => {
+              // Get current selections for attributes before this one
+              const previousSelections = Object.entries(attributeValues)
+                .filter(([code]) => {
+                  const attrIndex = attributes.findIndex(a => a.code === code);
+                  return attrIndex < index && attributeValues[code]; // Only count filled selections
+                });
 
-              // Filter based on what variants actually exist
-              if (variants.length > 0) {
-                // Get current selections excluding this attribute
-                const otherSelections = Object.entries(attributeValues)
-                  .filter(([code]) => code !== attr.code);
+              // Filter variants based on previous selections
+              const matchingVariants = variants.filter(variant => {
+                return previousSelections.every(([code, value]) => {
+                  return variant.attribute_values[code] === value;
+                });
+              });
+
+              // Get available options from matching variants
+              const availableValues = new Set(
+                matchingVariants.map(v => v.attribute_values[attr.code])
+              );
+              
+              const options = attr.values.filter(opt => 
+                index === 0 || availableValues.has(opt)
+              );
+
+              // Skip this attribute if it has no options
+              if (options.length === 0) {
+                return null;
+              }
+
+              // Only show this attribute if all previous VISIBLE attributes have been selected
+              const visiblePreviousAttrs = attributes.slice(0, index).filter((prevAttr, prevIndex) => {
+                // Check if this previous attribute would have options
+                const prevPreviousSelections = Object.entries(attributeValues)
+                  .filter(([code]) => {
+                    const attrIndex = attributes.findIndex(a => a.code === code);
+                    return attrIndex < prevIndex && attributeValues[code];
+                  });
                 
-                // Find all variants that match the other selections
-                const matchingVariants = variants.filter(variant => {
-                  return otherSelections.every(([code, value]) => {
+                const prevMatchingVariants = variants.filter(variant => {
+                  return prevPreviousSelections.every(([code, value]) => {
                     return variant.attribute_values[code] === value;
                   });
                 });
                 
-                // Only show options that exist in matching variants
-                const availableValues = new Set(
-                  matchingVariants.map(v => v.attribute_values[attr.code])
+                const prevAvailableValues = new Set(
+                  prevMatchingVariants.map(v => v.attribute_values[prevAttr.code])
                 );
                 
-                options = options.filter(opt => availableValues.has(opt));
+                const prevOptions = prevAttr.values.filter(opt => 
+                  prevIndex === 0 || prevAvailableValues.has(opt)
+                );
+                
+                return prevOptions.length > 0;
+              });
+
+              const allPreviousSelected = visiblePreviousAttrs.every(
+                prevAttr => attributeValues[prevAttr.code]
+              );
+              
+              if (!allPreviousSelected && index > 0) {
+                return null;
               }
 
               return (
@@ -279,46 +310,53 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
           </div>
         </div>
 
-        {/* Variant Section - Only show if there are multiple matching variants */}
+       {/* Variant Section - Show after first selection is made */}
         {(() => {
-          // Find matching variants based on current attribute selections
-          const matchingVariants = variants.filter(variant => {
-            return Object.entries(attributeValues).every(([attrCode, attrValue]) => {
-              return variant.attribute_values[attrCode] === attrValue;
-            });
-          });
+      // Only show if at least one attribute is selected
+      const hasAnySelection = Object.values(attributeValues).some(val => val);
+      
+      if (!hasAnySelection) return null;
 
-          // Only show if there are multiple matches
-          if (matchingVariants.length <= 0) return null;
+      // Find matching variants based on current attribute selections
+      const matchingVariants = variants.filter(variant => {
+        return Object.entries(attributeValues).every(([attrCode, attrValue]) => {
+          // Only check attributes that have been selected (not empty)
+          if (!attrValue) return true;
+          return variant.attribute_values[attrCode] === attrValue;
+        });
+      });
 
-          return (
-            <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-xl p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <h3 className="text-xs font-bold text-gray-900 uppercase tracking-widest">Select Variant</h3>
-                  <Badge variant="warning">
-                    <Icon name="info" className="text-sm inline" /> {matchingVariants.length} matches found
-                  </Badge>
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {matchingVariants.map((v) => (
-                  <button
-                    key={v.variant_id}
-                    onClick={() => setVariant(v.cex_sku)}
-                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all text-left ${
-                      variant === v.cex_sku
-                        ? 'border-2 border-yellow-500 bg-yellow-500 text-blue-900 shadow-sm'
-                        : 'border border-gray-200 bg-white text-gray-900 hover:border-yellow-500'
-                    }`}
-                  >
-                    {v.title}
-                  </button>
-                ))}
-              </div>
+      // Only show if there are matches
+      if (matchingVariants.length <= 0) return null;
+
+      return (
+        <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-xl p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <h3 className="text-xs font-bold text-gray-900 uppercase tracking-widest">Select Variant</h3>
+              <Badge variant="warning">
+                <Icon name="info" className="text-sm inline" /> {matchingVariants.length} matches found
+              </Badge>
             </div>
-          );
-        })()}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {matchingVariants.map((v) => (
+              <button
+                key={v.variant_id}
+                onClick={() => setVariant(v.cex_sku)}
+                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all text-left ${
+                  variant === v.cex_sku
+                    ? 'border-2 border-yellow-500 bg-yellow-500 text-blue-900 shadow-sm'
+                    : 'border border-gray-200 bg-white text-gray-900 hover:border-yellow-500'
+                }`}
+              >
+                {v.title}
+              </button>
+            ))}
+          </div>
+        </div>
+      );
+    })()}
 
         {/* Market Comparisons */}
         <Card noPadding>
