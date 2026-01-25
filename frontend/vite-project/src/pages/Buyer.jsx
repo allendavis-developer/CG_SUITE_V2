@@ -16,13 +16,72 @@ import {
   CartItem
 } from '../components/ui/components';
 
+
+// Mock API call for product models
+const fetchProductModels = async (category) => {
+  console.log('Fetching product models for category:', category);
+
+  // Simulate network request
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      resolve([
+        { model_id: 1, name: `${category.name} Model A` },
+        { model_id: 2, name: `${category.name} Model B` },
+        { model_id: 3, name: `${category.name} Model C` },
+      ]);
+    }, 500); // simulate 0.5s delay
+  });
+};
+
+
+// Mock product models data
+const PRODUCT_MODELS = {
+  14: ['iPhone 15', 'iPhone 15 Plus', 'iPhone 15 Pro', 'iPhone 15 Pro Max'],
+  9: ['iPhone 13', 'iPhone 13 mini', 'iPhone 13 Pro', 'iPhone 13 Pro Max'],
+  11: ['iPhone 14', 'iPhone 14 Plus', 'iPhone 14 Pro', 'iPhone 14 Pro Max'],
+  // Add more as needed
+};
+
+// Empty State Component
+const EmptyState = () => (
+  <div className="flex items-center justify-center h-full">
+    <div className="text-center px-8 py-12">
+      <div className="inline-flex items-center justify-center w-16 h-16 bg-gray-100 rounded-full mb-4">
+        <Icon name="devices" className="text-gray-400 text-2xl" />
+      </div>
+      <h3 className="text-lg font-bold text-gray-900 mb-2">Select a Product Category</h3>
+      <p className="text-sm text-gray-500 max-w-sm">
+        Choose a category from the sidebar to begin processing trade-ins
+      </p>
+    </div>
+  </div>
+);
+
 // Main Content Component
-const MainContent = () => {
+const MainContent = ({ selectedCategory, availableModels }) => {
   const [activeTab, setActiveTab] = useState('info');
+  const [selectedModel, setSelectedModel] = useState('');
   const [storage, setStorage] = useState('256GB');
   const [condition, setCondition] = useState('Excellent');
   const [carrier, setCarrier] = useState('Factory Unlocked');
   const [variant, setVariant] = useState('A3102');
+
+  // If no category selected, show empty state
+  if (!selectedCategory) {
+    return (
+      <section className="w-3/5 bg-white flex flex-col overflow-y-auto">
+        <EmptyState />
+      </section>
+    );
+  }
+
+  // Get available models for this category
+  const availableModelsForDropdown = availableModels.length > 0 ? availableModels : ['No models available'];
+  
+  // Set initial model if not set
+  if (!selectedModel && availableModels.length > 0 && availableModels[0] !== 'No models available') {
+    setSelectedModel(availableModels[0]);
+  }
 
   return (
     <section className="w-3/5 bg-white flex flex-col overflow-y-auto">
@@ -32,10 +91,23 @@ const MainContent = () => {
       </div>
 
       <div className="px-8 py-6 border-b border-gray-200 bg-gray-50/50">
-        <Breadcrumb items={['Trade-In', 'Electronics', 'iPhone 15 Pro']} />
+        <Breadcrumb items={selectedCategory.path} />
+        
+        {/* Product Model Dropdown */}
+        <div className="mb-4">
+          <CustomDropdown
+            value={selectedModel || 'Select a model'}
+            options={availableModelsForDropdown}
+            onChange={setSelectedModel}
+          />
+
+        </div>
+
         <div className="flex justify-between items-start">
           <div>
-            <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">iPhone 15 Pro - 256GB</h1>
+            <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">
+              {selectedModel || selectedCategory.name} - 256GB
+            </h1>
             <div className="mt-1 flex items-center gap-3">
               <p className="text-sm text-gray-500 flex items-center gap-2">
                 <Icon name="barcode_scanner" className="text-xs" />
@@ -199,8 +271,25 @@ const CartSidebar = () => {
   );
 };
 
+
+
+
 // Main Buyer Component
 export default function Buyer() {
+  const [selectedCategory, setSelectedCategory] = useState(null);
+  const [availableModels, setAvailableModels] = useState([]);
+
+  const handleCategorySelect = async (category) => {
+    setSelectedCategory(category);
+
+    // Fetch product models for this category
+    const models = await fetchProductModels(category);
+
+    // Update available models state
+    setAvailableModels(models.map((m) => m.name));
+  };
+
+
   return (
     <div className="bg-gray-50 text-gray-900 min-h-screen flex flex-col text-sm">
       <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -212,8 +301,8 @@ export default function Buyer() {
       
       <Header onSearch={(val) => console.log('Search:', val)} />
       <main className="flex flex-1 overflow-hidden h-[calc(100vh-61px)]">
-        <Sidebar />
-        <MainContent />
+        <Sidebar onCategorySelect={handleCategorySelect} />
+        <MainContent selectedCategory={selectedCategory} availableModels={availableModels}  />
         <CartSidebar />
       </main>
     </div>

@@ -1,5 +1,5 @@
 // components.js
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 // ==================== CORE UI COMPONENTS ====================
 
@@ -97,7 +97,7 @@ export const CustomDropdown = ({ label, value, options, onChange }) => {
 
   return (
     <div className="space-y-1.5" ref={dropdownRef}>
-      <label className="text-xs font-bold text-gray-500 uppercase">{label}</label>
+      {label && <label className="text-xs font-bold text-gray-500 uppercase">{label}</label>}
       <div className="relative">
         <button
           type="button"
@@ -108,7 +108,7 @@ export const CustomDropdown = ({ label, value, options, onChange }) => {
           <Icon name="expand_more" className={`text-gray-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
         </button>
         {isOpen && (
-          <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+          <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden max-h-60 overflow-y-auto">
             {options.map((option) => (
               <button
                 key={option}
@@ -222,27 +222,37 @@ export const Header = ({ onSearch, userName = "JD" }) => (
 // ==================== SIDEBAR COMPONENTS ====================
 
 // Sidebar Category Item
-export const CategoryItem = ({ icon, label, isActive, hasChildren, children, onToggle }) => (
-  <div className="space-y-1">
-    <div 
-      className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer text-sm ${
-        isActive 
-          ? 'bg-yellow-500/10 text-yellow-500 font-semibold border-l-2 border-yellow-500' 
-          : 'text-white/70 hover:bg-white/10'
-      }`}
-      onClick={onToggle}
-    >
-      {hasChildren && <Icon name="chevron_right" className={`transition-transform text-sm ${isActive ? 'rotate-90' : ''}`} />}
-      <Icon name={icon} className="text-sm" />
-      <span>{label}</span>
-    </div>
-    {isActive && children && (
-      <div className="ml-4 space-y-1 border-l border-white/10">
-        {children}
+export const CategoryItem = ({ icon, label, isActive, hasChildren, children, onToggle, isBottomLevel, onSelect }) => {
+  const handleClick = () => {
+    if (isBottomLevel && onSelect) {
+      onSelect();
+    } else if (hasChildren && onToggle) {
+      onToggle();
+    }
+  };
+
+  return (
+    <div className="space-y-1">
+      <div 
+        className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer text-sm ${
+          isActive 
+            ? 'bg-yellow-500/10 text-yellow-500 font-semibold border-l-2 border-yellow-500' 
+            : 'text-white/70 hover:bg-white/10'
+        }`}
+        onClick={handleClick}
+      >
+        {hasChildren && <Icon name="chevron_right" className={`transition-transform text-sm ${isActive ? 'rotate-90' : ''}`} />}
+        <Icon name={icon} className="text-sm" />
+        <span>{label}</span>
       </div>
-    )}
-  </div>
-);
+      {isActive && children && (
+        <div className="ml-4 space-y-1 border-l border-white/10">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+};
 
 // Recent Item Component
 export const RecentItem = ({ image, title, sku, onClick }) => (
@@ -260,42 +270,72 @@ export const RecentItem = ({ image, title, sku, onClick }) => (
   </div>
 );
 
+
+
 // Sidebar Component
-import {useEffect } from 'react';
-
-export const Sidebar = () => {
-  const [categories, setCategories] = useState([]); // API categories
-  const [expandedCategory, setExpandedCategory] = useState(null);
+export const Sidebar = ({ onCategorySelect }) => {
+  const [categories, setCategories] = useState([]);
+  const [expandedCategories, setExpandedCategories] = useState([]);
   const [filterText, setFilterText] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState(null);
 
-  // Fetch categories from Django API on mount
   useEffect(() => {
-    fetch('/api/product-categories/') // your Django endpoint
+    // Use mock data for now - replace with actual API call
+  
+    fetch('/api/product-categories/')
       .then((res) => res.json())
-      .then((data) => {
-        console.log('API response:', data); // <-- check this
-        setCategories(data);
-      })
-
+      .then((data) => setCategories(data))
       .catch((err) => console.error('Error fetching categories:', err));
   }, []);
 
-  // Recursive rendering of categories
+  // Get breadcrumb path for a category
+  const getCategoryPath = (categoryId, categories, path = []) => {
+    for (const cat of categories) {
+      if (cat.category_id === categoryId) {
+        return [...path, cat.name];
+      }
+      if (cat.children && cat.children.length > 0) {
+        const found = getCategoryPath(categoryId, cat.children, [...path, cat.name]);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+
+  const handleCategorySelect = async (category) => {
+    setSelectedCategory(category.category_id);
+
+    const path = getCategoryPath(category.category_id, categories);
+    onCategorySelect({
+      id: category.category_id,
+      name: category.name,
+      path: path || [category.name]
+    });
+
+
+  };
+
+
   const renderCategory = (category) => {
     const hasChildren = category.children && category.children.length > 0;
+    const isBottomLevel = !hasChildren;
 
     return (
       <CategoryItem
         key={category.category_id}
-        icon="folder" // You could map icons per category type
+        icon={hasChildren ? "folder" : "smartphone"}
         label={category.name}
-        isActive={expandedCategory === category.category_id}
+        isActive={expandedCategories.includes(category.category_id) || selectedCategory === category.category_id}
         hasChildren={hasChildren}
-        onToggle={() =>
-          setExpandedCategory(
-            expandedCategory === category.category_id ? null : category.category_id
-          )
-        }
+        isBottomLevel={isBottomLevel}
+        onToggle={() => {
+          setExpandedCategories((prev) =>
+            prev.includes(category.category_id)
+              ? prev.filter((id) => id !== category.category_id) // collapse
+              : [...prev, category.category_id]                // expand
+          );
+        }}
+        onSelect={() => handleCategorySelect(category)}
       >
         {hasChildren &&
           category.children.map((child) => (
@@ -308,13 +348,11 @@ export const Sidebar = () => {
   return (
     <aside className="w-1/5 border-r border-blue-900/10 flex flex-col bg-blue-900 overflow-y-auto">
       <div className="p-4 space-y-6">
-        {/* Categories Section */}
         <div>
           <h3 className="text-xs font-bold uppercase tracking-wider text-white/50 mb-3 px-2">
             Device Categories
           </h3>
 
-          {/* Filter Input */}
           <div className="relative mb-3">
             <Icon name="filter_list" className="absolute left-3 top-2.5 text-white/40 text-sm" />
             <input
@@ -326,7 +364,6 @@ export const Sidebar = () => {
             />
           </div>
 
-          {/* Categories List */}
           <div className="space-y-1">
             {categories
               .filter((cat) =>
@@ -336,7 +373,6 @@ export const Sidebar = () => {
           </div>
         </div>
 
-        {/* Recents Section (unchanged) */}
         <div>
           <h3 className="text-xs font-bold uppercase tracking-wider text-white/50 mb-3 px-2">
             Recents
@@ -353,7 +389,6 @@ export const Sidebar = () => {
     </aside>
   );
 };
-
 
 // ==================== PRODUCT COMPONENTS ====================
 
