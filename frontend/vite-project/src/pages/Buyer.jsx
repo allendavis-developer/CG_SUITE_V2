@@ -111,7 +111,6 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
     }
 
     const loadAttributes = async () => {
-      // Reset state before loading new attributes
       setAttributes([]);
       setAttributeValues({});
       setDependencies([]);
@@ -121,19 +120,24 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
       const data = await fetchAttributes(selectedModel.product_id);
       
       if (!data) return;
-      console.log('Attributes:', data.attributes);
 
       setAttributes(data.attributes);
       setDependencies(data.dependencies);
       setVariants(data.variants);
 
-      // Initialize with EMPTY values instead of first option
+      // Auto-select attributes with only one option
       const initialValues = {};
       data.attributes.forEach(attr => {
-        initialValues[attr.code] = '';  // Changed from attr.values[0] to ''
+        if (attr.values.length === 1) {
+          initialValues[attr.code] = attr.values[0];  // Auto-select if only one option
+        } else {
+          initialValues[attr.code] = '';  // Empty for multiple options
+        }
       });
       setAttributeValues(initialValues);
     };
+
+
 
     loadAttributes();
   }, [selectedModel]);
