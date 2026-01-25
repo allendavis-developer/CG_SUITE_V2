@@ -1,5 +1,5 @@
 // Buyer.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Icon,
   Button,
@@ -18,7 +18,7 @@ import {
 } from '../components/ui/components';
 
 
-// Mock API call for product models
+// API call for product models
 const fetchProductModels = async (category) => {
   if (!category?.id) return [];
 
@@ -35,14 +35,42 @@ const fetchProductModels = async (category) => {
   }
 };
 
+// Mock API call for product attributes
+const fetchAttributes = async (model) => {
+  // Simulate network delay
+  await new Promise(res => setTimeout(res, 300));
 
-// Mock product models data
-const PRODUCT_MODELS = {
-  14: ['iPhone 15', 'iPhone 15 Plus', 'iPhone 15 Pro', 'iPhone 15 Pro Max'],
-  9: ['iPhone 13', 'iPhone 13 mini', 'iPhone 13 Pro', 'iPhone 13 Pro Max'],
-  11: ['iPhone 14', 'iPhone 14 Plus', 'iPhone 14 Pro', 'iPhone 14 Pro Max'],
-  // Add more as needed
+  // Mock data
+  return {
+    attributes: [
+      { name: 'Storage', values: ['256GB', '512GB', '1TB'] },
+      { name: 'Condition', values: ['Excellent', 'Standard', 'Damaged'] },
+      { name: 'Carrier', values: ['Factory Unlocked', 'Network Locked'] },
+      { name: 'Edition', values: ['Standard', 'Special Edition'] }
+    ],
+    dependencies: [
+      {
+        attribute: 'Condition',
+        dependsOn: 'Storage',
+        rules: {
+          '256GB': ['Excellent', 'Standard'],
+          '512GB': ['Excellent'],
+          '1TB': ['Excellent', 'Standard', 'Damaged']
+        }
+      },
+      {
+        attribute: 'Carrier',
+        dependsOn: 'Edition',
+        rules: {
+          'Special Edition': ['Factory Unlocked'],
+          'Standard': ['Factory Unlocked', 'Network Locked']
+        }
+      }
+    ]
+  };
 };
+
+
 
 // Empty State Component
 const EmptyState = () => (
@@ -63,10 +91,57 @@ const EmptyState = () => (
 const MainContent = ({ selectedCategory, availableModels }) => {
   const [activeTab, setActiveTab] = useState('info');
   const [selectedModel, setSelectedModel] = useState('');
-  const [storage, setStorage] = useState('256GB');
-  const [condition, setCondition] = useState('Excellent');
-  const [carrier, setCarrier] = useState('Factory Unlocked');
-  const [variant, setVariant] = useState('A3102');
+  const [variant, setVariant] = useState(''); // For variant buttons
+
+  // Dynamic attributes
+  const [attributes, setAttributes] = useState([]); // Fetched from API
+  const [attributeValues, setAttributeValues] = useState({}); // Currently selected values
+  const [dependencies, setDependencies] = useState([]); // Dependency rules
+
+  // Load attributes when a model is selected
+  useEffect(() => {
+    if (!selectedModel) return;
+
+    const loadAttributes = async () => {
+      const data = await fetchAttributes(selectedModel);
+
+      setAttributes(data.attributes);
+      setDependencies(data.dependencies);
+
+      // Initialize selected values with the first option of each attribute
+      const initialValues = {};
+      data.attributes.forEach(attr => {
+        initialValues[attr.name] = attr.values[0] || '';
+      });
+      setAttributeValues(initialValues);
+    };
+
+    loadAttributes();
+  }, [selectedModel]);
+
+  useEffect(() => {
+    if (!selectedModel && availableModels.length > 0 && availableModels[0] !== 'No models available') {
+      setSelectedModel(availableModels[0]);
+    }
+  }, [availableModels, selectedModel]);
+
+
+  // Handle intelligent attribute changes
+  const handleAttributeChange = (name, value) => {
+    const newValues = { ...attributeValues, [name]: value };
+
+    // Apply dependencies: auto-select or remove invalid options
+    dependencies.forEach(dep => {
+      if (dep.dependsOn in newValues && dep.attribute in newValues) {
+        const allowed = dep.rules[newValues[dep.dependsOn]] || [];
+        if (!allowed.includes(newValues[dep.attribute])) {
+          newValues[dep.attribute] = allowed[0] || '';
+        }
+      }
+    });
+
+    setAttributeValues(newValues);
+  };
 
   // If no category selected, show empty state
   if (!selectedCategory) {
@@ -77,13 +152,8 @@ const MainContent = ({ selectedCategory, availableModels }) => {
     );
   }
 
-  // Get available models for this category
+
   const availableModelsForDropdown = availableModels.length > 0 ? availableModels : ['No models available'];
-  
-  // Set initial model if not set
-  if (!selectedModel && availableModels.length > 0 && availableModels[0] !== 'No models available') {
-    setSelectedModel(availableModels[0]);
-  }
 
   return (
     <section className="w-3/5 bg-white flex flex-col overflow-y-auto">
@@ -94,7 +164,7 @@ const MainContent = ({ selectedCategory, availableModels }) => {
 
       <div className="px-8 py-6 border-b border-gray-200 bg-gray-50/50">
         <Breadcrumb items={selectedCategory.path} />
-        
+
         {/* Product Model Dropdown */}
         <div className="mb-4">
           <SearchableDropdown
@@ -102,13 +172,12 @@ const MainContent = ({ selectedCategory, availableModels }) => {
             options={availableModelsForDropdown}
             onChange={setSelectedModel}
           />
-
         </div>
 
         <div className="flex justify-between items-start">
           <div>
             <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">
-              {selectedModel || selectedCategory.name} - 256GB
+              {selectedModel || selectedCategory.name} - {attributeValues.Storage || ''}
             </h1>
             <div className="mt-1 flex items-center gap-3">
               <p className="text-sm text-gray-500 flex items-center gap-2">
@@ -125,31 +194,34 @@ const MainContent = ({ selectedCategory, availableModels }) => {
         </div>
       </div>
 
+      {/* Configuration & Condition */}
       <div className="p-8 space-y-8">
         <div className="bg-gray-50 p-6 rounded-xl border border-gray-200">
           <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">Configuration & Condition</h3>
           <div className="grid grid-cols-3 gap-6">
-            <CustomDropdown
-              label="Storage"
-              value={storage}
-              options={['256GB', '512GB', '1TB']}
-              onChange={setStorage}
-            />
-            <CustomDropdown
-              label="Condition"
-              value={condition}
-              options={['Excellent', 'Standard', 'Damaged']}
-              onChange={setCondition}
-            />
-            <CustomDropdown
-              label="Carrier"
-              value={carrier}
-              options={['Factory Unlocked', 'Network Locked']}
-              onChange={setCarrier}
-            />
+            {attributes.map(attr => {
+              // Compute allowed options based on dependencies
+              const dep = dependencies.find(d => d.attribute === attr.name);
+              let options = attr.values;
+
+              if (dep && attributeValues[dep.dependsOn]) {
+                options = dep.rules[attributeValues[dep.dependsOn]] || [];
+              }
+
+              return (
+                <CustomDropdown
+                  key={attr.name}
+                  label={attr.name}
+                  value={attributeValues[attr.name] || ''}
+                  options={options}
+                  onChange={(val) => handleAttributeChange(attr.name, val)}
+                />
+              );
+            })}
           </div>
         </div>
 
+        {/* Variant Section */}
         <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-xl p-6">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
@@ -161,12 +233,12 @@ const MainContent = ({ selectedCategory, availableModels }) => {
           </div>
           <div className="flex flex-wrap gap-2">
             {['A3102 (Global)', 'A2848 (USA)', 'A3101 (Canada/Japan)'].map((v) => (
-              <button 
+              <button
                 key={v}
                 onClick={() => setVariant(v)}
                 className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-                  variant === v 
-                    ? 'border-2 border-yellow-500 bg-yellow-500 text-blue-900 shadow-sm' 
+                  variant === v
+                    ? 'border-2 border-yellow-500 bg-yellow-500 text-blue-900 shadow-sm'
                     : 'border border-gray-200 bg-white text-gray-900 hover:border-yellow-500'
                 }`}
               >
@@ -176,8 +248,9 @@ const MainContent = ({ selectedCategory, availableModels }) => {
           </div>
         </div>
 
+        {/* Market Comparisons */}
         <Card noPadding>
-          <CardHeader 
+          <CardHeader
             title="Market Comparisons"
             actions={
               <span className="text-[10px] font-bold text-gray-500 flex items-center gap-1.5">
@@ -202,6 +275,7 @@ const MainContent = ({ selectedCategory, availableModels }) => {
           </table>
         </Card>
 
+        {/* Suggested Trade-In Offers */}
         <div>
           <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">Suggested Trade-In Offers</h3>
           <div className="grid grid-cols-3 gap-6">
@@ -214,6 +288,7 @@ const MainContent = ({ selectedCategory, availableModels }) => {
     </section>
   );
 };
+
 
 // Cart Sidebar Component
 const CartSidebar = () => {
