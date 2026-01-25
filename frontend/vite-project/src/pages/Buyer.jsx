@@ -91,13 +91,37 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
   const [variants, setVariants] = useState([]);
 
   useEffect(() => {
-    if (!selectedModel?.product_id) return;
+    // Reset all attribute-related state when category changes
+    setAttributes([]);
+    setAttributeValues({});
+    setDependencies([]);
+    setVariants([]);
+    setVariant('');
+  }, [selectedCategory]);
+
+  useEffect(() => {
+    if (!selectedModel?.product_id) {
+      // Clear attributes when no model is selected
+      setAttributes([]);
+      setAttributeValues({});
+      setDependencies([]);
+      setVariants([]);
+      setVariant('');
+      return;
+    }
 
     const loadAttributes = async () => {
+      // Reset state before loading new attributes
+      setAttributes([]);
+      setAttributeValues({});
+      setDependencies([]);
+      setVariants([]);
+      setVariant('');
+
       const data = await fetchAttributes(selectedModel.product_id);
       
       if (!data) return;
-      console.log('Attributes:', data.attributes); // Check this in your browser console
+      console.log('Attributes:', data.attributes);
 
       setAttributes(data.attributes);
       setDependencies(data.dependencies);
@@ -218,23 +242,28 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
           <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">Configuration & Condition</h3>
           <div className="grid grid-cols-3 gap-6">
             {attributes.map(attr => {
-              // Find all dependencies that affect this attribute
-              const relevantDep = dependencies.find(d => d.attribute === attr.code);
+              // Get base options from attribute definition
               let options = attr.values;
 
-              if (relevantDep && relevantDep.depends_on) {
-                // Get all currently selected values that this attribute depends on
-                let allowedOptions = new Set(attr.values);
+              // Filter based on what variants actually exist
+              if (variants.length > 0) {
+                // Get current selections excluding this attribute
+                const otherSelections = Object.entries(attributeValues)
+                  .filter(([code]) => code !== attr.code);
                 
-                Object.entries(relevantDep.depends_on).forEach(([depAttrCode, rules]) => {
-                  const currentValue = attributeValues[depAttrCode];
-                  if (currentValue && rules[currentValue]) {
-                    const allowed = rules[currentValue];
-                    allowedOptions = new Set([...allowedOptions].filter(v => allowed.includes(v)));
-                  }
+                // Find all variants that match the other selections
+                const matchingVariants = variants.filter(variant => {
+                  return otherSelections.every(([code, value]) => {
+                    return variant.attribute_values[code] === value;
+                  });
                 });
                 
-                options = Array.from(allowedOptions);
+                // Only show options that exist in matching variants
+                const availableValues = new Set(
+                  matchingVariants.map(v => v.attribute_values[attr.code])
+                );
+                
+                options = options.filter(opt => availableValues.has(opt));
               }
 
               return (
@@ -277,13 +306,13 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
                   <button
                     key={v.variant_id}
                     onClick={() => setVariant(v.cex_sku)}
-                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all text-left ${
                       variant === v.cex_sku
                         ? 'border-2 border-yellow-500 bg-yellow-500 text-blue-900 shadow-sm'
                         : 'border border-gray-200 bg-white text-gray-900 hover:border-yellow-500'
                     }`}
                   >
-                    {v.cex_sku}
+                    {v.title}
                   </button>
                 ))}
               </div>

@@ -122,6 +122,7 @@ def product_variants(request):
         attr_values = {av.attribute.code: av.value for av in v.attribute_values.all()}
         variants_data.append({
             "variant_id": v.variant_id,
+            "title": v.title,  
             "cex_sku": v.cex_sku,
             "current_price_gbp": float(v.current_price_gbp),
             "tradein_cash": float(v.tradein_cash),
@@ -129,6 +130,7 @@ def product_variants(request):
             "cex_out_of_stock": v.cex_out_of_stock,
             "attribute_values": attr_values
         })
+
 
     return Response({
         "product": {"id": product.product_id, "name": product.name},
