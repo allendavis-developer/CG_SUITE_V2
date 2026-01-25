@@ -19,18 +19,19 @@ import {
 
 // Mock API call for product models
 const fetchProductModels = async (category) => {
-  console.log('Fetching product models for category:', category);
+  if (!category?.id) return [];
 
-  // Simulate network request
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve([
-        { model_id: 1, name: `${category.name} Model A` },
-        { model_id: 2, name: `${category.name} Model B` },
-        { model_id: 3, name: `${category.name} Model C` },
-      ]);
-    }, 500); // simulate 0.5s delay
-  });
+  try {
+    const res = await fetch(`/api/products/?category_id=${category.id}`);
+    if (!res.ok) throw new Error('Network response was not ok');
+    const data = await res.json();
+
+    // data = [{product_id, name}, ...]
+    return data.map((p) => ({ model_id: p.product_id, name: p.name }));
+  } catch (err) {
+    console.error('Error fetching product models:', err);
+    return [];
+  }
 };
 
 

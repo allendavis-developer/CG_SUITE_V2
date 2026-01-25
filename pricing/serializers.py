@@ -1,6 +1,6 @@
 # serializers.py
 from rest_framework import serializers
-from .models_v2 import ProductCategory
+from .models_v2 import ProductCategory, Product
 
 class ProductCategorySerializer(serializers.ModelSerializer):
     children = serializers.SerializerMethodField()  # Nested children
@@ -14,3 +14,10 @@ class ProductCategorySerializer(serializers.ModelSerializer):
         children = obj.children.all()
         serializer = ProductCategorySerializer(children, many=True)
         return serializer.data
+
+
+
+class ProductSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Product
+        fields = ['product_id', 'name']
