@@ -253,7 +253,7 @@ export const Header = ({ onSearch, userName = "JD" }) => (
         <div className="size-6 flex items-center justify-center bg-yellow-500 text-blue-900 rounded">
           <Icon name="currency_exchange" className="text-sm font-bold" />
         </div>
-        <h2 className="text-white text-lg font-bold leading-tight tracking-tight">Trade-In Processor</h2>
+        <h2 className="text-white text-lg font-bold leading-tight tracking-tight">CashGenerator</h2>
       </div>
       <Input 
         placeholder="Search Catalog (Ctrl+K)"

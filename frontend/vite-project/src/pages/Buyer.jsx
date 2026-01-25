@@ -436,33 +436,50 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {isLoadingStats && (
-                <tr>
-                  <td colSpan="4" className="p-6 text-center text-xs text-gray-400">
-                    Fetching competitor data…
+              {/* CEX ROW */}
+              {variant && competitorStats.length > 0 ? (
+                competitorStats.map((row, idx) => (
+                  <MarketRow
+                    key={`cex-${idx}`}
+                    platform="CEX"
+                    salePrice={formatGBP(row.salePrice)}
+                    buyPrice={formatGBP(row.buyPrice)}
+                    verified
+                  />
+                ))
+              ) : (
+                <tr className="bg-ui-bg/20">
+                  <td className="p-4 font-medium text-text-muted">CEX</td>
+                  <td className="p-4 italic text-text-muted/60" colSpan={2}>
+                    Select a variant to view prices
                   </td>
+                  <td className="p-4 text-right text-xs text-text-muted/60">—</td>
                 </tr>
               )}
 
-              {!isLoadingStats && competitorStats.length === 0 && (
-                <tr>
-                  <td colSpan="4" className="p-6 text-center text-xs text-gray-400">
-                    Select a variant to view market data
-                  </td>
-                </tr>
-              )}
-
-              {competitorStats.map((row, idx) => (
-  <MarketRow
-    key={idx}
-    platform={row.platform}
-    salePrice={formatGBP(row.salePrice)}
-    buyPrice={formatGBP(row.buyPrice)}
-    verified
-  />
-))}
+              {/* EBAY ROW (ALWAYS PRESENT) */}
+              <tr className="bg-ui-bg/20 hover:bg-ui-bg transition-colors">
+                <td className="p-4 font-medium text-text-muted">
+                  Secondary Marketplace
+                </td>
+                <td className="p-4 italic text-text-muted/60" colSpan={2}>
+                  No data – Run research
+                </td>
+                <td className="p-4 text-right">
+                  <Button
+                    variant="primary"
+                    size="lg"
+                    className="group"
+                    icon="search_insights"
+                    onClick={() => console.log('Run eBay research', variant)}
+                  >
+                    Research on eBay
+                  </Button>
+                </td>
+              </tr>
 
             </tbody>
+
 
           </table>
         </Card>
