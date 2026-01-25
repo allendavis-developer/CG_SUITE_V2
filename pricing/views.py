@@ -1875,6 +1875,3 @@ class ItemModelAutocomplete(autocomplete.Select2QuerySetView):
 
 
 # react setup
-
-def react_app(request):
-    return render(request, "react.html")

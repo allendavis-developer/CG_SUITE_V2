@@ -51,6 +51,7 @@ INSTALLED_APPS = [
 
     #other apps
     'pricing',
+    'rest_framework'
 ]
 
 MIDDLEWARE = [

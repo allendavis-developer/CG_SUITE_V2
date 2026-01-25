@@ -1,7 +1,8 @@
 from django.contrib import admin
-from django.urls import path
-import pricing.views as v
+from django.urls import path, re_path
 
+import pricing.views as v
+import pricing.views_v2 as v2
 urlpatterns = [
     # ----------------------------- PAGES -----------------------------
     path('', v.home_view, name='home'),
@@ -10,12 +11,10 @@ urlpatterns = [
     path("repricer/", v.repricer_view, name="repricer"),
     path("scraper/", v.scraper_view, name="scraper"),
     path("buyer/", v.buyer_view, name="buyer"),
-    path("react/", v.react_app),
+
 
 
     # ----------------------------- API -----------------------------
-    
-
     path("bulk-analysis", v.bulk_analysis, name='bulk_analysis'),
     path('save_listing/', v.save_listing, name='save_listing'),
     path("save_scraped_data/", v.save_scraped_data, name="save_scraped_data"),
@@ -47,6 +46,15 @@ urlpatterns = [
     path('category-autocomplete/', v.CategoryAutocomplete.as_view(), name='category-autocomplete'),
     path('subcategory-autocomplete/', v.SubcategoryAutocomplete.as_view(), name='subcategory-autocomplete'),
     path('itemmodel-autocomplete/', v.ItemModelAutocomplete.as_view(), name='itemmodel-autocomplete'),
+
+
+
+    # new frontend rewrite api calls needed
+    path('api/product-categories/', v2.categories_list, name='product-categories'),
+
+
+    # Catch-all for React
+    re_path(r"^.*$", v2.react_app),
 
 ]
 
