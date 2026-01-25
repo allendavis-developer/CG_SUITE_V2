@@ -17,6 +17,8 @@ import {
   SearchableDropdown
 } from '../components/ui/components';
 
+import EbayResearchModal from "../components/modals/EbayResearchModal.jsx"
+
 const formatGBP = (value) =>
   new Intl.NumberFormat('en-GB', {
     style: 'currency',
@@ -119,6 +121,7 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
   const [variants, setVariants] = useState([]);
   const [competitorStats, setCompetitorStats] = useState([]);
   const [isLoadingStats, setIsLoadingStats] = useState(false);
+  const [isEbayModalOpen, setEbayModalOpen] = useState(false);
 
   useEffect(() => {
     // Reset all attribute-related state when category changes
@@ -250,7 +253,7 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
     <section className="w-3/5 bg-white flex flex-col overflow-y-auto">
       <div className="flex items-center px-8 bg-gray-50 border-b border-gray-200 sticky top-0 z-40">
         <Tab icon="info" label="Product Info" isActive={activeTab === 'info'} onClick={() => setActiveTab('info')} />
-        <Tab icon="analytics" label="Market Research" isActive={activeTab === 'research'} onClick={() => setActiveTab('research')} />
+        <Tab icon="analytics" label="eBay Research" isActive={activeTab === 'research'} onClick={() => setActiveTab('research')} />
       </div>
 
       <div className="px-8 py-6 border-b border-gray-200 bg-gray-50/50">
@@ -460,7 +463,7 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
               {/* EBAY ROW (ALWAYS PRESENT) */}
               <tr className="bg-ui-bg/20 hover:bg-ui-bg transition-colors">
                 <td className="p-4 font-medium text-text-muted">
-                  Secondary Marketplace
+                  eBay
                 </td>
                 <td className="p-4 italic text-text-muted/60" colSpan={2}>
                   No data – Run research
@@ -471,7 +474,7 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
                     size="lg"
                     className="group"
                     icon="search_insights"
-                    onClick={() => console.log('Run eBay research', variant)}
+                    onClick={() => setEbayModalOpen(true)}
                   >
                     Research on eBay
                   </Button>
@@ -494,6 +497,17 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
           </div>
         </div>
       </div>
+
+      <EbayResearchModal
+        open={isEbayModalOpen}
+        onClose={() => setEbayModalOpen(false)}
+        onResearchComplete={(data) => {
+          console.log('eBay research done', data);
+          // optionally do something with the data
+        }}
+      />
+
+
     </section>
   );
 };
