@@ -528,58 +528,6 @@ function recalculateOfferValue() {
 
 
 
-function getMockResults() {
-  return {
-    summary: {
-      ebay_min: '£295.00',
-      ebay_avg: '£368.75',
-      ebay_mode: '£365.00',
-      ebay_median: '£370.00'
-    },
-    listings: [
-      {
-        title: 'iPhone 13 Pro 128GB Graphite - Unlocked',
-        price: '£365.00',
-        condition: 'Used',
-        seller: 'tech_store_uk',
-        url: '#',
-        image: 'https://via.placeholder.com/80'
-      },
-      {
-        title: 'Apple iPhone 13 Pro 128GB Sierra Blue',
-        price: '£370.00',
-        condition: 'Used',
-        seller: 'mobile_deals',
-        url: '#',
-        image: 'https://via.placeholder.com/80'
-      },
-      {
-        title: 'iPhone 13 Pro 128GB Gold - Good Condition',
-        price: '£355.00',
-        condition: 'Used',
-        seller: 'phone_reseller',
-        url: '#',
-        image: 'https://via.placeholder.com/80'
-      },
-      {
-        title: 'iPhone 13 Pro 128GB Silver Unlocked',
-        price: '£380.00',
-        condition: 'Used',
-        seller: 'electronics_hub',
-        url: '#',
-        image: 'https://via.placeholder.com/80'
-      },
-      {
-        title: 'Apple iPhone 13 Pro 128GB - Excellent',
-        price: '£375.00',
-        condition: 'Used',
-        seller: 'premium_phones',
-        url: '#',
-        image: 'https://via.placeholder.com/80'
-      }
-    ]
-  };
-}
 
 function renderResults(results) {
   if (!results || results.length === 0) {

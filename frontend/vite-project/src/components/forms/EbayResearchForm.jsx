@@ -1,77 +1,89 @@
 import React, { useState } from 'react';
 import { Button, Icon } from '../ui/components';
 
-// --- Mock API calls ---
-const fetchFilterOptions = async () => {
-  return new Promise(resolve => {
-    setTimeout(() => {
-      resolve({
-        conditions: ["New", "Open Box", "Pre-owned"],
-        listingTypes: ["Sold Listings", "Active Listings"],
-      });
-    }, 500);
-  });
-};
+// --- Mock listings ---
+const mockListings = [
+  { title: "Apple iPhone 15 Pro - 256GB - Natural Titanium", condition: "Pre-owned", price: 899, shipping: 12.5, status: "Sold" },
+  { title: "iPhone 15 Pro 256GB Blue Titanium - Excellent Condition", condition: "Open Box", price: 945, shipping: 0, status: "Sold" },
+  { title: "Apple iPhone 15 Pro - 256GB - White Titanium", condition: "Pre-owned", price: 872, shipping: 9.99, status: "Sold" },
+  { title: "Brand New Sealed Apple iPhone 15 Pro 256GB Black", condition: "New", price: 1049, shipping: 0, status: "Sold" },
+];
 
-const fetchListings = async (searchTerm, filters) => {
-  return new Promise(resolve => {
-    setTimeout(() => {
-      resolve([
-        { title: "Apple iPhone 15 Pro - 256GB - Natural Titanium", condition: "Pre-owned", price: 899, shipping: 12.5, status: "Sold" },
-        { title: "iPhone 15 Pro 256GB Blue Titanium - Excellent Condition", condition: "Open Box", price: 945, shipping: 0, status: "Sold" },
-        { title: "Apple iPhone 15 Pro - 256GB - White Titanium", condition: "Pre-owned", price: 872, shipping: 9.99, status: "Sold" },
-        { title: "Brand New Sealed Apple iPhone 15 Pro 256GB Black", condition: "New", price: 1049, shipping: 0, status: "Sold" },
-      ]);
-    }, 700);
-  });
-};
-
-// --- Component ---
 export default function EbayResearchForm({ onComplete }) {
   const [searchTerm, setSearchTerm] = useState("iPhone 15 Pro");
   const [step, setStep] = useState(1); // 1=search, 2=filters, 3=results
-  const [filterOptions, setFilterOptions] = useState(null);
+  const [filterOptions, setFilterOptions] = useState([]); // API filters
   const [listings, setListings] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  // Selected filters
   const [selectedFilters, setSelectedFilters] = useState({
-    basic: ["Completed & Sold", "Used", "UK Only"], // always shown defaults
-    condition: [],
-    listingType: "Sold Listings",
-    freeShipping: false,
-    priceRange: { min: "", max: "" },
+    basic: ["Completed & Sold", "Used", "UK Only"],
+    apiFilters: {}, // eBay API filters
   });
 
-  // --- Handle step transitions ---
+  // --- Fetch eBay filters (initial) ---
+  const fetchEbayFilters = async (term) => {
+    try {
+      const res = await fetch(`/api/ebay/filters/?q=${encodeURIComponent(term)}`);
+      if (!res.ok) throw new Error('Failed to fetch filters');
+      const data = await res.json();
+      setFilterOptions(data.filters || []);
+    } catch (err) {
+      console.error('Error fetching eBay filters:', err);
+      setFilterOptions([]);
+    }
+  };
+
+  // --- Refresh filters from URL (like refreshFilters in JS version) ---
+  const refreshFiltersFromUrl = async (url) => {
+    try {
+      const res = await fetch(`/api/ebay/filters/?url=${encodeURIComponent(url)}`);
+      if (!res.ok) throw new Error('Failed to refresh filters');
+      const data = await res.json();
+      // update counts / options but keep selectedFilters.apiFilters
+      setFilterOptions(data.filters || []);
+    } catch (err) {
+      console.error('Error refreshing filters:', err);
+    }
+  };
+
   const handleNext = async () => {
     if (step === 1) {
       setLoading(true);
-      const filters = await fetchFilterOptions();
-      setFilterOptions(filters);
-
-      // Initialize conditions if empty
-      setSelectedFilters(prev => ({
-        ...prev,
-        condition: prev.condition.length ? prev.condition : filters.conditions,
-      }));
-
+      await fetchEbayFilters(searchTerm);
       setStep(2);
       setLoading(false);
     } else if (step === 2) {
       setLoading(true);
-      const results = await fetchListings(searchTerm, selectedFilters);
-      setListings(results);
+
+      // --- Simulate building a URL from selected filters ---
+      const fakeEbayUrl = `https://www.ebay.co.uk/sch/i.html?_nkw=${encodeURIComponent(searchTerm)}`;
+      await refreshFiltersFromUrl(fakeEbayUrl); // refresh filter counts/options
+
+      // Show mock listings
+      setListings(mockListings);
       setStep(3);
       setLoading(false);
     }
   };
 
-  const handleFilterChange = (key, value) => {
-    setSelectedFilters(prev => ({
-      ...prev,
-      [key]: value,
-    }));
+  const handleApiFilterChange = (filterName, value, type, rangeKey) => {
+    setSelectedFilters(prev => {
+      const newFilters = { ...prev.apiFilters };
+      if (type === 'checkbox') {
+        if (!Array.isArray(newFilters[filterName])) newFilters[filterName] = [];
+        if (value.checked) {
+          newFilters[filterName].push(value.label);
+        } else {
+          newFilters[filterName] = newFilters[filterName].filter(v => v !== value.label);
+          if (newFilters[filterName].length === 0) delete newFilters[filterName];
+        }
+      } else if (type === 'range') {
+        if (!newFilters[filterName]) newFilters[filterName] = {};
+        newFilters[filterName][rangeKey] = value;
+      }
+      return { ...prev, apiFilters: newFilters };
+    });
   };
 
   return (
@@ -119,7 +131,7 @@ export default function EbayResearchForm({ onComplete }) {
           {/* Sidebar filters */}
           {step >= 2 && (
             <aside className="w-64 border-r border-gray-200 overflow-y-auto bg-white p-4 space-y-6">
-              {/* --- Basic Filters (always show) --- */}
+              {/* Basic Filters */}
               <div>
                 <h3 className="text-xs font-bold text-blue-900 uppercase tracking-wider mb-2">Basic Filters</h3>
                 <div className="space-y-2">
@@ -133,7 +145,7 @@ export default function EbayResearchForm({ onComplete }) {
                           const newBasic = e.target.checked
                             ? [...selectedFilters.basic, filter]
                             : selectedFilters.basic.filter(f => f !== filter);
-                          handleFilterChange("basic", newBasic);
+                          setSelectedFilters(prev => ({ ...prev, basic: newBasic }));
                         }}
                       />
                       <span>{filter}</span>
@@ -142,83 +154,44 @@ export default function EbayResearchForm({ onComplete }) {
                 </div>
               </div>
 
-              {/* --- API filters --- */}
-              {filterOptions && (
-                <>
-                  <div>
-                    <h3 className="text-xs font-bold text-blue-900 uppercase tracking-wider mb-2">Condition</h3>
-                    <div className="space-y-2">
-                      {filterOptions.conditions.map((cond) => (
-                        <label key={cond} className="flex items-center gap-2 cursor-pointer text-xs">
-                          <input
-                            type="checkbox"
-                            className="rounded border-gray-300 text-blue-900 focus:ring-blue-900"
-                            checked={selectedFilters.condition.includes(cond)}
-                            onChange={(e) => {
-                              const newConditions = e.target.checked
-                                ? [...selectedFilters.condition, cond]
-                                : selectedFilters.condition.filter(c => c !== cond);
-                              handleFilterChange("condition", newConditions);
-                            }}
-                          />
-                          <span>{cond}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
+              {/* API Filters */}
+              {filterOptions.length > 0 && filterOptions.map((filter) => (
+                <div key={filter.name} className="pt-4 border-t border-gray-200">
+                  <h3 className="text-xs font-bold text-blue-900 uppercase tracking-wider mb-2">{filter.name}</h3>
+                  <div className="space-y-2">
+                    {filter.type === "checkbox" && filter.options.map(option => (
+                      <label key={option.label} className="flex items-center gap-2 cursor-pointer text-xs">
+                        <input
+                          type="checkbox"
+                          className="rounded border-gray-300 text-blue-900 focus:ring-blue-900"
+                          checked={selectedFilters.apiFilters[filter.name]?.includes(option.label) || false}
+                          onChange={(e) => handleApiFilterChange(filter.name, { label: option.label, checked: e.target.checked }, 'checkbox')}
+                        />
+                        <span>{option.label} {option.count ? `(${option.count})` : ""}</span>
+                      </label>
+                    ))}
 
-                  <div className="pt-4 border-t border-gray-200">
-                    <h3 className="text-xs font-bold text-blue-900 uppercase tracking-wider mb-2">Price Range</h3>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        placeholder="Min"
-                        className="w-full p-2 border rounded text-xs focus:ring-blue-900"
-                        value={selectedFilters.priceRange.min}
-                        onChange={(e) => handleFilterChange("priceRange", { ...selectedFilters.priceRange, min: e.target.value })}
-                      />
-                      <input
-                        type="text"
-                        placeholder="Max"
-                        className="w-full p-2 border rounded text-xs focus:ring-blue-900"
-                        value={selectedFilters.priceRange.max}
-                        onChange={(e) => handleFilterChange("priceRange", { ...selectedFilters.priceRange, max: e.target.value })}
-                      />
-                    </div>
+                    {filter.type === "range" && (
+                      <div className="flex gap-2">
+                        <input
+                          type="number"
+                          placeholder="Min"
+                          className="w-full p-2 border rounded text-xs focus:ring-blue-900"
+                          value={selectedFilters.apiFilters[filter.name]?.min || ""}
+                          onChange={(e) => handleApiFilterChange(filter.name, e.target.value, 'range', 'min')}
+                        />
+                        <input
+                          type="number"
+                          placeholder="Max"
+                          className="w-full p-2 border rounded text-xs focus:ring-blue-900"
+                          value={selectedFilters.apiFilters[filter.name]?.max || ""}
+                          onChange={(e) => handleApiFilterChange(filter.name, e.target.value, 'range', 'max')}
+                        />
+                      </div>
+                    )}
                   </div>
-
-                  <div className="pt-4 border-t border-gray-200">
-                    <h3 className="text-xs font-bold text-blue-900 uppercase tracking-wider mb-2">Listing Type</h3>
-                    <div className="space-y-2">
-                      {filterOptions.listingTypes.map((type) => (
-                        <label key={type} className="flex items-center gap-2 cursor-pointer text-xs">
-                          <input
-                            type="radio"
-                            name="listing-type"
-                            className="text-blue-900 focus:ring-blue-900"
-                            checked={selectedFilters.listingType === type}
-                            onChange={() => handleFilterChange("listingType", type)}
-                          />
-                          <span>{type}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="pt-4 border-t border-gray-200">
-                    <h3 className="text-xs font-bold text-blue-900 uppercase tracking-wider mb-2">Shipping</h3>
-                    <label className="flex items-center gap-2 cursor-pointer text-xs">
-                      <input
-                        type="checkbox"
-                        className="rounded border-gray-300 text-blue-900 focus:ring-blue-900"
-                        checked={selectedFilters.freeShipping}
-                        onChange={(e) => handleFilterChange("freeShipping", e.target.checked)}
-                      />
-                      <span>Free Shipping</span>
-                    </label>
-                  </div>
-                </>
-              )}
+                </div>
+              ))}
             </aside>
           )}
 
