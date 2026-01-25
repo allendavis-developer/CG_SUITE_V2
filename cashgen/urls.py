@@ -53,6 +53,7 @@ urlpatterns = [
     path('api/product-categories/', v2.categories_list, name='product-categories'),
     path('api/products/', v2.products_list),  
     path('api/product-variants/', v2.product_variants),  
+    path('api/market-stats/', v2.variant_market_stats),
 
 
 

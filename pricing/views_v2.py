@@ -2,8 +2,10 @@
 from django.shortcuts import render
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
+from rest_framework import status
+
 from .models_v2 import ProductCategory, Product, Variant, Attribute, VariantAttributeValue, ConditionGrade
-from .serializers import ProductCategorySerializer, ProductSerializer, AttributeSerializer
+from .serializers import ProductCategorySerializer, ProductSerializer, AttributeSerializer, VariantMarketStatsSerializer
 
 @api_view(['GET'])
 def categories_list(request):
@@ -29,6 +31,30 @@ def products_list(request):
 
     products = Product.objects.filter(category=category)
     serializer = ProductSerializer(products, many=True)
+    return Response(serializer.data)
+
+@api_view(['GET'])
+def variant_market_stats(request):
+    """
+    Returns competitor / CeX market stats for a given variant SKU.
+    """
+    sku = request.GET.get('sku')
+
+    if not sku:
+        return Response(
+            {"detail": "Missing required query param: sku"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    try:
+        variant = Variant.objects.get(cex_sku=sku)
+    except Variant.DoesNotExist:
+        return Response(
+            {"detail": "Variant not found"},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    serializer = VariantMarketStatsSerializer(variant)
     return Response(serializer.data)
 
 

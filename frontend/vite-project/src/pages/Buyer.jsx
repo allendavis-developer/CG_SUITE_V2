@@ -17,6 +17,12 @@ import {
   SearchableDropdown
 } from '../components/ui/components';
 
+const formatGBP = (value) =>
+  new Intl.NumberFormat('en-GB', {
+    style: 'currency',
+    currency: 'GBP',
+    minimumFractionDigits: 2
+  }).format(value);
 
 // API call for product models
 const fetchProductModels = async (category) => {
@@ -38,6 +44,28 @@ const fetchProductModels = async (category) => {
     return [];
   }
 };
+
+const fetchCompetitorStats = async (cexSku) => {
+  if (!cexSku) return [];
+
+  const res = await fetch(`/api/market-stats/?sku=${cexSku}`);
+  if (!res.ok) throw new Error('Failed to fetch market stats');
+
+  const data = await res.json();
+
+  return [
+    {
+      platform: data.platform,
+      salePrice: Number(data.sale_price_gbp),
+      buyPrice: Number(data.tradein_cash_gbp),
+      voucherPrice: Number(data.tradein_voucher_gbp),
+      verified: true,
+      outOfStock: data.cex_out_of_stock,
+      lastUpdated: data.last_updated
+    }
+  ];
+};
+
 
 const fetchAttributes = async (productId) => {
   if (!productId) return null;
@@ -89,6 +117,8 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
   const [attributeValues, setAttributeValues] = useState({});
   const [dependencies, setDependencies] = useState([]);
   const [variants, setVariants] = useState([]);
+  const [competitorStats, setCompetitorStats] = useState([]);
+  const [isLoadingStats, setIsLoadingStats] = useState(false);
 
   useEffect(() => {
     // Reset all attribute-related state when category changes
@@ -163,6 +193,29 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
       }
     }
   }, [attributeValues, variants]);
+
+  useEffect(() => {
+    if (!variant) {
+      setCompetitorStats([]);
+      return;
+    }
+
+    const selectedVariant = variants.find(v => v.cex_sku === variant);
+    if (!selectedVariant) return;
+
+    const loadStats = async () => {
+      setIsLoadingStats(true);
+      const data = await fetchCompetitorStats(
+        selectedVariant.cex_sku,
+        selectedVariant.title
+      );
+      setCompetitorStats(data);
+      setIsLoadingStats(false);
+    };
+
+    loadStats();
+  }, [variant, variants]);
+
 
 
   // Handle intelligent attribute changes
@@ -383,9 +436,34 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              <MarketRow platform="Platform Alpha" salePrice="$849.00" buyPrice="$645.00" verified />
-              <MarketRow platform="Secondary Marketplace" onResearch={() => console.log('Research clicked')} />
+              {isLoadingStats && (
+                <tr>
+                  <td colSpan="4" className="p-6 text-center text-xs text-gray-400">
+                    Fetching competitor data…
+                  </td>
+                </tr>
+              )}
+
+              {!isLoadingStats && competitorStats.length === 0 && (
+                <tr>
+                  <td colSpan="4" className="p-6 text-center text-xs text-gray-400">
+                    Select a variant to view market data
+                  </td>
+                </tr>
+              )}
+
+              {competitorStats.map((row, idx) => (
+  <MarketRow
+    key={idx}
+    platform={row.platform}
+    salePrice={formatGBP(row.salePrice)}
+    buyPrice={formatGBP(row.buyPrice)}
+    verified
+  />
+))}
+
             </tbody>
+
           </table>
         </Card>
 
