@@ -13,7 +13,8 @@ import {
   Sidebar,
   MarketRow,
   OfferCard,
-  CartItem
+  CartItem,
+  SearchableDropdown
 } from '../components/ui/components';
 
 
@@ -96,7 +97,7 @@ const MainContent = ({ selectedCategory, availableModels }) => {
         
         {/* Product Model Dropdown */}
         <div className="mb-4">
-          <CustomDropdown
+          <SearchableDropdown
             value={selectedModel || 'Select a model'}
             options={availableModelsForDropdown}
             onChange={setSelectedModel}

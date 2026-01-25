@@ -1,5 +1,7 @@
 // components.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import TomSelect from 'tom-select';
+import 'tom-select/dist/css/tom-select.default.css';
 
 // ==================== CORE UI COMPONENTS ====================
 
@@ -132,6 +134,83 @@ export const CustomDropdown = ({ label, value, options, onChange }) => {
     </div>
   );
 };
+
+export const SearchableDropdown = ({ label, value, options, onChange, placeholder = "Select..." }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const dropdownRef = useRef(null);
+
+  const filteredOptions = options.filter(opt =>
+    opt.toLowerCase().includes(search.toLowerCase())
+  );
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsOpen(false);
+        setSearch(''); // reset search when closing
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleSelect = (option) => {
+    onChange(option);
+    setIsOpen(false);
+    setSearch('');
+  };
+
+  return (
+    <div className="space-y-1.5 relative" ref={dropdownRef}>
+      {label && <label className="text-xs font-bold text-gray-500 uppercase">{label}</label>}
+      <div>
+        <button
+          type="button"
+          onClick={() => setIsOpen(!isOpen)}
+          className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-900 text-left flex items-center justify-between hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 transition-all"
+        >
+          <span className="font-medium">{value || placeholder}</span>
+          <Icon name="expand_more" className={`text-gray-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+        </button>
+
+        {isOpen && (
+          <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden max-h-60">
+            <input
+              type="text"
+              autoFocus
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search..."
+              className="w-full px-3 py-2 text-sm border-b border-gray-200 focus:outline-none focus:ring-1 focus:ring-yellow-500"
+            />
+            <div className="max-h-48 overflow-y-auto">
+              {filteredOptions.length > 0 ? (
+                filteredOptions.map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => handleSelect(option)}
+                    className={`w-full px-3 py-2 text-sm text-left hover:bg-gray-50 transition-colors ${
+                      value === option
+                        ? 'bg-yellow-500/10 text-blue-900 font-semibold'
+                        : 'text-gray-700'
+                    }`}
+                  >
+                    {option}
+                  </button>
+                ))
+              ) : (
+                <div className="px-3 py-2 text-sm text-gray-400 italic">No results</div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 
 // Input Component
 export const Input = ({ placeholder, icon, value, onChange, className = '' }) => (
