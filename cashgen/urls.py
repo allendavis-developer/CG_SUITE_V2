@@ -52,6 +52,8 @@ urlpatterns = [
     # new frontend rewrite api calls needed
     path('api/product-categories/', v2.categories_list, name='product-categories'),
     path('api/products/', v2.products_list),  
+    path('api/product-variants/', v2.product_variants),  
+
 
 
     # Catch-all for React

@@ -27,47 +27,39 @@ const fetchProductModels = async (category) => {
     if (!res.ok) throw new Error('Network response was not ok');
     const data = await res.json();
 
-    // data = [{product_id, name}, ...]
-    return data.map((p) => ({ model_id: p.product_id, name: p.name }));
+    // Return both product_id and name
+    return data.map((p) => ({ 
+      model_id: p.product_id, 
+      name: p.name,
+      product_id: p.product_id 
+    }));
   } catch (err) {
     console.error('Error fetching product models:', err);
     return [];
   }
 };
 
-// Mock API call for product attributes
-const fetchAttributes = async (model) => {
-  // Simulate network delay
-  await new Promise(res => setTimeout(res, 300));
+const fetchAttributes = async (productId) => {
+  if (!productId) return null;
 
-  // Mock data
-  return {
-    attributes: [
-      { name: 'Storage', values: ['256GB', '512GB', '1TB'] },
-      { name: 'Condition', values: ['Excellent', 'Standard', 'Damaged'] },
-      { name: 'Carrier', values: ['Factory Unlocked', 'Network Locked'] },
-      { name: 'Edition', values: ['Standard', 'Special Edition'] }
-    ],
-    dependencies: [
-      {
-        attribute: 'Condition',
-        dependsOn: 'Storage',
-        rules: {
-          '256GB': ['Excellent', 'Standard'],
-          '512GB': ['Excellent'],
-          '1TB': ['Excellent', 'Standard', 'Damaged']
-        }
-      },
-      {
-        attribute: 'Carrier',
-        dependsOn: 'Edition',
-        rules: {
-          'Special Edition': ['Factory Unlocked'],
-          'Standard': ['Factory Unlocked', 'Network Locked']
-        }
-      }
-    ]
-  };
+  try {
+    const res = await fetch(`http://127.0.0.1:8000/api/product-variants/?product_id=${productId}`);
+    if (!res.ok) throw new Error('Network response was not ok');
+    const data = await res.json();
+
+    return {
+      attributes: data.attributes.map(attr => ({
+        name: attr.label,
+        code: attr.code,
+        values: attr.values
+      })),
+      dependencies: data.dependencies,
+      variants: data.variants
+    };
+  } catch (err) {
+    console.error('Error fetching attributes:', err);
+    return null;
+  }
 };
 
 
@@ -90,28 +82,32 @@ const EmptyState = () => (
 // Main Content Component
 const MainContent = ({ selectedCategory, availableModels }) => {
   const [activeTab, setActiveTab] = useState('info');
-  const [selectedModel, setSelectedModel] = useState('');
-  const [variant, setVariant] = useState(''); // For variant buttons
+  const [selectedModel, setSelectedModel] = useState(null); // Store the whole model object
+  const [variant, setVariant] = useState('');
 
   // Dynamic attributes
-  const [attributes, setAttributes] = useState([]); // Fetched from API
-  const [attributeValues, setAttributeValues] = useState({}); // Currently selected values
-  const [dependencies, setDependencies] = useState([]); // Dependency rules
+  const [attributes, setAttributes] = useState([]);
+  const [attributeValues, setAttributeValues] = useState({});
+  const [dependencies, setDependencies] = useState([]);
+  const [variants, setVariants] = useState([]); // Store all variants
 
-  // Load attributes when a model is selected
   useEffect(() => {
-    if (!selectedModel) return;
+    if (!selectedModel?.product_id) return;
 
     const loadAttributes = async () => {
-      const data = await fetchAttributes(selectedModel);
+      const data = await fetchAttributes(selectedModel.product_id);
+      
+      if (!data) return;
+      console.log('Attributes:', data.attributes); // Check this in your browser console
 
       setAttributes(data.attributes);
       setDependencies(data.dependencies);
+      setVariants(data.variants);
 
       // Initialize selected values with the first option of each attribute
       const initialValues = {};
       data.attributes.forEach(attr => {
-        initialValues[attr.name] = attr.values[0] || '';
+        initialValues[attr.code] = attr.values[0] || '';
       });
       setAttributeValues(initialValues);
     };
@@ -120,22 +116,30 @@ const MainContent = ({ selectedCategory, availableModels }) => {
   }, [selectedModel]);
 
   useEffect(() => {
-    if (!selectedModel && availableModels.length > 0 && availableModels[0] !== 'No models available') {
+    if (!selectedModel && availableModels.length > 0) {
       setSelectedModel(availableModels[0]);
     }
   }, [availableModels, selectedModel]);
 
 
   // Handle intelligent attribute changes
-  const handleAttributeChange = (name, value) => {
-    const newValues = { ...attributeValues, [name]: value };
+  const handleAttributeChange = (code, value) => {
+    const newValues = { ...attributeValues, [code]: value };
 
-    // Apply dependencies: auto-select or remove invalid options
+    // Apply dependencies from your API format
     dependencies.forEach(dep => {
-      if (dep.dependsOn in newValues && dep.attribute in newValues) {
-        const allowed = dep.rules[newValues[dep.dependsOn]] || [];
-        if (!allowed.includes(newValues[dep.attribute])) {
-          newValues[dep.attribute] = allowed[0] || '';
+      if (dep.attribute === code) {
+        // This attribute was changed, update dependent attributes
+        return;
+      }
+
+      // Check if any dependency affects the current selection
+      if (dep.depends_on && dep.depends_on[code]) {
+        const allowedValues = dep.depends_on[code][value] || [];
+        
+        // If current value is not allowed, select first allowed value
+        if (!allowedValues.includes(newValues[dep.attribute])) {
+          newValues[dep.attribute] = allowedValues[0] || '';
         }
       }
     });
@@ -168,17 +172,23 @@ const MainContent = ({ selectedCategory, availableModels }) => {
         {/* Product Model Dropdown */}
         <div className="mb-4">
           <SearchableDropdown
-            value={selectedModel || 'Select a model'}
-            options={availableModelsForDropdown}
-            onChange={setSelectedModel}
+            value={selectedModel?.name || 'Select a model'}
+            options={availableModels.length > 0 ? availableModels.map(m => m.name) : ['No models available']}
+            onChange={(name) => {
+              const model = availableModels.find(m => m.name === name);
+              if (model) setSelectedModel(model);
+            }}
           />
         </div>
 
         <div className="flex justify-between items-start">
           <div>
-            <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">
-              {selectedModel || selectedCategory.name} - {attributeValues.Storage || ''}
-            </h1>
+          <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">
+              {selectedModel?.name || selectedCategory.name}
+              {Object.keys(attributeValues).length > 0 && (
+                  <span> - {Object.values(attributeValues).filter(v => v).join(' / ')}</span>
+              )}
+          </h1>
             <div className="mt-1 flex items-center gap-3">
               <p className="text-sm text-gray-500 flex items-center gap-2">
                 <Icon name="barcode_scanner" className="text-xs" />
@@ -200,21 +210,32 @@ const MainContent = ({ selectedCategory, availableModels }) => {
           <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">Configuration & Condition</h3>
           <div className="grid grid-cols-3 gap-6">
             {attributes.map(attr => {
-              // Compute allowed options based on dependencies
-              const dep = dependencies.find(d => d.attribute === attr.name);
+              // Find all dependencies that affect this attribute
+              const relevantDep = dependencies.find(d => d.attribute === attr.code);
               let options = attr.values;
 
-              if (dep && attributeValues[dep.dependsOn]) {
-                options = dep.rules[attributeValues[dep.dependsOn]] || [];
+              if (relevantDep && relevantDep.depends_on) {
+                // Get all currently selected values that this attribute depends on
+                let allowedOptions = new Set(attr.values);
+                
+                Object.entries(relevantDep.depends_on).forEach(([depAttrCode, rules]) => {
+                  const currentValue = attributeValues[depAttrCode];
+                  if (currentValue && rules[currentValue]) {
+                    const allowed = rules[currentValue];
+                    allowedOptions = new Set([...allowedOptions].filter(v => allowed.includes(v)));
+                  }
+                });
+                
+                options = Array.from(allowedOptions);
               }
 
               return (
                 <CustomDropdown
-                  key={attr.name}
+                  key={attr.code}
                   label={attr.name}
-                  value={attributeValues[attr.name] || ''}
+                  value={attributeValues[attr.code] || ''}
                   options={options}
-                  onChange={(val) => handleAttributeChange(attr.name, val)}
+                  onChange={(val) => handleAttributeChange(attr.code, val)}
                 />
               );
             })}
@@ -358,14 +379,9 @@ export default function Buyer() {
 
   const handleCategorySelect = async (category) => {
     setSelectedCategory(category);
-
-    // Fetch product models for this category
     const models = await fetchProductModels(category);
-
-    // Update available models state
-    setAvailableModels(models.map((m) => m.name));
+    setAvailableModels(models); // Store the full model objects
   };
-
 
   return (
     <div className="bg-gray-50 text-gray-900 min-h-screen flex flex-col text-sm">
