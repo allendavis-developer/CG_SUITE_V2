@@ -110,7 +110,7 @@ const EmptyState = () => (
 );
 
 // Main Content Component
-const MainContent = ({ selectedCategory, availableModels, selectedModel, setSelectedModel }) => {
+const MainContent = ({ selectedCategory, availableModels, selectedModel, setSelectedModel, addToCart }) => {
   const [activeTab, setActiveTab] = useState('info');
   const [variant, setVariant] = useState('');
 
@@ -239,6 +239,11 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
         
         const data = await res.json();
         setOffers(data.offers);
+        
+        // Auto-select the first offer
+        if (data.offers && data.offers.length > 0) {
+          setSelectedOfferId(data.offers[0].id);
+        }
       } catch (err) {
         console.error('Error fetching offers:', err);
         setOffers([]);
@@ -317,9 +322,6 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
           </h1>
    
           </div>
-          <Button variant="primary" icon="add_shopping_cart">
-            Add to Cart
-          </Button>
         </div>
       </div>
 
@@ -528,19 +530,24 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
                 <td className="p-4 font-medium text-text-muted">
                   eBay
                 </td>
-                <td className="p-4 italic text-text-muted/60" colSpan={2}>
+                <td className="p-4 italic text-text-muted/60">
                   No data – Run research
                 </td>
-                <td className="p-4 text-right">
-                  <Button
-                    variant="primary"
-                    size="lg"
-                    className="group"
-                    icon="search_insights"
-                    onClick={() => setEbayModalOpen(true)}
-                  >
-                    Research on eBay
-                  </Button>
+                <td className="p-4 italic text-text-muted/60">
+                  —
+                </td>
+                <td className="p-4">
+                  <div className="flex justify-end">
+                    <Button
+                      variant="primary"
+                      size="lg"
+                      className="group"
+                      icon="search_insights"
+                      onClick={() => setEbayModalOpen(true)}
+                    >
+                      Research on eBay
+                    </Button>
+                  </div>
                 </td>
               </tr>
 
@@ -557,7 +564,7 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
           Suggested Trade-In Offers
         </h3>
 
-        <div className="grid grid-cols-3 gap-6">
+        <div className="grid grid-cols-3 gap-6 mb-6">
           {offers.map((offer) => (
             <OfferCard
               key={offer.id}
@@ -572,6 +579,41 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
               onClick={() => setSelectedOfferId(offer.id)}
             />
           ))}
+        </div>
+
+        {/* Add to Cart Button */}
+        <div className="flex justify-end">
+          <Button
+            variant="primary"
+            size="lg"
+            icon="add_shopping_cart"
+            className="px-8 py-4 text-base font-bold"
+            onClick={() => {
+              if (!selectedModel || !selectedOfferId) return;
+
+              // Find the selected offer
+              const selectedOffer = offers.find(offer => offer.id === selectedOfferId);
+              if (!selectedOffer) return;
+
+              // Get the selected variant for the title
+              const selectedVariant = variants.find(v => v.cex_sku === variant);
+
+              // Create cart item with actual offer data
+              const cartItem = {
+                id: Date.now(), // unique ID
+                title: selectedModel.name,
+                subtitle: selectedVariant?.title || Object.values(attributeValues).filter(v => v).join(' / ') || 'Standard',
+                price: formatGBP(parseFloat(selectedOffer.price)),
+                highlighted: false,
+                offerId: selectedOffer.id,
+                offerTitle: selectedOffer.title
+              };
+
+              addToCart(cartItem);
+            }}
+          >
+            Add to Cart
+          </Button>
         </div>
       </div>
     )}
@@ -592,33 +634,16 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
 };
 
 
-const CartSidebar = () => {
-  const [items, setItems] = useState([
-    {
-      id: 1,
-      title: 'MacBook Pro 14" M3',
-      subtitle: '1TB / 32GB RAM',
-      price: '£1,420.00',
-      highlighted: true
-    },
-    {
-      id: 2,
-      title: 'AirPods Pro Gen 2',
-      subtitle: 'A-Grade / Boxed',
-      price: '£145.00',
-      highlighted: false
-    }
-  ]);
-
+const CartSidebar = ({ cartItems = [], setCartItems = () => {} }) => {
   const removeItem = (id) => {
-    setItems(items.filter(item => item.id !== id));
+    setCartItems(cartItems.filter(item => item.id !== id));
   };
 
-  // ✅ FIXED: strip all non-numeric characters safely
-  const total = items.reduce((sum, item) => {
+  const total = cartItems.reduce((sum, item) => {
     const numericPrice = Number(item.price.replace(/[^0-9.]/g, ''));
     return sum + numericPrice;
   }, 0);
+
 
   return (
     <aside className="w-1/5 border-l border-blue-900 flex flex-col bg-white">
@@ -627,11 +652,11 @@ const CartSidebar = () => {
           <Icon name="receipt_long" className="text-yellow-500 text-sm" />
           Processing Batch
         </h3>
-        <Badge variant="default">{items.length} Items</Badge>
+        <Badge variant="default">{cartItems.length} Items</Badge>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-white">
-        {items.map(item => (
+        {cartItems.map(item => (
           <CartItem
             key={item.id}
             title={item.title}
@@ -687,13 +712,16 @@ const CartSidebar = () => {
 
 
 
-
 // Main Buyer Component
 export default function Buyer() {
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [availableModels, setAvailableModels] = useState([]);
   const [selectedModel, setSelectedModel] = useState(null);
   const hasAutoSelected = useRef(false);
+  
+  const [cartItems, setCartItems] = useState([]);
+
+
 
   const handleCategorySelect = async (category) => {
     setSelectedCategory(category);
@@ -709,6 +737,11 @@ export default function Buyer() {
       hasAutoSelected.current = true;
     }
   }, [availableModels]);
+
+  const addToCart = (item) => {
+    setCartItems((prev) => [...prev, item]);
+  };
+
 
   return (
     <div className="bg-gray-50 text-gray-900 min-h-screen flex flex-col text-sm">
@@ -727,8 +760,9 @@ export default function Buyer() {
           availableModels={availableModels}
           selectedModel={selectedModel}
           setSelectedModel={setSelectedModel}
+          addToCart={addToCart}   
         />
-        <CartSidebar />
+      <CartSidebar cartItems={cartItems} setCartItems={setCartItems} />
       </main>
     </div>
   );
