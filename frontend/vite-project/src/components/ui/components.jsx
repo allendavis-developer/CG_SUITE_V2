@@ -488,21 +488,46 @@ export const MarketRow = ({ platform, salePrice, buyPrice, verified, onResearch 
 
 // Offer Card Component
 export const OfferCard = ({ title, price, margin, isHighlighted, onClick }) => (
-  <div 
+  <div
     onClick={onClick}
-    className={`p-6 rounded-xl bg-white hover:shadow-lg transition-all cursor-pointer text-center relative overflow-hidden group ${
-      isHighlighted ? 'border-2 border-blue-900 shadow-xl shadow-blue-900/5' : 'border border-blue-900'
-    }`}
+    className={`p-6 rounded-xl bg-white cursor-pointer text-center relative overflow-hidden
+      transition-shadow transition-colors
+      border-2
+      ${
+        isHighlighted
+          ? 'border-blue-900 shadow-xl shadow-blue-900/5'
+          : 'border-blue-900/40 hover:border-blue-900 hover:shadow-lg'
+      }
+    `}
   >
-    <div className={`absolute top-0 left-0 w-full ${isHighlighted ? 'h-1.5 bg-yellow-500' : `h-1 bg-yellow-500/${margin}`}`}></div>
-    <h4 className="text-[10px] font-black uppercase text-blue-900 mb-4 tracking-wider">{title}</h4>
-    <p className="text-4xl font-extrabold text-blue-900 mb-2">{price}</p>
+    {/* Top accent bar */}
+    <div
+      className={`absolute top-0 left-0 w-full ${
+        isHighlighted
+          ? 'h-1.5 bg-yellow-500'
+          : 'h-1 bg-yellow-500/60'
+      }`}
+    />
+
+    <h4 className="text-[10px] font-black uppercase text-blue-900 mb-4 tracking-wider">
+      {title}
+    </h4>
+
+    <p className="text-4xl font-extrabold text-blue-900 mb-2">
+      {price}
+    </p>
+
     <div className="flex items-center justify-center gap-1.5">
-      <span className="text-[10px] font-bold text-gray-500 uppercase">Margin</span>
-      <span className="text-xs font-extrabold text-yellow-500">{margin}%</span>
+      <span className="text-[10px] font-bold text-gray-500 uppercase">
+        Margin
+      </span>
+      <span className="text-xs font-extrabold text-yellow-500">
+        {margin}%
+      </span>
     </div>
   </div>
 );
+
 
 // ==================== CART COMPONENTS ====================
 

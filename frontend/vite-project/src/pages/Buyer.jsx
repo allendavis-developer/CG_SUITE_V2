@@ -124,6 +124,7 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
   const [isEbayModalOpen, setEbayModalOpen] = useState(false);
   const [offers, setOffers] = useState([]);
   const [isLoadingOffers, setIsLoadingOffers] = useState(false);
+  const [selectedOfferId, setSelectedOfferId] = useState(null);
 
   useEffect(() => {
     // Reset all attribute-related state when category changes
@@ -222,30 +223,37 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
   }, [variant, variants]);
 
   useEffect(() => {
-  if (!variant) {
-    setOffers([]);
-    return;
-  }
-
-  const loadOffers = async () => {
-    setIsLoadingOffers(true);
-    
-    try {
-      const res = await fetch(`/api/variant-offers/?sku=${variant}`);
-      if (!res.ok) throw new Error('Failed to fetch offers');
-      
-      const data = await res.json();
-      setOffers(data.offers);
-    } catch (err) {
-      console.error('Error fetching offers:', err);
+    if (!variant) {
       setOffers([]);
-    } finally {
-      setIsLoadingOffers(false);
+      return;
     }
-  };
 
-  loadOffers();
-}, [variant]);
+
+    const loadOffers = async () => {
+      setIsLoadingOffers(true);
+      
+      try {
+        const res = await fetch(`/api/variant-offers/?sku=${variant}`);
+        if (!res.ok) throw new Error('Failed to fetch offers');
+        
+        const data = await res.json();
+        setOffers(data.offers);
+      } catch (err) {
+        console.error('Error fetching offers:', err);
+        setOffers([]);
+      } finally {
+        setIsLoadingOffers(false);
+      }
+    };
+
+    loadOffers();
+  }, [variant]);
+
+
+  useEffect(() => {
+    setSelectedOfferId(null);
+  }, [variant]);
+
 
 
   // Handle intelligent attribute changes
@@ -514,25 +522,32 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
           </table>
         </Card>
 
-{/* Suggested Trade-In Offers - Only show when variant is selected */}
-{variant && offers.length > 0 && (
-  <div>
-    <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">
-      Suggested Trade-In Offers
-    </h3>
-    <div className="grid grid-cols-3 gap-6">
-      {offers.map((offer) => (
-        <OfferCard 
-          key={offer.id}
-          title={offer.title} 
-          price={formatGBP(parseFloat(offer.price))} 
-          margin={offer.margin}
-          isHighlighted={offer.isHighlighted}
-        />
-      ))}
-    </div>
-  </div>
-)}
+    {/* Suggested Trade-In Offers - Only show when variant is selected */}
+    {variant && offers.length > 0 && (
+      <div>
+        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">
+          Suggested Trade-In Offers
+        </h3>
+
+        <div className="grid grid-cols-3 gap-6">
+          {offers.map((offer) => (
+            <OfferCard
+              key={offer.id}
+              title={offer.title}
+              price={formatGBP(parseFloat(offer.price))}
+              margin={offer.margin}
+
+              /* 🔑 controlled highlight */
+              isHighlighted={selectedOfferId === offer.id}
+
+              /* 🖱 mouse selection */
+              onClick={() => setSelectedOfferId(offer.id)}
+            />
+          ))}
+        </div>
+      </div>
+    )}
+
       </div>  {/* <-- ADD THIS CLOSING DIV TAG */}
 
       <EbayResearchModal
