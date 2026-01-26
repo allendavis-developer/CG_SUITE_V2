@@ -490,13 +490,23 @@ export const MarketRow = ({ platform, salePrice, buyPrice, verified, onResearch 
 export const OfferCard = ({ title, price, margin, isHighlighted, onClick }) => (
   <div
     onClick={onClick}
-    className={`p-6 rounded-xl bg-white cursor-pointer text-center relative overflow-hidden
-      transition-shadow transition-colors
+    className={`
+      p-6 rounded-xl bg-white cursor-pointer text-center relative overflow-hidden
       border-2
+      transition-all duration-200 ease-out
       ${
         isHighlighted
-          ? 'border-blue-900 shadow-xl shadow-blue-900/5'
-          : 'border-blue-900/40 hover:border-blue-900 hover:shadow-lg'
+          ? `
+            border-blue-900
+            ring-2 ring-blue-900 ring-offset-2 ring-offset-white
+            shadow-xl shadow-blue-900/10
+            scale-[1.03]
+          `
+          : `
+            border-blue-900/40
+            hover:border-blue-900
+            hover:shadow-lg
+          `
       }
     `}
   >
@@ -527,7 +537,6 @@ export const OfferCard = ({ title, price, margin, isHighlighted, onClick }) => (
     </div>
   </div>
 );
-
 
 // ==================== CART COMPONENTS ====================
 

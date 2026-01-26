@@ -184,6 +184,7 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
     // Find matching variants based on current attribute selections
     const matchingVariants = variants.filter(variant => {
       return Object.entries(attributeValues).every(([attrCode, attrValue]) => {
+          if (!attrValue) return true; //  ignore unselected attributes
         return variant.attribute_values[attrCode] === attrValue;
       });
     });
@@ -407,10 +408,37 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
 
        {/* Variant Section - Show after first selection is made */}
         {(() => {
-      // Only show if at least one attribute is selected
-      const hasAnySelection = Object.values(attributeValues).some(val => val);
-      
-      if (!hasAnySelection) return null;
+        // Determine which attributes are actually visible (same logic you use when rendering)
+        const visibleAttributes = attributes.filter((attr, index) => {
+          const previousSelections = Object.entries(attributeValues)
+            .filter(([code]) => {
+              const attrIndex = attributes.findIndex(a => a.code === code);
+              return attrIndex < index && attributeValues[code];
+            });
+
+          const matchingVariants = variants.filter(variant =>
+            previousSelections.every(([code, value]) =>
+              variant.attribute_values[code] === value
+            )
+          );
+
+          const availableValues = new Set(
+            matchingVariants.map(v => v.attribute_values[attr.code])
+          );
+
+          const options = attr.values.filter(opt =>
+            index === 0 || availableValues.has(opt)
+          );
+
+          return options.length > 0;
+        });
+
+        // 🔒 only show variants when ALL visible attributes are selected
+        const allAttributesSelected = visibleAttributes.every(
+          attr => attributeValues[attr.code]
+        );
+
+        if (!allAttributesSelected) return null;
 
       // Find matching variants based on current attribute selections
       const matchingVariants = variants.filter(variant => {
