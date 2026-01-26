@@ -122,6 +122,8 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
   const [competitorStats, setCompetitorStats] = useState([]);
   const [isLoadingStats, setIsLoadingStats] = useState(false);
   const [isEbayModalOpen, setEbayModalOpen] = useState(false);
+  const [offers, setOffers] = useState([]);
+  const [isLoadingOffers, setIsLoadingOffers] = useState(false);
 
   useEffect(() => {
     // Reset all attribute-related state when category changes
@@ -219,6 +221,31 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
     loadStats();
   }, [variant, variants]);
 
+  useEffect(() => {
+  if (!variant) {
+    setOffers([]);
+    return;
+  }
+
+  const loadOffers = async () => {
+    setIsLoadingOffers(true);
+    
+    try {
+      const res = await fetch(`/api/variant-offers/?sku=${variant}`);
+      if (!res.ok) throw new Error('Failed to fetch offers');
+      
+      const data = await res.json();
+      setOffers(data.offers);
+    } catch (err) {
+      console.error('Error fetching offers:', err);
+      setOffers([]);
+    } finally {
+      setIsLoadingOffers(false);
+    }
+  };
+
+  loadOffers();
+}, [variant]);
 
 
   // Handle intelligent attribute changes
@@ -487,16 +514,26 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
           </table>
         </Card>
 
-        {/* Suggested Trade-In Offers */}
-        <div>
-          <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">Suggested Trade-In Offers</h3>
-          <div className="grid grid-cols-3 gap-6">
-            <OfferCard title="First Offer" price="380" margin="40" />
-            <OfferCard title="Second Offer" price="615" margin="45" />
-            <OfferCard title="Third Offer" price="695" margin="50" isHighlighted />
-          </div>
-        </div>
-      </div>
+{/* Suggested Trade-In Offers - Only show when variant is selected */}
+{variant && offers.length > 0 && (
+  <div>
+    <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">
+      Suggested Trade-In Offers
+    </h3>
+    <div className="grid grid-cols-3 gap-6">
+      {offers.map((offer) => (
+        <OfferCard 
+          key={offer.id}
+          title={offer.title} 
+          price={formatGBP(parseFloat(offer.price))} 
+          margin={offer.margin}
+          isHighlighted={offer.isHighlighted}
+        />
+      ))}
+    </div>
+  </div>
+)}
+      </div>  {/* <-- ADD THIS CLOSING DIV TAG */}
 
       <EbayResearchModal
         open={isEbayModalOpen}
@@ -507,24 +544,38 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
         }}
       />
 
-
     </section>
   );
 };
 
 
-// Cart Sidebar Component
 const CartSidebar = () => {
   const [items, setItems] = useState([
-    { id: 1, title: 'MacBook Pro 14" M3', subtitle: '1TB / 32GB RAM', price: '$1,420.00', highlighted: true },
-    { id: 2, title: 'AirPods Pro Gen 2', subtitle: 'A-Grade / Boxed', price: '$145.00', highlighted: false }
+    {
+      id: 1,
+      title: 'MacBook Pro 14" M3',
+      subtitle: '1TB / 32GB RAM',
+      price: '£1,420.00',
+      highlighted: true
+    },
+    {
+      id: 2,
+      title: 'AirPods Pro Gen 2',
+      subtitle: 'A-Grade / Boxed',
+      price: '£145.00',
+      highlighted: false
+    }
   ]);
 
   const removeItem = (id) => {
     setItems(items.filter(item => item.id !== id));
   };
 
-  const total = items.reduce((sum, item) => sum + parseFloat(item.price.replace('$', '').replace(',', '')), 0);
+  // ✅ FIXED: strip all non-numeric characters safely
+  const total = items.reduce((sum, item) => {
+    const numericPrice = Number(item.price.replace(/[^0-9.]/g, ''));
+    return sum + numericPrice;
+  }, 0);
 
   return (
     <aside className="w-1/5 border-l border-blue-900 flex flex-col bg-white">
@@ -535,9 +586,10 @@ const CartSidebar = () => {
         </h3>
         <Badge variant="default">{items.length} Items</Badge>
       </div>
+
       <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-white">
         {items.map(item => (
-          <CartItem 
+          <CartItem
             key={item.id}
             title={item.title}
             subtitle={item.subtitle}
@@ -547,24 +599,43 @@ const CartSidebar = () => {
           />
         ))}
       </div>
+
       <div className="p-6 bg-slate-50 border-t border-blue-900/10 space-y-4">
         <div className="space-y-2">
           <div className="flex justify-between text-xs">
-            <span className="text-blue-900/60 font-semibold uppercase tracking-wider">Offer Total</span>
-            <span className="font-bold text-slate-900">${total.toFixed(2)}</span>
+            <span className="text-blue-900/60 font-semibold uppercase tracking-wider">
+              Offer Total
+            </span>
+            <span className="font-bold text-slate-900">
+              £{total.toFixed(2)}
+            </span>
           </div>
+
           <div className="flex justify-between text-xs">
-            <span className="text-blue-900/60 font-semibold uppercase tracking-wider">Adjustments</span>
-            <span className="font-bold text-slate-400">$0.00</span>
+            <span className="text-blue-900/60 font-semibold uppercase tracking-wider">
+              Adjustments
+            </span>
+            <span className="font-bold text-slate-400">
+              £0.00
+            </span>
           </div>
         </div>
+
         <div className="pt-4 border-t border-blue-900/20 flex justify-between items-end">
-          <span className="text-xs font-bold text-blue-900 uppercase tracking-widest">Grand Total</span>
-          <span className="text-2xl font-black text-slate-900 tracking-tighter">${total.toFixed(2)}</span>
+          <span className="text-xs font-bold text-blue-900 uppercase tracking-widest">
+            Grand Total
+          </span>
+          <span className="text-2xl font-black text-slate-900 tracking-tighter">
+            £{total.toFixed(2)}
+          </span>
         </div>
+
         <Button variant="primary" size="lg" className="w-full group">
           Finalize Transaction
-          <Icon name="arrow_forward" className="text-sm group-hover:translate-x-1 transition-transform" />
+          <Icon
+            name="arrow_forward"
+            className="text-sm group-hover:translate-x-1 transition-transform"
+          />
         </Button>
       </div>
     </aside>

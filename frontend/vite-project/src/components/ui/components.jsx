@@ -496,7 +496,7 @@ export const OfferCard = ({ title, price, margin, isHighlighted, onClick }) => (
   >
     <div className={`absolute top-0 left-0 w-full ${isHighlighted ? 'h-1.5 bg-yellow-500' : `h-1 bg-yellow-500/${margin}`}`}></div>
     <h4 className="text-[10px] font-black uppercase text-blue-900 mb-4 tracking-wider">{title}</h4>
-    <p className="text-4xl font-extrabold text-blue-900 mb-2">${price}</p>
+    <p className="text-4xl font-extrabold text-blue-900 mb-2">{price}</p>
     <div className="flex items-center justify-center gap-1.5">
       <span className="text-[10px] font-bold text-gray-500 uppercase">Margin</span>
       <span className="text-xs font-extrabold text-yellow-500">{margin}%</span>

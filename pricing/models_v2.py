@@ -311,6 +311,139 @@ class VariantPriceHistory(models.Model):
         return f"{self.variant.cex_sku} - £{self.price_gbp} @ {self.recorded_at}"
 
 
+class Location(models.Model):
+    """
+    A physical location that can hold inventory.
+    """
+    location_id = models.AutoField(primary_key=True)
+
+    code = models.CharField(
+        max_length=50,
+        unique=True,
+        db_index=True,
+        help_text="Stable location code (e.g., 'WARR', 'WYTH')"
+    )
+
+    name = models.CharField(
+        max_length=255,
+        help_text="Human-readable location name"
+    )
+
+    class Meta:
+        db_table = 'pricing_location'
+        verbose_name = 'Location'
+        verbose_name_plural = 'Locations'
+        indexes = [
+            models.Index(fields=['code']),
+        ]
+
+    def __str__(self):
+        return self.name
+
+
+class VariantInventory(models.Model):
+    """
+    Current inventory levels for a variant at a specific location.
+    """
+    inventory_id = models.AutoField(primary_key=True)
+
+    variant = models.ForeignKey(
+        Variant,
+        on_delete=models.CASCADE,
+        related_name='inventory',
+        db_column='variant_id'
+    )
+
+    location = models.ForeignKey(
+        Location,
+        on_delete=models.CASCADE,
+        related_name='inventory',
+        db_column='location_id'
+    )
+
+    quantity_on_hand = models.PositiveIntegerField(
+        default=0,
+        help_text="Physical stock currently held"
+    )
+
+    quantity_reserved = models.PositiveIntegerField(
+        default=0,
+        help_text="Stock reserved for orders but not yet fulfilled"
+    )
+
+    last_updated = models.DateTimeField(
+        auto_now=True,
+        help_text="When this inventory row was last updated"
+    )
+
+    class Meta:
+        db_table = 'pricing_variant_inventory'
+        unique_together = [['variant', 'location']]
+        indexes = [
+            models.Index(fields=['variant', 'location']),
+            models.Index(fields=['location']),
+        ]
+
+    def __str__(self):
+        return f"{self.variant.cex_sku} @ {self.location.code} ({self.quantity_on_hand})"
+
+
+class InventoryUnit(models.Model):
+    """
+    Represents a single physical item/unit in inventory.
+    One row = one real-world object.
+    """
+    item_id = models.AutoField(primary_key=True)
+
+    variant = models.ForeignKey(
+        Variant,
+        on_delete=models.CASCADE,
+        related_name='items',
+        db_column='variant_id'
+    )
+
+    location = models.ForeignKey(
+        Location,
+        on_delete=models.CASCADE,
+        related_name='items',
+        db_column='location_id'
+    )
+
+    serial_number = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Optional serial number or IMEI"
+    )
+
+    acquired_at = models.DateTimeField(
+        default=timezone.now,
+        help_text="When this item was acquired"
+    )
+
+    is_sellable = models.BooleanField(
+        default=True,
+        help_text="Whether this specific item can currently be sold"
+    )
+
+    notes = models.TextField(
+        blank=True,
+        help_text="Free-form notes about this unit"
+    )
+
+    class Meta:
+        db_table = 'pricing_inventory_item'
+        indexes = [
+            models.Index(fields=['variant', 'location']),
+            models.Index(fields=['serial_number']),
+            models.Index(fields=['is_sellable']),
+        ]
+
+    def __str__(self):
+        return f"Item {self.item_id} - {self.variant.cex_sku}"
+
+
 class VariantStatus(models.Model):
     """
     Status tracking for variants.

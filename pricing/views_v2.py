@@ -58,6 +58,97 @@ def variant_market_stats(request):
     return Response(serializer.data)
 
 
+@api_view(['GET'])
+def variant_offers(request):
+    """
+    Returns three suggested trade-in offers based on CeX market data.
+    
+    Logic:
+    - First Offer: Price that gives us same margin as CeX if we sell at 85% of CeX sale price
+    - Second Offer: Middle point between First and Third offers
+    - Third Offer: CeX trade-in cash price (our competitive match)
+    """
+    sku = request.GET.get('sku')
+
+    if not sku:
+        return Response(
+            {"detail": "Missing required query param: sku"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    try:
+        variant = Variant.objects.get(cex_sku=sku)
+    except Variant.DoesNotExist:
+        return Response(
+            {"detail": "Variant not found"},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    # Get CeX prices
+    cex_sale_price = float(variant.current_price_gbp)
+    cex_tradein_cash = float(variant.tradein_cash)
+    
+    # Calculate CeX margin
+    cex_margin = cex_sale_price - cex_tradein_cash
+    
+    # Third offer: Match CeX trade-in cash
+    third_offer = cex_tradein_cash
+    
+    # First offer: Price that gives us same margin if we sell at 85% of CeX price
+    our_sale_price = cex_sale_price * 0.85
+    first_offer = our_sale_price - cex_margin
+    
+    # Ensure first offer is not negative
+    first_offer = max(first_offer, 0)
+    
+    # Second offer: Middle point
+    second_offer = (first_offer + third_offer) / 2
+    
+    # Calculate margins for each offer (as percentages)
+    def calculate_margin_percentage(offer_price, sale_price):
+        if sale_price == 0:
+            return 0
+        margin_amount = sale_price - offer_price
+        return round((margin_amount / sale_price) * 100, 1)
+    
+    first_margin = calculate_margin_percentage(first_offer, our_sale_price)
+    second_margin = calculate_margin_percentage(second_offer, our_sale_price)
+    third_margin = calculate_margin_percentage(third_offer, our_sale_price)
+    
+    offers = [
+        {
+            "id": 1,
+            "title": "First Offer",
+            "price": round(first_offer, 2),
+            "margin": first_margin
+        },
+        {
+            "id": 2,
+            "title": "Second Offer",
+            "price": round(second_offer, 2),
+            "margin": second_margin
+        },
+        {
+            "id": 3,
+            "title": "Third Offer",
+            "price": round(third_offer, 2),
+            "margin": third_margin,
+            "isHighlighted": True
+        }
+    ]
+    
+    return Response({
+        "sku": sku,
+        "offers": offers,
+        "reference_data": {
+            "cex_sale_price": cex_sale_price,
+            "cex_tradein_cash": cex_tradein_cash,
+            "our_sale_price": our_sale_price,
+            "cex_margin": cex_margin
+        }
+    })
+
+
 # react app
 def react_app(request):
     return render(request, "react.html")
