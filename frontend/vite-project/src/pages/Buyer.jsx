@@ -109,6 +109,73 @@ const EmptyState = () => (
   </div>
 );
 
+// Manual Offer Card Component
+const ManualOfferCard = ({ isHighlighted, onClick, manualPrice, setManualPrice }) => {
+  return (
+    <div 
+      onClick={onClick}
+      className={`
+        p-6 rounded-xl bg-white cursor-pointer text-center relative overflow-hidden
+        border-2 border-dashed
+        transition-all duration-200 ease-out
+        ${
+          isHighlighted
+            ? `
+              border-blue-900
+              ring-2 ring-blue-900 ring-offset-2 ring-offset-white
+              shadow-xl shadow-blue-900/10
+              scale-[1.03]
+            `
+            : `
+              border-yellow-500
+              hover:border-blue-900
+              hover:shadow-lg
+            `
+        }
+      `}
+    >
+      {/* Top accent bar */}
+      <div
+        className={`absolute top-0 left-0 w-full ${
+          isHighlighted
+            ? 'h-1.5 bg-yellow-500'
+            : 'h-1 bg-yellow-500/60'
+        }`}
+      />
+
+      <h4 className="text-[10px] font-black uppercase text-blue-900 mb-4 tracking-wider flex items-center justify-center gap-1">
+        <Icon name="edit_note" className="text-[12px]" />
+        Manual Offer
+      </h4>
+
+      <div className="relative mb-2">
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-900 font-bold text-sm">£</span>
+        <input 
+          className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-lg text-lg font-extrabold text-blue-900 focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 bg-white" 
+          placeholder="0.00" 
+          type="number"
+          step="0.01"
+          value={manualPrice}
+          onChange={(e) => {
+            setManualPrice(e.target.value);
+            // Auto-select manual offer when user types
+            if (e.target.value && !isHighlighted) {
+              onClick();
+            }
+          }}
+          onClick={(e) => e.stopPropagation()}
+        />
+      </div>
+
+      <div className="flex items-center justify-center gap-1.5 mt-4">
+        <span className="text-[10px] font-bold text-gray-500 uppercase">
+          Custom Price
+        </span>
+      </div>
+    </div>
+  );
+};
+
 // Main Content Component
 const MainContent = ({ selectedCategory, availableModels, selectedModel, setSelectedModel, addToCart }) => {
   const [activeTab, setActiveTab] = useState('info');
@@ -125,6 +192,7 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
   const [offers, setOffers] = useState([]);
   const [isLoadingOffers, setIsLoadingOffers] = useState(false);
   const [selectedOfferId, setSelectedOfferId] = useState(null);
+  const [manualOfferPrice, setManualOfferPrice] = useState('');
 
   useEffect(() => {
     // Reset all attribute-related state when category changes
@@ -234,7 +302,7 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
       setIsLoadingOffers(true);
       
       try {
-        const res = await fetch(`/api/variant-offers/?sku=${variant}`);
+        const res = await fetch(`/api/variant-prices/?sku=${variant}`);
         if (!res.ok) throw new Error('Failed to fetch offers');
         
         const data = await res.json();
@@ -322,6 +390,52 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
           </h1>
    
           </div>
+          <Button
+            variant="primary"
+            icon="add_shopping_cart"
+            className="px-8 py-4 text-base font-bold"
+            onClick={() => {
+              if (!selectedModel || !selectedOfferId) return;
+
+              // Get the selected variant for the title
+              const selectedVariant = variants.find(v => v.cex_sku === variant);
+
+              let cartItem;
+
+              // Handle manual offer
+              if (selectedOfferId === 'manual') {
+                if (!manualOfferPrice || parseFloat(manualOfferPrice) <= 0) return;
+
+                cartItem = {
+                  id: Date.now(),
+                  title: selectedModel.name,
+                  subtitle: selectedVariant?.title || Object.values(attributeValues).filter(v => v).join(' / ') || 'Standard',
+                  price: formatGBP(parseFloat(manualOfferPrice)),
+                  highlighted: false,
+                  offerId: 'manual',
+                  offerTitle: 'Manual Offer'
+                };
+              } else {
+                // Handle regular offer
+                const selectedOffer = offers.find(offer => offer.id === selectedOfferId);
+                if (!selectedOffer) return;
+
+                cartItem = {
+                  id: Date.now(),
+                  title: selectedModel.name,
+                  subtitle: selectedVariant?.title || Object.values(attributeValues).filter(v => v).join(' / ') || 'Standard',
+                  price: formatGBP(parseFloat(selectedOffer.price)),
+                  highlighted: false,
+                  offerId: selectedOffer.id,
+                  offerTitle: selectedOffer.title
+                };
+              }
+
+              addToCart(cartItem);
+            }}
+          >
+            Add to Cart
+          </Button>
         </div>
       </div>
 
@@ -466,17 +580,28 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
           </div>
           <div className="flex flex-wrap gap-2">
             {matchingVariants.map((v) => (
-              <button
-                key={v.variant_id}
-                onClick={() => setVariant(v.cex_sku)}
-                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all text-left ${
-                  variant === v.cex_sku
-                    ? 'border-2 border-yellow-500 bg-yellow-500 text-blue-900 shadow-sm'
-                    : 'border border-gray-200 bg-white text-gray-900 hover:border-yellow-500'
-                }`}
-              >
-                {v.title}
-              </button>
+              <div key={v.variant_id} className="relative inline-block group">
+                <button
+                  onClick={() => setVariant(v.cex_sku)}
+                  className={`px-4 py-2 rounded-lg text-xs font-bold transition-all text-left ${
+                    variant === v.cex_sku
+                      ? 'border-2 border-yellow-500 bg-yellow-500 text-blue-900 shadow-sm'
+                      : 'border border-gray-200 bg-white text-gray-900 hover:border-yellow-500'
+                  }`}
+                >
+                  {v.title}
+                </button>
+                <a
+                  href={`https://uk.webuy.com/product-detail?id=${v.cex_sku}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="absolute -top-1 -right-1 bg-blue-900 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity shadow-lg hover:bg-blue-800"
+                  title="View on CEX"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <Icon name="open_in_new" className="text-xs" />
+                </a>
+              </div>
             ))}
           </div>
         </div>
@@ -564,7 +689,7 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
           Suggested Trade-In Offers
         </h3>
 
-        <div className="grid grid-cols-3 gap-6 mb-6">
+        <div className="grid grid-cols-4 gap-4">
           {offers.map((offer) => (
             <OfferCard
               key={offer.id}
@@ -579,41 +704,14 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
               onClick={() => setSelectedOfferId(offer.id)}
             />
           ))}
-        </div>
-
-        {/* Add to Cart Button */}
-        <div className="flex justify-end">
-          <Button
-            variant="primary"
-            size="lg"
-            icon="add_shopping_cart"
-            className="px-8 py-4 text-base font-bold"
-            onClick={() => {
-              if (!selectedModel || !selectedOfferId) return;
-
-              // Find the selected offer
-              const selectedOffer = offers.find(offer => offer.id === selectedOfferId);
-              if (!selectedOffer) return;
-
-              // Get the selected variant for the title
-              const selectedVariant = variants.find(v => v.cex_sku === variant);
-
-              // Create cart item with actual offer data
-              const cartItem = {
-                id: Date.now(), // unique ID
-                title: selectedModel.name,
-                subtitle: selectedVariant?.title || Object.values(attributeValues).filter(v => v).join(' / ') || 'Standard',
-                price: formatGBP(parseFloat(selectedOffer.price)),
-                highlighted: false,
-                offerId: selectedOffer.id,
-                offerTitle: selectedOffer.title
-              };
-
-              addToCart(cartItem);
-            }}
-          >
-            Add to Cart
-          </Button>
+          
+          {/* Manual Offer Card */}
+          <ManualOfferCard
+            isHighlighted={selectedOfferId === 'manual'}
+            onClick={() => setSelectedOfferId('manual')}
+            manualPrice={manualOfferPrice}
+            setManualPrice={setManualOfferPrice}
+          />
         </div>
       </div>
     )}

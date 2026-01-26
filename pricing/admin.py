@@ -466,6 +466,7 @@ from .models_v2 import (
     VariantAttributeValue,
     VariantPriceHistory,
     VariantStatus,
+    PricingRule
 )
 
 
@@ -611,6 +612,40 @@ class VariantStatusAdmin(admin.ModelAdmin):
     list_filter = ("status",)
     search_fields = ("variant__cex_sku",)
     ordering = ("-effective_from",)
+
+
+@admin.register(PricingRule)
+class PricingRuleAdmin(admin.ModelAdmin):
+    list_display = (
+        'get_scope', 
+        'movement_class', 
+        'sell_price_multiplier', 
+        'is_global_default'
+    )
+    list_filter = ('movement_class', 'is_global_default', 'category', 'product')
+    search_fields = ('product__name', 'category__name')
+    ordering = ('movement_class', 'product', 'category')
+
+    fieldsets = (
+        (None, {
+            'fields': ('movement_class', 'sell_price_multiplier', 'is_global_default')
+        }),
+        ('Scope', {
+            'fields': ('product', 'category'),
+            'description': "Choose either a product, a category, or mark as global default."
+        }),
+    )
+
+    def get_scope(self, obj):
+        if obj.is_global_default:
+            return "Global"
+        if obj.product:
+            return f"Product: {obj.product.name}"
+        if obj.category:
+            return f"Category: {obj.category.name}"
+        return "—"
+    get_scope.short_description = "Scope"
+
 
 
 # ---- hide v1 models ----

@@ -59,10 +59,8 @@ def variant_market_stats(request):
 
 
 @api_view(['GET'])
-def variant_offers(request):
+def variant_prices(request):
     """
-    Returns three suggested trade-in offers based on CeX market data.
-    
     Logic:
     - First Offer: Price that gives us same margin as CeX if we sell at 85% of CeX sale price
     - Second Offer: Middle point between First and Third offers

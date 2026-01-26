@@ -1,20 +1,5 @@
 """
-New database models for the pricing app.
-
-This module contains new models that will coexist with the existing models
-in models.py. Both sets of models will be available and Django will generate
-migrations for both.
-
-Schema Overview:
-- ProductCategory: Strict hierarchy, no orphans (every category has a parent)
-- Product: The model/family name
-- Attribute: Dimensions that can vary (scoped to category)
-- AttributeValue: Allowed values for attributes
-- ConditionGrade: CeX-specific condition grades (global)
-- Variant: The sellable SKU type
-- VariantAttributeValue: Bridge table linking variants to attribute values
-- VariantPriceHistory: Append-only price history
-- VariantStatus: Status tracking for variants
+models_v2
 """
 
 from django.db import models
@@ -49,6 +34,16 @@ class ProductCategory(models.Model):
 
     def __str__(self):
         return self.name
+
+    def iter_ancestors(self, include_self=True):
+        """
+        Yields this category, then its parents up to the root.
+        """
+        category = self if include_self else self.parent_category
+        while category:
+            yield category
+            category = category.parent_category
+
 
 
 class Product(models.Model):
@@ -151,6 +146,101 @@ class ConditionGrade(models.Model):
         return self.code
 
 
+class MovementClass(models.TextChoices):
+    FAST = 'FAST', 'Fast mover'
+    MEDIUM = 'MEDIUM', 'Medium mover'
+    SLOW = 'SLOW', 'Slow mover'
+    UNKNOWN = 'UNKNOWN', 'Unknown'
+
+
+class PricingRule(models.Model):
+    """
+    Determines what % of CeX sale price we should sell at
+    based on movement class and scope.
+    """
+
+    pricing_rule_id = models.AutoField(primary_key=True)
+
+    category = models.ForeignKey(
+        ProductCategory,
+        on_delete=models.CASCADE,
+        related_name='pricing_rules',
+        null=True,
+        blank=True
+    )
+
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name='pricing_rules',
+        null=True,
+        blank=True
+    )
+
+    is_global_default = models.BooleanField(
+        default=False,
+        help_text="Fallback rule if no product or category rule exists"
+    )
+
+    movement_class = models.CharField(
+        max_length=20,
+        choices=MovementClass.choices,
+        db_index=True
+    )
+
+    sell_price_multiplier = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.00'))]
+    )
+
+    class Meta:
+        db_table = 'pricing_rule'
+        indexes = [
+            models.Index(fields=['product', 'movement_class']),
+            models.Index(fields=['category', 'movement_class']),
+            models.Index(fields=['is_global_default', 'movement_class']),
+        ]
+        constraints = [
+            # Product-level uniqueness
+            models.UniqueConstraint(
+                fields=['product', 'movement_class'],
+                condition=models.Q(product__isnull=False),
+                name='uniq_product_movement_rule'
+            ),
+
+            # Category-level uniqueness
+            models.UniqueConstraint(
+                fields=['category', 'movement_class'],
+                condition=models.Q(category__isnull=False),
+                name='uniq_category_movement_rule'
+            ),
+
+            # One global default per movement class
+            models.UniqueConstraint(
+                fields=['movement_class'],
+                condition=models.Q(is_global_default=True),
+                name='uniq_global_default_movement_rule'
+            ),
+
+            # Valid scope rule
+            models.CheckConstraint(
+                check=(
+                    models.Q(product__isnull=False) |
+                    models.Q(category__isnull=False) |
+                    models.Q(is_global_default=True)
+                ),
+                name='pricing_rule_scope_required'
+            ),
+        ]
+
+    def __str__(self):
+        if self.is_global_default:
+            return f"GLOBAL - {self.movement_class} @ {self.sell_price_multiplier}"
+        target = self.product.name if self.product else self.category.name
+        return f"{target} - {self.movement_class} @ {self.sell_price_multiplier}"
+
+
 class Variant(models.Model):
     """
     The sellable SKU type.
@@ -167,9 +257,10 @@ class Variant(models.Model):
         on_delete=models.CASCADE,
         related_name='variants',
         db_column='product_id',
-        null=True,
-        blank=True
+        null=False,
+        blank=False
     )
+
     condition_grade = models.ForeignKey(
         ConditionGrade,
         on_delete=models.CASCADE,
@@ -240,8 +331,70 @@ class Variant(models.Model):
             models.Index(fields=['current_price_gbp']),
         ]
 
+    def get_movement_class(self):
+        if not self.current_price_gbp or not self.tradein_cash:
+            return MovementClass.UNKNOWN
+
+        margin = (
+            (self.current_price_gbp - self.tradein_cash)
+            / self.current_price_gbp
+        )
+
+        if margin > Decimal('0.50'):
+            return MovementClass.SLOW
+        elif margin >= Decimal('0.40'):
+            return MovementClass.MEDIUM
+        else:
+            return MovementClass.FAST
+        
+    def get_target_sell_price(self):
+        movement = self.get_movement_class()
+
+        if movement == MovementClass.UNKNOWN:
+            return None
+
+        # 1️⃣ Product-level rule
+        rule = PricingRule.objects.filter(
+            product=self.product,
+            movement_class=movement
+        ).first()
+
+        if rule:
+            return (self.current_price_gbp * rule.sell_price_multiplier).quantize(
+                Decimal('0.01')
+            )
+
+        # 2️⃣ Category-level rules (walk up the tree)
+        for category in self.product.category.iter_ancestors():
+            rule = PricingRule.objects.filter(
+                category=category,
+                movement_class=movement
+            ).first()
+            if rule:
+                return (self.current_price_gbp * rule.sell_price_multiplier).quantize(
+                    Decimal('0.01')
+                )
+
+        # 3️⃣ Global default
+        rule = PricingRule.objects.filter(
+            is_global_default=True,
+            movement_class=movement
+        ).first()
+
+        if not rule:
+            return None
+
+        return (self.current_price_gbp * rule.sell_price_multiplier).quantize(
+            Decimal('0.01')
+        )
+
+
+
+
     def __str__(self):
         return f"{self.product.name} ({self.condition_grade.code}) - {self.cex_sku}"
+    
+
 
 
 class VariantAttributeValue(models.Model):
