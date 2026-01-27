@@ -55,6 +55,8 @@ urlpatterns = [
     path('api/product-variants/', v2.product_variants),  
     path('api/market-stats/', v2.variant_market_stats),
     path('api/variant-prices/', v2.variant_prices),
+    path('api/customers/', v2.customers_view),
+
 
 
 

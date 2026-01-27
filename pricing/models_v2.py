@@ -650,7 +650,8 @@ class Customer(models.Model):
     customer_id = models.AutoField(primary_key=True)
 
     name = models.CharField(max_length=255)
-    phone_number = models.CharField(max_length=50, db_index=True)
+    phone_number = models.CharField(max_length=50, db_index=True, unique=True)
+    email = models.EmailField(max_length=255, unique=True, blank=True, null=True)  # New email field
     address = models.TextField(blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -662,7 +663,6 @@ class Customer(models.Model):
             return 0.0
         cancelled = self.requests.filter(status='CANCELLED').count()
         return round((cancelled / total_requests) * 100, 2)
-
 
     class Meta:
         db_table = "buying_customer"

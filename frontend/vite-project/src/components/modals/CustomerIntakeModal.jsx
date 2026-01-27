@@ -1,44 +1,149 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { SearchableDropdown } from "../ui/components"; // import your component
+
+// Get CSRF token from cookie
+function getCSRFToken() {
+  const cookieValue = document.cookie
+    .split('; ')
+    .find(row => row.startsWith('csrftoken='))
+    ?.split('=')[1];
+  return cookieValue;
+}
 
 export default function CustomerIntakeModal({ open = true, onClose }) {
   const [isExisting, setIsExisting] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState("");
   const [transactionType, setTransactionType] = useState("sale"); // "sale" or "buyback"
+  const [customers, setCustomers] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [saving, setSaving] = useState(false);
 
-  // Ref for new customer input
-  const newCustomerRef = useRef(null);
+  // Refs for form inputs
+  const nameRef = useRef(null);
+  const phoneRef = useRef(null);
+  const emailRef = useRef(null);
+  const addressRef = useRef(null);
 
-  // Mock customer data
-  const mockCustomers = [
-    "John Doe",
-    "Jane Smith",
-    "Alice Johnson",
-    "Bob Williams",
-    "Charlie Brown"
-  ];
+  // Fetch customers from API
+  useEffect(() => {
+    const fetchCustomers = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const response = await fetch("/api/customers/");
+        if (!response.ok) {
+          throw new Error("Failed to fetch customers");
+        }
+        const data = await response.json();
+        setCustomers(data);
+      } catch (err) {
+        setError(err.message);
+        console.error("Error fetching customers:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (open) {
+      fetchCustomers();
+    }
+  }, [open]);
+
+    // Populate form when existing customer is selected
+    useEffect(() => {
+    if (isExisting && selectedCustomer) {
+        const customer = customers.find(c => c.name === selectedCustomer);
+        if (customer) {
+        if (nameRef.current) nameRef.current.value = customer.name || "";
+        if (phoneRef.current) phoneRef.current.value = customer.phone || "";
+        if (emailRef.current) emailRef.current.value = customer.email || "";
+        if (addressRef.current) addressRef.current.value = customer.address || "";
+        }
+    } else if (!isExisting) {
+        // Clear form for new customer
+        if (nameRef.current) nameRef.current.value = "";
+        if (phoneRef.current) phoneRef.current.value = "";
+        if (emailRef.current) emailRef.current.value = "";
+        if (addressRef.current) addressRef.current.value = "";
+    }
+    }, [isExisting, selectedCustomer, customers]);
 
   if (!open) return null;
 
-  const handleClose = () => {
-    const customerName = isExisting
-      ? selectedCustomer
-      : newCustomerRef.current?.value || "";
+  const handleConfirm = async () => {
+    const customerData = {
+      name: nameRef.current?.value || "",
+      phone_number: phoneRef.current?.value || "",
+      email: emailRef.current?.value || "",
+      address: addressRef.current?.value || "",
+    };
 
-    // Pass structured info to parent
-    onClose({
-      isExisting,
-      customerName,
-      transactionType,
-    });
+    // Validate required fields
+    if (!customerData.name.trim()) {
+      setError("Customer name is required");
+      return;
+    }
+
+    // If new customer, create them first
+    if (!isExisting) {
+      setSaving(true);
+      setError(null);
+      
+      try {
+        const response = await fetch("/api/customers/", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": getCSRFToken()
+          },
+          body: JSON.stringify(customerData),
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to create customer");
+        }
+
+        const newCustomer = await response.json();
+        
+        // Pass the complete data back to parent
+        onClose({
+          isExisting: false,
+          transactionType,
+          customer: newCustomer,
+          ...customerData,
+        });
+      } catch (err) {
+        setError(err.message);
+        console.error("Error creating customer:", err);
+        setSaving(false);
+        return;
+      }
+    } else {
+      // Existing customer - just return the data
+      const selectedCustomerData = customers.find(c => c.name === selectedCustomer);
+      onClose({
+        isExisting: true,
+        transactionType,
+        customer: selectedCustomerData,
+        ...customerData,
+      });
+    }
   };
+
+  const handleCancel = () => {
+    onClose(null);
+  };
+
+  // Get customer names for dropdown
+  const customerNames = customers.map(c => c.name);
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={handleClose}
+        onClick={handleCancel}
       />
 
       {/* Modal */}
@@ -57,7 +162,7 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
             </div>
           </div>
           <button
-            onClick={handleClose}
+            onClick={handleCancel}
             className="size-10 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors"
           >
             <span className="material-symbols-outlined">close</span>
@@ -138,13 +243,38 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
 
         {/* Body */}
         <div className="px-8 pb-8 flex-1 overflow-y-auto">
+          {/* Loading State */}
+          {loading && (
+            <div className="mb-6 bg-gray-50 border border-gray-200 rounded-xl p-4 flex items-center gap-3">
+              <span className="material-symbols-outlined animate-spin text-gray-400">
+                progress_activity
+              </span>
+              <p className="text-sm text-gray-600">Loading customers...</p>
+            </div>
+          )}
+
+          {/* Error State */}
+          {error && (
+            <div className="mb-6 bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
+              <span className="material-symbols-outlined text-red-600 mt-0.5">
+                error
+              </span>
+              <div className="flex-1">
+                <p className="text-sm font-bold text-red-600 leading-tight">
+                  Error
+                </p>
+                <p className="text-sm text-gray-600 mt-1">{error}</p>
+              </div>
+            </div>
+          )}
+
           {/* SearchableDropdown for Existing Customer only */}
-          {isExisting && (
+          {isExisting && !loading && (
             <div className="mb-6">
               <SearchableDropdown
                 label="Find Customer"
                 value={selectedCustomer}
-                options={mockCustomers}
+                options={customerNames}
                 onChange={setSelectedCustomer}
                 placeholder="Search by name..."
               />
@@ -152,7 +282,7 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
           )}
 
           {/* Info Banner (Existing Customer only) */}
-          {isExisting && (
+          {isExisting && selectedCustomer && (
             <div className="mb-6 bg-blue-900/5 border border-blue-900/20 rounded-xl p-4 flex items-start gap-3">
               <span className="material-symbols-outlined text-blue-900 mt-0.5">
                 info
@@ -172,11 +302,11 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
           <div className="grid grid-cols-1 gap-5">
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-bold uppercase tracking-wider text-gray-500">
-                Full Name
+                Full Name <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
-                ref={newCustomerRef}
+                ref={nameRef}
                 placeholder="Enter customer's full name"
                 className="w-full h-12 rounded-xl border border-gray-200 focus:ring-yellow-500 focus:border-yellow-500 px-4"
               />
@@ -189,6 +319,7 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
                 </label>
                 <input
                   type="tel"
+                  ref={phoneRef}
                   placeholder="(555) 000-0000"
                   className="w-full h-12 rounded-xl border border-gray-200 focus:ring-yellow-500 focus:border-yellow-500 px-4"
                 />
@@ -199,6 +330,7 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
                 </label>
                 <input
                   type="email"
+                  ref={emailRef}
                   placeholder="customer@example.com"
                   className="w-full h-12 rounded-xl border border-gray-200 focus:ring-yellow-500 focus:border-yellow-500 px-4"
                 />
@@ -211,6 +343,7 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
               </label>
               <input
                 type="text"
+                ref={addressRef}
                 placeholder="123 Street Name, City, State, ZIP"
                 className="w-full h-12 rounded-xl border border-gray-200 focus:ring-yellow-500 focus:border-yellow-500 px-4"
               />
@@ -221,19 +354,32 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
         {/* Footer */}
         <footer className="p-8 border-t border-gray-100 flex items-center justify-between bg-white/50">
           <button
-            onClick={handleClose}
+            onClick={handleCancel}
             className="px-6 py-3 text-sm font-bold text-gray-600 hover:text-gray-900 transition-colors"
+            disabled={saving}
           >
             Cancel
           </button>
           <button
-            onClick={handleClose}
-            className="bg-yellow-500 hover:brightness-105 active:scale-[0.98] text-blue-900 font-black py-4 px-10 rounded-xl shadow-lg shadow-yellow-500/20 flex items-center gap-2 transition-all"
+            onClick={handleConfirm}
+            disabled={saving}
+            className="bg-yellow-500 hover:brightness-105 active:scale-[0.98] text-blue-900 font-black py-4 px-10 rounded-xl shadow-lg shadow-yellow-500/20 flex items-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Confirm &amp; Proceed
-            <span className="material-symbols-outlined font-bold">
-              arrow_forward
-            </span>
+            {saving ? (
+              <>
+                <span className="material-symbols-outlined animate-spin">
+                  progress_activity
+                </span>
+                Creating...
+              </>
+            ) : (
+              <>
+                Confirm &amp; Proceed
+                <span className="material-symbols-outlined font-bold">
+                  arrow_forward
+                </span>
+              </>
+            )}
           </button>
         </footer>
       </div>

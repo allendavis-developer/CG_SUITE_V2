@@ -4,8 +4,8 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
 
-from .models_v2 import ProductCategory, Product, Variant, Attribute, VariantAttributeValue, ConditionGrade
-from .serializers import ProductCategorySerializer, ProductSerializer, AttributeSerializer, VariantMarketStatsSerializer
+from .models_v2 import ProductCategory, Product, Variant, Customer
+from .serializers import ProductCategorySerializer, ProductSerializer, CustomerSerializer, VariantMarketStatsSerializer
 
 @api_view(['GET'])
 def categories_list(request):
@@ -13,6 +13,31 @@ def categories_list(request):
     categories = ProductCategory.objects.filter(parent_category__isnull=True)
     serializer = ProductCategorySerializer(categories, many=True)
     return Response(serializer.data)
+
+
+@api_view(['GET', 'POST'])
+def customers_view(request):
+    if request.method == 'GET':
+        customers = Customer.objects.all()
+        data = [
+            {
+                "name": c.name,
+                "phone": c.phone_number,
+                "email": c.email,
+                "address": c.address
+            }
+            for c in customers
+        ]
+        return Response(data)
+
+    elif request.method == 'POST':
+        serializer = CustomerSerializer(data=request.data)
+        if serializer.is_valid():
+            customer = serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
 
 @api_view(['GET'])
 def products_list(request):

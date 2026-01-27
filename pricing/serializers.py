@@ -1,6 +1,6 @@
 # serializers.py
 from rest_framework import serializers
-from .models_v2 import ProductCategory, Product, Variant, Attribute, AttributeValue
+from .models_v2 import ProductCategory, Product, Variant, Attribute, AttributeValue, Customer
 
 class ProductCategorySerializer(serializers.ModelSerializer):
     children = serializers.SerializerMethodField()  # Nested children
@@ -73,3 +73,24 @@ class VariantMarketStatsSerializer(serializers.ModelSerializer):
 
     def get_platform(self, obj):
         return "CEX"
+
+class CustomerSerializer(serializers.ModelSerializer):
+    cancel_rate = serializers.FloatField(read_only=True)  # Add this line
+
+    class Meta:
+        model = Customer
+        fields = ['customer_id', 'name', 'phone_number', 'email', 'address', 'cancel_rate']
+        extra_kwargs = {
+            'name': {'required': True},
+        }
+
+    def to_representation(self, instance):
+        return {
+            "id": instance.customer_id,
+            "name": instance.name,
+            "phone": instance.phone_number,
+            "email": instance.email,
+            "address": instance.address,
+            "cancel_rate": instance.cancel_rate  # Include cancel rate here
+        }
+
