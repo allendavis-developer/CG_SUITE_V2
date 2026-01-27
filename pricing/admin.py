@@ -466,7 +466,16 @@ from .models_v2 import (
     VariantAttributeValue,
     VariantPriceHistory,
     VariantStatus,
-    PricingRule
+    PricingRule,
+    InventoryUnit,
+    Customer,
+    RequestItem,
+    RequestStatusHistory,
+    Request,
+    TradeIn,
+    Agreement,
+    InventoryOwnershipEvent,
+    Location
 )
 
 
@@ -645,6 +654,149 @@ class PricingRuleAdmin(admin.ModelAdmin):
             return f"Category: {obj.category.name}"
         return "—"
     get_scope.short_description = "Scope"
+
+@admin.register(Customer)
+class CustomerAdmin(admin.ModelAdmin):
+    list_display = ("name", "phone_number", "created_at")
+    search_fields = ("name", "phone_number")
+    ordering = ("-created_at",)
+
+
+class RequestItemInline(admin.TabularInline):
+    model = RequestItem
+    extra = 0
+
+
+class RequestStatusHistoryInline(admin.TabularInline):
+    model = RequestStatusHistory
+    extra = 0
+    readonly_fields = ("status", "effective_at")
+    ordering = ("-effective_at",)
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(Request)
+class RequestAdmin(admin.ModelAdmin):
+    list_display = ("request_id", "customer", "intent", "created_at")
+    list_filter = ("intent",)
+    search_fields = ("customer__name", "customer__phone_number")
+    ordering = ("-created_at",)
+
+    autocomplete_fields = ("customer",)
+    inlines = [
+        RequestItemInline,
+        RequestStatusHistoryInline,
+    ]
+
+
+@admin.register(RequestItem)
+class RequestItemAdmin(admin.ModelAdmin):
+    list_display = (
+        "request_item_id",
+        "request",
+        "variant",
+        "initial_expectation_gbp",
+    )
+    list_filter = ("variant__product__category",)
+    search_fields = ("variant__cex_sku",)
+    autocomplete_fields = ("request", "variant")
+
+
+@admin.register(TradeIn)
+class TradeInAdmin(admin.ModelAdmin):
+    list_display = (
+        "tradein_id",
+        "request_item",
+        "outcome",
+        "final_offer_gbp",
+        "created_at",
+    )
+    list_filter = ("outcome",)
+    ordering = ("-created_at",)
+    autocomplete_fields = ("request_item",)
+
+    readonly_fields = (
+        "request_item",
+        "final_offer_gbp",
+        "outcome",
+        "created_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+    
+    def has_change_permission(self, request, obj=None):
+        return False
+
+@admin.register(Location)
+class LocationAdmin(admin.ModelAdmin):
+    list_display = ("code", "name")
+    search_fields = ("code", "name")
+    ordering = ("code",)
+
+
+
+@admin.register(Agreement)
+class AgreementAdmin(admin.ModelAdmin):
+    list_display = (
+        "agreement_id",
+        "agreement_type",
+        "status",
+        "signed_at",
+        "expires_at",
+    )
+    list_filter = ("agreement_type", "status")
+    ordering = ("-signed_at",)
+
+    readonly_fields = (
+        "tradein",
+        "agreement_type",
+        "signed_at",
+    )
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(InventoryUnit)
+class InventoryUnitAdmin(admin.ModelAdmin):
+    list_display = (
+        "item_id",
+        "variant",
+        "location",
+        "is_sellable",
+    )
+    list_filter = ("location", "is_sellable")
+    search_fields = ("variant__cex_sku",)
+    autocomplete_fields = ("variant", "location")
+
+    readonly_fields = ("tradein",)
+
+
+@admin.register(InventoryOwnershipEvent)
+class InventoryOwnershipEventAdmin(admin.ModelAdmin):
+    list_display = (
+        "inventory_unit",
+        "event_type",
+        "event_at",
+    )
+    list_filter = ("event_type",)
+    ordering = ("-event_at",)
+
+    readonly_fields = (
+        "inventory_unit",
+        "event_type",
+        "event_at",
+        "notes",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
 
 
 

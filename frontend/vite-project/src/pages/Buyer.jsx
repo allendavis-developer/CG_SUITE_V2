@@ -18,6 +18,8 @@ import {
 } from '../components/ui/components';
 
 import EbayResearchModal from "../components/modals/EbayResearchModal.jsx"
+import CustomerIntakeModal from "../components/modals/CustomerIntakeModal.jsx";
+
 
 const formatGBP = (value) =>
   new Intl.NumberFormat('en-GB', {
@@ -896,6 +898,7 @@ export default function Buyer() {
   const hasAutoSelected = useRef(false);
   
   const [cartItems, setCartItems] = useState([]);
+  const [isCustomerModalOpen, setCustomerModalOpen] = useState(true);
 
 
 
@@ -927,7 +930,19 @@ export default function Buyer() {
         body { font-family: 'Inter', sans-serif; }
         .material-symbols-outlined { font-size: 20px; }
       `}</style>
-      
+
+      {/* Customer Intake ALWAYS FIRST */}
+      <CustomerIntakeModal
+        open={isCustomerModalOpen}
+        onClose={(customer) => {
+          setCustomerModalOpen(false);
+          if (customer) {
+            console.log("Selected customer:", customer);
+            // You could store it in Buyer state here if needed
+          }
+        }}
+      />
+
       <Header onSearch={(val) => console.log('Search:', val)} />
       <main className="flex flex-1 overflow-hidden h-[calc(100vh-61px)]">
         <Sidebar onCategorySelect={handleCategorySelect} />

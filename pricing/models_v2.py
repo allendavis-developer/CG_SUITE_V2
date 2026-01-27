@@ -585,6 +585,14 @@ class InventoryUnit(models.Model):
         help_text="Free-form notes about this unit"
     )
 
+    tradein = models.OneToOneField(
+        "TradeIn",
+        on_delete=models.PROTECT,
+        related_name="inventory_unit",
+        help_text="Trade-in that created this physical item"
+    )
+
+
     class Meta:
         db_table = 'pricing_inventory_item'
         indexes = [
@@ -595,6 +603,7 @@ class InventoryUnit(models.Model):
 
     def __str__(self):
         return f"Item {self.item_id} - {self.variant.cex_sku}"
+
 
 
 class VariantStatus(models.Model):
@@ -635,3 +644,210 @@ class VariantStatus(models.Model):
 
     def __str__(self):
         return f"{self.variant.cex_sku} - {self.status} from {self.effective_from}"
+
+
+class Customer(models.Model):
+    customer_id = models.AutoField(primary_key=True)
+
+    name = models.CharField(max_length=255)
+    phone_number = models.CharField(max_length=50, db_index=True)
+    address = models.TextField(blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "buying_customer"
+
+
+
+class RequestIntent(models.TextChoices):
+    BUYBACK = "BUYBACK"
+    DIRECT_SALE = "DIRECT_SALE"
+    UNKNOWN = "UNKNOWN"
+
+
+class Request(models.Model):
+    request_id = models.AutoField(primary_key=True)
+
+    customer = models.ForeignKey(
+        Customer,
+        on_delete=models.CASCADE,
+        related_name="requests"
+    )
+
+    intent = models.CharField(
+        max_length=20,
+        choices=RequestIntent.choices,
+        default=RequestIntent.UNKNOWN
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "buying_request"
+
+
+class RequestItem(models.Model):
+    request_item_id = models.AutoField(primary_key=True)
+
+    request = models.ForeignKey(
+        Request,
+        on_delete=models.CASCADE,
+        related_name="items"
+    )
+
+    variant = models.ForeignKey(
+        Variant,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="Resolved variant after identification"
+    )
+
+    initial_expectation_gbp = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True
+    )
+
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        db_table = "buying_request_item"
+
+
+class RequestStatus(models.TextChoices):
+    OPEN = "OPEN"
+    CONTACTED = "CONTACTED"
+    BOOKED_FOR_TESTING = "BOOKED_FOR_TESTING"
+    TESTING_COMPLETE = "TESTING_COMPLETE"
+    CANCELLED = "CANCELLED"
+    EXPIRED = "EXPIRED"
+
+
+class RequestStatusHistory(models.Model):
+    request = models.ForeignKey(
+        Request,
+        on_delete=models.CASCADE,
+        related_name="status_history"
+    )
+
+    status = models.CharField(
+        max_length=30,
+        choices=RequestStatus.choices
+    )
+
+    effective_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "buying_request_status"
+        ordering = ["-effective_at"]
+
+
+class TradeInOutcome(models.TextChoices):
+    BUYBACK = "BUYBACK"
+    DIRECT_SALE = "DIRECT_SALE"
+
+
+class TradeIn(models.Model):
+    tradein_id = models.AutoField(primary_key=True)
+
+    request_item = models.OneToOneField(
+        RequestItem,
+        on_delete=models.CASCADE,
+        related_name="tradein"
+    )
+
+    final_offer_gbp = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal("0.00"))]
+    )
+
+    outcome = models.CharField(
+        max_length=20,
+        choices=TradeInOutcome.choices
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "buying_tradein"
+
+
+class AgreementType(models.TextChoices):
+    DIRECT_SALE = "DIRECT_SALE"
+    BUYBACK = "BUYBACK"
+
+
+class AgreementStatus(models.TextChoices):
+    ACTIVE = "ACTIVE"
+    EXERCISED = "EXERCISED"
+    EXPIRED = "EXPIRED"
+    COMPLETED = "COMPLETED"
+
+
+class Agreement(models.Model):
+    agreement_id = models.AutoField(primary_key=True)
+
+    tradein = models.OneToOneField(
+        TradeIn,
+        on_delete=models.CASCADE,
+        related_name="agreement"
+    )
+
+    agreement_type = models.CharField(
+        max_length=20,
+        choices=AgreementType.choices
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=AgreementStatus.choices,
+        default=AgreementStatus.ACTIVE
+    )
+
+    signed_at = models.DateTimeField(default=timezone.now)
+
+    expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Only for buyback agreements"
+    )
+
+    buyback_repurchase_gbp = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True
+    )
+
+    class Meta:
+        db_table = "buying_agreement"
+
+
+class InventoryOwnershipEventType(models.TextChoices):
+    ACQUIRED_DIRECT = "ACQUIRED_DIRECT"
+    BUYBACK_STARTED = "BUYBACK_STARTED"
+    BUYBACK_EXERCISED = "BUYBACK_EXERCISED"
+    BUYBACK_EXPIRED = "BUYBACK_EXPIRED"
+
+
+class InventoryOwnershipEvent(models.Model):
+    inventory_unit = models.ForeignKey(
+        InventoryUnit,
+        on_delete=models.CASCADE,
+        related_name="ownership_events"
+    )
+
+    event_type = models.CharField(
+        max_length=30,
+        choices=InventoryOwnershipEventType.choices
+    )
+
+    event_at = models.DateTimeField(default=timezone.now)
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        db_table = "inventory_ownership_event"
