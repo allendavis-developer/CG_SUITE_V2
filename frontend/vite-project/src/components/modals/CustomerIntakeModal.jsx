@@ -4,6 +4,7 @@ import { SearchableDropdown } from "../ui/components"; // import your component
 export default function CustomerIntakeModal({ open = true, onClose }) {
   const [isExisting, setIsExisting] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState("");
+  const [transactionType, setTransactionType] = useState("sale"); // "sale" or "buyback"
 
   // Ref for new customer input
   const newCustomerRef = useRef(null);
@@ -28,6 +29,7 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
     onClose({
       isExisting,
       customerName,
+      transactionType,
     });
   };
 
@@ -62,7 +64,7 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
           </button>
         </header>
 
-        {/* Toggle */}
+        {/* Toggle - Customer Type */}
         <div className="px-8 pt-8 pb-4">
           <div className="bg-gray-100 p-1 rounded-xl flex border border-gray-200">
             <label className="flex-1 cursor-pointer">
@@ -93,6 +95,42 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
                   manage_search
                 </span>
                 Existing Customer
+              </div>
+            </label>
+          </div>
+        </div>
+
+        {/* Toggle - Transaction Type */}
+        <div className="px-8 pb-6">
+          <div className="bg-gray-100 p-1 rounded-xl flex border border-gray-200">
+            <label className="flex-1 cursor-pointer">
+              <input
+                type="radio"
+                name="transaction-toggle"
+                className="hidden peer"
+                checked={transactionType === "sale"}
+                onChange={() => setTransactionType("sale")}
+              />
+              <div className="flex items-center justify-center gap-2 py-3 rounded-lg text-sm font-bold transition-all peer-checked:bg-white peer-checked:shadow-sm text-gray-500 peer-checked:text-yellow-500">
+                <span className="material-symbols-outlined text-lg">
+                  point_of_sale
+                </span>
+                Direct Sale
+              </div>
+            </label>
+            <label className="flex-1 cursor-pointer">
+              <input
+                type="radio"
+                name="transaction-toggle"
+                className="hidden peer"
+                checked={transactionType === "buyback"}
+                onChange={() => setTransactionType("buyback")}
+              />
+              <div className="flex items-center justify-center gap-2 py-3 rounded-lg text-sm font-bold transition-all peer-checked:bg-white peer-checked:shadow-sm text-gray-500 peer-checked:text-yellow-500">
+                <span className="material-symbols-outlined text-lg">
+                  autorenew
+                </span>
+                Buy Back
               </div>
             </label>
           </div>

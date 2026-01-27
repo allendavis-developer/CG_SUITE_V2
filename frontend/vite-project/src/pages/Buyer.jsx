@@ -812,7 +812,7 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
 };
 
 
-const CartSidebar = ({ cartItems = [], setCartItems = () => {} }) => {
+const CartSidebar = ({ cartItems = [], setCartItems = () => {}, customerData }) => {
   const removeItem = (id) => {
     setCartItems(cartItems.filter(item => item.id !== id));
   };
@@ -822,37 +822,43 @@ const CartSidebar = ({ cartItems = [], setCartItems = () => {} }) => {
     return sum + numericPrice;
   }, 0);
 
-
   return (
-    <aside className="w-1/5 border-l border-blue-900 flex flex-col bg-white">
-      <div className="p-4 border-b border-blue-900 flex justify-between items-center bg-white">
-        <h3 className="font-bold flex items-center gap-2 text-blue-900">
-          <Icon name="receipt_long" className="text-yellow-500 text-sm" />
-          Processing Batch
-        </h3>
-        <Badge variant="default">{cartItems.length} Items</Badge>
+    <aside className="w-1/5 border-l border-blue-900/20 flex flex-col bg-white">
+      {/* Customer Header Section - white background with blue text */}
+      <div className="bg-white p-6 shadow-md shadow-blue-900/10">
+        <h1 className="text-blue-900 text-xl font-extrabold tracking-tight">
+          {customerData.name}
+        </h1>
+        <p className="text-blue-900/80 text-sm font-medium mt-1">
+          Cancel Rate: {customerData.cancelRate}%
+        </p>
+        <p className="text-blue-900/60 text-[11px] font-bold uppercase tracking-widest mt-2">
+          {cartItems.length} Items
+        </p>
       </div>
 
+      {/* Cart Items */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-white">
-        {cartItems.map(item => (
+        {cartItems.map((item, index) => (
           <CartItem
             key={item.id}
             title={item.title}
             subtitle={item.subtitle}
             price={item.price}
-            isHighlighted={item.highlighted}
+            isHighlighted={false} // No badge on any items
             onRemove={() => removeItem(item.id)}
           />
         ))}
       </div>
 
-      <div className="p-6 bg-slate-50 border-t border-blue-900/10 space-y-4">
+      {/* Footer Section */}
+      <div className="p-6 bg-white border-t border-blue-900/20 space-y-4">
         <div className="space-y-2">
           <div className="flex justify-between text-xs">
             <span className="text-blue-900/60 font-semibold uppercase tracking-wider">
               Offer Total
             </span>
-            <span className="font-bold text-slate-900">
+            <span className="font-bold text-blue-900">
               £{total.toFixed(2)}
             </span>
           </div>
@@ -861,7 +867,7 @@ const CartSidebar = ({ cartItems = [], setCartItems = () => {} }) => {
             <span className="text-blue-900/60 font-semibold uppercase tracking-wider">
               Adjustments
             </span>
-            <span className="font-bold text-slate-400">
+            <span className="font-bold text-blue-900/40">
               £0.00
             </span>
           </div>
@@ -871,7 +877,7 @@ const CartSidebar = ({ cartItems = [], setCartItems = () => {} }) => {
           <span className="text-xs font-bold text-blue-900 uppercase tracking-widest">
             Grand Total
           </span>
-          <span className="text-2xl font-black text-slate-900 tracking-tighter">
+          <span className="text-2xl font-black text-blue-900 tracking-tighter">
             £{total.toFixed(2)}
           </span>
         </div>
@@ -899,6 +905,12 @@ export default function Buyer() {
   
   const [cartItems, setCartItems] = useState([]);
   const [isCustomerModalOpen, setCustomerModalOpen] = useState(true);
+  
+  // Mock customer data - will be replaced with real data from CustomerIntakeModal
+  const [customerData, setCustomerData] = useState({
+    name: 'Alex Johnson',
+    cancelRate: 4
+  });
 
   const handleCategorySelect = async (category) => {
     setSelectedCategory(category);
@@ -929,14 +941,18 @@ export default function Buyer() {
         .material-symbols-outlined { font-size: 20px; }
       `}</style>
 
-      {/* Customer Intake ALWAYS FIRST */}
+      {/* Customer Intake Modal */}
       <CustomerIntakeModal
         open={isCustomerModalOpen}
         onClose={(customer) => {
           setCustomerModalOpen(false);
           if (customer) {
+            // TODO: Update customerData with real data from modal
+            // setCustomerData({
+            //   name: customer.name,
+            //   cancelRate: customer.cancelRate || 0
+            // });
             console.log("Selected customer:", customer);
-            // You could store it in Buyer state here if needed
           }
         }}
       />
@@ -951,7 +967,11 @@ export default function Buyer() {
           setSelectedModel={setSelectedModel}
           addToCart={addToCart}   
         />
-      <CartSidebar cartItems={cartItems} setCartItems={setCartItems} />
+        <CartSidebar 
+          cartItems={cartItems} 
+          setCartItems={setCartItems}
+          customerData={customerData}
+        />
       </main>
     </div>
   );
