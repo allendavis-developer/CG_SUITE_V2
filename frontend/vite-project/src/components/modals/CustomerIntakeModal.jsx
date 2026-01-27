@@ -71,65 +71,75 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
 
   if (!open) return null;
 
-  const handleConfirm = async () => {
-    const customerData = {
-      name: nameRef.current?.value || "",
-      phone_number: phoneRef.current?.value || "",
-      email: emailRef.current?.value || "",
-      address: addressRef.current?.value || "",
-    };
+const handleConfirm = async () => {
+  const customerData = {
+    name: nameRef.current?.value || "",
+    phone_number: phoneRef.current?.value || "",
+    email: emailRef.current?.value || "",
+    address: addressRef.current?.value || "",
+  };
 
-    // Validate required fields
-    if (!customerData.name.trim()) {
-      setError("Customer name is required");
+  // Validate required fields
+  if (!customerData.name.trim()) {
+    setError("Customer name is required");
+    return;
+  }
+
+  // If new customer, create them first
+  if (!isExisting) {
+    setSaving(true);
+    setError(null);
+    
+    try {
+      const response = await fetch("/api/customers/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": getCSRFToken()
+        },
+        body: JSON.stringify(customerData),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to create customer");
+      }
+
+      const newCustomer = await response.json();
+      
+      // Pass the complete data back to parent
+      onClose({
+        isExisting: false,
+        transactionType,
+        customer: newCustomer,
+        customerId: newCustomer.id,
+        customerName: newCustomer.name,
+        phone: newCustomer.phone,
+        email: newCustomer.email,
+        address: newCustomer.address,
+        cancelRate: newCustomer.cancel_rate || 0,
+      });
+    } catch (err) {
+      setError(err.message);
+      console.error("Error creating customer:", err);
+      setSaving(false);
       return;
     }
-
-    // If new customer, create them first
-    if (!isExisting) {
-      setSaving(true);
-      setError(null);
-      
-      try {
-        const response = await fetch("/api/customers/", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-CSRFToken": getCSRFToken()
-          },
-          body: JSON.stringify(customerData),
-        });
-
-        if (!response.ok) {
-          throw new Error("Failed to create customer");
-        }
-
-        const newCustomer = await response.json();
-        
-        // Pass the complete data back to parent
-        onClose({
-          isExisting: false,
-          transactionType,
-          customer: newCustomer,
-          ...customerData,
-        });
-      } catch (err) {
-        setError(err.message);
-        console.error("Error creating customer:", err);
-        setSaving(false);
-        return;
-      }
-    } else {
-      // Existing customer - just return the data
-      const selectedCustomerData = customers.find(c => c.name === selectedCustomer);
-      onClose({
-        isExisting: true,
-        transactionType,
-        customer: selectedCustomerData,
-        ...customerData,
-      });
-    }
-  };
+  } else {
+    // Existing customer - just return the data
+    const selectedCustomerData = customers.find(c => c.name === selectedCustomer);
+    onClose({
+      isExisting: true,
+      transactionType,
+      customer: selectedCustomerData,
+      customerId: selectedCustomerData?.id,
+      customerName: nameRef.current?.value || "",
+      phone: phoneRef.current?.value || "",
+      email: emailRef.current?.value || "",
+      address: addressRef.current?.value || "",
+      cancelRate: selectedCustomerData?.cancel_rate || 0,
+    });
+  }
+};
 
   const handleCancel = () => {
     onClose(null);

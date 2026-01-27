@@ -812,6 +812,7 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
 };
 
 
+// Update the CartSidebar component to accept and display transaction type
 const CartSidebar = ({ cartItems = [], setCartItems = () => {}, customerData }) => {
   const removeItem = (id) => {
     setCartItems(cartItems.filter(item => item.id !== id));
@@ -829,10 +830,20 @@ const CartSidebar = ({ cartItems = [], setCartItems = () => {}, customerData }) 
         <h1 className="text-blue-900 text-xl font-extrabold tracking-tight">
           {customerData.name}
         </h1>
-        <p className="text-blue-900/80 text-sm font-medium mt-1">
-          Cancel Rate: {customerData.cancelRate}%
-        </p>
-        <p className="text-blue-900/60 text-[11px] font-bold uppercase tracking-widest mt-2">
+        <div className="flex items-center gap-2 mt-2">
+          <p className="text-blue-900/80 text-sm font-medium">
+            Cancel Rate: {customerData.cancelRate}%
+          </p>
+          <span className="text-blue-900/40">•</span>
+          <p className={`text-sm font-bold ${
+            customerData.transactionType === 'sale' 
+              ? 'text-emerald-600' 
+              : 'text-purple-600'
+          }`}>
+            {customerData.transactionType === 'sale' ? 'Direct Sale' : 'Buy Back'}
+          </p>
+        </div>
+        <p className="text-blue-900/60 text-[11px] font-bold uppercase tracking-widest mt-3">
           {cartItems.length} Items
         </p>
       </div>
@@ -845,7 +856,7 @@ const CartSidebar = ({ cartItems = [], setCartItems = () => {}, customerData }) 
             title={item.title}
             subtitle={item.subtitle}
             price={item.price}
-            isHighlighted={false} // No badge on any items
+            isHighlighted={false}
             onRemove={() => removeItem(item.id)}
           />
         ))}
@@ -894,9 +905,7 @@ const CartSidebar = ({ cartItems = [], setCartItems = () => {}, customerData }) 
   );
 };
 
-
-
-// Main Buyer Component
+// Update the Buyer component to include transaction type in customerData
 export default function Buyer() {
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [availableModels, setAvailableModels] = useState([]);
@@ -906,16 +915,17 @@ export default function Buyer() {
   const [cartItems, setCartItems] = useState([]);
   const [isCustomerModalOpen, setCustomerModalOpen] = useState(true);
   
-  // Mock customer data - will be replaced with real data from CustomerIntakeModal
+  // Initialize with empty customer data
   const [customerData, setCustomerData] = useState({
-    name: 'Alex Johnson',
-    cancelRate: 4
+    name: 'No Customer Selected',
+    cancelRate: 0,
+    transactionType: 'sale'
   });
 
   const handleCategorySelect = async (category) => {
     setSelectedCategory(category);
     setSelectedModel(null);
-    hasAutoSelected.current = false; // Reset the flag
+    hasAutoSelected.current = false;
     const models = await fetchProductModels(category);
     setAvailableModels(models);
   };
@@ -931,7 +941,6 @@ export default function Buyer() {
     setCartItems((prev) => [...prev, item]);
   };
 
-
   return (
     <div className="bg-gray-50 text-gray-900 min-h-screen flex flex-col text-sm">
       <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -944,15 +953,15 @@ export default function Buyer() {
       {/* Customer Intake Modal */}
       <CustomerIntakeModal
         open={isCustomerModalOpen}
-        onClose={(customer) => {
+        onClose={(customerInfo) => {
           setCustomerModalOpen(false);
-          if (customer) {
-            // TODO: Update customerData with real data from modal
-            // setCustomerData({
-            //   name: customer.name,
-            //   cancelRate: customer.cancelRate || 0
-            // });
-            console.log("Selected customer:", customer);
+          if (customerInfo) {
+            setCustomerData({
+              name: customerInfo.customerName || customerInfo.name,
+              cancelRate: customerInfo.cancelRate || 0,
+              transactionType: customerInfo.transactionType || 'sale'
+            });
+            console.log("Selected customer:", customerInfo);
           }
         }}
       />
