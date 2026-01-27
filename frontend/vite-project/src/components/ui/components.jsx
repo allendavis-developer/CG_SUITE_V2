@@ -371,21 +371,20 @@ export const Sidebar = ({ onCategorySelect }) => {
       name: category.name,
       path: path || [category.name]
     });
-
-
   };
-
 
   const renderCategory = (category) => {
     const hasChildren = category.children && category.children.length > 0;
     const isBottomLevel = !hasChildren;
+    const isSelected = selectedCategory === category.category_id;
+    const isExpanded = expandedCategories.includes(category.category_id);
 
     return (
       <CategoryItem
         key={category.category_id}
         icon={hasChildren ? "folder" : "smartphone"}
         label={category.name}
-        isActive={expandedCategories.includes(category.category_id) || selectedCategory === category.category_id}
+        isActive={isSelected || isExpanded}
         hasChildren={hasChildren}
         isBottomLevel={isBottomLevel}
         onToggle={() => {
@@ -397,7 +396,7 @@ export const Sidebar = ({ onCategorySelect }) => {
         }}
         onSelect={() => handleCategorySelect(category)}
       >
-        {hasChildren &&
+        {hasChildren && isExpanded &&
           category.children.map((child) => (
             <div key={child.category_id}>{renderCategory(child)}</div>
           ))}
@@ -407,7 +406,7 @@ export const Sidebar = ({ onCategorySelect }) => {
 
   return (
     <aside className="w-1/5 border-r border-blue-900/10 flex flex-col bg-blue-900 overflow-y-auto">
-      <div className="p-4 space-y-6">
+      <div className="p-4">
         <div>
           <h3 className="text-xs font-bold uppercase tracking-wider text-white/50 mb-3 px-2">
             Device Categories
@@ -430,19 +429,6 @@ export const Sidebar = ({ onCategorySelect }) => {
                 cat.name.toLowerCase().includes(filterText.toLowerCase())
               )
               .map((cat) => renderCategory(cat))}
-          </div>
-        </div>
-
-        <div>
-          <h3 className="text-xs font-bold uppercase tracking-wider text-white/50 mb-3 px-2">
-            Recents
-          </h3>
-          <div className="space-y-3">
-            <RecentItem
-              image="https://lh3.googleusercontent.com/aida-public/AB6AXuBGfBZPELt22OgtvmYuWNe2y7m_O2ttykZN0m60OOGIADJSQU5Ch0KoWCKn7iYGQ32kF8EhWWuLEbllXbKuBxasCUmaZ_ao4EbUlqigEfluRZXIES0eIIo4xC3Eb1GMF5JjKF7jDaw7uTT2DQ6bQh6JNu_78kkT0smjJA-lN_B--7DQUNz3rww3Zu0l8g_QinqzjrB02xp2LvcI_-4BBWm9vN8h2wkEZ1f3VK6mzONp-JUDurzXIlPlsa2UAr4TLnON4CFBf6GEsIc"
-              title="iPhone 14 Pro"
-              sku="AP-IP14P-128"
-            />
           </div>
         </div>
       </div>

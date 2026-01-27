@@ -3,12 +3,14 @@ Django management command to import CeX JSONL data with bulk operations.
 
 Usage:
     python manage.py import_cex_data path/to/cex_data.jsonl
+    python manage.py import_cex_data path/to/cex_data.jsonl --model-name-attribute product_name
 
 Features:
 - Streams JSONL file line-by-line (memory efficient)
 - Bulk creates/updates with minimal queries
 - Pre-loads lookups to avoid N+1 queries
 - Transaction-safe with batch commits
+- Configurable model name attribute
 """
 
 import json
@@ -43,13 +45,21 @@ class Command(BaseCommand):
             action='store_true',
             help='Skip error records without stopping'
         )
+        parser.add_argument(
+            '--model-name-attribute',
+            type=str,
+            default='model_name',
+            help='Name of the attribute that contains the model/product name (default: model_name)'
+        )
 
     def handle(self, *args, **options):
         jsonl_file = options['jsonl_file']
         batch_size = options['batch_size']
         skip_errors = options['skip_errors']
+        self.model_name_attribute = options['model_name_attribute'].lower()
 
         self.stdout.write(self.style.SUCCESS(f'Starting import from {jsonl_file}'))
+        self.stdout.write(f'Using "{options["model_name_attribute"]}" as model name attribute')
 
         # Ensure root category and default condition grades exist
         self._ensure_defaults()
@@ -210,7 +220,7 @@ class Command(BaseCommand):
                 attributes = raw_attrs
                         
             for attr in attributes:
-                if attr.get('attributeName', '').lower() == 'phone_modelname':
+                if attr.get('attributeName', '').lower() == self.model_name_attribute:
                     product_name = attr.get('attributeValue')
                     if isinstance(product_name, list):
                         product_name = product_name[0] if product_name else None
@@ -241,7 +251,7 @@ class Command(BaseCommand):
                 if is_variant != '1':
                     continue
                 
-                if not attr_name or attr_name.lower() == 'phone_modelname':
+                if not attr_name or attr_name.lower() == self.model_name_attribute:
                     continue
 
                 attr_value = attr.get('attributeValue')
@@ -345,14 +355,14 @@ class Command(BaseCommand):
         attributes = raw_attrs or []
 
         # Default product name if attribute not found
-        # Step 1: extract product name from phone_modelname
+        # Step 1: extract product name from configured model_name attribute
         product_name = None
         for attr in attributes:
-            if attr.get('attributeName', '').lower() == 'phone_modelname':
+            if attr.get('attributeName', '').lower() == self.model_name_attribute:
                 val = attr.get('attributeValue')
                 if isinstance(val, list):
                     val = val[0] if val else None
-                product_name = str(val).strip()
+                product_name = str(val).strip() if val else None
                 break
 
         # Fallback to boxName if NULL

@@ -193,6 +193,8 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
   const [isLoadingOffers, setIsLoadingOffers] = useState(false);
   const [selectedOfferId, setSelectedOfferId] = useState(null);
   const [manualOfferPrice, setManualOfferPrice] = useState('');
+  const [referenceData, setReferenceData] = useState(null);
+  const [ourSalePrice, setOurSalePrice] = useState('');
 
   useEffect(() => {
     // Reset all attribute-related state when category changes
@@ -294,6 +296,8 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
   useEffect(() => {
     if (!variant) {
       setOffers([]);
+      setReferenceData(null);
+      setOurSalePrice('');
       return;
     }
 
@@ -307,6 +311,12 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
         
         const data = await res.json();
         setOffers(data.offers);
+        setReferenceData(data.reference_data);
+        
+        // Set our sale price from reference data
+        if (data.reference_data && data.reference_data.cex_based_sale_price) {
+          setOurSalePrice(data.reference_data.cex_based_sale_price.toString());
+        }
         
         // Auto-select the first offer
         if (data.offers && data.offers.length > 0) {
@@ -315,6 +325,8 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
       } catch (err) {
         console.error('Error fetching offers:', err);
         setOffers([]);
+        setReferenceData(null);
+        setOurSalePrice('');
       } finally {
         setIsLoadingOffers(false);
       }
@@ -623,8 +635,10 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
             <thead className="text-xs font-bold text-gray-500 uppercase bg-gray-50/50">
               <tr>
                 <th className="p-4">Platform</th>
-                <th className="p-4">Sale Price</th>
+                <th className="p-4">Market Sale Price</th>
+                <th className="p-4 bg-yellow-500/10 border-x border-yellow-500/20">OUR SALE PRICE</th>
                 <th className="p-4">Buy-in Price</th>
+                <th className="p-4">Method</th>
                 <th className="p-4 text-right">Action</th>
               </tr>
             </thead>
@@ -632,33 +646,80 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
               {/* CEX ROW */}
               {variant && competitorStats.length > 0 ? (
                 competitorStats.map((row, idx) => (
-                  <MarketRow
-                    key={`cex-${idx}`}
-                    platform="CEX"
-                    salePrice={formatGBP(row.salePrice)}
-                    buyPrice={formatGBP(row.buyPrice)}
-                    verified
-                  />
+                  <tr key={`cex-${idx}`} className="hover:bg-gray-50 transition-colors">
+                    <td className="p-4 font-medium text-gray-900">CEX</td>
+                    <td className="p-4 font-bold text-gray-600">{formatGBP(row.salePrice)}</td>
+                    <td className="p-4 bg-yellow-500/5 border-x border-yellow-500/10">
+                      <div className="relative w-32">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-900 font-bold text-xs">£</span>
+                        <input 
+                          className="w-full pl-6 pr-3 py-1.5 border border-blue-900/20 rounded-md text-xs font-bold text-blue-900 focus:ring-1 focus:ring-yellow-500 focus:border-yellow-500" 
+                          step="0.01" 
+                          type="number" 
+                          value={ourSalePrice}
+                          onChange={(e) => setOurSalePrice(e.target.value)}
+                        />
+                      </div>
+                    </td>
+                    <td className="p-4 font-bold text-blue-900">{formatGBP(row.buyPrice)}</td>
+                    <td className="p-4 text-xs font-semibold text-gray-700">
+                      {referenceData?.percentage_used ? `${referenceData.percentage_used}%` : '—'}
+                    </td>
+                    <td className="p-4 text-right">
+                      <span className="text-emerald-600 inline-flex items-center gap-1 text-xs font-bold">
+                        <Icon name="check_circle" className="text-xs" /> Verified
+                      </span>
+                    </td>
+                  </tr>
                 ))
               ) : (
-                <tr className="bg-ui-bg/20">
-                  <td className="p-4 font-medium text-text-muted">CEX</td>
-                  <td className="p-4 italic text-text-muted/60" colSpan={2}>
+                <tr className="bg-gray-50/20">
+                  <td className="p-4 font-medium text-gray-600">CEX</td>
+                  <td className="p-4 italic text-gray-600/60">
                     Select a variant to view prices
                   </td>
-                  <td className="p-4 text-right text-xs text-text-muted/60">—</td>
+                  <td className="p-4 bg-yellow-500/5 border-x border-yellow-500/10">
+                    <div className="relative w-32">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-900 font-bold text-xs">£</span>
+                      <input 
+                        className="w-full pl-6 pr-3 py-1.5 border border-blue-900/20 rounded-md text-xs font-bold text-blue-900 focus:ring-1 focus:ring-yellow-500 focus:border-yellow-500 bg-gray-50" 
+                        step="0.01" 
+                        type="number" 
+                        value=""
+                        disabled
+                      />
+                    </div>
+                  </td>
+                  <td className="p-4 italic text-gray-600/60">—</td>
+                  <td className="p-4 italic text-gray-600/60">—</td>
+                  <td className="p-4 text-right text-xs text-gray-600/60">—</td>
                 </tr>
               )}
 
               {/* EBAY ROW (ALWAYS PRESENT) */}
-              <tr className="bg-ui-bg/20 hover:bg-ui-bg transition-colors">
-                <td className="p-4 font-medium text-text-muted">
+              <tr className="bg-gray-50/20 hover:bg-gray-50 transition-colors">
+                <td className="p-4 font-medium text-gray-600">
                   eBay
                 </td>
-                <td className="p-4 italic text-text-muted/60">
+                <td className="p-4 italic text-gray-600/60">
                   No data – Run research
                 </td>
-                <td className="p-4 italic text-text-muted/60">
+                <td className="p-4 bg-yellow-500/5 border-x border-yellow-500/10">
+                  <div className="relative w-32">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-900 font-bold text-xs">£</span>
+                    <input 
+                      className="w-full pl-6 pr-3 py-1.5 border border-blue-900/20 rounded-md text-xs font-bold text-blue-900 focus:ring-1 focus:ring-yellow-500 focus:border-yellow-500 bg-gray-50" 
+                      step="0.01" 
+                      type="number" 
+                      value=""
+                      disabled
+                    />
+                  </div>
+                </td>
+                <td className="p-4 italic text-gray-600/60">
+                  —
+                </td>
+                <td className="p-4 italic text-gray-600/60">
                   —
                 </td>
                 <td className="p-4">
@@ -683,38 +744,55 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
         </Card>
 
     {/* Suggested Trade-In Offers - Only show when variant is selected */}
-    {variant && offers.length > 0 && (
-      <div>
-        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">
-          Suggested Trade-In Offers
-        </h3>
+    {variant && offers.length > 0 && (() => {
+      // Calculate margin for each offer based on current sale price
+      const calculateMargin = (offerPrice, salePrice) => {
+        const salePriceNum = parseFloat(salePrice);
+        const offerPriceNum = parseFloat(offerPrice);
+        
+        if (!salePriceNum || salePriceNum <= 0) return 0;
+        
+        const margin = ((salePriceNum - offerPriceNum) / salePriceNum) * 100;
+        return Math.round(margin);
+      };
 
-        <div className="grid grid-cols-4 gap-4">
-          {offers.map((offer) => (
-            <OfferCard
-              key={offer.id}
-              title={offer.title}
-              price={formatGBP(parseFloat(offer.price))}
-              margin={offer.margin}
+      return (
+        <div>
+          <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">
+            Suggested Trade-In Offers
+          </h3>
 
-              /* 🔑 controlled highlight */
-              isHighlighted={selectedOfferId === offer.id}
+          <div className="grid grid-cols-4 gap-4">
+            {offers.map((offer) => {
+              const recalculatedMargin = calculateMargin(offer.price, ourSalePrice);
+              
+              return (
+                <OfferCard
+                  key={offer.id}
+                  title={offer.title}
+                  price={formatGBP(parseFloat(offer.price))}
+                  margin={recalculatedMargin}
 
-              /* 🖱 mouse selection */
-              onClick={() => setSelectedOfferId(offer.id)}
+                  /* 🔑 controlled highlight */
+                  isHighlighted={selectedOfferId === offer.id}
+
+                  /* 🖱 mouse selection */
+                  onClick={() => setSelectedOfferId(offer.id)}
+                />
+              );
+            })}
+            
+            {/* Manual Offer Card */}
+            <ManualOfferCard
+              isHighlighted={selectedOfferId === 'manual'}
+              onClick={() => setSelectedOfferId('manual')}
+              manualPrice={manualOfferPrice}
+              setManualPrice={setManualOfferPrice}
             />
-          ))}
-          
-          {/* Manual Offer Card */}
-          <ManualOfferCard
-            isHighlighted={selectedOfferId === 'manual'}
-            onClick={() => setSelectedOfferId('manual')}
-            manualPrice={manualOfferPrice}
-            setManualPrice={setManualOfferPrice}
-          />
+          </div>
         </div>
-      </div>
-    )}
+      );
+    })()}
 
       </div>  {/* <-- ADD THIS CLOSING DIV TAG */}
 

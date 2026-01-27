@@ -62,9 +62,11 @@ def variant_market_stats(request):
 def variant_prices(request):
     """
     Logic:
-    - First Offer: Price that gives us same margin as CeX if we sell at 85% of CeX sale price
-    - Second Offer: Middle point between First and Third offers
-    - Third Offer: CeX trade-in cash price (our competitive match)
+    - Sale price is derived from CeX price using pricing rules
+      (fallback to 85% if no rule applies)
+    - First Offer: Same absolute margin as CeX at our sale price
+    - Second Offer: Midpoint between First and Third
+    - Third Offer: Match CeX trade-in cash
     """
     sku = request.GET.get('sku')
 
@@ -82,37 +84,47 @@ def variant_prices(request):
             status=status.HTTP_404_NOT_FOUND
         )
 
-    # Get CeX prices
+    # CeX reference prices (DO NOT MODIFY)
     cex_sale_price = float(variant.current_price_gbp)
     cex_tradein_cash = float(variant.tradein_cash)
-    
-    # Calculate CeX margin
+
+    # CeX absolute margin
     cex_margin = cex_sale_price - cex_tradein_cash
-    
-    # Third offer: Match CeX trade-in cash
+
+    # 🔹 Determine sale price using pricing rules
+    target_sale_price = variant.get_target_sell_price()
+
+    if target_sale_price is not None:
+        cex_based_sale_price = float(target_sale_price)
+        percentage_used = round(
+            cex_based_sale_price / cex_sale_price * 100, 2
+        )
+    else:
+        # Backwards-compatible fallback
+        percentage_used = 85.0
+        cex_based_sale_price = cex_sale_price * 0.85
+
+    # Third offer: match CeX trade-in cash
     third_offer = cex_tradein_cash
-    
-    # First offer: Price that gives us same margin if we sell at 85% of CeX price
-    our_sale_price = cex_sale_price * 0.85
-    first_offer = our_sale_price - cex_margin
-    
-    # Ensure first offer is not negative
+
+    # First offer: same absolute margin as CeX
+    first_offer = cex_based_sale_price - cex_margin
     first_offer = max(first_offer, 0)
-    
-    # Second offer: Middle point
+
+    # Second offer: midpoint
     second_offer = (first_offer + third_offer) / 2
-    
-    # Calculate margins for each offer (as percentages)
+
+    # Margin % helper
     def calculate_margin_percentage(offer_price, sale_price):
         if sale_price == 0:
             return 0
         margin_amount = sale_price - offer_price
         return round((margin_amount / sale_price) * 100, 1)
-    
-    first_margin = calculate_margin_percentage(first_offer, our_sale_price)
-    second_margin = calculate_margin_percentage(second_offer, our_sale_price)
-    third_margin = calculate_margin_percentage(third_offer, our_sale_price)
-    
+
+    first_margin = calculate_margin_percentage(first_offer, cex_based_sale_price)
+    second_margin = calculate_margin_percentage(second_offer, cex_based_sale_price)
+    third_margin = calculate_margin_percentage(third_offer, cex_based_sale_price)
+
     offers = [
         {
             "id": 1,
@@ -134,18 +146,18 @@ def variant_prices(request):
             "isHighlighted": True
         }
     ]
-    
+
     return Response({
         "sku": sku,
         "offers": offers,
         "reference_data": {
             "cex_sale_price": cex_sale_price,
             "cex_tradein_cash": cex_tradein_cash,
-            "our_sale_price": our_sale_price,
-            "cex_margin": cex_margin
+            "cex_margin": cex_margin,
+            "cex_based_sale_price": round(cex_based_sale_price, 2),
+            "percentage_used": percentage_used
         }
     })
-
 
 # react app
 def react_app(request):
