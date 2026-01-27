@@ -1,9 +1,12 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { SearchableDropdown } from "../ui/components"; // import your component
 
 export default function CustomerIntakeModal({ open = true, onClose }) {
-  const [isExisting, setIsExisting] = useState(false); // toggle state
+  const [isExisting, setIsExisting] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState("");
+
+  // Ref for new customer input
+  const newCustomerRef = useRef(null);
 
   // Mock customer data
   const mockCustomers = [
@@ -16,12 +19,24 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
 
   if (!open) return null;
 
+  const handleClose = () => {
+    const customerName = isExisting
+      ? selectedCustomer
+      : newCustomerRef.current?.value || "";
+
+    // Pass structured info to parent
+    onClose({
+      isExisting,
+      customerName,
+    });
+  };
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={onClose}
+        onClick={handleClose}
       />
 
       {/* Modal */}
@@ -40,7 +55,7 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
             </div>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="size-10 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors"
           >
             <span className="material-symbols-outlined">close</span>
@@ -123,6 +138,7 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
               </label>
               <input
                 type="text"
+                ref={newCustomerRef}
                 placeholder="Enter customer's full name"
                 className="w-full h-12 rounded-xl border border-gray-200 focus:ring-yellow-500 focus:border-yellow-500 px-4"
               />
@@ -167,20 +183,20 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
         {/* Footer */}
         <footer className="p-8 border-t border-gray-100 flex items-center justify-between bg-white/50">
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="px-6 py-3 text-sm font-bold text-gray-600 hover:text-gray-900 transition-colors"
           >
             Cancel
           </button>
-        <button
-            onClick={() => onClose(selectedCustomer)} // Wrap in a function
+          <button
+            onClick={handleClose}
             className="bg-yellow-500 hover:brightness-105 active:scale-[0.98] text-blue-900 font-black py-4 px-10 rounded-xl shadow-lg shadow-yellow-500/20 flex items-center gap-2 transition-all"
-            >
+          >
             Confirm &amp; Proceed
             <span className="material-symbols-outlined font-bold">
-                arrow_forward
+              arrow_forward
             </span>
-        </button>
+          </button>
         </footer>
       </div>
     </div>

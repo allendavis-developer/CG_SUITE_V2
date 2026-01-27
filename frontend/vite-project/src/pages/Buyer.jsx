@@ -900,8 +900,6 @@ export default function Buyer() {
   const [cartItems, setCartItems] = useState([]);
   const [isCustomerModalOpen, setCustomerModalOpen] = useState(true);
 
-
-
   const handleCategorySelect = async (category) => {
     setSelectedCategory(category);
     setSelectedModel(null);

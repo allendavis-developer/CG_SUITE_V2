@@ -655,6 +655,15 @@ class Customer(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
 
+    @property
+    def cancel_rate(self):
+        total_requests = self.requests.count()
+        if total_requests == 0:
+            return 0.0
+        cancelled = self.requests.filter(status='CANCELLED').count()
+        return round((cancelled / total_requests) * 100, 2)
+
+
     class Meta:
         db_table = "buying_customer"
 
