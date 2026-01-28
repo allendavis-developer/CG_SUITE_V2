@@ -1,6 +1,8 @@
 # serializers.py
 from rest_framework import serializers
-from .models_v2 import ProductCategory, Product, Variant, Attribute, AttributeValue, Customer
+from .models_v2 import ( ProductCategory, Product, Variant, Attribute, AttributeValue, Customer, Request, RequestItem, RequestStatus, 
+    RequestStatusHistory, Variant, RequestIntent )
+
 
 class ProductCategorySerializer(serializers.ModelSerializer):
     children = serializers.SerializerMethodField()  # Nested children
@@ -19,6 +21,16 @@ class ProductSerializer(serializers.ModelSerializer):
     class Meta:
         model = Product
         fields = ['product_id', 'name']
+
+
+class VariantSerializer(serializers.ModelSerializer):
+    """Variant serializer for nested use in RequestItemSerializer"""
+    class Meta:
+        model = Variant
+        fields = ['variant_id', 'cex_sku', 'title', 'current_price_gbp']
+        read_only_fields = ['variant_id']
+
+
 
 class AttributeValueSerializer(serializers.ModelSerializer):
     class Meta:
@@ -94,3 +106,60 @@ class CustomerSerializer(serializers.ModelSerializer):
             "cancel_rate": instance.cancel_rate  # Include cancel rate here
         }
 
+
+class RequestItemSerializer(serializers.ModelSerializer):
+    variant_details = VariantSerializer(source='variant', read_only=True)
+    
+    class Meta:
+        model = RequestItem
+        fields = [
+            'request_item_id',
+            'request',
+            'variant',
+            'variant_details',
+            'initial_expectation_gbp',
+            'notes'
+        ]
+        read_only_fields = ['request_item_id']
+    
+    def validate_initial_expectation_gbp(self, value):
+        if value is not None and value < 0:
+            raise serializers.ValidationError("Initial expectation cannot be negative")
+        return value
+
+
+class RequestStatusHistorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RequestStatusHistory
+        fields = ['status', 'effective_at']
+        read_only_fields = ['effective_at']
+
+
+class RequestSerializer(serializers.ModelSerializer):
+    customer_details = CustomerSerializer(source='customer', read_only=True)
+    items = RequestItemSerializer(many=True, read_only=True)
+    current_status = serializers.SerializerMethodField()
+    status_history = RequestStatusHistorySerializer(many=True, read_only=True)
+    
+    class Meta:
+        model = Request
+        fields = [
+            'request_id',
+            'customer',
+            'customer_details',
+            'intent',
+            'created_at',
+            'items',
+            'current_status',
+            'status_history'
+        ]
+        read_only_fields = ['request_id', 'created_at']
+    
+    def get_current_status(self, obj):
+        latest_status = obj.status_history.first()
+        return latest_status.status if latest_status else None
+    
+    def validate_intent(self, value):
+        if value not in [choice[0] for choice in RequestIntent.choices]:
+            raise serializers.ValidationError(f"Invalid intent. Must be one of: {', '.join([c[0] for c in RequestIntent.choices])}")
+        return value

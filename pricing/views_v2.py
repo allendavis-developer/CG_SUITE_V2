@@ -1,11 +1,17 @@
-
-from django.shortcuts import render
+from django.shortcuts import render, get_object_or_404
+from django.db import transaction
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
 
-from .models_v2 import ProductCategory, Product, Variant, Customer
-from .serializers import ProductCategorySerializer, ProductSerializer, CustomerSerializer, VariantMarketStatsSerializer
+from .models_v2 import ( ProductCategory, Product, Variant, Customer,
+Request, RequestItem, RequestStatus, RequestStatusHistory,
+Customer, Variant, RequestIntent
+)
+
+from .serializers import ( RequestSerializer, RequestItemSerializer, CustomerSerializer,
+ProductCategorySerializer, ProductSerializer, CustomerSerializer, VariantMarketStatsSerializer
+)
 
 @api_view(['GET'])
 def categories_list(request):
@@ -21,6 +27,7 @@ def customers_view(request):
         customers = Customer.objects.all()
         data = [
             {
+                "id": c.customer_id,
                 "name": c.name,
                 "phone": c.phone_number,
                 "email": c.email,
@@ -57,6 +64,188 @@ def products_list(request):
     products = Product.objects.filter(category=category)
     serializer = ProductSerializer(products, many=True)
     return Response(serializer.data)
+
+
+@api_view(['GET', 'POST'])
+def requests_view(request):
+    """
+    GET: List all requests
+    POST: Create a new request with initial item (status: OPEN)
+    """
+    if request.method == 'GET':
+        requests = Request.objects.all().prefetch_related(
+            'items', 
+            'status_history'
+        ).select_related('customer')
+        
+        serializer = RequestSerializer(requests, many=True)
+        return Response(serializer.data)
+
+    elif request.method == 'POST':
+        customer_id = request.data.get('customer_id')
+        intent = request.data.get('intent', RequestIntent.UNKNOWN)
+        item_data = request.data.get('item')
+        
+        if not customer_id:
+            return Response(
+                {"error": "customer_id is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if not item_data:
+            return Response(
+                {"error": "At least one item is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            customer = Customer.objects.get(customer_id=customer_id)
+        except Customer.DoesNotExist:
+            return Response(
+                {"error": "Customer not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        with transaction.atomic():
+            # Create the request
+            new_request = Request.objects.create(
+                customer=customer,
+                intent=intent
+            )
+            
+            # Create initial status history entry
+            RequestStatusHistory.objects.create(
+                request=new_request,
+                status=RequestStatus.OPEN
+            )
+            
+            # Create the first item
+            item_data['request'] = new_request.request_id
+            item_serializer = RequestItemSerializer(data=item_data)
+            
+            if item_serializer.is_valid():
+                item_serializer.save()
+            else:
+                return Response(
+                    item_serializer.errors,
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Return the full request with nested data
+            response_serializer = RequestSerializer(new_request)
+            return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+
+@api_view(['POST'])
+def add_request_item(request, request_id):
+    """
+    POST: Add another item to an existing OPEN request
+    """
+    existing_request = get_object_or_404(Request, request_id=request_id)
+    
+    # Check current status
+    current_status = existing_request.status_history.first()
+    if not current_status or current_status.status != RequestStatus.OPEN:
+        return Response(
+            {"error": "Can only add items to OPEN requests"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    # Add request to the data
+    item_data = request.data.copy()
+    item_data['request'] = request_id
+    
+    serializer = RequestItemSerializer(data=item_data)
+    
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET'])
+def request_detail(request, request_id):
+    """
+    GET: Retrieve full details of a request including all items and status history
+    """
+    existing_request = get_object_or_404(
+        Request.objects.prefetch_related(
+            'items__variant',
+            'status_history'
+        ).select_related('customer'),
+        request_id=request_id
+    )
+    
+    serializer = RequestSerializer(existing_request)
+    return Response(serializer.data)
+
+@api_view(['POST'])
+def finish_request(request, request_id):
+    """
+    POST: Finish a request and move it to BOOKED_FOR_TESTING status
+    """
+    existing_request = get_object_or_404(Request, request_id=request_id)
+    
+    # Check current status
+    current_status = existing_request.status_history.first()
+    if not current_status or current_status.status != RequestStatus.OPEN:
+        return Response(
+            {"error": "Can only finish OPEN requests"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    # Ensure request has at least one item
+    if not existing_request.items.exists():
+        return Response(
+            {"error": "Cannot finish request with no items"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    # Create new status history entry
+    RequestStatusHistory.objects.create(
+        request=existing_request,
+        status=RequestStatus.BOOKED_FOR_TESTING
+    )
+    
+    return Response(
+        {
+            "request_id": existing_request.request_id,
+            "status": RequestStatus.BOOKED_FOR_TESTING,
+            "items_count": existing_request.items.count()
+        },
+        status=status.HTTP_200_OK
+    )
+
+
+@api_view(['POST'])
+def cancel_request(request, request_id):
+    """
+    POST: Cancel a request (can be done from any status except CANCELLED)
+    """
+    existing_request = get_object_or_404(Request, request_id=request_id)
+    
+    current_status = existing_request.status_history.first()
+    if current_status and current_status.status == RequestStatus.CANCELLED:
+        return Response(
+            {"error": "Request is already cancelled"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    RequestStatusHistory.objects.create(
+        request=existing_request,
+        status=RequestStatus.CANCELLED
+    )
+    
+    return Response(
+        {
+            "request_id": existing_request.request_id,
+            "status": RequestStatus.CANCELLED
+        },
+        status=status.HTTP_200_OK
+    )
+
+
 
 @api_view(['GET'])
 def variant_market_stats(request):

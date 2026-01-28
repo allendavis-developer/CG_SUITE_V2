@@ -651,22 +651,36 @@ class Customer(models.Model):
 
     name = models.CharField(max_length=255)
     phone_number = models.CharField(max_length=50, db_index=True, unique=True)
-    email = models.EmailField(max_length=255, unique=True, blank=True, null=True)  # New email field
+    email = models.EmailField(max_length=255, unique=True, blank=True, null=True)
     address = models.TextField(blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
 
     @property
     def cancel_rate(self):
+        from django.db.models import Q, Subquery, OuterRef
+        
         total_requests = self.requests.count()
         if total_requests == 0:
             return 0.0
-        cancelled = self.requests.filter(status='CANCELLED').count()
-        return round((cancelled / total_requests) * 100, 2)
+        
+        # Get the latest status for each request
+        # Count how many have their latest status as CANCELLED
+        cancelled_count = 0
+        for request in self.requests.all():
+            latest_status = request.status_history.first()
+            if latest_status and latest_status.status == RequestStatus.CANCELLED:
+                cancelled_count += 1
+        
+        return round((cancelled_count / total_requests) * 100, 2)
+    
+
+    def __str__(self):  
+        return self.name
+
 
     class Meta:
         db_table = "buying_customer"
-
 
 
 class RequestIntent(models.TextChoices):
@@ -728,11 +742,9 @@ class RequestItem(models.Model):
 
 class RequestStatus(models.TextChoices):
     OPEN = "OPEN"
-    CONTACTED = "CONTACTED"
     BOOKED_FOR_TESTING = "BOOKED_FOR_TESTING"
     TESTING_COMPLETE = "TESTING_COMPLETE"
     CANCELLED = "CANCELLED"
-    EXPIRED = "EXPIRED"
 
 
 class RequestStatusHistory(models.Model):

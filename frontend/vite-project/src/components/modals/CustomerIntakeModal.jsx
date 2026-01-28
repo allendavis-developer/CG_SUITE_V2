@@ -18,6 +18,7 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
+ const [tempCR, setTempCR] = useState(""); // new temporary cancel rate
 
   // Refs for form inputs
   const nameRef = useRef(null);
@@ -111,7 +112,7 @@ const handleConfirm = async () => {
         isExisting: false,
         transactionType,
         customer: newCustomer,
-        customerId: newCustomer.id,
+        id: newCustomer.id,
         customerName: newCustomer.name,
         phone: newCustomer.phone,
         email: newCustomer.email,
@@ -128,16 +129,17 @@ const handleConfirm = async () => {
     // Existing customer - just return the data
     const selectedCustomerData = customers.find(c => c.name === selectedCustomer);
     onClose({
-      isExisting: true,
-      transactionType,
-      customer: selectedCustomerData,
-      customerId: selectedCustomerData?.id,
-      customerName: nameRef.current?.value || "",
-      phone: phoneRef.current?.value || "",
-      email: emailRef.current?.value || "",
-      address: addressRef.current?.value || "",
-      cancelRate: selectedCustomerData?.cancel_rate || 0,
+        isExisting: true,
+        transactionType,
+        customer: selectedCustomerData,
+        id: selectedCustomerData?.id,
+        customerName: nameRef.current?.value || "",
+        phone: phoneRef.current?.value || "",
+        email: emailRef.current?.value || "",
+        address: addressRef.current?.value || "",
+        cancelRate: tempCR || selectedCustomerData?.cancel_rate || 0, // use tempCR if set
     });
+
   }
 };
 
@@ -308,57 +310,78 @@ const handleConfirm = async () => {
             </div>
           )}
 
-          {/* Form */}
-          <div className="grid grid-cols-1 gap-5">
+        {/* Form */}
+        <div className="grid grid-cols-1 gap-5">
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-bold uppercase tracking-wider text-gray-500">
+            <label className="text-xs font-bold uppercase tracking-wider text-gray-500">
                 Full Name <span className="text-red-500">*</span>
-              </label>
-              <input
+            </label>
+            <input
                 type="text"
                 ref={nameRef}
                 placeholder="Enter customer's full name"
                 className="w-full h-12 rounded-xl border border-gray-200 focus:ring-yellow-500 focus:border-yellow-500 px-4"
-              />
+            />
             </div>
 
+            {/* Phone & Email */}
             <div className="grid grid-cols-2 gap-4">
-              <div className="flex flex-col gap-1.5">
+            <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-bold uppercase tracking-wider text-gray-500">
-                  Phone Number
+                Phone Number
                 </label>
                 <input
-                  type="tel"
-                  ref={phoneRef}
-                  placeholder="(555) 000-0000"
-                  className="w-full h-12 rounded-xl border border-gray-200 focus:ring-yellow-500 focus:border-yellow-500 px-4"
+                type="tel"
+                ref={phoneRef}
+                placeholder="(555) 000-0000"
+                className="w-full h-12 rounded-xl border border-gray-200 focus:ring-yellow-500 focus:border-yellow-500 px-4"
                 />
-              </div>
-              <div className="flex flex-col gap-1.5">
+            </div>
+            <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-bold uppercase tracking-wider text-gray-500">
-                  Email Address
+                Email Address
                 </label>
                 <input
-                  type="email"
-                  ref={emailRef}
-                  placeholder="customer@example.com"
-                  className="w-full h-12 rounded-xl border border-gray-200 focus:ring-yellow-500 focus:border-yellow-500 px-4"
+                type="email"
+                ref={emailRef}
+                placeholder="customer@example.com"
+                className="w-full h-12 rounded-xl border border-gray-200 focus:ring-yellow-500 focus:border-yellow-500 px-4"
                 />
-              </div>
+            </div>
             </div>
 
+            {/* Address */}
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-bold uppercase tracking-wider text-gray-500">
+            <label className="text-xs font-bold uppercase tracking-wider text-gray-500">
                 Physical Address
-              </label>
-              <input
+            </label>
+            <input
                 type="text"
                 ref={addressRef}
                 placeholder="123 Street Name, City, State, ZIP"
                 className="w-full h-12 rounded-xl border border-gray-200 focus:ring-yellow-500 focus:border-yellow-500 px-4"
-              />
+            />
             </div>
-          </div>
+
+            {/* Temp Cancel Rate Field (Existing Customer only) */}
+            {isExisting && selectedCustomer && (
+            <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-bold uppercase tracking-wider text-gray-500">
+                Cancel Rate (%)
+                </label>
+                <input
+                type="number"
+                min="0"
+                max="100"
+                value={tempCR}
+                onChange={(e) => setTempCR(e.target.value)}
+                placeholder="Enter cancel rate"
+                className="w-full h-12 rounded-xl border border-gray-200 focus:ring-yellow-500 focus:border-yellow-500 px-4"
+                />
+            </div>
+            )}
+        </div>
+        
         </div>
 
         {/* Footer */}

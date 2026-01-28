@@ -20,6 +20,14 @@ import {
 import EbayResearchModal from "../components/modals/EbayResearchModal.jsx"
 import CustomerIntakeModal from "../components/modals/CustomerIntakeModal.jsx";
 
+// Get CSRF token from cookie. This is repeated code btw
+function getCSRFToken() {
+  const cookieValue = document.cookie
+    .split('; ')
+    .find(row => row.startsWith('csrftoken='))
+    ?.split('=')[1];
+  return cookieValue;
+}
 
 const formatGBP = (value) =>
   new Intl.NumberFormat('en-GB', {
@@ -427,7 +435,8 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
                   price: formatGBP(parseFloat(manualOfferPrice)),
                   highlighted: false,
                   offerId: 'manual',
-                  offerTitle: 'Manual Offer'
+                  offerTitle: 'Manual Offer',
+                  variantId: selectedVariant?.variant_id  // ✅ ADD THIS
                 };
               } else {
                 // Handle regular offer
@@ -441,7 +450,8 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
                   price: formatGBP(parseFloat(selectedOffer.price)),
                   highlighted: false,
                   offerId: selectedOffer.id,
-                  offerTitle: selectedOffer.title
+                  offerTitle: selectedOffer.title,
+                  variantId: selectedVariant?.variant_id  // ✅ ADD THIS
                 };
               }
 
@@ -812,8 +822,16 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
 };
 
 
-// Update the CartSidebar component to accept and display transaction type
-const CartSidebar = ({ cartItems = [], setCartItems = () => {}, customerData }) => {
+// Update the CartSidebar component to handle finalization
+const CartSidebar = ({ 
+  cartItems = [], 
+  setCartItems = () => {}, 
+  customerData,
+  currentRequestId,
+  onFinalize
+}) => {
+  const [isFinalizing, setIsFinalizing] = useState(false);
+
   const removeItem = (id) => {
     setCartItems(cartItems.filter(item => item.id !== id));
   };
@@ -823,9 +841,26 @@ const CartSidebar = ({ cartItems = [], setCartItems = () => {}, customerData }) 
     return sum + numericPrice;
   }, 0);
 
+  const handleFinalize = async () => {
+    if (!currentRequestId || cartItems.length === 0) {
+      alert('No items in cart to finalize');
+      return;
+    }
+
+    setIsFinalizing(true);
+    try {
+      await onFinalize();
+    } catch (error) {
+      console.error('Error finalizing transaction:', error);
+      alert('Failed to finalize transaction. Please try again.');
+    } finally {
+      setIsFinalizing(false);
+    }
+  };
+
   return (
     <aside className="w-1/5 border-l border-blue-900/20 flex flex-col bg-white">
-      {/* Customer Header Section - white background with blue text */}
+      {/* Customer Header Section */}
       <div className="bg-white p-6 shadow-md shadow-blue-900/10">
         <h1 className="text-blue-900 text-xl font-extrabold tracking-tight">
           {customerData.name}
@@ -843,23 +878,43 @@ const CartSidebar = ({ cartItems = [], setCartItems = () => {}, customerData }) 
             {customerData.transactionType === 'sale' ? 'Direct Sale' : 'Buy Back'}
           </p>
         </div>
-        <p className="text-blue-900/60 text-[11px] font-bold uppercase tracking-widest mt-3">
-          {cartItems.length} Items
-        </p>
+        <div className="flex items-center gap-2 mt-3">
+          <p className="text-blue-900/60 text-[11px] font-bold uppercase tracking-widest">
+            {cartItems.length} Items
+          </p>
+          {currentRequestId && (
+            <>
+              <span className="text-blue-900/40">•</span>
+              <div className="flex items-center gap-1">
+                <Icon name="receipt_long" className="text-xs text-blue-900/60" />
+                <span className="text-blue-900/60 text-[11px] font-bold">
+                  Request #{currentRequestId}
+                </span>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Cart Items */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-white">
-        {cartItems.map((item, index) => (
-          <CartItem
-            key={item.id}
-            title={item.title}
-            subtitle={item.subtitle}
-            price={item.price}
-            isHighlighted={false}
-            onRemove={() => removeItem(item.id)}
-          />
-        ))}
+        {cartItems.length === 0 ? (
+          <div className="text-center py-12">
+            <Icon name="shopping_cart" className="text-4xl text-gray-300 mb-2" />
+            <p className="text-sm text-gray-500">No items in cart</p>
+          </div>
+        ) : (
+          cartItems.map((item) => (
+            <CartItem
+              key={item.id}
+              title={item.title}
+              subtitle={item.subtitle}
+              price={item.price}
+              isHighlighted={false}
+              onRemove={() => removeItem(item.id)}
+            />
+          ))
+        )}
       </div>
 
       {/* Footer Section */}
@@ -893,19 +948,35 @@ const CartSidebar = ({ cartItems = [], setCartItems = () => {}, customerData }) 
           </span>
         </div>
 
-        <Button variant="primary" size="lg" className="w-full group">
-          Finalize Transaction
-          <Icon
-            name="arrow_forward"
-            className="text-sm group-hover:translate-x-1 transition-transform"
-          />
+        <Button 
+          variant="primary" 
+          size="lg" 
+          className="w-full group"
+          onClick={handleFinalize}
+          disabled={isFinalizing || cartItems.length === 0}
+        >
+          {isFinalizing ? (
+            <>
+              <Icon name="sync" className="text-sm animate-spin" />
+              Finalizing...
+            </>
+          ) : (
+            <>
+              Finalize Transaction
+              <Icon
+                name="arrow_forward"
+                className="text-sm group-hover:translate-x-1 transition-transform"
+              />
+            </>
+          )}
         </Button>
       </div>
     </aside>
   );
 };
 
-// Update the Buyer component to include transaction type in customerData
+
+// Update the Buyer component
 export default function Buyer() {
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [availableModels, setAvailableModels] = useState([]);
@@ -915,8 +986,13 @@ export default function Buyer() {
   const [cartItems, setCartItems] = useState([]);
   const [isCustomerModalOpen, setCustomerModalOpen] = useState(true);
   
+  // Request tracking
+  const [currentRequestId, setCurrentRequestId] = useState(null);
+  const [requestStatus, setRequestStatus] = useState(null);
+  
   // Initialize with empty customer data
   const [customerData, setCustomerData] = useState({
+    id: null,
     name: 'No Customer Selected',
     cancelRate: 0,
     transactionType: 'sale'
@@ -937,7 +1013,165 @@ export default function Buyer() {
     }
   }, [availableModels]);
 
-  const addToCart = (item) => {
+  // Create a new request when first item is added to cart
+  const createRequest = async (firstItem) => {
+    if (!customerData.id) {
+      alert('No customer selected');
+      return null;
+    }
+
+    // Debug logging
+    console.log('Creating request with:', {
+      customer_id: customerData.id,
+      intent: customerData.transactionType === 'sale' ? 'DIRECT_SALE' : 'BUYBACK',
+      item: {
+        variant_id: firstItem.variantId,
+        initial_expectation_gbp: firstItem.price.replace(/[^0-9.]/g, ''),
+        notes: `${firstItem.title} - ${firstItem.subtitle} (${firstItem.offerTitle})`
+      }
+    });
+
+    try {
+      const response = await fetch('/api/requests/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          "X-CSRFToken": getCSRFToken()
+        },
+        body: JSON.stringify({
+          customer_id: customerData.id,
+          intent: customerData.transactionType === 'sale' ? 'DIRECT_SALE' : 'BUYBACK',
+          item: {
+            variant_id: firstItem.variantId,
+            initial_expectation_gbp: firstItem.price.replace(/[^0-9.]/g, ''),
+            notes: `${firstItem.title} - ${firstItem.subtitle} (${firstItem.offerTitle})`
+          }
+        })
+      });
+
+      // Get response text first to see what we're actually getting
+      const responseText = await response.text();
+      console.log('Response status:', response.status);
+      console.log('Response text:', responseText);
+
+      if (!response.ok) {
+        throw new Error(`Failed to create request: ${response.status} - ${responseText}`);
+      }
+
+      // Try to parse as JSON
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('Failed to parse response as JSON:', parseError);
+        throw new Error('Server returned invalid JSON response');
+      }
+
+      setCurrentRequestId(data.request_id);
+      setRequestStatus('OPEN');
+      
+      console.log('Request created:', data);
+      return data.request_id;
+    } catch (error) {
+      console.error('Error creating request:', error);
+      alert('Failed to create request. Please try again. Error: ' + error.message);
+      return null;
+    }
+  };
+
+
+  // Add item to existing request
+  const addItemToRequest = async (item) => {
+    if (!currentRequestId) {
+      console.error('No active request');
+      return false;
+    }
+
+    try {
+      const response = await fetch(`/api/requests/${currentRequestId}/items/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          "X-CSRFToken": getCSRFToken()
+
+        },
+        body: JSON.stringify({
+          variant_id: item.variantId,
+          initial_expectation_gbp: item.price.replace(/[^0-9.]/g, ''),
+          notes: `${item.title} - ${item.subtitle} (${item.offerTitle})`
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to add item to request');
+      }
+
+      const data = await response.json();
+      console.log('Item added to request:', data);
+      return true;
+    } catch (error) {
+      console.error('Error adding item to request:', error);
+      alert('Failed to add item to request. Please try again.');
+      return false;
+    }
+  };
+
+  // Finalize transaction - move request to BOOKED_FOR_TESTING
+  const finalizeTransaction = async () => {
+    if (!currentRequestId) {
+      alert('No active request to finalize');
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/requests/${currentRequestId}/finish/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          "X-CSRFToken": getCSRFToken()
+
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to finalize transaction');
+      }
+
+      const data = await response.json();
+      setRequestStatus('BOOKED_FOR_TESTING');
+      
+      console.log('Transaction finalized:', data);
+      alert(`Request #${currentRequestId} has been booked for testing!`);
+      
+      // Reset cart and request
+      setCartItems([]);
+      setCurrentRequestId(null);
+      setRequestStatus(null);
+      
+      // Optionally reopen customer modal for next transaction
+      setCustomerModalOpen(true);
+    } catch (error) {
+      console.error('Error finalizing transaction:', error);
+      throw error;
+    }
+  };
+
+  const addToCart = async (item) => {
+    // If this is the first item, create a new request
+    if (cartItems.length === 0) {
+      const requestId = await createRequest(item);
+      if (!requestId) {
+        return; // Failed to create request
+      }
+    } else {
+      // Add to existing request
+      const success = await addItemToRequest(item);
+      if (!success) {
+        return; // Failed to add item
+      }
+    }
+
+    // Add to cart UI
     setCartItems((prev) => [...prev, item]);
   };
 
@@ -957,7 +1191,8 @@ export default function Buyer() {
           setCustomerModalOpen(false);
           if (customerInfo) {
             setCustomerData({
-              name: customerInfo.customerName || customerInfo.name,
+              id: customerInfo.id,
+              name: customerInfo.customerName,
               cancelRate: customerInfo.cancelRate || 0,
               transactionType: customerInfo.transactionType || 'sale'
             });
@@ -980,6 +1215,8 @@ export default function Buyer() {
           cartItems={cartItems} 
           setCartItems={setCartItems}
           customerData={customerData}
+          currentRequestId={currentRequestId}
+          onFinalize={finalizeTransaction}
         />
       </main>
     </div>

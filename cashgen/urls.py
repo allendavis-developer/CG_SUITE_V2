@@ -56,8 +56,11 @@ urlpatterns = [
     path('api/market-stats/', v2.variant_market_stats),
     path('api/variant-prices/', v2.variant_prices),
     path('api/customers/', v2.customers_view),
-
-
+    path('api/requests/', v2.requests_view, name='requests'),
+    path('api/requests/<int:request_id>/items/', v2.add_request_item, name='add_request_item'),
+    path('api/requests/<int:request_id>/', v2.request_detail, name='request_detail'),
+    path('api/requests/<int:request_id>/finish/', v2.finish_request, name='finish_request'),
+    path('api/requests/<int:request_id>/cancel/', v2.cancel_request, name='cancel_request'),
 
 
 
