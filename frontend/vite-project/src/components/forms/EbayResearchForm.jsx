@@ -81,11 +81,12 @@ function buildEbayUrl(searchTerm, filters) {
 
 
 export default function EbayResearchForm({ onComplete }) {
-  const [searchTerm, setSearchTerm] = useState("iPhone 15 Pro");
+  const [searchTerm, setSearchTerm] = useState("");
   const [step, setStep] = useState(1); // 1=search, 2=filters, 3=results
   const [filterOptions, setFilterOptions] = useState([]); // API filters
   const [listings, setListings] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [stats, setStats] = useState({ average: 0, median: 0, suggestedPrice: 0 });
 
   const [selectedFilters, setSelectedFilters] = useState({
     basic: ["Completed & Sold", "Used", "UK Only"],
@@ -118,13 +119,47 @@ export default function EbayResearchForm({ onComplete }) {
     }
   };
 
+  const calculateStats = (listingsData) => {
+    if (!listingsData || listingsData.length === 0) {
+      return { average: 0, median: 0, suggestedPrice: 0 };
+    }
+
+    const prices = listingsData.map(item => item.price).filter(p => p != null);
+    
+    if (prices.length === 0) {
+      return { average: 0, median: 0, suggestedPrice: 0 };
+    }
+
+    // Calculate average
+    const sum = prices.reduce((acc, price) => acc + price, 0);
+    const average = sum / prices.length;
+
+    // Calculate median
+    const sortedPrices = [...prices].sort((a, b) => a - b);
+    const mid = Math.floor(sortedPrices.length / 2);
+    const median = sortedPrices.length % 2 === 0
+      ? (sortedPrices[mid - 1] + sortedPrices[mid]) / 2
+      : sortedPrices[mid];
+
+    // Calculate suggested price: £1 below if median is odd, £2 below if even
+    const medianRounded = Math.round(median);
+    const adjustment = medianRounded % 2 === 0 ? 2 : 1;
+    const suggestedPrice = median - adjustment;
+
+    return {
+      average: average.toFixed(2),
+      median: median.toFixed(2),
+      suggestedPrice: suggestedPrice.toFixed(2)
+    };
+  };
+
   const handleNext = async () => {
     if (step === 1) {
       setLoading(true);
       await fetchEbayFilters(searchTerm);
       setStep(2);
       setLoading(false);
-    } else if (step === 2) {
+    } else if (step === 2 || step === 3) {
       setLoading(true);
 
       try {
@@ -152,6 +187,7 @@ export default function EbayResearchForm({ onComplete }) {
         if (response.success) {
           console.log(response.results);
           setListings(response.results); // Replace mockListings
+          setStats(calculateStats(response.results)); // Calculate stats
           setStep(3);                    // Move to results step
         } else {
           alert("Scraping failed: " + (response.error || "Unknown error"));
@@ -220,7 +256,7 @@ export default function EbayResearchForm({ onComplete }) {
             />
             <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
               <Button variant="primary" size="sm" onClick={handleNext} disabled={loading}>
-                {loading ? "Loading..." : (step === 1 || step === 2 ? "Next" : "Search")}
+                {loading ? "Loading..." : (step === 1 ? "Next" : "Search")}
               </Button>
             </div>
           </div>
@@ -316,15 +352,14 @@ export default function EbayResearchForm({ onComplete }) {
                     <div className="flex flex-col justify-between flex-1">
                       <div>
                         <h4 className="text-sm font-bold text-blue-900 line-clamp-2 leading-tight cursor-pointer hover:underline">{item.title}</h4>
-                        <p className="text-[11px] text-gray-500 mt-1">Condition: <span className="text-text-main font-medium">{item.condition}</span></p>
-                        <p className="text-[11px] text-green-600 font-bold mt-1">{item.status}</p>
+                        {item.sold && (
+                          <p className="text-[11px] text-green-600 font-bold mt-1">{item.sold}</p>
+                        )}
                       </div>
                       <div className="flex items-end justify-between mt-2">
                         <div>
-                          <p className="text-lg font-extrabold text-gray-900 leading-none">${item.price}</p>
-                          <p className="text-[10px] text-gray-500 mt-1">{item.shipping > 0 ? `+ $${item.shipping} shipping` : "Free Shipping"}</p>
+                          <p className="text-lg font-extrabold text-gray-900 leading-none">£{item.price}</p>
                         </div>
-                        <Button variant="secondary" size="sm">Select Price</Button>
                       </div>
                     </div>
                   </div>
@@ -338,19 +373,24 @@ export default function EbayResearchForm({ onComplete }) {
         <footer className="px-6 py-4 border-t border-gray-200 bg-white flex justify-between items-center shrink-0">
           <div className="flex items-center gap-6">
             <div className="flex flex-col">
-              <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Market Avg (256GB)</span>
-              <span className="text-lg font-extrabold text-blue-900">$916.25</span>
+              <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Average</span>
+              <span className="text-lg font-extrabold text-blue-900">£{stats.average}</span>
             </div>
             <div className="w-px h-8 bg-gray-200"></div>
             <div className="flex flex-col">
-              <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Suggested Buy-in</span>
-              <span className="text-lg font-extrabold text-green-600">$641.38</span>
+              <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Median</span>
+              <span className="text-lg font-extrabold text-blue-900">£{stats.median}</span>
+            </div>
+            <div className="w-px h-8 bg-gray-200"></div>
+            <div className="flex flex-col">
+              <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Suggested Sale Price</span>
+              <span className="text-lg font-extrabold text-green-600">£{stats.suggestedPrice}</span>
             </div>
           </div>
           <div className="flex gap-3">
             <Button variant="outline" size="md" onClick={() => onComplete?.()}>Cancel</Button>
             {step === 3 && (
-              <Button variant="primary" size="md" onClick={() => onComplete?.({ searchTerm, selectedFilters, listings })}>
+              <Button variant="primary" size="md" onClick={() => onComplete?.({ searchTerm, selectedFilters, listings, stats })}>
                 <Icon name="save" className="text-sm" />
                 Apply Research Data
               </Button>
