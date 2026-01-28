@@ -20,7 +20,7 @@ import {
 import EbayResearchModal from "../components/modals/EbayResearchModal.jsx"
 import CustomerIntakeModal from "../components/modals/CustomerIntakeModal.jsx";
 
-// Get CSRF token from cookie. This is repeated code btw
+// Get CSRF token from cookie
 function getCSRFToken() {
   const cookieValue = document.cookie
     .split('; ')
@@ -45,7 +45,6 @@ const fetchProductModels = async (category) => {
     if (!res.ok) throw new Error('Network response was not ok');
     const data = await res.json();
 
-    // Return both product_id and name
     return data.map((p) => ({ 
       model_id: p.product_id, 
       name: p.name,
@@ -78,7 +77,6 @@ const fetchCompetitorStats = async (cexSku) => {
   ];
 };
 
-
 const fetchAttributes = async (productId) => {
   if (!productId) return null;
 
@@ -101,8 +99,6 @@ const fetchAttributes = async (productId) => {
     return null;
   }
 };
-
-
 
 // Empty State Component
 const EmptyState = () => (
@@ -144,7 +140,6 @@ const ManualOfferCard = ({ isHighlighted, onClick, manualPrice, setManualPrice }
         }
       `}
     >
-      {/* Top accent bar */}
       <div
         className={`absolute top-0 left-0 w-full ${
           isHighlighted
@@ -168,7 +163,6 @@ const ManualOfferCard = ({ isHighlighted, onClick, manualPrice, setManualPrice }
           value={manualPrice}
           onChange={(e) => {
             setManualPrice(e.target.value);
-            // Auto-select manual offer when user types
             if (e.target.value && !isHighlighted) {
               onClick();
             }
@@ -205,9 +199,11 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
   const [manualOfferPrice, setManualOfferPrice] = useState('');
   const [referenceData, setReferenceData] = useState(null);
   const [ourSalePrice, setOurSalePrice] = useState('');
+  
+  // Customer's expectation input
+  const [customerExpectation, setCustomerExpectation] = useState('');
 
   useEffect(() => {
-    // Reset all attribute-related state when category changes
     setAttributes([]);
     setAttributeValues({});
     setDependencies([]);
@@ -217,7 +213,6 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
 
   useEffect(() => {
     if (!selectedModel?.product_id) {
-      // Clear attributes when no model is selected
       setAttributes([]);
       setAttributeValues({});
       setDependencies([]);
@@ -241,19 +236,16 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
       setDependencies(data.dependencies);
       setVariants(data.variants);
 
-      // Auto-select attributes with only one option
       const initialValues = {};
       data.attributes.forEach(attr => {
         if (attr.values.length === 1) {
-          initialValues[attr.code] = attr.values[0];  // Auto-select if only one option
+          initialValues[attr.code] = attr.values[0];
         } else {
-          initialValues[attr.code] = '';  // Empty for multiple options
+          initialValues[attr.code] = '';
         }
       });
       setAttributeValues(initialValues);
     };
-
-
 
     loadAttributes();
   }, [selectedModel]);
@@ -261,19 +253,16 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
   useEffect(() => {
     if (variants.length === 0 || Object.keys(attributeValues).length === 0) return;
 
-    // Find matching variants based on current attribute selections
     const matchingVariants = variants.filter(variant => {
       return Object.entries(attributeValues).every(([attrCode, attrValue]) => {
-          if (!attrValue) return true; //  ignore unselected attributes
+        if (!attrValue) return true;
         return variant.attribute_values[attrCode] === attrValue;
       });
     });
 
-    // Auto-select if only one match
     if (matchingVariants.length === 1) {
       setVariant(matchingVariants[0].cex_sku);
     } else if (matchingVariants.length > 1) {
-      // If multiple matches and current variant is not in the list, clear it
       const isCurrentVariantValid = matchingVariants.some(v => v.cex_sku === variant);
       if (!isCurrentVariantValid) {
         setVariant('');
@@ -311,7 +300,6 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
       return;
     }
 
-
     const loadOffers = async () => {
       setIsLoadingOffers(true);
       
@@ -323,12 +311,10 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
         setOffers(data.offers);
         setReferenceData(data.reference_data);
         
-        // Set our sale price from reference data
         if (data.reference_data && data.reference_data.cex_based_sale_price) {
           setOurSalePrice(data.reference_data.cex_based_sale_price.toString());
         }
         
-        // Auto-select the first offer
         if (data.offers && data.offers.length > 0) {
           setSelectedOfferId(data.offers[0].id);
         }
@@ -345,20 +331,15 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
     loadOffers();
   }, [variant]);
 
-
   useEffect(() => {
     setSelectedOfferId(null);
   }, [variant]);
 
-
-
-  // Handle intelligent attribute changes
   const handleAttributeChange = (code, value) => {
     const changedAttrIndex = attributes.findIndex(a => a.code === code);
     
     const newValues = { ...attributeValues, [code]: value };
 
-    // Clear all selections after this attribute
     attributes.forEach((attr, index) => {
       if (index > changedAttrIndex) {
         newValues[attr.code] = '';
@@ -368,7 +349,6 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
     setAttributeValues(newValues);
   };
 
-  // If no category selected, show empty state
   if (!selectedCategory) {
     return (
       <section className="w-3/5 bg-white flex flex-col overflow-y-auto">
@@ -376,9 +356,6 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
       </section>
     );
   }
-
-
-  const availableModelsForDropdown = availableModels.length > 0 ? availableModels : ['No models available'];
 
   return (
     <section className="w-3/5 bg-white flex flex-col overflow-y-auto">
@@ -390,7 +367,6 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
       <div className="px-8 py-6 border-b border-gray-200 bg-gray-50/50">
         <Breadcrumb items={selectedCategory.path} />
 
-        {/* Product Model Dropdown */}
         <div className="mb-4">
           <SearchableDropdown
             value={selectedModel?.name || 'Select a model'}
@@ -404,27 +380,32 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
 
         <div className="flex justify-between items-start">
           <div>
-          <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">
+            <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">
               {selectedModel?.name || selectedCategory.name}
               {Object.keys(attributeValues).length > 0 && (
-                  <span> - {Object.values(attributeValues).filter(v => v).join(' / ')}</span>
+                <span> - {Object.values(attributeValues).filter(v => v).join(' / ')}</span>
               )}
-          </h1>
-   
+            </h1>
           </div>
           <Button
             variant="primary"
             icon="add_shopping_cart"
             className="px-8 py-4 text-base font-bold"
             onClick={() => {
-              if (!selectedModel || !selectedOfferId) return;
+              if (!selectedModel || !selectedOfferId) {
+                alert('Please select an offer to give the customer');
+                return;
+              }
 
-              // Get the selected variant for the title
+              if (!customerExpectation || parseFloat(customerExpectation) <= 0) {
+                alert('Please enter the customer\'s price expectation');
+                return;
+              }
+
               const selectedVariant = variants.find(v => v.cex_sku === variant);
 
               let cartItem;
 
-              // Handle manual offer
               if (selectedOfferId === 'manual') {
                 if (!manualOfferPrice || parseFloat(manualOfferPrice) <= 0) return;
 
@@ -433,13 +414,13 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
                   title: selectedModel.name,
                   subtitle: selectedVariant?.title || Object.values(attributeValues).filter(v => v).join(' / ') || 'Standard',
                   price: formatGBP(parseFloat(manualOfferPrice)),
+                  customerExpectation: parseFloat(customerExpectation),
                   highlighted: false,
                   offerId: 'manual',
                   offerTitle: 'Manual Offer',
-                  variantId: selectedVariant?.variant_id  // ✅ ADD THIS
+                  variantId: selectedVariant?.variant_id
                 };
               } else {
-                // Handle regular offer
                 const selectedOffer = offers.find(offer => offer.id === selectedOfferId);
                 if (!selectedOffer) return;
 
@@ -448,14 +429,16 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
                   title: selectedModel.name,
                   subtitle: selectedVariant?.title || Object.values(attributeValues).filter(v => v).join(' / ') || 'Standard',
                   price: formatGBP(parseFloat(selectedOffer.price)),
+                  customerExpectation: parseFloat(customerExpectation),
                   highlighted: false,
                   offerId: selectedOffer.id,
                   offerTitle: selectedOffer.title,
-                  variantId: selectedVariant?.variant_id  // ✅ ADD THIS
+                  variantId: selectedVariant?.variant_id
                 };
               }
 
               addToCart(cartItem);
+              setCustomerExpectation('');
             }}
           >
             Add to Cart
@@ -463,7 +446,6 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
         </div>
       </div>
 
-      {/* Configuration & Condition */}
       <div className="p-8 space-y-8">
         <div className="bg-gray-50 p-6 rounded-xl border border-gray-200">
           <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">
@@ -471,21 +453,18 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
           </h3>
           <div className="space-y-8">
             {attributes.map((attr, index) => {
-              // Get current selections for attributes before this one
               const previousSelections = Object.entries(attributeValues)
                 .filter(([code]) => {
                   const attrIndex = attributes.findIndex(a => a.code === code);
-                  return attrIndex < index && attributeValues[code]; // Only count filled selections
+                  return attrIndex < index && attributeValues[code];
                 });
 
-              // Filter variants based on previous selections
               const matchingVariants = variants.filter(variant => {
                 return previousSelections.every(([code, value]) => {
                   return variant.attribute_values[code] === value;
                 });
               });
 
-              // Get available options from matching variants
               const availableValues = new Set(
                 matchingVariants.map(v => v.attribute_values[attr.code])
               );
@@ -494,14 +473,11 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
                 index === 0 || availableValues.has(opt)
               );
 
-              // Skip this attribute if it has no options
               if (options.length === 0) {
                 return null;
               }
 
-              // Only show this attribute if all previous VISIBLE attributes have been selected
               const visiblePreviousAttrs = attributes.slice(0, index).filter((prevAttr, prevIndex) => {
-                // Check if this previous attribute would have options
                 const prevPreviousSelections = Object.entries(attributeValues)
                   .filter(([code]) => {
                     const attrIndex = attributes.findIndex(a => a.code === code);
@@ -546,93 +522,119 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
           </div>
         </div>
 
-       {/* Variant Section - Show after first selection is made */}
         {(() => {
-        // Determine which attributes are actually visible (same logic you use when rendering)
-        const visibleAttributes = attributes.filter((attr, index) => {
-          const previousSelections = Object.entries(attributeValues)
-            .filter(([code]) => {
-              const attrIndex = attributes.findIndex(a => a.code === code);
-              return attrIndex < index && attributeValues[code];
+          const visibleAttributes = attributes.filter((attr, index) => {
+            const previousSelections = Object.entries(attributeValues)
+              .filter(([code]) => {
+                const attrIndex = attributes.findIndex(a => a.code === code);
+                return attrIndex < index && attributeValues[code];
+              });
+
+            const matchingVariants = variants.filter(variant =>
+              previousSelections.every(([code, value]) =>
+                variant.attribute_values[code] === value
+              )
+            );
+
+            const availableValues = new Set(
+              matchingVariants.map(v => v.attribute_values[attr.code])
+            );
+
+            const options = attr.values.filter(opt =>
+              index === 0 || availableValues.has(opt)
+            );
+
+            return options.length > 0;
+          });
+
+          const allAttributesSelected = visibleAttributes.every(
+            attr => attributeValues[attr.code]
+          );
+
+          if (!allAttributesSelected) return null;
+
+          const matchingVariants = variants.filter(variant => {
+            return Object.entries(attributeValues).every(([attrCode, attrValue]) => {
+              if (!attrValue) return true;
+              return variant.attribute_values[attrCode] === attrValue;
             });
+          });
 
-          const matchingVariants = variants.filter(variant =>
-            previousSelections.every(([code, value]) =>
-              variant.attribute_values[code] === value
-            )
-          );
+          if (matchingVariants.length <= 0) return null;
 
-          const availableValues = new Set(
-            matchingVariants.map(v => v.attribute_values[attr.code])
-          );
-
-          const options = attr.values.filter(opt =>
-            index === 0 || availableValues.has(opt)
-          );
-
-          return options.length > 0;
-        });
-
-        // 🔒 only show variants when ALL visible attributes are selected
-        const allAttributesSelected = visibleAttributes.every(
-          attr => attributeValues[attr.code]
-        );
-
-        if (!allAttributesSelected) return null;
-
-      // Find matching variants based on current attribute selections
-      const matchingVariants = variants.filter(variant => {
-        return Object.entries(attributeValues).every(([attrCode, attrValue]) => {
-          // Only check attributes that have been selected (not empty)
-          if (!attrValue) return true;
-          return variant.attribute_values[attrCode] === attrValue;
-        });
-      });
-
-      // Only show if there are matches
-      if (matchingVariants.length <= 0) return null;
-
-      return (
-        <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-xl p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <h3 className="text-xs font-bold text-gray-900 uppercase tracking-widest">Select Variant</h3>
-              <Badge variant="warning">
-                <Icon name="info" className="text-sm inline" /> {matchingVariants.length} matches found
-              </Badge>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {matchingVariants.map((v) => (
-              <div key={v.variant_id} className="relative inline-block group">
-                <button
-                  onClick={() => setVariant(v.cex_sku)}
-                  className={`px-4 py-2 rounded-lg text-xs font-bold transition-all text-left ${
-                    variant === v.cex_sku
-                      ? 'border-2 border-yellow-500 bg-yellow-500 text-blue-900 shadow-sm'
-                      : 'border border-gray-200 bg-white text-gray-900 hover:border-yellow-500'
-                  }`}
-                >
-                  {v.title}
-                </button>
-                <a
-                  href={`https://uk.webuy.com/product-detail?id=${v.cex_sku}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="absolute -top-1 -right-1 bg-blue-900 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity shadow-lg hover:bg-blue-800"
-                  title="View on CEX"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <Icon name="open_in_new" className="text-xs" />
-                </a>
+          return (
+            <>
+              <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-xl p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <h3 className="text-xs font-bold text-gray-900 uppercase tracking-widest">Select Variant</h3>
+                    <Badge variant="warning">
+                      <Icon name="info" className="text-sm inline" /> {matchingVariants.length} matches found
+                    </Badge>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {matchingVariants.map((v) => (
+                    <div key={v.variant_id} className="relative inline-block group">
+                      <button
+                        onClick={() => setVariant(v.cex_sku)}
+                        className={`px-4 py-2 rounded-lg text-xs font-bold transition-all text-left ${
+                          variant === v.cex_sku
+                            ? 'border-2 border-yellow-500 bg-yellow-500 text-blue-900 shadow-sm'
+                            : 'border border-gray-200 bg-white text-gray-900 hover:border-yellow-500'
+                        }`}
+                      >
+                        {v.title}
+                      </button>
+                      <a
+                        href={`https://uk.webuy.com/product-detail?id=${v.cex_sku}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="absolute -top-1 -right-1 bg-blue-900 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity shadow-lg hover:bg-blue-800"
+                        title="View on CEX"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Icon name="open_in_new" className="text-xs" />
+                      </a>
+                    </div>
+                  ))}
+                </div>
               </div>
-            ))}
-          </div>
-        </div>
-      );
-    })()}
 
-        {/* Market Comparisons */}
+              {variant && (
+                <div className="bg-blue-900/5 border border-blue-900/20 rounded-xl p-6">
+                  <div className="flex items-start gap-4">
+                    <div className="flex-shrink-0">
+                      <div className="w-10 h-10 bg-blue-900 rounded-full flex items-center justify-center">
+                        <Icon name="person" className="text-white text-lg" />
+                      </div>
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-xs font-bold text-gray-900 uppercase tracking-widest mb-2">
+                        Customer's Price Expectation
+                      </h3>
+                      <p className="text-xs text-gray-600 mb-4">
+                        What price is the customer expecting or asking for?
+                      </p>
+                      <div className="relative w-48">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-900 font-bold text-sm">£</span>
+                        <input 
+                          className="w-full pl-7 pr-3 py-2.5 border-2 border-blue-900/30 rounded-lg text-base font-bold text-blue-900 focus:ring-2 focus:ring-blue-900 focus:border-blue-900 bg-white" 
+                          placeholder="0.00" 
+                          type="number"
+                          step="0.01"
+                          value={customerExpectation}
+                          onChange={(e) => setCustomerExpectation(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          );
+        })()}
+
         <Card noPadding>
           <CardHeader
             title="Market Comparisons"
@@ -655,7 +657,6 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {/* CEX ROW */}
               {variant && competitorStats.length > 0 ? (
                 competitorStats.map((row, idx) => (
                   <tr key={`cex-${idx}`} className="hover:bg-gray-50 transition-colors">
@@ -708,7 +709,6 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
                 </tr>
               )}
 
-              {/* EBAY ROW (ALWAYS PRESENT) */}
               <tr className="bg-gray-50/20 hover:bg-gray-50 transition-colors">
                 <td className="p-4 font-medium text-gray-600">
                   eBay
@@ -748,81 +748,66 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
                   </div>
                 </td>
               </tr>
-
             </tbody>
-
-
           </table>
         </Card>
 
-    {/* Suggested Trade-In Offers - Only show when variant is selected */}
-    {variant && offers.length > 0 && (() => {
-      // Calculate margin for each offer based on current sale price
-      const calculateMargin = (offerPrice, salePrice) => {
-        const salePriceNum = parseFloat(salePrice);
-        const offerPriceNum = parseFloat(offerPrice);
-        
-        if (!salePriceNum || salePriceNum <= 0) return 0;
-        
-        const margin = ((salePriceNum - offerPriceNum) / salePriceNum) * 100;
-        return Math.round(margin);
-      };
-
-      return (
-        <div>
-          <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">
-            Suggested Trade-In Offers
-          </h3>
-
-          <div className="grid grid-cols-4 gap-4">
-            {offers.map((offer) => {
-              const recalculatedMargin = calculateMargin(offer.price, ourSalePrice);
-              
-              return (
-                <OfferCard
-                  key={offer.id}
-                  title={offer.title}
-                  price={formatGBP(parseFloat(offer.price))}
-                  margin={recalculatedMargin}
-
-                  /* 🔑 controlled highlight */
-                  isHighlighted={selectedOfferId === offer.id}
-
-                  /* 🖱 mouse selection */
-                  onClick={() => setSelectedOfferId(offer.id)}
-                />
-              );
-            })}
+        {variant && offers.length > 0 && (() => {
+          const calculateMargin = (offerPrice, salePrice) => {
+            const salePriceNum = parseFloat(salePrice);
+            const offerPriceNum = parseFloat(offerPrice);
             
-            {/* Manual Offer Card */}
-            <ManualOfferCard
-              isHighlighted={selectedOfferId === 'manual'}
-              onClick={() => setSelectedOfferId('manual')}
-              manualPrice={manualOfferPrice}
-              setManualPrice={setManualOfferPrice}
-            />
-          </div>
-        </div>
-      );
-    })()}
+            if (!salePriceNum || salePriceNum <= 0) return 0;
+            
+            const margin = ((salePriceNum - offerPriceNum) / salePriceNum) * 100;
+            return Math.round(margin);
+          };
 
-      </div>  {/* <-- ADD THIS CLOSING DIV TAG */}
+          return (
+            <div>
+              <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">
+                Suggested Trade-In Offers
+              </h3>
+
+              <div className="grid grid-cols-4 gap-4">
+                {offers.map((offer) => {
+                  const recalculatedMargin = calculateMargin(offer.price, ourSalePrice);
+                  
+                  return (
+                    <OfferCard
+                      key={offer.id}
+                      title={offer.title}
+                      price={formatGBP(parseFloat(offer.price))}
+                      margin={recalculatedMargin}
+                      isHighlighted={selectedOfferId === offer.id}
+                      onClick={() => setSelectedOfferId(offer.id)}
+                    />
+                  );
+                })}
+                
+                <ManualOfferCard
+                  isHighlighted={selectedOfferId === 'manual'}
+                  onClick={() => setSelectedOfferId('manual')}
+                  manualPrice={manualOfferPrice}
+                  setManualPrice={setManualOfferPrice}
+                />
+              </div>
+            </div>
+          );
+        })()}
+      </div>
 
       <EbayResearchModal
         open={isEbayModalOpen}
         onClose={() => setEbayModalOpen(false)}
         onResearchComplete={(data) => {
           console.log('eBay research done', data);
-          // optionally do something with the data
         }}
       />
-
     </section>
   );
 };
 
-
-// Update the CartSidebar component to handle finalization
 const CartSidebar = ({ 
   cartItems = [], 
   setCartItems = () => {}, 
@@ -860,7 +845,6 @@ const CartSidebar = ({
 
   return (
     <aside className="w-1/5 border-l border-blue-900/20 flex flex-col bg-white">
-      {/* Customer Header Section */}
       <div className="bg-white p-6 shadow-md shadow-blue-900/10">
         <h1 className="text-blue-900 text-xl font-extrabold tracking-tight">
           {customerData.name}
@@ -896,7 +880,6 @@ const CartSidebar = ({
         </div>
       </div>
 
-      {/* Cart Items */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-white">
         {cartItems.length === 0 ? (
           <div className="text-center py-12">
@@ -917,7 +900,6 @@ const CartSidebar = ({
         )}
       </div>
 
-      {/* Footer Section */}
       <div className="p-6 bg-white border-t border-blue-900/20 space-y-4">
         <div className="space-y-2">
           <div className="flex justify-between text-xs">
@@ -975,8 +957,6 @@ const CartSidebar = ({
   );
 };
 
-
-// Update the Buyer component
 export default function Buyer() {
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [availableModels, setAvailableModels] = useState([]);
@@ -986,11 +966,9 @@ export default function Buyer() {
   const [cartItems, setCartItems] = useState([]);
   const [isCustomerModalOpen, setCustomerModalOpen] = useState(true);
   
-  // Request tracking
   const [currentRequestId, setCurrentRequestId] = useState(null);
   const [requestStatus, setRequestStatus] = useState(null);
   
-  // Initialize with empty customer data
   const [customerData, setCustomerData] = useState({
     id: null,
     name: 'No Customer Selected',
@@ -1013,26 +991,24 @@ export default function Buyer() {
     }
   }, [availableModels]);
 
-  // Create a new request when first item is added to cart
   const createRequest = async (firstItem) => {
     if (!customerData.id) {
       alert('No customer selected');
       return null;
     }
 
-    // Debug logging
     console.log('Creating request with:', {
       customer_id: customerData.id,
       intent: customerData.transactionType === 'sale' ? 'DIRECT_SALE' : 'BUYBACK',
       item: {
         variant_id: firstItem.variantId,
-        initial_expectation_gbp: firstItem.price.replace(/[^0-9.]/g, ''),
-        notes: `${firstItem.title} - ${firstItem.subtitle} (${firstItem.offerTitle})`
+        initial_expectation_gbp: firstItem.customerExpectation,
+        notes: `${firstItem.title} - ${firstItem.subtitle} | Customer wants: £${firstItem.customerExpectation} | Our offer: ${firstItem.price} (${firstItem.offerTitle})`
       }
     });
 
     try {
-      const response = await fetch('/api/requests/', {
+      const response = await fetch('http://127.0.0.1:8000/api/requests/', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1043,13 +1019,12 @@ export default function Buyer() {
           intent: customerData.transactionType === 'sale' ? 'DIRECT_SALE' : 'BUYBACK',
           item: {
             variant_id: firstItem.variantId,
-            initial_expectation_gbp: firstItem.price.replace(/[^0-9.]/g, ''),
-            notes: `${firstItem.title} - ${firstItem.subtitle} (${firstItem.offerTitle})`
+            initial_expectation_gbp: firstItem.customerExpectation,
+            notes: `${firstItem.title} - ${firstItem.subtitle} | Customer wants: £${firstItem.customerExpectation} | Our offer: ${firstItem.price} (${firstItem.offerTitle})`
           }
         })
       });
 
-      // Get response text first to see what we're actually getting
       const responseText = await response.text();
       console.log('Response status:', response.status);
       console.log('Response text:', responseText);
@@ -1058,7 +1033,6 @@ export default function Buyer() {
         throw new Error(`Failed to create request: ${response.status} - ${responseText}`);
       }
 
-      // Try to parse as JSON
       let data;
       try {
         data = JSON.parse(responseText);
@@ -1079,8 +1053,6 @@ export default function Buyer() {
     }
   };
 
-
-  // Add item to existing request
   const addItemToRequest = async (item) => {
     if (!currentRequestId) {
       console.error('No active request');
@@ -1088,17 +1060,16 @@ export default function Buyer() {
     }
 
     try {
-      const response = await fetch(`/api/requests/${currentRequestId}/items/`, {
+      const response = await fetch(`http://127.0.0.1:8000/api/requests/${currentRequestId}/items/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           "X-CSRFToken": getCSRFToken()
-
         },
         body: JSON.stringify({
           variant_id: item.variantId,
-          initial_expectation_gbp: item.price.replace(/[^0-9.]/g, ''),
-          notes: `${item.title} - ${item.subtitle} (${item.offerTitle})`
+          initial_expectation_gbp: item.customerExpectation,
+          notes: `${item.title} - ${item.subtitle} | Customer wants: £${item.customerExpectation} | Our offer: ${item.price} (${item.offerTitle})`
         })
       });
 
@@ -1116,7 +1087,6 @@ export default function Buyer() {
     }
   };
 
-  // Finalize transaction - move request to BOOKED_FOR_TESTING
   const finalizeTransaction = async () => {
     if (!currentRequestId) {
       alert('No active request to finalize');
@@ -1124,12 +1094,11 @@ export default function Buyer() {
     }
 
     try {
-      const response = await fetch(`/api/requests/${currentRequestId}/finish/`, {
+      const response = await fetch(`http://127.0.0.1:8000/api/requests/${currentRequestId}/finish/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           "X-CSRFToken": getCSRFToken()
-
         }
       });
 
@@ -1143,12 +1112,10 @@ export default function Buyer() {
       console.log('Transaction finalized:', data);
       alert(`Request #${currentRequestId} has been booked for testing!`);
       
-      // Reset cart and request
       setCartItems([]);
       setCurrentRequestId(null);
       setRequestStatus(null);
       
-      // Optionally reopen customer modal for next transaction
       setCustomerModalOpen(true);
     } catch (error) {
       console.error('Error finalizing transaction:', error);
@@ -1157,21 +1124,18 @@ export default function Buyer() {
   };
 
   const addToCart = async (item) => {
-    // If this is the first item, create a new request
     if (cartItems.length === 0) {
       const requestId = await createRequest(item);
       if (!requestId) {
-        return; // Failed to create request
+        return;
       }
     } else {
-      // Add to existing request
       const success = await addItemToRequest(item);
       if (!success) {
-        return; // Failed to add item
+        return;
       }
     }
 
-    // Add to cart UI
     setCartItems((prev) => [...prev, item]);
   };
 
@@ -1184,7 +1148,6 @@ export default function Buyer() {
         .material-symbols-outlined { font-size: 20px; }
       `}</style>
 
-      {/* Customer Intake Modal */}
       <CustomerIntakeModal
         open={isCustomerModalOpen}
         onClose={(customerInfo) => {
