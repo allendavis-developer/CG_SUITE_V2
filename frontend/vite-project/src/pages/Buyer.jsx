@@ -250,6 +250,81 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
     loadAttributes();
   }, [selectedModel]);
 
+  // Auto-select single-option dropdowns as they become visible
+  useEffect(() => {
+    if (attributes.length === 0 || variants.length === 0) return;
+
+    const newValues = { ...attributeValues };
+    let hasChanges = false;
+
+    attributes.forEach((attr, index) => {
+      // Skip if already selected
+      if (attributeValues[attr.code]) return;
+
+      // Get previous selections
+      const previousSelections = Object.entries(attributeValues)
+        .filter(([code]) => {
+          const attrIndex = attributes.findIndex(a => a.code === code);
+          return attrIndex < index && attributeValues[code];
+        });
+
+      // Find matching variants based on previous selections
+      const matchingVariants = variants.filter(variant => {
+        return previousSelections.every(([code, value]) => {
+          return variant.attribute_values[code] === value;
+        });
+      });
+
+      // Get available values for this attribute
+      const availableValues = new Set(
+        matchingVariants.map(v => v.attribute_values[attr.code])
+      );
+      
+      const options = attr.values.filter(opt => 
+        index === 0 || availableValues.has(opt)
+      );
+
+      // Check if all previous visible attributes are selected
+      const visiblePreviousAttrs = attributes.slice(0, index).filter((prevAttr, prevIndex) => {
+        const prevPreviousSelections = Object.entries(attributeValues)
+          .filter(([code]) => {
+            const attrIndex = attributes.findIndex(a => a.code === code);
+            return attrIndex < prevIndex && attributeValues[code];
+          });
+        
+        const prevMatchingVariants = variants.filter(variant => {
+          return prevPreviousSelections.every(([code, value]) => {
+            return variant.attribute_values[code] === value;
+          });
+        });
+        
+        const prevAvailableValues = new Set(
+          prevMatchingVariants.map(v => v.attribute_values[prevAttr.code])
+        );
+        
+        const prevOptions = prevAttr.values.filter(opt => 
+          prevIndex === 0 || prevAvailableValues.has(opt)
+        );
+        
+        return prevOptions.length > 0;
+      });
+
+      const allPreviousSelected = visiblePreviousAttrs.every(
+        prevAttr => attributeValues[prevAttr.code]
+      );
+
+      // Auto-select if: has options, only one option, all previous selected, and this dropdown would be visible
+      if (options.length === 1 && allPreviousSelected && options.length > 0) {
+        newValues[attr.code] = options[0];
+        hasChanges = true;
+      }
+    });
+
+    if (hasChanges) {
+      setAttributeValues(newValues);
+    }
+  }, [attributes, attributeValues, variants]);
+
   useEffect(() => {
     if (variants.length === 0 || Object.keys(attributeValues).length === 0) return;
 
