@@ -381,6 +381,7 @@ async function refreshFiltersFromUrl(ebayUrl) {
 }
 
 
+
 // Handle apply button
 ebayApplyBtn.addEventListener('click', async () => {
 

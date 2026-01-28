@@ -1,40 +1,56 @@
 from django.core.management.base import BaseCommand
-from django.db.models import Q
-
-from pricing.models import CompetitorListing
-from pricing.models import Subcategory
-from pricing.models_v2 import ProductCategory
+import json
+import time
+import requests
+from pathlib import Path
 
 
 class Command(BaseCommand):
-    def _fetch_and_log_batch(self, stable_ids, batch_number, headers, base_url, output_file_path):
-        import requests
-        import json
-        import time
+    help = "Fetch CeX box details from all JSON files in an input folder and save to a single output file"
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--input-folder",
+            required=True,
+            help="Path to folder containing input JSON files"
+        )
+        parser.add_argument(
+            "--output-folder",
+            required=True,
+            help="Folder where the output JSONL file will be saved"
+        )
+        parser.add_argument(
+            "--output-file",
+            required=True,
+            help="Name of the output JSONL file (e.g., cex_data.jsonl)"
+        )
+        parser.add_argument(
+            "--batch-size",
+            type=int,
+            default=50,
+            help="Number of stable_ids per batch (default: 50)"
+        )
+
+    def _fetch_and_log_batch(self, stable_ids, batch_number, headers, base_url, output_file_path):
         batch_results = []
 
         for stable_id in stable_ids:
             url = base_url.format(stable_id=stable_id)
 
-            # Retry loop
             for attempt in range(3):
                 try:
                     response = requests.get(url, headers=headers, timeout=15)
                     response.raise_for_status()
                     payload = response.json()
-                    
-                    # Store the entire response for this stable_id
                     batch_results.append({
                         "stable_id": stable_id,
                         "response": payload
                     })
-
-                    break  # success, exit retry loop
+                    break
 
                 except requests.RequestException as exc:
                     if attempt < 2:
-                        wait = 2 ** attempt  # 1s, 2s, 4s
+                        wait = 2 ** attempt
                         self.stdout.write(
                             self.style.WARNING(
                                 f"Retrying {stable_id} in {wait}s due to error: {exc}"
@@ -42,10 +58,9 @@ class Command(BaseCommand):
                         )
                         time.sleep(wait)
                     else:
-                        # After last attempt, log the failure
                         batch_results.append({
                             "stable_id": stable_id,
-                            "error": str(exc),
+                            "error": str(exc)
                         })
                         self.stdout.write(
                             self.style.ERROR(
@@ -53,20 +68,59 @@ class Command(BaseCommand):
                             )
                         )
 
-        # Append batch to file
         with open(output_file_path, "a", encoding="utf-8") as f:
             for item in batch_results:
                 f.write(json.dumps(item) + "\n")
 
         self.stdout.write(
             self.style.SUCCESS(
-                f"\nFetched CeX API batch {batch_number} ({len(stable_ids)} stable IDs) → saved to {output_file_path}"
+                f"Fetched batch {batch_number} ({len(stable_ids)} stable IDs) → saved to {output_file_path}"
             )
         )
 
-    def fetch_and_log_cex_box_details(self, listings, batch_size=50):
-        import requests
-        import json
+    def _load_stable_ids_from_file(self, input_file):
+        with open(input_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        stable_ids = []
+        models = data.get("models", {})
+        for model_data in models.values():
+            variants = model_data.get("variants", {})
+            for variant_data in variants.values():
+                listings = variant_data.get("listings", [])
+                for listing in listings:
+                    stable_id = listing.get("id")
+                    if stable_id:
+                        stable_ids.append(stable_id)
+        return stable_ids
+
+    def handle(self, *args, **options):
+        input_folder = Path(options["input_folder"])
+        output_folder = Path(options["output_folder"])
+        output_file_name = options["output_file"]
+        batch_size = options["batch_size"]
+
+        if not input_folder.exists() or not input_folder.is_dir():
+            self.stdout.write(self.style.ERROR(f"Input folder does not exist: {input_folder}"))
+            return
+
+        output_folder.mkdir(parents=True, exist_ok=True)
+        output_file_path = output_folder / output_file_name
+
+        # Clear or create output file
+        output_file_path.write_text("", encoding="utf-8")
+
+        # Gather all stable_ids from all JSON files
+        stable_ids = []
+        for file_path in sorted(input_folder.glob("*.json")):
+            self.stdout.write(f"Loading stable_ids from: {file_path}")
+            stable_ids.extend(self._load_stable_ids_from_file(file_path))
+
+        if not stable_ids:
+            self.stdout.write(self.style.WARNING("No stable_ids found in input folder."))
+            return
+
+        self.stdout.write(self.style.SUCCESS(f"Loaded {len(stable_ids)} stable_ids in total."))
 
         headers = {
             "User-Agent": (
@@ -78,124 +132,19 @@ class Command(BaseCommand):
             "Referer": "https://www.cex.uk/",
         }
 
-        BASE_URL = "https://wss2.cex.uk.webuy.io/v3/boxes/{stable_id}/detail"
+        base_url = "https://wss2.cex.uk.webuy.io/v3/boxes/{stable_id}/detail"
 
-        stable_id_batch = []
+        batch = []
         batch_number = 1
-        output_file = "cex_data.jsonl"
 
-        for listing in listings:
-            category = listing.market_item.item_model.subcategory.category.name
-            subcategory = listing.market_item.item_model.subcategory.name
+        for stable_id in stable_ids:
+            self.stdout.write(f"Fetching → {stable_id}")
+            batch.append(stable_id)
 
-            self.stdout.write(
-                f"{category} → {subcategory} → {listing.stable_id}"
-            )
-
-            stable_id_batch.append(listing.stable_id)
-
-            if len(stable_id_batch) == batch_size:
-                self._fetch_and_log_batch(
-                    stable_id_batch,
-                    batch_number,
-                    headers,
-                    BASE_URL,
-                    output_file
-                )
-                stable_id_batch.clear()
+            if len(batch) == batch_size:
+                self._fetch_and_log_batch(batch, batch_number, headers, base_url, output_file_path)
+                batch.clear()
                 batch_number += 1
 
-        # Flush remaining stable_ids (< batch_size)
-        if stable_id_batch:
-            self._fetch_and_log_batch(
-                stable_id_batch,
-                batch_number,
-                headers,
-                BASE_URL,
-                output_file
-            )
-
-    help = "List CeX stable_ids for Smartphones and Mobile categories"
-
-    def handle(self, *args, **options):
-        listings = (
-            CompetitorListing.objects
-            .filter(competitor__iexact="cex")
-            .filter(
-                Q(market_item__item_model__subcategory__category__name__iexact="smartphones and mobile")
-            )
-            .select_related(
-                "market_item__item_model__subcategory__category"
-            )
-            .order_by(
-                "market_item__item_model__subcategory__category__name",
-                "market_item__item_model__subcategory__name",
-            )
-        )
-
-        if not listings.exists():
-            self.stdout.write(
-                self.style.WARNING("No CeX listings found for Smartphones or Mobile categories.")
-            )
-            return
-        
-        self.fetch_and_log_cex_box_details(listings)
-
-        # ---------------------------------------------------------
-        # Temporary mapping: old Subcategory -> new ProductCategory
-        # Android Phones, iPhones (case-insensitive)
-        # ---------------------------------------------------------
-
-        subcategory_to_category_map = {
-            "android phones": "android phones",
-            "iphone": "iphones",
-        }
-
-        old_subcategories = Subcategory.objects.filter(
-            Q(name__iexact="android phones") |
-            Q(name__iexact="iphone")
-        )
-
-        new_categories = ProductCategory.objects.filter(
-            Q(name__iexact="android phones") |
-            Q(name__iexact="iphones")
-        )
-
-        old_by_name = {
-            sc.name.lower(): sc
-            for sc in old_subcategories
-        }
-
-        new_by_name = {
-            pc.name.lower(): pc
-            for pc in new_categories
-        }
-
-        self.stdout.write("\nSubcategory → ProductCategory mapping:")
-
-        for old_name, new_name in subcategory_to_category_map.items():
-            old_sc = old_by_name.get(old_name)
-            new_pc = new_by_name.get(new_name)
-
-            if not old_sc:
-                self.stdout.write(
-                    self.style.WARNING(
-                        f"✗ Old Subcategory '{old_name}' not found"
-                    )
-                )
-                continue
-
-            if not new_pc:
-                self.stdout.write(
-                    self.style.WARNING(
-                        f"✗ No ProductCategory found for Subcategory '{old_sc.name}'"
-                    )
-                )
-                continue
-
-            self.stdout.write(
-                self.style.SUCCESS(
-                    f"✓ {old_sc.name} (old id={old_sc.id}) "
-                    f"→ {new_pc.name} (new id={new_pc.category_id})"
-                )
-            )
+        if batch:
+            self._fetch_and_log_batch(batch, batch_number, headers, base_url, output_file_path)

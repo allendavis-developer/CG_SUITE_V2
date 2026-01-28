@@ -9,6 +9,77 @@ const mockListings = [
   { title: "Brand New Sealed Apple iPhone 15 Pro 256GB Black", condition: "New", price: 1049, shipping: 0, status: "Sold" },
 ];
 
+// Helper function to send messages to extension via bridge
+function sendExtensionMessage(message) {
+    return new Promise((resolve, reject) => {
+        const requestId = Math.random().toString(36).substr(2, 9);
+        
+        // Listen for response
+        const responseHandler = (event) => {
+            if (event.data.type === 'EXTENSION_RESPONSE' && event.data.requestId === requestId) {
+                window.removeEventListener('message', responseHandler);
+                
+                if (event.data.error) {
+                    reject(new Error(event.data.error));
+                } else {
+                    resolve(event.data.response);
+                }
+            }
+        };
+        
+        window.addEventListener('message', responseHandler);
+        
+        // Send message to bridge
+        window.postMessage({
+            type: 'EXTENSION_MESSAGE',
+            requestId: requestId,
+            message: message
+        }, '*');
+        
+        // Timeout after 60 seconds
+        setTimeout(() => {
+            window.removeEventListener('message', responseHandler);
+            reject(new Error('Extension communication timeout'));
+        }, 60000);
+    });
+}
+
+
+function buildEbayUrl(searchTerm, filters) {
+  const baseUrl = "https://www.ebay.co.uk/sch/i.html";
+
+  const params = {
+    _nkw: searchTerm.replace(/ /g, "+"),
+    _sacat: "0",
+    _from: "R40"
+  };
+
+  Object.entries(filters || {}).forEach(([filterName, value]) => {
+    if (Array.isArray(value)) {
+      const doubleEncodedKey = encodeURIComponent(encodeURIComponent(filterName));
+      const doubleEncodedValue = value
+        .map(v => encodeURIComponent(encodeURIComponent(v)))
+        .join("|");
+      params[doubleEncodedKey] = doubleEncodedValue;
+    } else if (typeof value === "object") {
+      const doubleEncodedKey = encodeURIComponent(encodeURIComponent(filterName));
+      if (value.min) params[`${doubleEncodedKey}_min`] = encodeURIComponent(encodeURIComponent(value.min));
+      if (value.max) params[`${doubleEncodedKey}_max`] = encodeURIComponent(encodeURIComponent(value.max));
+    } else {
+      const doubleEncodedKey = encodeURIComponent(encodeURIComponent(filterName));
+      params[doubleEncodedKey] = encodeURIComponent(encodeURIComponent(value));
+    }
+  });
+
+  const queryString = Object.entries(params)
+    .map(([key, val]) => `${key}=${val}`)
+    .join("&");
+
+  return `${baseUrl}?${queryString}`;
+}
+
+
+
 export default function EbayResearchForm({ onComplete }) {
   const [searchTerm, setSearchTerm] = useState("iPhone 15 Pro");
   const [step, setStep] = useState(1); // 1=search, 2=filters, 3=results
@@ -56,15 +127,44 @@ export default function EbayResearchForm({ onComplete }) {
     } else if (step === 2) {
       setLoading(true);
 
-      // --- Simulate building a URL from selected filters ---
-      const fakeEbayUrl = `https://www.ebay.co.uk/sch/i.html?_nkw=${encodeURIComponent(searchTerm)}`;
-      await refreshFiltersFromUrl(fakeEbayUrl); // refresh filter counts/options
+      try {
+        // Build eBay URL from search term and API filters
+        const ebayUrl = buildEbayUrl(searchTerm, selectedFilters.apiFilters);
 
-      // Show mock listings
-      setListings(mockListings);
-      setStep(3);
-      setLoading(false);
+        // Get top-level basic filters
+        const ebayFilterSold = selectedFilters.basic.includes("Completed & Sold");
+        const ebayFilterUKOnly = selectedFilters.basic.includes("UK Only");
+        const ebayFilterUsed = selectedFilters.basic.includes("Used");
+
+        // Call the extension to scrape real eBay listings
+        const response = await sendExtensionMessage({
+          action: "scrape",
+          data: {
+            directUrl: ebayUrl,
+            competitors: ["eBay"],
+            ebayFilterSold,
+            ebayFilterUKOnly,
+            ebayFilterUsed,
+            apiFilters: selectedFilters.apiFilters
+          }
+        });
+
+        if (response.success) {
+          console.log(response.results);
+          setListings(response.results); // Replace mockListings
+          setStep(3);                    // Move to results step
+        } else {
+          alert("Scraping failed: " + (response.error || "Unknown error"));
+        }
+
+      } catch (err) {
+        console.error("Scraping error:", err);
+        alert("Error running scraper: " + err.message);
+      } finally {
+        setLoading(false);
+      }
     }
+
   };
 
   const handleApiFilterChange = (filterName, value, type, rangeKey) => {
@@ -201,8 +301,17 @@ export default function EbayResearchForm({ onComplete }) {
               <div className="grid grid-cols-2 gap-4">
                 {listings.map((item, idx) => (
                   <div key={idx} className="bg-white rounded-xl border border-gray-200 p-4 flex gap-4 hover:shadow-md transition-shadow">
-                    <div className="w-32 h-32 bg-gray-200 rounded-lg flex items-center justify-center text-xs text-gray-500">
-                      Image
+                    <div className="w-32 h-32 bg-gray-200 rounded-lg flex items-center justify-center overflow-hidden rounded-lg">
+                      {item.image ? (
+                        <img
+                          src={item.image}
+                          alt={item.title || "eBay listing"}
+                          className="w-full h-full object-cover"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <span className="text-xs text-gray-500">No image</span>
+                      )}
                     </div>
                     <div className="flex flex-col justify-between flex-1">
                       <div>
