@@ -199,6 +199,7 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
   const [manualOfferPrice, setManualOfferPrice] = useState('');
   const [referenceData, setReferenceData] = useState(null);
   const [ourSalePrice, setOurSalePrice] = useState('');
+  const [ebayData, setEbayData] = useState(null);
   
   // Customer's expectation input
   const [customerExpectation, setCustomerExpectation] = useState('');
@@ -372,6 +373,7 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
       setOffers([]);
       setReferenceData(null);
       setOurSalePrice('');
+      setEbayData(null);
       return;
     }
 
@@ -720,111 +722,115 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
               </span>
             }
           />
-          <table className="w-full text-left text-sm">
-            <thead className="text-xs font-bold text-gray-500 uppercase bg-gray-50/50">
-              <tr>
-                <th className="p-4">Platform</th>
-                <th className="p-4">Market Sale Price</th>
-                <th className="p-4 bg-yellow-500/10 border-x border-yellow-500/20">OUR SALE PRICE</th>
-                <th className="p-4">Buy-in Price</th>
-                <th className="p-4">Method</th>
-                <th className="p-4 text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {variant && competitorStats.length > 0 ? (
-                competitorStats.map((row, idx) => (
-                  <tr key={`cex-${idx}`} className="hover:bg-gray-50 transition-colors">
-                    <td className="p-4 font-medium text-gray-900">CEX</td>
-                    <td className="p-4 font-bold text-gray-600">{formatGBP(row.salePrice)}</td>
-                    <td className="p-4 bg-yellow-500/5 border-x border-yellow-500/10">
-                      <div className="relative w-32">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-900 font-bold text-xs">£</span>
-                        <input 
-                          className="w-full pl-6 pr-3 py-1.5 border border-blue-900/20 rounded-md text-xs font-bold text-blue-900 focus:ring-1 focus:ring-yellow-500 focus:border-yellow-500" 
-                          step="0.01" 
-                          type="number" 
-                          value={ourSalePrice}
-                          onChange={(e) => setOurSalePrice(e.target.value)}
-                        />
-                      </div>
-                    </td>
-                    <td className="p-4 font-bold text-blue-900">{formatGBP(row.buyPrice)}</td>
-                    <td className="p-4 text-xs font-semibold text-gray-700">
-                      {referenceData?.percentage_used ? `${referenceData.percentage_used}%` : '—'}
-                    </td>
-                    <td className="p-4 text-right">
-                      <span className="text-emerald-600 inline-flex items-center gap-1 text-xs font-bold">
-                        <Icon name="check_circle" className="text-xs" /> Verified
-                      </span>
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr className="bg-gray-50/20">
-                  <td className="p-4 font-medium text-gray-600">CEX</td>
-                  <td className="p-4 italic text-gray-600/60">
-                    Select a variant to view prices
-                  </td>
-                  <td className="p-4 bg-yellow-500/5 border-x border-yellow-500/10">
-                    <div className="relative w-32">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-900 font-bold text-xs">£</span>
-                      <input 
-                        className="w-full pl-6 pr-3 py-1.5 border border-blue-900/20 rounded-md text-xs font-bold text-blue-900 focus:ring-1 focus:ring-yellow-500 focus:border-yellow-500 bg-gray-50" 
-                        step="0.01" 
-                        type="number" 
-                        value=""
-                        disabled
-                      />
-                    </div>
-                  </td>
-                  <td className="p-4 italic text-gray-600/60">—</td>
-                  <td className="p-4 italic text-gray-600/60">—</td>
-                  <td className="p-4 text-right text-xs text-gray-600/60">—</td>
-                </tr>
-              )}
+      <table className="w-full text-left text-sm">
+        <thead className="text-xs font-bold text-gray-500 uppercase bg-gray-50/50">
+          <tr>
+            <th className="p-4">Platform</th>
+            <th className="p-4">Market Sale Price</th>
+            <th className="p-4 bg-yellow-500/10 border-x border-yellow-500/20">OUR SALE PRICE</th>
+            <th className="p-4 text-xs font-semibold text-gray-700">Method</th>
+            <th className="p-4">Buy-in Price</th>
+            <th className="p-4 text-right">Action</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-200">
+          {variant && competitorStats.length > 0 ? (
+            competitorStats.map((row, idx) => (
+              <tr key={`cex-${idx}`} className="hover:bg-gray-50 transition-colors">
+                <td className="p-4 font-medium text-gray-900">CEX</td>
+                <td className="p-4 font-bold text-gray-600">{formatGBP(row.salePrice)}</td>
 
-              <tr className="bg-gray-50/20 hover:bg-gray-50 transition-colors">
-                <td className="p-4 font-medium text-gray-600">
-                  eBay
+                {/* Our Sale Price - now read-only and same text size */}
+                <td className="p-4 bg-yellow-500/5 border-x border-yellow-500/10 font-bold text-gray-900">
+                  {formatGBP(parseFloat(ourSalePrice))}
                 </td>
-                <td className="p-4 italic text-gray-600/60">
-                  No data – Run research
+
+                {/* Method column moved next to Our Sale Price */}
+                <td className="p-4 text-gray-700 font-semibold text-sm">
+                  {referenceData?.percentage_used ? `${referenceData.percentage_used}%` : '—'}
                 </td>
-                <td className="p-4 bg-yellow-500/5 border-x border-yellow-500/10">
-                  <div className="relative w-32">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-900 font-bold text-xs">£</span>
-                    <input 
-                      className="w-full pl-6 pr-3 py-1.5 border border-blue-900/20 rounded-md text-xs font-bold text-blue-900 focus:ring-1 focus:ring-yellow-500 focus:border-yellow-500 bg-gray-50" 
-                      step="0.01" 
-                      type="number" 
-                      value=""
-                      disabled
-                    />
-                  </div>
-                </td>
-                <td className="p-4 italic text-gray-600/60">
-                  —
-                </td>
-                <td className="p-4 italic text-gray-600/60">
-                  —
-                </td>
-                <td className="p-4">
-                  <div className="flex justify-end">
-                    <Button
-                      variant="primary"
-                      size="lg"
-                      className="group"
-                      icon="search_insights"
-                      onClick={() => setEbayModalOpen(true)}
-                    >
-                      Research on eBay
-                    </Button>
-                  </div>
+
+                <td className="p-4 font-bold text-blue-900">{formatGBP(row.buyPrice)}</td>
+                <td className="p-4 text-right">
+                  <span className="text-emerald-600 inline-flex items-center gap-1 text-xs font-bold">
+                    <Icon name="check_circle" className="text-xs" /> Verified
+                  </span>
                 </td>
               </tr>
-            </tbody>
-          </table>
+            ))
+          ) : (
+            <tr className="bg-gray-50/20">
+              <td className="p-4 font-medium text-gray-600">CEX</td>
+              <td className="p-4 italic text-gray-600/60">
+                Select a variant to view prices
+              </td>
+
+              <td className="p-4 bg-yellow-500/5 border-x border-yellow-500/10 font-bold text-gray-900">
+                —
+              </td>
+
+              <td className="p-4 text-gray-700 font-semibold text-sm">—</td>
+
+              <td className="p-4 italic text-gray-600/60">—</td>
+              <td className="p-4 text-right text-xs text-gray-600/60">—</td>
+            </tr>
+          )}
+
+          {/* eBay Row */}
+          {ebayData ? (
+            <tr className="hover:bg-gray-50 transition-colors">
+              <td className="p-4 font-medium text-gray-900">eBay</td>
+              <td className="p-4 font-bold text-gray-600">{formatGBP(parseFloat(ebayData.stats.median))}</td>
+
+              <td className="p-4 bg-yellow-500/5 border-x border-yellow-500/10 font-bold text-gray-900">
+                {formatGBP(parseFloat(ebayData.stats.suggestedPrice))}
+              </td>
+
+              <td className="p-4 text-gray-700 font-semibold text-sm">
+                Based on {ebayData.listings.length} sold listings
+              </td>
+
+              <td className="p-4 italic text-gray-600/60">—</td>
+              <td className="p-4 text-right">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon="search_insights"
+                  onClick={() => setEbayModalOpen(true)}
+                >
+                  View Details
+                </Button>
+              </td>
+            </tr>
+          ) : (
+            <tr className="bg-gray-50/20 hover:bg-gray-50 transition-colors">
+              <td className="p-4 font-medium text-gray-600">eBay</td>
+              <td className="p-4 italic text-gray-600/60">No data – Run research</td>
+
+              <td className="p-4 bg-yellow-500/5 border-x border-yellow-500/10 font-bold text-gray-900">
+                —
+              </td>
+
+              <td className="p-4 text-gray-700 font-semibold text-sm">—</td>
+
+              <td className="p-4 italic text-gray-600/60">—</td>
+              <td className="p-4">
+                <div className="flex justify-end">
+                  <Button
+                    variant="primary"
+                    size="lg"
+                    className="group"
+                    icon="search_insights"
+                    onClick={() => setEbayModalOpen(true)}
+                  >
+                    Research on eBay
+                  </Button>
+                </div>
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
         </Card>
 
         {variant && offers.length > 0 && (() => {
@@ -877,6 +883,8 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
         onClose={() => setEbayModalOpen(false)}
         onResearchComplete={(data) => {
           console.log('eBay research done', data);
+          setEbayData(data);
+          setEbayModalOpen(false);
         }}
       />
     </section>
