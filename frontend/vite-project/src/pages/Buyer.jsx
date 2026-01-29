@@ -200,9 +200,6 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
   const [referenceData, setReferenceData] = useState(null);
   const [ourSalePrice, setOurSalePrice] = useState('');
   const [ebayData, setEbayData] = useState(null);
-  
-  // Customer's expectation input
-  const [customerExpectation, setCustomerExpectation] = useState('');
 
   useEffect(() => {
     setAttributes([]);
@@ -474,11 +471,6 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
                 return;
               }
 
-              if (!customerExpectation || parseFloat(customerExpectation) <= 0) {
-                alert('Please enter the customer\'s price expectation');
-                return;
-              }
-
               const selectedVariant = variants.find(v => v.cex_sku === variant);
 
               let cartItem;
@@ -491,7 +483,7 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
                   title: selectedModel.name,
                   subtitle: selectedVariant?.title || Object.values(attributeValues).filter(v => v).join(' / ') || 'Standard',
                   price: formatGBP(parseFloat(manualOfferPrice)),
-                  customerExpectation: parseFloat(customerExpectation),
+                  customerExpectation: 0,
                   highlighted: false,
                   offerId: 'manual',
                   offerTitle: 'Manual Offer',
@@ -506,7 +498,7 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
                   title: selectedModel.name,
                   subtitle: selectedVariant?.title || Object.values(attributeValues).filter(v => v).join(' / ') || 'Standard',
                   price: formatGBP(parseFloat(selectedOffer.price)),
-                  customerExpectation: parseFloat(customerExpectation),
+                  customerExpectation: 0,
                   highlighted: false,
                   offerId: selectedOffer.id,
                   offerTitle: selectedOffer.title,
@@ -515,7 +507,6 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
               }
 
               addToCart(cartItem);
-              setCustomerExpectation('');
             }}
           >
             Add to Cart
@@ -677,37 +668,6 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
                   ))}
                 </div>
               </div>
-
-              {variant && (
-                <div className="bg-blue-900/5 border border-blue-900/20 rounded-xl p-6">
-                  <div className="flex items-start gap-4">
-                    <div className="flex-shrink-0">
-                      <div className="w-10 h-10 bg-blue-900 rounded-full flex items-center justify-center">
-                        <Icon name="person" className="text-white text-lg" />
-                      </div>
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="text-xs font-bold text-gray-900 uppercase tracking-widest mb-2">
-                        Customer's Price Expectation
-                      </h3>
-                      <p className="text-xs text-gray-600 mb-4">
-                        What price is the customer expecting or asking for?
-                      </p>
-                      <div className="relative w-48">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-900 font-bold text-sm">£</span>
-                        <input 
-                          className="w-full pl-7 pr-3 py-2.5 border-2 border-blue-900/30 rounded-lg text-base font-bold text-blue-900 focus:ring-2 focus:ring-blue-900 focus:border-blue-900 bg-white" 
-                          placeholder="0.00" 
-                          type="number"
-                          step="0.01"
-                          value={customerExpectation}
-                          onChange={(e) => setCustomerExpectation(e.target.value)}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
             </>
           );
         })()}
@@ -899,6 +859,7 @@ const CartSidebar = ({
   onFinalize
 }) => {
   const [isFinalizing, setIsFinalizing] = useState(false);
+  const [overallExpectation, setOverallExpectation] = useState('');
 
   const removeItem = (id) => {
     setCartItems(cartItems.filter(item => item.id !== id));
@@ -952,15 +913,35 @@ const CartSidebar = ({
           {currentRequestId && (
             <>
               <span className="text-blue-900/40">•</span>
-              <div className="flex items-center gap-1">
-                <Icon name="receipt_long" className="text-xs text-blue-900/60" />
-                <span className="text-blue-900/60 text-[11px] font-bold">
-                  Request #{currentRequestId}
-                </span>
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1">
+                  <Icon name="receipt_long" className="text-xs text-blue-900/60" />
+                  <span className="text-blue-900/60 text-[11px] font-bold">
+                    Request #{currentRequestId}
+                  </span>
+                </div>
               </div>
             </>
           )}
         </div>
+        {currentRequestId && (
+          <div className="mt-3">
+            <label className="text-blue-900/60 text-[10px] font-bold uppercase tracking-widest block mb-1">
+              Overall Expectation
+            </label>
+            <div className="relative w-32">
+              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-blue-900 font-bold text-xs">£</span>
+              <input 
+                className="w-full pl-5 pr-2 py-1.5 border border-blue-900/30 rounded text-sm font-bold text-blue-900 focus:ring-1 focus:ring-blue-900 focus:border-blue-900 bg-white" 
+                placeholder="0.00" 
+                type="number"
+                step="0.01"
+                value={overallExpectation}
+                onChange={(e) => setOverallExpectation(e.target.value)}
+              />
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-white">
@@ -1086,7 +1067,7 @@ export default function Buyer() {
       item: {
         variant_id: firstItem.variantId,
         initial_expectation_gbp: firstItem.customerExpectation,
-        notes: `${firstItem.title} - ${firstItem.subtitle} | Customer wants: £${firstItem.customerExpectation} | Our offer: ${firstItem.price} (${firstItem.offerTitle})`
+        notes: `${firstItem.title} - ${firstItem.subtitle} | Our offer: ${firstItem.price} (${firstItem.offerTitle})`
       }
     });
 
@@ -1103,7 +1084,7 @@ export default function Buyer() {
           item: {
             variant_id: firstItem.variantId,
             initial_expectation_gbp: firstItem.customerExpectation,
-            notes: `${firstItem.title} - ${firstItem.subtitle} | Customer wants: £${firstItem.customerExpectation} | Our offer: ${firstItem.price} (${firstItem.offerTitle})`
+            notes: `${firstItem.title} - ${firstItem.subtitle} | Our offer: ${firstItem.price} (${firstItem.offerTitle})`
           }
         })
       });
@@ -1152,7 +1133,7 @@ export default function Buyer() {
         body: JSON.stringify({
           variant_id: item.variantId,
           initial_expectation_gbp: item.customerExpectation,
-          notes: `${item.title} - ${item.subtitle} | Customer wants: £${item.customerExpectation} | Our offer: ${item.price} (${item.offerTitle})`
+          notes: `${item.title} - ${item.subtitle} | Our offer: ${item.price} (${item.offerTitle})`
         })
       });
 
