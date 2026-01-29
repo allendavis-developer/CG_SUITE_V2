@@ -45,6 +45,83 @@ function sendExtensionMessage(message) {
 }
 
 
+function PriceHistogram({ listings }) {
+  if (!listings || listings.length === 0) return null;
+
+  const prices = listings
+    .map(l => (typeof l.price === 'string' ? parseFloat(l.price.replace(/[^0-9.]/g, '')) : l.price))
+    .filter(p => !isNaN(p) && p > 0);
+
+  if (prices.length === 0) return null;
+
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  const totalRange = max - min;
+
+  // 1. Calculate a "Raw" bucket size
+  const bucketCount = 6;
+  const rawStep = totalRange / bucketCount;
+
+  // 2. Find a "Nice" step (e.g., 5, 10, 25, 50, 100)
+  // This logic ensures the bands are predictable numbers
+  const niceSteps = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500];
+  const niceStep = niceSteps.find(s => s >= rawStep) || niceSteps[niceSteps.length - 1];
+
+  // 3. Re-calculate buckets based on the nice step
+  const buckets = Array(bucketCount).fill(0);
+  prices.forEach(price => {
+    let index = Math.floor((price - min) / niceStep);
+    if (index >= bucketCount) index = bucketCount - 1;
+    buckets[index]++;
+  });
+
+  const maxFreq = Math.max(...buckets);
+
+  return (
+    <div className="bg-white p-5 rounded-xl border border-gray-200 mb-10 shadow-sm">
+      <div className="flex justify-between items-center mb-6">
+        <h3 className="text-xs font-bold text-blue-900 uppercase tracking-wider">Market Price Density</h3>
+        <span className="text-[10px] font-bold text-blue-900/40 uppercase tracking-widest px-2 py-0.5 border border-blue-900/10 rounded">
+          Interval: £{niceStep}
+        </span>
+      </div>
+      
+      <div className="flex items-end gap-3 h-32 px-2">
+        {buckets.map((freq, i) => {
+          const heightPct = maxFreq > 0 ? (freq / maxFreq) * 100 : 0;
+          
+          // Use the niceStep to define ranges so they are perfectly equal
+          const startPrice = Math.floor(min + (i * niceStep));
+          const endPrice = Math.floor(min + ((i + 1) * niceStep));
+          
+          return (
+            <div key={i} className="flex-1 flex flex-col items-center h-full justify-end relative group">
+              <div 
+                className={`w-full transition-all duration-300 rounded-t-sm flex items-center justify-center overflow-hidden
+                  ${freq > 0 ? 'bg-yellow-400 group-hover:bg-yellow-500 shadow-sm' : 'bg-gray-50'}
+                `}
+                style={{ height: freq > 0 ? `${Math.max(heightPct, 22)}%` : '2px' }}
+              >
+                {freq > 0 && <span className="text-[10px] font-black text-blue-900 leading-none">{freq}</span>}
+              </div>
+
+              <div className="absolute -bottom-7 flex flex-col items-center w-full">
+                <div className={`h-1.5 w-px mb-1 ${freq > 0 ? 'bg-blue-900/30' : 'bg-gray-200'}`}></div>
+                <div className="flex items-center gap-1 text-blue-900 font-bold text-[9px] whitespace-nowrap">
+                  <span>£{startPrice}</span>
+                  <span>-</span>
+                  <span>£{endPrice}</span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="h-6"></div>
+    </div>
+  );
+}
+
 function buildEbayUrl(searchTerm, filters) {
   const baseUrl = "https://www.ebay.co.uk/sch/i.html";
 
@@ -334,6 +411,11 @@ export default function EbayResearchForm({ onComplete }) {
           {/* Listings */}
           {step === 3 && listings && (
             <main className="flex-1 overflow-y-auto bg-gray-100 p-6">
+
+              {/* --- NEW HISTOGRAM COMPONENT --- */}
+              <PriceHistogram listings={listings} />
+              {/* ------------------------------- */}
+
               <div className="grid grid-cols-2 gap-4">
                 {listings.map((item, idx) => (
                   <div key={idx} className="bg-white rounded-xl border border-gray-200 p-4 flex gap-4 hover:shadow-md transition-shadow">

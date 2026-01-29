@@ -752,14 +752,9 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
 
               <td className="p-4 italic text-gray-600/60">—</td>
               <td className="p-4 text-right">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  icon="search_insights"
-                  onClick={() => setEbayModalOpen(true)}
-                >
-                  View Details
-                </Button>
+                <span className="text-emerald-600 inline-flex items-center gap-1 text-xs font-bold">
+                  <Icon name="check_circle" className="text-xs" /> Verified
+                </span>
               </td>
             </tr>
           ) : (

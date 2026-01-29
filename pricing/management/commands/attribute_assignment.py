@@ -79,20 +79,18 @@ class Command(BaseCommand):
         )
 
     def _load_stable_ids_from_file(self, input_file):
+        """Load stable IDs from a JSON file with a top-level 'listings' array."""
         with open(input_file, "r", encoding="utf-8") as f:
             data = json.load(f)
 
         stable_ids = []
-        models = data.get("models", {})
-        for model_data in models.values():
-            variants = model_data.get("variants", {})
-            for variant_data in variants.values():
-                listings = variant_data.get("listings", [])
-                for listing in listings:
-                    stable_id = listing.get("id")
-                    if stable_id:
-                        stable_ids.append(stable_id)
+        for listing in data.get("listings", []):
+            stable_id = listing.get("id")
+            if stable_id:
+                stable_ids.append(stable_id)
+
         return stable_ids
+
 
     def handle(self, *args, **options):
         input_folder = Path(options["input_folder"])
