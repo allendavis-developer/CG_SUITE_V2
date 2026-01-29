@@ -227,7 +227,7 @@ class Command(BaseCommand):
                     break
             
             if not product_name:
-                product_name = f"Product {stable_id}"
+                product_name = box_name or f"Product {stable_id}"
             
             product_names_by_category[category_name].add(product_name)
             condition_code = 'UNKNOWN'
@@ -367,7 +367,7 @@ class Command(BaseCommand):
 
         # Fallback to boxName if NULL
         if not product_name:
-            product_name = f"Product {stable_id}"
+            product_name = box_name or f"Product {stable_id}"
 
         condition_code = 'UNKNOWN'
         parsed_attrs = []
