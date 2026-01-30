@@ -207,6 +207,13 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
     setDependencies([]);
     setVariants([]);
     setVariant('');
+    
+    // Set tab based on category
+    if (selectedCategory?.name.toLowerCase() === 'ebay') {
+      setActiveTab('research');
+    } else {
+      setActiveTab('info');
+    }
   }, [selectedCategory]);
 
   useEffect(() => {
@@ -438,7 +445,10 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
   }
 
   // Show product selection state when category is selected but no model chosen
-  if (!selectedModel) {
+  // Skip this for eBay category and its subcategories
+  const isEbayCategory = selectedCategory?.path?.some(p => p.toLowerCase() === 'ebay') || selectedCategory?.name.toLowerCase() === 'ebay';
+  
+  if (!selectedModel && !isEbayCategory) {
     return (
       <section className="w-3/5 bg-white flex flex-col overflow-y-auto">
         <div className="flex items-center justify-center h-full">
@@ -470,12 +480,35 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
 
   return (
     <section className="w-3/5 bg-white flex flex-col overflow-y-auto">
-      <div className="flex items-center px-8 bg-gray-50 border-b border-gray-200 sticky top-0 z-40">
-        <Tab icon="info" label="Product Info" isActive={activeTab === 'info'} onClick={() => setActiveTab('info')} />
-        <Tab icon="analytics" label="eBay Research" isActive={activeTab === 'research'} onClick={() => setActiveTab('research')} />
-      </div>
+      {!isEbayCategory && (
+        <div className="flex items-center px-8 bg-gray-50 border-b border-gray-200 sticky top-0 z-40">
+          <Tab icon="info" label="Product Info" isActive={activeTab === 'info'} onClick={() => setActiveTab('info')} />
+        </div>
+      )}
+      
+      {isEbayCategory && (
+        <div className="flex items-center px-8 bg-gray-50 border-b border-gray-200 sticky top-0 z-40">
+          <Tab icon="analytics" label="eBay Research" isActive={activeTab === 'research'} onClick={() => setActiveTab('research')} />
+        </div>
+      )}
 
-      <div className="px-8 py-6 border-b border-gray-200 bg-gray-50/50">
+      {isEbayCategory && (
+        <div className="flex items-center justify-center h-full">
+          <div className="text-center px-8 py-12">
+            <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-900/10 rounded-full mb-4">
+              <Icon name="construction" className="text-blue-900 text-2xl" />
+            </div>
+            <h3 className="text-lg font-bold text-gray-900 mb-2">Work in Progress</h3>
+            <p className="text-sm text-gray-500 max-w-sm">
+              eBay Research functionality is currently under development
+            </p>
+          </div>
+        </div>
+      )}
+
+      {!isEbayCategory && (
+        <>
+          <div className="px-8 py-6 border-b border-gray-200 bg-gray-50/50">
         <Breadcrumb items={selectedCategory.path} />
 
         <div className="mb-4">
@@ -879,6 +912,8 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
           setEbayModalOpen(false);
         }}
       />
+        </>
+      )}
     </section>
   );
 };

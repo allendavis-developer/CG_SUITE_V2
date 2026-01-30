@@ -263,7 +263,7 @@ export default function EbayResearchForm({ onComplete }) {
 
         if (response.success) {
           console.log(response.results);
-          setListings(response.results); // Replace mockListings
+          setListings([...response.results].sort((a, b) => a.price - b.price));
           setStats(calculateStats(response.results)); // Calculate stats
           setStep(3);                    // Move to results step
         } else {
