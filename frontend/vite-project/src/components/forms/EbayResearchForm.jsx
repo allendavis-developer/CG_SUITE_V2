@@ -46,6 +46,8 @@ function sendExtensionMessage(message) {
 
 
 function PriceHistogram({ listings }) {
+  const [bucketCount, setBucketCount] = useState(10);
+
   if (!listings || listings.length === 0) return null;
 
   const prices = listings
@@ -57,67 +59,93 @@ function PriceHistogram({ listings }) {
   const min = Math.min(...prices);
   const max = Math.max(...prices);
   const totalRange = max - min;
-
-  // 1. Calculate a "Raw" bucket size
-  const bucketCount = 6;
   const rawStep = totalRange / bucketCount;
 
-  // 2. Find a "Nice" step (e.g., 5, 10, 25, 50, 100)
-  // This logic ensures the bands are predictable numbers
-  const niceSteps = [1, 2, 5, 10, 20, 25, 50, 100, 200, 500];
-  const niceStep = niceSteps.find(s => s >= rawStep) || niceSteps[niceSteps.length - 1];
+  const buckets = Array(bucketCount).fill(0).map((_, i) => ({
+    count: 0,
+    rangeStart: Math.floor(min + (i * rawStep)),
+    rangeEnd: Math.floor(min + ((i + 1) * rawStep))
+  }));
 
-  // 3. Re-calculate buckets based on the nice step
-  const buckets = Array(bucketCount).fill(0);
   prices.forEach(price => {
-    let index = Math.floor((price - min) / niceStep);
+    let index = Math.floor((price - min) / rawStep);
     if (index >= bucketCount) index = bucketCount - 1;
-    buckets[index]++;
+    buckets[index].count++;
   });
 
-  const maxFreq = Math.max(...buckets);
+  const maxFreq = Math.max(...buckets.map(b => b.count));
 
   return (
     <div className="bg-white p-5 rounded-xl border border-gray-200 mb-10 shadow-sm">
-      <div className="flex justify-between items-center mb-6">
-        <h3 className="text-xs font-bold text-blue-900 uppercase tracking-wider">Market Price Density</h3>
-        <span className="text-[10px] font-bold text-blue-900/40 uppercase tracking-widest px-2 py-0.5 border border-blue-900/10 rounded">
-          Interval: £{niceStep}
-        </span>
+      <div className="flex justify-between items-center mb-10">
+        <div>
+          <h3 className="text-xs font-bold text-blue-900 uppercase tracking-wider">Market Price Density</h3>
+          <p className="text-[10px] text-gray-500 mt-1">
+            Showing distribution across <span className="font-bold text-blue-900">{prices.length}</span> listings
+          </p>
+        </div>
+        
+        <div className="flex items-center gap-4 bg-gray-50 px-3 py-2 rounded-lg border border-gray-100">
+          <label className="text-[10px] font-bold text-blue-900 uppercase">
+            Buckets: {bucketCount}
+          </label>
+          <input 
+            type="range" 
+            min="5" 
+            max="20" 
+            value={bucketCount}
+            onChange={(e) => setBucketCount(parseInt(e.target.value))}
+            className="w-24 h-1.5 bg-blue-200 rounded-lg appearance-none cursor-pointer accent-blue-900"
+          />
+        </div>
       </div>
       
-      <div className="flex items-end gap-3 h-32 px-2">
-        {buckets.map((freq, i) => {
-          const heightPct = maxFreq > 0 ? (freq / maxFreq) * 100 : 0;
-          
-          // Use the niceStep to define ranges so they are perfectly equal
-          const startPrice = Math.floor(min + (i * niceStep));
-          const endPrice = Math.floor(min + ((i + 1) * niceStep));
+      {/* Chart Area */}
+      <div className="flex items-end gap-1.5 h-44 px-2 border-b border-gray-100">
+        {buckets.map((bucket, i) => {
+          const heightPct = maxFreq > 0 ? (bucket.count / maxFreq) * 100 : 0;
           
           return (
             <div key={i} className="flex-1 flex flex-col items-center h-full justify-end relative group">
-              <div 
-                className={`w-full transition-all duration-300 rounded-t-sm flex items-center justify-center overflow-hidden
-                  ${freq > 0 ? 'bg-yellow-400 group-hover:bg-yellow-500 shadow-sm' : 'bg-gray-50'}
-                `}
-                style={{ height: freq > 0 ? `${Math.max(heightPct, 22)}%` : '2px' }}
-              >
-                {freq > 0 && <span className="text-[10px] font-black text-blue-900 leading-none">{freq}</span>}
-              </div>
+              
+              {/* --- Frequency Label (On Top) --- */}
+              {bucket.count > 0 && (
+                <span 
+                  className="absolute text-[10px] font-black text-blue-900 mb-1 transition-all duration-300"
+                  style={{ bottom: `${heightPct}%` }}
+                >
+                  {bucket.count}
+                </span>
+              )}
 
-              <div className="absolute -bottom-7 flex flex-col items-center w-full">
-                <div className={`h-1.5 w-px mb-1 ${freq > 0 ? 'bg-blue-900/30' : 'bg-gray-200'}`}></div>
-                <div className="flex items-center gap-1 text-blue-900 font-bold text-[9px] whitespace-nowrap">
-                  <span>£{startPrice}</span>
-                  <span>-</span>
-                  <span>£{endPrice}</span>
+              {/* The Bar */}
+              <div 
+                className={`w-full transition-all duration-300 rounded-t-sm 
+                  ${bucket.count > 0 ? 'bg-yellow-400 group-hover:bg-yellow-500 shadow-sm' : 'bg-gray-50'}
+                `}
+                style={{ height: bucket.count > 0 ? `${Math.max(heightPct, 4)}%` : '2px' }}
+              />
+
+              {/* Price Range Labels */}
+              <div className="absolute -bottom-8 flex flex-col items-center w-full">
+                <div className="text-blue-900/50 font-bold text-[8px] whitespace-nowrap">
+                  £{bucket.rangeStart}
                 </div>
               </div>
+              
+              {/* Tooltip on Hover */}
+              <div className="absolute bottom-full mb-6 hidden group-hover:flex flex-col items-center z-10">
+                <div className="bg-blue-900 text-white text-[10px] py-1 px-2 rounded shadow-xl whitespace-nowrap">
+                  £{bucket.rangeStart} - £{bucket.rangeEnd}
+                </div>
+                <div className="w-2 h-2 bg-blue-900 rotate-45 -mt-1"></div>
+              </div>
+
             </div>
           );
         })}
       </div>
-      <div className="h-6"></div>
+      <div className="h-10"></div>
     </div>
   );
 }
