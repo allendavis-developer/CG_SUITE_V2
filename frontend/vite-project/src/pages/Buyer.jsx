@@ -324,6 +324,12 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
   }, [attributes, attributeValues, variants]);
 
   useEffect(() => {
+    // Auto-select if there's only one variant and no attributes
+    if (variants.length === 1 && attributes.length === 0) {
+      setVariant(variants[0].cex_sku);
+      return;
+    }
+
     if (variants.length === 0 || Object.keys(attributeValues).length === 0) return;
 
     const matchingVariants = variants.filter(variant => {
@@ -341,7 +347,7 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
         setVariant('');
       }
     }
-  }, [attributeValues, variants]);
+  }, [attributeValues, variants, attributes]);
 
   useEffect(() => {
     if (!variant) {
@@ -427,6 +433,37 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
     return (
       <section className="w-3/5 bg-white flex flex-col overflow-y-auto">
         <EmptyState />
+      </section>
+    );
+  }
+
+  // Show product selection state when category is selected but no model chosen
+  if (!selectedModel) {
+    return (
+      <section className="w-3/5 bg-white flex flex-col overflow-y-auto">
+        <div className="flex items-center justify-center h-full">
+          <div className="w-full max-w-2xl px-8 py-12">
+            <div className="text-center mb-8">
+              <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-900/10 rounded-full mb-4">
+                <Icon name="search" className="text-blue-900 text-2xl" />
+              </div>
+              <h3 className="text-2xl font-extrabold text-gray-900 mb-2">Select a Product</h3>
+              <p className="text-sm text-gray-500">
+                Search and select the product model to continue
+              </p>
+            </div>
+
+            <SearchableDropdown
+              value="Search for a product..."
+              options={availableModels.length > 0 ? availableModels.map(m => m.name) : ['No models available']}
+              onChange={(name) => {
+                const model = availableModels.find(m => m.name === name);
+                if (model) setSelectedModel(model);
+              }}
+              autoFocus={true}
+            />
+          </div>
+        </div>
       </section>
     );
   }
@@ -1020,7 +1057,6 @@ export default function Buyer() {
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [availableModels, setAvailableModels] = useState([]);
   const [selectedModel, setSelectedModel] = useState(null);
-  const hasAutoSelected = useRef(false);
   
   const [cartItems, setCartItems] = useState([]);
   const [isCustomerModalOpen, setCustomerModalOpen] = useState(true);
@@ -1038,17 +1074,9 @@ export default function Buyer() {
   const handleCategorySelect = async (category) => {
     setSelectedCategory(category);
     setSelectedModel(null);
-    hasAutoSelected.current = false;
     const models = await fetchProductModels(category);
     setAvailableModels(models);
   };
-
-  useEffect(() => {
-    if (availableModels.length > 0 && !hasAutoSelected.current) {
-      setSelectedModel(availableModels[0]);
-      hasAutoSelected.current = true;
-    }
-  }, [availableModels]);
 
   const createRequest = async (firstItem) => {
     if (!customerData.id) {
