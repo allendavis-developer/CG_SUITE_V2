@@ -9,6 +9,17 @@ const mockListings = [
   { title: "Brand New Sealed Apple iPhone 15 Pro 256GB Black", condition: "New", price: 1049, shipping: 0, status: "Sold" },
 ];
 
+const EBAY_CATEGORY_MAP = {
+  "smartphones and mobile": "9355",
+  "games (discs & cartridges)": "139973",
+  "tablets": "58058",
+  "laptops": "175672",
+  "gaming consoles": "139971",
+  "cameras": "31388",
+  "headphones": "15052",
+  "smartwatches": "178893",
+};
+
 // Helper function to send messages to extension via bridge
 function sendExtensionMessage(message) {
     return new Promise((resolve, reject) => {
@@ -148,31 +159,59 @@ function PriceHistogram({ listings }) {
       <div className="h-10"></div>
     </div>
   );
+
 }
 
-function buildEbayUrl(searchTerm, filters) {
-  const baseUrl = "https://www.ebay.co.uk/sch/i.html";
+/**
+ * Finds the most specific eBay ID by checking path items from right-to-left
+ * @param {Array} path - e.g., ["Electronics", "Mobile Phones", "Smartphones"]
+ */
+function resolveEbayCategory(path) {
+  if (!path || !Array.isArray(path)) return null;
+
+  // Search from most specific (end of array) to most general (start)
+  for (let i = path.length - 1; i >= 0; i--) {
+    const segment = path[i].toLowerCase();
+    if (EBAY_CATEGORY_MAP[segment]) {
+      return EBAY_CATEGORY_MAP[segment];
+    }
+  }
+  console.log("coudln't find it ", path);
+  
+  return null;
+}
+
+function buildEbayUrl(searchTerm, filters, categoryPath) {
+  const categoryId = resolveEbayCategory(categoryPath);
+  
+  // Base URL: use the category path if ID exists, otherwise generic search
+  let url = categoryId 
+    ? `https://www.ebay.co.uk/sch/${categoryId}/i.html` 
+    : "https://www.ebay.co.uk/sch/i.html";
 
   const params = {
     _nkw: searchTerm.replace(/ /g, "+"),
-    _sacat: "0",
     _from: "R40"
   };
 
+  // If we aren't using a specific category path, search site-wide
+  if (!categoryId) {
+    params._sacat = "0";
+  }
+
+  // Double-encode API filters for eBay's URL parser
   Object.entries(filters || {}).forEach(([filterName, value]) => {
+    const encodedKey = encodeURIComponent(encodeURIComponent(filterName));
+    
     if (Array.isArray(value)) {
-      const doubleEncodedKey = encodeURIComponent(encodeURIComponent(filterName));
-      const doubleEncodedValue = value
+      params[encodedKey] = value
         .map(v => encodeURIComponent(encodeURIComponent(v)))
         .join("|");
-      params[doubleEncodedKey] = doubleEncodedValue;
     } else if (typeof value === "object") {
-      const doubleEncodedKey = encodeURIComponent(encodeURIComponent(filterName));
-      if (value.min) params[`${doubleEncodedKey}_min`] = encodeURIComponent(encodeURIComponent(value.min));
-      if (value.max) params[`${doubleEncodedKey}_max`] = encodeURIComponent(encodeURIComponent(value.max));
+      if (value.min) params[`${encodedKey}_min`] = encodeURIComponent(encodeURIComponent(value.min));
+      if (value.max) params[`${encodedKey}_max`] = encodeURIComponent(encodeURIComponent(value.max));
     } else {
-      const doubleEncodedKey = encodeURIComponent(encodeURIComponent(filterName));
-      params[doubleEncodedKey] = encodeURIComponent(encodeURIComponent(value));
+      params[encodedKey] = encodeURIComponent(encodeURIComponent(value));
     }
   });
 
@@ -180,12 +219,11 @@ function buildEbayUrl(searchTerm, filters) {
     .map(([key, val]) => `${key}=${val}`)
     .join("&");
 
-  return `${baseUrl}?${queryString}`;
+  return `${url}?${queryString}`;
 }
 
 
-
-export default function EbayResearchForm({ onComplete }) {
+export default function EbayResearchForm({ onComplete, category }) {
   const [searchTerm, setSearchTerm] = useState("");
   const [step, setStep] = useState(1); // 1=search, 2=filters, 3=results
   const [filterOptions, setFilterOptions] = useState([]); // API filters
@@ -210,6 +248,19 @@ export default function EbayResearchForm({ onComplete }) {
       setFilterOptions([]);
     }
   };
+
+  React.useEffect(() => {
+    // Whenever the search term changes, reset listings and filters
+    // This prevents "iPhone" filters (like Storage) from applying to a "Golf Club" search
+    setListings(null);
+    setStats({ average: 0, median: 0, suggestedPrice: 0 });
+    setFilterOptions([]);
+    setSelectedFilters(prev => ({
+      ...prev,
+      apiFilters: {} // Wipe the technical filters, keep basic ones like "UK Only"
+    }));
+    setStep(1); // Return to initial search state
+  }, [searchTerm]);
 
   // --- Refresh filters from URL (like refreshFilters in JS version) ---
   const refreshFiltersFromUrl = async (url) => {
@@ -259,54 +310,53 @@ export default function EbayResearchForm({ onComplete }) {
   };
 
   const handleNext = async () => {
-    if (step === 1) {
-      setLoading(true);
+  // Logic for Step 1 or Step 3 (Starting over/Updating term)
+  if (step === 1 || step === 3) {
+    if (!searchTerm.trim()) return;
+    
+    setLoading(true);
+    try {
+      // We only fetch filters here, NOT listings
       await fetchEbayFilters(searchTerm);
       setStep(2);
+    } catch (err) {
+      console.error('Error fetching filters:', err);
+    } finally {
       setLoading(false);
-    } else if (step === 2 || step === 3) {
-      setLoading(true);
-
-      try {
-        // Build eBay URL from search term and API filters
-        const ebayUrl = buildEbayUrl(searchTerm, selectedFilters.apiFilters);
-
-        // Get top-level basic filters
-        const ebayFilterSold = selectedFilters.basic.includes("Completed & Sold");
-        const ebayFilterUKOnly = selectedFilters.basic.includes("UK Only");
-        const ebayFilterUsed = selectedFilters.basic.includes("Used");
-
-        // Call the extension to scrape real eBay listings
-        const response = await sendExtensionMessage({
-          action: "scrape",
-          data: {
-            directUrl: ebayUrl,
-            competitors: ["eBay"],
-            ebayFilterSold,
-            ebayFilterUKOnly,
-            ebayFilterUsed,
-            apiFilters: selectedFilters.apiFilters
-          }
-        });
-
-        if (response.success) {
-          console.log(response.results);
-          setListings([...response.results].sort((a, b) => a.price - b.price));
-          setStats(calculateStats(response.results)); // Calculate stats
-          setStep(3);                    // Move to results step
-        } else {
-          alert("Scraping failed: " + (response.error || "Unknown error"));
-        }
-
-      } catch (err) {
-        console.error("Scraping error:", err);
-        alert("Error running scraper: " + err.message);
-      } finally {
-        setLoading(false);
-      }
     }
+  } 
+  // Logic for Step 2 (The actual data scrape)
+  else if (step === 2) {
+    setLoading(true);
+    try {
+      const ebayUrl = buildEbayUrl(searchTerm, selectedFilters.apiFilters, category?.path);
 
-  };
+      const response = await sendExtensionMessage({
+        action: "scrape",
+        data: {
+          directUrl: ebayUrl,
+          competitors: ["eBay"],
+          ebayFilterSold: selectedFilters.basic.includes("Completed & Sold"),
+          ebayFilterUKOnly: selectedFilters.basic.includes("UK Only"),
+          ebayFilterUsed: selectedFilters.basic.includes("Used"),
+          apiFilters: selectedFilters.apiFilters
+        }
+      });
+
+      if (response.success) {
+        setListings([...response.results].sort((a, b) => a.price - b.price));
+        setStats(calculateStats(response.results));
+        setStep(3);
+      } else {
+        alert("Scraping failed: " + (response.error || "Unknown error"));
+      }
+    } catch (err) {
+      console.error("Scraping error:", err);
+    } finally {
+      setLoading(false);
+    }
+  }
+};
 
   const handleApiFilterChange = (filterName, value, type, rangeKey) => {
     setSelectedFilters(prev => {

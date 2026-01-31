@@ -906,6 +906,7 @@ const MainContent = ({ selectedCategory, availableModels, selectedModel, setSele
       <EbayResearchModal
         open={isEbayModalOpen}
         onClose={() => setEbayModalOpen(false)}
+        category={selectedCategory}
         onResearchComplete={(data) => {
           console.log('eBay research done', data);
           setEbayData(data);
