@@ -18,9 +18,17 @@ class ProductCategorySerializer(serializers.ModelSerializer):
         return serializer.data
 
 class ProductSerializer(serializers.ModelSerializer):
+    name = serializers.SerializerMethodField()  # override 'name'
+
     class Meta:
         model = Product
-        fields = ['product_id', 'name']
+        fields = ['product_id', 'name']  # 'name' now includes manufacturer
+
+    def get_name(self, obj):
+        if obj.manufacturer:
+            return f"{obj.manufacturer.name} {obj.name}"
+        return obj.name
+
 
 
 class VariantSerializer(serializers.ModelSerializer):
