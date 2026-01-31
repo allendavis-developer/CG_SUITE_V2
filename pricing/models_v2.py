@@ -45,6 +45,16 @@ class ProductCategory(models.Model):
             category = category.parent_category
 
 
+class Manufacturer(models.Model):
+    manufacturer_id = models.AutoField(primary_key=True)
+    name = models.CharField(max_length=255, unique=True, db_index=True)
+
+    class Meta:
+        db_table = 'pricing_manufacturer'
+
+    def __str__(self):
+        return self.name
+
 
 class Product(models.Model):
     """
@@ -58,6 +68,17 @@ class Product(models.Model):
         related_name='products',
         db_column='category_id'
     )
+
+    manufacturer = models.ForeignKey(
+        Manufacturer,
+        on_delete=models.CASCADE,
+        related_name='products',
+        db_column='manufacturer_id',
+        null=True,  # optional if old products don't have a manufacturer
+        blank=True
+    )
+
+
     name = models.CharField(max_length=255, db_index=True)
 
     class Meta:

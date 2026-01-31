@@ -458,6 +458,7 @@ class ItemModelAutocomplete(autocomplete.Select2QuerySetView):
 from django.contrib import admin
 from .models_v2 import (
     ProductCategory,
+    Manufacturer,
     Product,
     Attribute,
     AttributeValue,
@@ -479,9 +480,9 @@ from .models_v2 import (
 )
 
 
-# -------------------------
-# Category & Product
-# -------------------------
+# --------------------------------
+# Category, Manufacturer & Product
+# --------------------------------
 
 @admin.register(ProductCategory)
 class ProductCategoryAdmin(admin.ModelAdmin):
@@ -490,12 +491,18 @@ class ProductCategoryAdmin(admin.ModelAdmin):
     search_fields = ("name",)
     ordering = ("name",)
 
+@admin.register(Manufacturer)
+class ManufacturerAdmin(admin.ModelAdmin):
+    list_display = ("name",)
+    search_fields = ("name",)
+    ordering = ("name",)
+
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
-    list_display = ("name", "category")
-    list_filter = ("category",)
-    search_fields = ("name",)
+    list_display = ("name", "category", "manufacturer")
+    list_filter = ("category", "manufacturer")
+    search_fields = ("name", "manufacturer__name")
     ordering = ("name",)
 
 
