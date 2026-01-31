@@ -1,7 +1,7 @@
 import React from "react";
 import { BrowserRouter, Routes, Route, useNavigate } from "react-router-dom";
 import { Button } from "./components/ui/components"; 
-import Buyer from "./pages/Buyer";
+import Buyer from "./pages/buyer/Buyer";
 
 function Home() {
   const navigate = useNavigate();
