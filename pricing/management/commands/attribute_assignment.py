@@ -79,16 +79,27 @@ class Command(BaseCommand):
         )
 
     def _load_stable_ids_from_file(self, input_file):
-        """Load stable IDs from a JSON file with a top-level 'listings' array."""
+        """Load all stable IDs from any 'listings' array in a JSON file, recursively."""
         with open(input_file, "r", encoding="utf-8") as f:
             data = json.load(f)
 
         stable_ids = []
-        for listing in data.get("listings", []):
-            stable_id = listing.get("id")
-            if stable_id:
-                stable_ids.append(stable_id)
 
+        def extract_ids(obj):
+            if isinstance(obj, dict):
+                for key, value in obj.items():
+                    if key == "listings" and isinstance(value, list):
+                        for listing in value:
+                            stable_id = listing.get("id")
+                            if stable_id:
+                                stable_ids.append(stable_id)
+                    else:
+                        extract_ids(value)
+            elif isinstance(obj, list):
+                for item in obj:
+                    extract_ids(item)
+
+        extract_ids(data)
         return stable_ids
 
 
