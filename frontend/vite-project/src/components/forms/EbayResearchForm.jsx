@@ -1,6 +1,27 @@
 import React, { useState } from 'react';
 import { Button, Icon } from '../ui/components';
 
+// Add animation styles
+const fadeInUpAnimation = `
+  @keyframes fadeInUp {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+`;
+
+// Inject styles into document
+if (typeof document !== 'undefined') {
+  const styleElement = document.createElement('style');
+  styleElement.textContent = fadeInUpAnimation;
+  document.head.appendChild(styleElement);
+}
+
 // --- Mock listings ---
 const mockListings = [
   { title: "Apple iPhone 15 Pro - 256GB - Natural Titanium", condition: "Pre-owned", price: 899, shipping: 12.5, status: "Sold" },
@@ -10,14 +31,11 @@ const mockListings = [
 ];
 
 const EBAY_CATEGORY_MAP = {
-  "smartphones and mobile": "9355",
-  "games (discs & cartridges)": "139973",
+  "phones": "9355",
+  "games": "139973",
   "tablets": "58058",
   "laptops": "175672",
   "gaming consoles": "139971",
-  "cameras": "31388",
-  "headphones": "15052",
-  "smartwatches": "178893",
 };
 
 // Helper function to send messages to extension via bridge
@@ -56,7 +74,7 @@ function sendExtensionMessage(message) {
 }
 
 
-function PriceHistogram({ listings }) {
+function PriceHistogram({ listings, onBucketSelect, priceRange, onGoBack, drillLevel }) {
   const [bucketCount, setBucketCount] = useState(10);
 
   if (!listings || listings.length === 0) return null;
@@ -67,33 +85,61 @@ function PriceHistogram({ listings }) {
 
   if (prices.length === 0) return null;
 
-  const min = Math.min(...prices);
-  const max = Math.max(...prices);
+  // Use priceRange if drilling down, otherwise use full range
+  const min = priceRange ? priceRange.min : Math.min(...prices);
+  const max = priceRange ? priceRange.max : Math.max(...prices);
   const totalRange = max - min;
   const rawStep = totalRange / bucketCount;
 
   const buckets = Array(bucketCount).fill(0).map((_, i) => ({
     count: 0,
-    rangeStart: Math.floor(min + (i * rawStep)),
-    rangeEnd: Math.floor(min + ((i + 1) * rawStep))
+    rangeStart: min + (i * rawStep),
+    rangeEnd: min + ((i + 1) * rawStep)
   }));
 
   prices.forEach(price => {
+    // Only count prices within current range
+    if (priceRange && (price < priceRange.min || price > priceRange.max)) return;
+    
     let index = Math.floor((price - min) / rawStep);
     if (index >= bucketCount) index = bucketCount - 1;
+    if (index < 0) index = 0;
     buckets[index].count++;
   });
 
   const maxFreq = Math.max(...buckets.map(b => b.count));
 
   return (
-    <div className="bg-white p-5 rounded-xl border border-gray-200 mb-10 shadow-sm">
+    <div className="bg-white p-5 rounded-xl border border-gray-200 mb-10 shadow-sm transition-all duration-500">
       <div className="flex justify-between items-center mb-10">
-        <div>
-          <h3 className="text-xs font-bold text-blue-900 uppercase tracking-wider">Market Price Density</h3>
-          <p className="text-[10px] text-gray-500 mt-1">
-            Showing distribution across <span className="font-bold text-blue-900">{prices.length}</span> listings
-          </p>
+        <div className="flex items-center gap-4">
+          <div>
+            <h3 className="text-xs font-bold text-blue-900 uppercase tracking-wider">
+              Market Price Density {drillLevel > 0 && `(Level ${drillLevel})`}
+            </h3>
+            <p className="text-[10px] text-gray-500 mt-1">
+              {priceRange ? (
+                <>
+                  Drilling into <span className="font-bold text-blue-900">£{priceRange.min.toFixed(0)} - £{priceRange.max.toFixed(0)}</span> range
+                  {' '}(<span className="font-bold text-blue-900">{prices.filter(p => p >= priceRange.min && p <= priceRange.max).length}</span> listings)
+                </>
+              ) : (
+                <>
+                  Showing distribution across <span className="font-bold text-blue-900">{prices.length}</span> listings
+                </>
+              )}
+            </p>
+          </div>
+          
+          {drillLevel > 0 && (
+            <button
+              onClick={onGoBack}
+              className="flex items-center gap-2 px-3 py-1.5 bg-blue-900 text-white rounded-lg text-xs font-bold hover:bg-blue-800 transition-all transform hover:scale-105 shadow-md"
+            >
+              <span className="material-symbols-outlined text-sm">arrow_back</span>
+              Zoom Out
+            </button>
+          )}
         </div>
         
         <div className="flex items-center gap-4 bg-gray-50 px-3 py-2 rounded-lg border border-gray-100">
@@ -117,12 +163,22 @@ function PriceHistogram({ listings }) {
           const heightPct = maxFreq > 0 ? (bucket.count / maxFreq) * 100 : 0;
           
           return (
-            <div key={i} className="flex-1 flex flex-col items-center h-full justify-end relative group">
+            <div 
+              key={i} 
+              className={`flex-1 flex flex-col items-center h-full justify-end relative group transition-all duration-500 ${
+                bucket.count > 0 ? 'cursor-pointer' : ''
+              }`}
+              onClick={() => bucket.count > 0 && onBucketSelect(bucket.rangeStart, bucket.rangeEnd)}
+              style={{
+                transform: `scale(${bucket.count > 0 ? 1 : 0.95})`,
+                opacity: bucket.count > 0 ? 1 : 0.3
+              }}
+            >
               
               {/* --- Frequency Label (On Top) --- */}
               {bucket.count > 0 && (
                 <span 
-                  className="absolute text-[10px] font-black text-blue-900 mb-1 transition-all duration-300"
+                  className="absolute text-[10px] font-black text-blue-900 mb-1 transition-all duration-300 group-hover:scale-125"
                   style={{ bottom: `${heightPct}%` }}
                 >
                   {bucket.count}
@@ -131,26 +187,35 @@ function PriceHistogram({ listings }) {
 
               {/* The Bar */}
               <div 
-                className={`w-full transition-all duration-300 rounded-t-sm 
-                  ${bucket.count > 0 ? 'bg-yellow-400 group-hover:bg-yellow-500 shadow-sm' : 'bg-gray-50'}
-                `}
-                style={{ height: bucket.count > 0 ? `${Math.max(heightPct, 4)}%` : '2px' }}
+                className={`w-full transition-all duration-500 rounded-t-sm ${
+                  bucket.count > 0 
+                    ? 'bg-yellow-400 group-hover:bg-blue-900 group-hover:shadow-lg shadow-sm'
+                    : 'bg-gray-50'
+                }`}
+                style={{ 
+                  height: bucket.count > 0 ? `${Math.max(heightPct, 4)}%` : '2px',
+                  transform: 'scaleY(1)',
+                  transformOrigin: 'bottom'
+                }}
               />
 
               {/* Price Range Labels */}
               <div className="absolute -bottom-8 flex flex-col items-center w-full">
                 <div className="text-blue-900/50 font-bold text-[8px] whitespace-nowrap">
-                  £{bucket.rangeStart}
+                  £{bucket.rangeStart.toFixed(0)}
                 </div>
               </div>
               
               {/* Tooltip on Hover */}
-              <div className="absolute bottom-full mb-6 hidden group-hover:flex flex-col items-center z-10">
-                <div className="bg-blue-900 text-white text-[10px] py-1 px-2 rounded shadow-xl whitespace-nowrap">
-                  £{bucket.rangeStart} - £{bucket.rangeEnd}
+              {bucket.count > 0 && (
+                <div className="absolute bottom-full mb-6 hidden group-hover:flex flex-col items-center z-10">
+                  <div className="bg-blue-900 text-white text-[10px] py-1.5 px-2.5 rounded shadow-xl whitespace-nowrap">
+                    £{bucket.rangeStart.toFixed(0)} - £{bucket.rangeEnd.toFixed(0)}
+                    <div className="text-[9px] text-yellow-400 font-bold mt-0.5">🔍 Click to drill down</div>
+                  </div>
+                  <div className="w-2 h-2 bg-blue-900 rotate-45 -mt-1"></div>
                 </div>
-                <div className="w-2 h-2 bg-blue-900 rotate-45 -mt-1"></div>
-              </div>
+              )}
 
             </div>
           );
@@ -173,10 +238,11 @@ function resolveEbayCategory(path) {
   for (let i = path.length - 1; i >= 0; i--) {
     const segment = path[i].toLowerCase();
     if (EBAY_CATEGORY_MAP[segment]) {
+      console.log("Succesfully found a mapping for this category on eBay, data is better");
       return EBAY_CATEGORY_MAP[segment];
     }
   }
-  console.log("coudln't find it ", path);
+  console.log("Could not find a mapping for this category at all ", path);
   
   return null;
 }
@@ -230,6 +296,12 @@ export default function EbayResearchForm({ onComplete, category }) {
   const [listings, setListings] = useState(null);
   const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState({ average: 0, median: 0, suggestedPrice: 0 });
+  
+  // Track the last search term that was actually searched
+  const [lastSearchedTerm, setLastSearchedTerm] = useState("");
+  
+  // Drill-down history: stack of price ranges
+  const [drillHistory, setDrillHistory] = useState([]);
 
   const [selectedFilters, setSelectedFilters] = useState({
     basic: ["Completed & Sold", "Used", "UK Only"],
@@ -242,25 +314,28 @@ export default function EbayResearchForm({ onComplete, category }) {
       const res = await fetch(`/api/ebay/filters/?q=${encodeURIComponent(term)}`);
       if (!res.ok) throw new Error('Failed to fetch filters');
       const data = await res.json();
-      setFilterOptions(data.filters || []);
+      
+      // Sort each filter's options by count (highest first)
+      const sortedFilters = (data.filters || []).map(filter => {
+        if (filter.type === 'checkbox' && filter.options) {
+          return {
+            ...filter,
+            options: [...filter.options].sort((a, b) => {
+              const countA = a.count || 0;
+              const countB = b.count || 0;
+              return countB - countA; // Descending order
+            })
+          };
+        }
+        return filter;
+      });
+      
+      setFilterOptions(sortedFilters);
     } catch (err) {
       console.error('Error fetching eBay filters:', err);
       setFilterOptions([]);
     }
   };
-
-  React.useEffect(() => {
-    // Whenever the search term changes, reset listings and filters
-    // This prevents "iPhone" filters (like Storage) from applying to a "Golf Club" search
-    setListings(null);
-    setStats({ average: 0, median: 0, suggestedPrice: 0 });
-    setFilterOptions([]);
-    setSelectedFilters(prev => ({
-      ...prev,
-      apiFilters: {} // Wipe the technical filters, keep basic ones like "UK Only"
-    }));
-    setStep(1); // Return to initial search state
-  }, [searchTerm]);
 
   // --- Refresh filters from URL (like refreshFilters in JS version) ---
   const refreshFiltersFromUrl = async (url) => {
@@ -268,8 +343,24 @@ export default function EbayResearchForm({ onComplete, category }) {
       const res = await fetch(`/api/ebay/filters/?url=${encodeURIComponent(url)}`);
       if (!res.ok) throw new Error('Failed to refresh filters');
       const data = await res.json();
+      
+      // Sort each filter's options by count (highest first)
+      const sortedFilters = (data.filters || []).map(filter => {
+        if (filter.type === 'checkbox' && filter.options) {
+          return {
+            ...filter,
+            options: [...filter.options].sort((a, b) => {
+              const countA = a.count || 0;
+              const countB = b.count || 0;
+              return countB - countA; // Descending order
+            })
+          };
+        }
+        return filter;
+      });
+      
       // update counts / options but keep selectedFilters.apiFilters
-      setFilterOptions(data.filters || []);
+      setFilterOptions(sortedFilters);
     } catch (err) {
       console.error('Error refreshing filters:', err);
     }
@@ -310,53 +401,122 @@ export default function EbayResearchForm({ onComplete, category }) {
   };
 
   const handleNext = async () => {
-  // Logic for Step 1 or Step 3 (Starting over/Updating term)
-  if (step === 1 || step === 3) {
     if (!searchTerm.trim()) return;
     
-    setLoading(true);
-    try {
-      // We only fetch filters here, NOT listings
-      await fetchEbayFilters(searchTerm);
-      setStep(2);
-    } catch (err) {
-      console.error('Error fetching filters:', err);
-    } finally {
-      setLoading(false);
-    }
-  } 
-  // Logic for Step 2 (The actual data scrape)
-  else if (step === 2) {
-    setLoading(true);
-    try {
-      const ebayUrl = buildEbayUrl(searchTerm, selectedFilters.apiFilters, category?.path);
-
-      const response = await sendExtensionMessage({
-        action: "scrape",
-        data: {
-          directUrl: ebayUrl,
-          competitors: ["eBay"],
-          ebayFilterSold: selectedFilters.basic.includes("Completed & Sold"),
-          ebayFilterUKOnly: selectedFilters.basic.includes("UK Only"),
-          ebayFilterUsed: selectedFilters.basic.includes("Used"),
-          apiFilters: selectedFilters.apiFilters
-        }
-      });
-
-      if (response.success) {
-        setListings([...response.results].sort((a, b) => a.price - b.price));
-        setStats(calculateStats(response.results));
-        setStep(3);
-      } else {
-        alert("Scraping failed: " + (response.error || "Unknown error"));
+    // Check if the search term has actually changed
+    const termChanged = searchTerm.trim() !== lastSearchedTerm;
+    
+    // Step 1: Initial search - need to fetch filters
+    if (step === 1) {
+      if (termChanged) {
+        // Reset everything when the search term changes
+        setListings(null);
+        setStats({ average: 0, median: 0, suggestedPrice: 0 });
+        setFilterOptions([]);
+        setSelectedFilters(prev => ({
+          ...prev,
+          apiFilters: {} // Wipe the technical filters, keep basic ones like "UK Only"
+        }));
+        setLastSearchedTerm(searchTerm.trim());
       }
-    } catch (err) {
-      console.error("Scraping error:", err);
-    } finally {
-      setLoading(false);
+      
+      setLoading(true);
+      try {
+        // Fetch filters for this search term
+        await fetchEbayFilters(searchTerm);
+        setStep(2);
+      } catch (err) {
+        console.error('Error fetching filters:', err);
+      } finally {
+        setLoading(false);
+      }
     }
-  }
-};
+    // Step 3: User wants to re-search with updated filters
+    else if (step === 3) {
+      if (termChanged) {
+        // If term changed, reset and go back to step 2 to get new filters
+        setListings(null);
+        setStats({ average: 0, median: 0, suggestedPrice: 0 });
+        setFilterOptions([]);
+        setSelectedFilters(prev => ({
+          ...prev,
+          apiFilters: {}
+        }));
+        setLastSearchedTerm(searchTerm.trim());
+        
+        setLoading(true);
+        try {
+          await fetchEbayFilters(searchTerm);
+          setStep(2);
+        } catch (err) {
+          console.error('Error fetching filters:', err);
+        } finally {
+          setLoading(false);
+        }
+      } else {
+        // Same term, just updating filters - go straight to scraping
+        setLoading(true);
+        try {
+          const ebayUrl = buildEbayUrl(searchTerm, selectedFilters.apiFilters, category?.path);
+
+          const response = await sendExtensionMessage({
+            action: "scrape",
+            data: {
+              directUrl: ebayUrl,
+              competitors: ["eBay"],
+              ebayFilterSold: selectedFilters.basic.includes("Completed & Sold"),
+              ebayFilterUKOnly: selectedFilters.basic.includes("UK Only"),
+              ebayFilterUsed: selectedFilters.basic.includes("Used"),
+              apiFilters: selectedFilters.apiFilters
+            }
+          });
+
+          if (response.success) {
+            setListings([...response.results].sort((a, b) => a.price - b.price));
+            setStats(calculateStats(response.results));
+            // Stay on step 3
+          } else {
+            alert("Scraping failed: " + (response.error || "Unknown error"));
+          }
+        } catch (err) {
+          console.error("Scraping error:", err);
+        } finally {
+          setLoading(false);
+        }
+      }
+    }
+    // Step 2: Apply filters and scrape
+    else if (step === 2) {
+      setLoading(true);
+      try {
+        const ebayUrl = buildEbayUrl(searchTerm, selectedFilters.apiFilters, category?.path);
+
+        const response = await sendExtensionMessage({
+          action: "scrape",
+          data: {
+            directUrl: ebayUrl,
+            competitors: ["eBay"],
+            ebayFilterSold: selectedFilters.basic.includes("Completed & Sold"),
+            ebayFilterUKOnly: selectedFilters.basic.includes("UK Only"),
+            ebayFilterUsed: selectedFilters.basic.includes("Used"),
+            apiFilters: selectedFilters.apiFilters
+          }
+        });
+
+        if (response.success) {
+          setListings([...response.results].sort((a, b) => a.price - b.price));
+          setStats(calculateStats(response.results));
+          setStep(3);
+        } else {
+          alert("Scraping failed: " + (response.error || "Unknown error"));
+        }
+      } catch (err) {
+        console.error("Scraping error:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
 
   const handleApiFilterChange = (filterName, value, type, rangeKey) => {
     setSelectedFilters(prev => {
@@ -376,6 +536,32 @@ export default function EbayResearchForm({ onComplete, category }) {
       return { ...prev, apiFilters: newFilters };
     });
   };
+
+  const handleDrillDown = (rangeStart, rangeEnd) => {
+    // Add current range to history and drill down
+    setDrillHistory(prev => [...prev, { min: rangeStart, max: rangeEnd }]);
+  };
+
+  const handleZoomOut = () => {
+    // Remove the last drill level
+    setDrillHistory(prev => prev.slice(0, -1));
+  };
+
+  // Get current price range (latest in history, or null for full view)
+  const currentPriceRange = drillHistory.length > 0 ? drillHistory[drillHistory.length - 1] : null;
+  
+  // Filter listings based on current drill level
+  const displayedListings = React.useMemo(() => {
+    if (!listings) return null;
+    if (!currentPriceRange) return listings;
+
+    return listings.filter(item => {
+      const price = typeof item.price === 'string' 
+        ? parseFloat(item.price.replace(/[^0-9.]/g, '')) 
+        : item.price;
+      return price >= currentPriceRange.min && price <= currentPriceRange.max;
+    });
+  }, [listings, currentPriceRange]);
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-6">
@@ -490,13 +676,57 @@ export default function EbayResearchForm({ onComplete, category }) {
           {step === 3 && listings && (
             <main className="flex-1 overflow-y-auto bg-gray-100 p-6">
 
-              {/* --- NEW HISTOGRAM COMPONENT --- */}
-              <PriceHistogram listings={listings} />
+              {/* Breadcrumb Navigation */}
+              {drillHistory.length > 0 && (
+                <div className="mb-4 flex items-center gap-2 text-xs font-medium">
+                  <button 
+                    onClick={() => setDrillHistory([])}
+                    className="text-blue-900 hover:underline flex items-center gap-1"
+                  >
+                    <span className="material-symbols-outlined text-sm">home</span>
+                    All Prices
+                  </button>
+                  {drillHistory.map((range, idx) => (
+                    <React.Fragment key={idx}>
+                      <span className="text-gray-400">/</span>
+                      <button 
+                        onClick={() => setDrillHistory(drillHistory.slice(0, idx + 1))}
+                        className={`${
+                          idx === drillHistory.length - 1 
+                            ? 'text-gray-900 font-bold' 
+                            : 'text-blue-900 hover:underline'
+                        }`}
+                      >
+                        £{range.min.toFixed(0)} - £{range.max.toFixed(0)}
+                      </button>
+                    </React.Fragment>
+                  ))}
+                </div>
+              )}
+
+              {/* --- HISTOGRAM COMPONENT --- */}
+              <div className="animate-histogram-slide">
+                <PriceHistogram 
+                  listings={listings} 
+                  onBucketSelect={handleDrillDown}
+                  priceRange={currentPriceRange}
+                  onGoBack={handleZoomOut}
+                  drillLevel={drillHistory.length}
+                />
+              </div>
               {/* ------------------------------- */}
 
               <div className="grid grid-cols-2 gap-4">
-                {listings.map((item, idx) => (
-                  <div key={idx} className="bg-white rounded-xl border border-gray-200 p-4 flex gap-4 hover:shadow-md transition-shadow">
+                {displayedListings && displayedListings.map((item, idx) => (
+                  <div 
+                    key={`${item.title}-${idx}`} 
+                    className="bg-white rounded-xl border border-gray-200 p-4 flex gap-4 hover:shadow-md transition-all duration-300"
+                    style={{ 
+                      animationDelay: `${idx * 20}ms`,
+                      opacity: 0,
+                      animation: 'fadeInUp 0.4s ease-out forwards'
+                    }}
+                  >
                     <div className="w-32 h-32 bg-gray-200 rounded-lg flex items-center justify-center overflow-hidden rounded-lg">
                       {item.image ? (
                         <img
