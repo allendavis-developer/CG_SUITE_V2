@@ -225,7 +225,7 @@ class PricingRule(models.Model):
 
             # Valid scope rule
             models.CheckConstraint(
-                check=(
+                condition=(
                     models.Q(product__isnull=False) |
                     models.Q(category__isnull=False) |
                     models.Q(is_global_default=True)
