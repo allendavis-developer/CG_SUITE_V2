@@ -155,12 +155,12 @@ const AttributeConfiguration = ({
       }
     });
   };
-  
 
   return (
     <div className="bg-gray-50 p-6 rounded-xl border border-gray-200">
+      {/* Header */}
       <div className="flex items-center justify-between mb-4 gap-6">
-         <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3">
           <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest">
             Configuration & Condition
           </h3>
@@ -174,22 +174,9 @@ const AttributeConfiguration = ({
             </button>
           )}
         </div>
-
-        
-        {/* Variant Search Dropdown - shows filtered variants based on selected attributes */}
-        {variants.length > 0 && (
-          <div className="flex-1 max-w-md">
-            <SearchableDropdown
-              label=""
-              value={selectedVariantTitle}
-              options={variantOptions}
-              onChange={handleVariantChange}
-              placeholder={`Search ${filteredVariants.length} variant${filteredVariants.length !== 1 ? 's' : ''}...`}
-            />
-          </div>
-        )}
       </div>
 
+      {/* Attribute Dropdowns */}
       <div className="space-y-8">
         {attributes.map((attr, index) => {
           const previousSelections = Object.entries(attributeValues)
@@ -216,8 +203,6 @@ const AttributeConfiguration = ({
             return null;
           }
 
-          // Progressive visibility: only show if previous attributes are selected
-          // UNLESS user selected via dropdown, then show all
           if (!selectedViaDropdown && index > 0) {
             const visiblePreviousAttrs = attributes.slice(0, index).filter((prevAttr, prevIndex) => {
               const prevPreviousSelections = Object.entries(attributeValues)
@@ -263,8 +248,23 @@ const AttributeConfiguration = ({
           );
         })}
       </div>
+
+    {/* Move Variant Search Dropdown here — always visible if variants exist */}
+    {variants.length > 0 && (
+      <div className="mt-6 max-w-md">
+        <SearchableDropdown
+          label=""
+          value={selectedVariantTitle}
+          options={variantOptions}
+          onChange={handleVariantChange}
+          placeholder={`Search ${filteredVariants.length} variant${filteredVariants.length !== 1 ? 's' : ''}...`}
+        />
+      </div>
+    )}
+
     </div>
   );
+
 };
 
 export default AttributeConfiguration;

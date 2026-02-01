@@ -36,6 +36,7 @@ const EBAY_CATEGORY_MAP = {
   "tablets": "58058",
   "laptops": "175672",
   "gaming consoles": "139971",
+  "guitars & basses": "3858",
 };
 
 // Helper function to send messages to extension via bridge
