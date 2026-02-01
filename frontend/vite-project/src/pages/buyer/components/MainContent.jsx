@@ -8,6 +8,7 @@ import {
 } from '@/components/ui/components';
 
 import EbayResearchModal from "@/components/modals/EbayResearchModal.jsx";
+import EbayResearchForm from "@/components/forms/EbayResearchForm.jsx";
 import EmptyState from './EmptyState';
 import ProductSelection from './ProductSelection';
 import AttributeConfiguration from './AttributeConfiguration';
@@ -194,6 +195,11 @@ const MainContent = ({
     addToCart(cartItem);
   };
 
+  const handleEbayResearchComplete = (data) => {
+    console.log('eBay research done', data);
+    setEbayData(data);
+  };
+
   if (!selectedCategory) {
     return (
       <section className="w-3/5 bg-white flex flex-col overflow-y-auto">
@@ -231,16 +237,12 @@ const MainContent = ({
       )}
 
       {isEbayCategory && (
-        <div className="flex items-center justify-center h-full">
-          <div className="text-center px-8 py-12">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-900/10 rounded-full mb-4">
-              <Icon name="construction" className="text-blue-900 text-2xl" />
-            </div>
-            <h3 className="text-lg font-bold text-gray-900 mb-2">Work in Progress</h3>
-            <p className="text-sm text-gray-500 max-w-sm">
-              eBay Research functionality is currently under development
-            </p>
-          </div>
+        <div className="p-8">
+          <EbayResearchForm
+            mode="page"
+            category={selectedCategory}
+            onComplete={handleEbayResearchComplete}
+          />
         </div>
       )}
 

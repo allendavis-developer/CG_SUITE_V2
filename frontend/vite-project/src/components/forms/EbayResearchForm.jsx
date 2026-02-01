@@ -289,9 +289,8 @@ function buildEbayUrl(searchTerm, filters, categoryPath) {
 }
 
 
-export default function EbayResearchForm({ onComplete, category }) {
+export default function EbayResearchForm({ onComplete, category, mode = "modal" }) {
   const [searchTerm, setSearchTerm] = useState("");
-  const [step, setStep] = useState(1); // 1=search, 2=filters, 3=results
   const [filterOptions, setFilterOptions] = useState([]); // API filters
   const [listings, setListings] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -337,35 +336,6 @@ export default function EbayResearchForm({ onComplete, category }) {
     }
   };
 
-  // --- Refresh filters from URL (like refreshFilters in JS version) ---
-  const refreshFiltersFromUrl = async (url) => {
-    try {
-      const res = await fetch(`/api/ebay/filters/?url=${encodeURIComponent(url)}`);
-      if (!res.ok) throw new Error('Failed to refresh filters');
-      const data = await res.json();
-      
-      // Sort each filter's options by count (highest first)
-      const sortedFilters = (data.filters || []).map(filter => {
-        if (filter.type === 'checkbox' && filter.options) {
-          return {
-            ...filter,
-            options: [...filter.options].sort((a, b) => {
-              const countA = a.count || 0;
-              const countB = b.count || 0;
-              return countB - countA; // Descending order
-            })
-          };
-        }
-        return filter;
-      });
-      
-      // update counts / options but keep selectedFilters.apiFilters
-      setFilterOptions(sortedFilters);
-    } catch (err) {
-      console.error('Error refreshing filters:', err);
-    }
-  };
-
   const calculateStats = (listingsData) => {
     if (!listingsData || listingsData.length === 0) {
       return { average: 0, median: 0, suggestedPrice: 0 };
@@ -400,98 +370,33 @@ export default function EbayResearchForm({ onComplete, category }) {
     };
   };
 
-  const handleNext = async () => {
+  const handleSearch = async () => {
     if (!searchTerm.trim()) return;
     
-    // Check if the search term has actually changed
     const termChanged = searchTerm.trim() !== lastSearchedTerm;
     
-    // Step 1: Initial search - need to fetch filters
-    if (step === 1) {
-      if (termChanged) {
-        // Reset everything when the search term changes
-        setListings(null);
-        setStats({ average: 0, median: 0, suggestedPrice: 0 });
-        setFilterOptions([]);
-        setSelectedFilters(prev => ({
-          ...prev,
-          apiFilters: {} // Wipe the technical filters, keep basic ones like "UK Only"
-        }));
-        setLastSearchedTerm(searchTerm.trim());
-      }
+    // If search term changed, reset filters and fetch everything fresh
+    if (termChanged) {
+      setListings(null);
+      setStats({ average: 0, median: 0, suggestedPrice: 0 });
+      setFilterOptions([]);
+      setSelectedFilters(prev => ({
+        ...prev,
+        apiFilters: {} // Reset API filters when searching new term
+      }));
+      setLastSearchedTerm(searchTerm.trim());
+      setDrillHistory([]);
+    }
+    
+    setLoading(true);
+    
+    try {
+      // Fetch filters and listings in parallel
+      const ebayUrl = buildEbayUrl(searchTerm, selectedFilters.apiFilters, category?.path);
       
-      setLoading(true);
-      try {
-        // Fetch filters for this search term
-        await fetchEbayFilters(searchTerm);
-        setStep(2);
-      } catch (err) {
-        console.error('Error fetching filters:', err);
-      } finally {
-        setLoading(false);
-      }
-    }
-    // Step 3: User wants to re-search with updated filters
-    else if (step === 3) {
-      if (termChanged) {
-        // If term changed, reset and go back to step 2 to get new filters
-        setListings(null);
-        setStats({ average: 0, median: 0, suggestedPrice: 0 });
-        setFilterOptions([]);
-        setSelectedFilters(prev => ({
-          ...prev,
-          apiFilters: {}
-        }));
-        setLastSearchedTerm(searchTerm.trim());
-        
-        setLoading(true);
-        try {
-          await fetchEbayFilters(searchTerm);
-          setStep(2);
-        } catch (err) {
-          console.error('Error fetching filters:', err);
-        } finally {
-          setLoading(false);
-        }
-      } else {
-        // Same term, just updating filters - go straight to scraping
-        setLoading(true);
-        try {
-          const ebayUrl = buildEbayUrl(searchTerm, selectedFilters.apiFilters, category?.path);
-
-          const response = await sendExtensionMessage({
-            action: "scrape",
-            data: {
-              directUrl: ebayUrl,
-              competitors: ["eBay"],
-              ebayFilterSold: selectedFilters.basic.includes("Completed & Sold"),
-              ebayFilterUKOnly: selectedFilters.basic.includes("UK Only"),
-              ebayFilterUsed: selectedFilters.basic.includes("Used"),
-              apiFilters: selectedFilters.apiFilters
-            }
-          });
-
-          if (response.success) {
-            setListings([...response.results].sort((a, b) => a.price - b.price));
-            setStats(calculateStats(response.results));
-            // Stay on step 3
-          } else {
-            alert("Scraping failed: " + (response.error || "Unknown error"));
-          }
-        } catch (err) {
-          console.error("Scraping error:", err);
-        } finally {
-          setLoading(false);
-        }
-      }
-    }
-    // Step 2: Apply filters and scrape
-    else if (step === 2) {
-      setLoading(true);
-      try {
-        const ebayUrl = buildEbayUrl(searchTerm, selectedFilters.apiFilters, category?.path);
-
-        const response = await sendExtensionMessage({
+      const [filtersPromise, scrapingPromise] = await Promise.all([
+        termChanged ? fetchEbayFilters(searchTerm) : Promise.resolve(),
+        sendExtensionMessage({
           action: "scrape",
           data: {
             directUrl: ebayUrl,
@@ -501,20 +406,19 @@ export default function EbayResearchForm({ onComplete, category }) {
             ebayFilterUsed: selectedFilters.basic.includes("Used"),
             apiFilters: selectedFilters.apiFilters
           }
-        });
+        })
+      ]);
 
-        if (response.success) {
-          setListings([...response.results].sort((a, b) => a.price - b.price));
-          setStats(calculateStats(response.results));
-          setStep(3);
-        } else {
-          alert("Scraping failed: " + (response.error || "Unknown error"));
-        }
-      } catch (err) {
-        console.error("Scraping error:", err);
-      } finally {
-        setLoading(false);
+      if (scrapingPromise.success) {
+        setListings([...scrapingPromise.results].sort((a, b) => a.price - b.price));
+        setStats(calculateStats(scrapingPromise.results));
+      } else {
+        alert("Scraping failed: " + (scrapingPromise.error || "Unknown error"));
       }
+    } catch (err) {
+      console.error("Search error:", err);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -563,10 +467,39 @@ export default function EbayResearchForm({ onComplete, category }) {
     });
   }, [listings, currentPriceRange]);
 
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-6">
-      <div className="bg-white w-full max-w-6xl h-full max-h-[850px] rounded-xl shadow-2xl flex flex-col overflow-hidden border border-blue-200">
-        {/* Header */}
+  // Wrapper classes based on mode
+  const wrapperClasses = mode === "modal"
+    ? "fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-6"
+    : "";
+  
+  const containerClasses = mode === "modal"
+    ? "bg-white w-full max-w-6xl h-full max-h-[850px] rounded-xl shadow-2xl flex flex-col overflow-hidden border border-blue-200"
+    : "bg-white w-full h-full flex flex-col overflow-hidden";
+
+  // Stats component for reuse
+  const StatsDisplay = () => (
+    <div className="flex items-center gap-6">
+      <div className="flex flex-col">
+        <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Average</span>
+        <span className="text-lg font-extrabold text-blue-900">£{stats.average}</span>
+      </div>
+      <div className="w-px h-8 bg-gray-200"></div>
+      <div className="flex flex-col">
+        <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Median</span>
+        <span className="text-lg font-extrabold text-blue-900">£{stats.median}</span>
+      </div>
+      <div className="w-px h-8 bg-gray-200"></div>
+      <div className="flex flex-col">
+        <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Suggested Sale Price</span>
+        <span className="text-lg font-extrabold text-green-600">£{stats.suggestedPrice}</span>
+      </div>
+    </div>
+  );
+
+  const content = (
+    <>
+      {/* Header - Only show in modal mode */}
+      {mode === "modal" && (
         <header className="bg-blue-900 px-6 py-4 flex items-center justify-between text-white shrink-0">
           <div className="flex items-center gap-3">
             <div className="bg-white/10 p-1.5 rounded">
@@ -583,203 +516,211 @@ export default function EbayResearchForm({ onComplete, category }) {
             <Icon name="close" />
           </button>
         </header>
+      )}
 
-        {/* Search Input */}
-        <div className="px-6 py-4 border-b border-gray-200 bg-gray-100/50">
-          <div className="relative w-full">
-            <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">search</span>
-            <input
-              type="text"
-              className="w-full border border-gray-300 rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-blue-200 focus:border-blue-900 outline-none shadow-sm"
-              placeholder="Search eBay listings..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-            <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
-              <Button variant="primary" size="sm" onClick={handleNext} disabled={loading}>
-                {loading ? "Loading..." : (step === 1 ? "Next" : "Search")}
-              </Button>
-            </div>
+      {/* Stats at top - Only show in page mode when we have results */}
+      {mode === "page" && listings && (
+        <div className="px-6 py-4 border-b border-gray-200 bg-white">
+          <StatsDisplay />
+        </div>
+      )}
+
+      {/* Search Input */}
+      <div className="px-6 py-4 border-b border-gray-200 bg-gray-100/50">
+        <div className="relative w-full">
+          <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">search</span>
+          <input
+            type="text"
+            className="w-full border border-gray-300 rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-blue-200 focus:border-blue-900 outline-none shadow-sm"
+            placeholder="Search eBay listings..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+          />
+          <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+            <Button variant="primary" size="sm" onClick={handleSearch} disabled={loading}>
+              {loading ? "Searching..." : "Search"}
+            </Button>
           </div>
         </div>
+      </div>
 
-        {/* Main content */}
-        <div className="flex flex-1 overflow-hidden">
-          {/* Sidebar filters */}
-          {step >= 2 && (
-            <aside className="w-64 border-r border-gray-200 overflow-y-auto bg-white p-4 space-y-6">
-              {/* Basic Filters */}
-              <div>
-                <h3 className="text-xs font-bold text-blue-900 uppercase tracking-wider mb-2">Basic Filters</h3>
+      {/* Main content */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Sidebar filters */}
+        {filterOptions.length > 0 && (
+          <aside className="w-64 border-r border-gray-200 overflow-y-auto bg-white p-4 space-y-6">
+            {/* Basic Filters */}
+            <div>
+              <h3 className="text-xs font-bold text-blue-900 uppercase tracking-wider mb-2">Basic Filters</h3>
+              <div className="space-y-2">
+                {["Completed & Sold", "Used", "UK Only"].map((filter) => (
+                  <label key={filter} className="flex items-center gap-2 cursor-pointer text-xs">
+                    <input
+                      type="checkbox"
+                      className="rounded border-gray-300 text-blue-900 focus:ring-blue-900"
+                      checked={selectedFilters.basic.includes(filter)}
+                      onChange={(e) => {
+                        const newBasic = e.target.checked
+                          ? [...selectedFilters.basic, filter]
+                          : selectedFilters.basic.filter(f => f !== filter);
+                        setSelectedFilters(prev => ({ ...prev, basic: newBasic }));
+                      }}
+                    />
+                    <span>{filter}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* API Filters */}
+            {filterOptions.map((filter) => (
+              <div key={filter.name} className="pt-4 border-t border-gray-200">
+                <h3 className="text-xs font-bold text-blue-900 uppercase tracking-wider mb-2">{filter.name}</h3>
                 <div className="space-y-2">
-                  {["Completed & Sold", "Used", "UK Only"].map((filter) => (
-                    <label key={filter} className="flex items-center gap-2 cursor-pointer text-xs">
+                  {filter.type === "checkbox" && filter.options.map(option => (
+                    <label key={option.label} className="flex items-center gap-2 cursor-pointer text-xs">
                       <input
                         type="checkbox"
                         className="rounded border-gray-300 text-blue-900 focus:ring-blue-900"
-                        checked={selectedFilters.basic.includes(filter)}
-                        onChange={(e) => {
-                          const newBasic = e.target.checked
-                            ? [...selectedFilters.basic, filter]
-                            : selectedFilters.basic.filter(f => f !== filter);
-                          setSelectedFilters(prev => ({ ...prev, basic: newBasic }));
-                        }}
+                        checked={selectedFilters.apiFilters[filter.name]?.includes(option.label) || false}
+                        onChange={(e) => handleApiFilterChange(filter.name, { label: option.label, checked: e.target.checked }, 'checkbox')}
                       />
-                      <span>{filter}</span>
+                      <span>{option.label} {option.count ? `(${option.count})` : ""}</span>
                     </label>
                   ))}
+
+                  {filter.type === "range" && (
+                    <div className="flex gap-2">
+                      <input
+                        type="number"
+                        placeholder="Min"
+                        className="w-full p-2 border rounded text-xs focus:ring-blue-900"
+                        value={selectedFilters.apiFilters[filter.name]?.min || ""}
+                        onChange={(e) => handleApiFilterChange(filter.name, e.target.value, 'range', 'min')}
+                      />
+                      <input
+                        type="number"
+                        placeholder="Max"
+                        className="w-full p-2 border rounded text-xs focus:ring-blue-900"
+                        value={selectedFilters.apiFilters[filter.name]?.max || ""}
+                        onChange={(e) => handleApiFilterChange(filter.name, e.target.value, 'range', 'max')}
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
+            ))}
+            
+            {/* Apply Filters Button */}
+            <div className="pt-4 border-t border-gray-200">
+              <Button 
+                variant="primary" 
+                size="md" 
+                onClick={handleSearch} 
+                disabled={loading}
+                className="w-full"
+              >
+                {loading ? "Applying..." : "Apply Filters"}
+              </Button>
+            </div>
+          </aside>
+        )}
 
-              {/* API Filters */}
-              {filterOptions.length > 0 && filterOptions.map((filter) => (
-                <div key={filter.name} className="pt-4 border-t border-gray-200">
-                  <h3 className="text-xs font-bold text-blue-900 uppercase tracking-wider mb-2">{filter.name}</h3>
-                  <div className="space-y-2">
-                    {filter.type === "checkbox" && filter.options.map(option => (
-                      <label key={option.label} className="flex items-center gap-2 cursor-pointer text-xs">
-                        <input
-                          type="checkbox"
-                          className="rounded border-gray-300 text-blue-900 focus:ring-blue-900"
-                          checked={selectedFilters.apiFilters[filter.name]?.includes(option.label) || false}
-                          onChange={(e) => handleApiFilterChange(filter.name, { label: option.label, checked: e.target.checked }, 'checkbox')}
-                        />
-                        <span>{option.label} {option.count ? `(${option.count})` : ""}</span>
-                      </label>
-                    ))}
+        {/* Listings */}
+        {listings && (
+          <main className="flex-1 overflow-y-auto bg-gray-100 p-6">
 
-                    {filter.type === "range" && (
-                      <div className="flex gap-2">
-                        <input
-                          type="number"
-                          placeholder="Min"
-                          className="w-full p-2 border rounded text-xs focus:ring-blue-900"
-                          value={selectedFilters.apiFilters[filter.name]?.min || ""}
-                          onChange={(e) => handleApiFilterChange(filter.name, e.target.value, 'range', 'min')}
-                        />
-                        <input
-                          type="number"
-                          placeholder="Max"
-                          className="w-full p-2 border rounded text-xs focus:ring-blue-900"
-                          value={selectedFilters.apiFilters[filter.name]?.max || ""}
-                          onChange={(e) => handleApiFilterChange(filter.name, e.target.value, 'range', 'max')}
-                        />
-                      </div>
+            {/* Breadcrumb Navigation */}
+            {drillHistory.length > 0 && (
+              <div className="mb-4 flex items-center gap-2 text-xs font-medium">
+                <button 
+                  onClick={() => setDrillHistory([])}
+                  className="text-blue-900 hover:underline flex items-center gap-1"
+                >
+                  <span className="material-symbols-outlined text-sm">home</span>
+                  All Prices
+                </button>
+                {drillHistory.map((range, idx) => (
+                  <React.Fragment key={idx}>
+                    <span className="text-gray-400">/</span>
+                    <button 
+                      onClick={() => setDrillHistory(drillHistory.slice(0, idx + 1))}
+                      className={`${
+                        idx === drillHistory.length - 1 
+                          ? 'text-gray-900 font-bold' 
+                          : 'text-blue-900 hover:underline'
+                      }`}
+                    >
+                      £{range.min.toFixed(0)} - £{range.max.toFixed(0)}
+                    </button>
+                  </React.Fragment>
+                ))}
+              </div>
+            )}
+
+            {/* --- HISTOGRAM COMPONENT --- */}
+            <div className="animate-histogram-slide">
+              <PriceHistogram 
+                listings={listings} 
+                onBucketSelect={handleDrillDown}
+                priceRange={currentPriceRange}
+                onGoBack={handleZoomOut}
+                drillLevel={drillHistory.length}
+              />
+            </div>
+            {/* ------------------------------- */}
+
+            <div className="grid grid-cols-2 gap-4">
+              {displayedListings && displayedListings.map((item, idx) => (
+                <div 
+                  key={`${item.title}-${idx}`} 
+                  className="bg-white rounded-xl border border-gray-200 p-4 flex gap-4 hover:shadow-md transition-all duration-300"
+                  style={{ 
+                    animationDelay: `${idx * 20}ms`,
+                    opacity: 0,
+                    animation: 'fadeInUp 0.4s ease-out forwards'
+                  }}
+                >
+                  <div className="w-32 h-32 bg-gray-200 rounded-lg flex items-center justify-center overflow-hidden rounded-lg">
+                    {item.image ? (
+                      <img
+                        src={item.image}
+                        alt={item.title || "eBay listing"}
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <span className="text-xs text-gray-500">No image</span>
                     )}
+                  </div>
+                  <div className="flex flex-col justify-between flex-1">
+                    <div>
+                      <h4 className="text-sm font-bold text-blue-900 line-clamp-2 leading-tight cursor-pointer hover:underline">{item.title}</h4>
+                      {item.sold && (
+                        <p className="text-[11px] text-green-600 font-bold mt-1">{item.sold}</p>
+                      )}
+                    </div>
+                    <div className="flex items-end justify-between mt-2">
+                      <div>
+                        <p className="text-lg font-extrabold text-gray-900 leading-none">£{item.price}</p>
+                      </div>
+                    </div>
                   </div>
                 </div>
               ))}
-            </aside>
-          )}
+            </div>
+          </main>
+        )}
+      </div>
 
-          {/* Listings */}
-          {step === 3 && listings && (
-            <main className="flex-1 overflow-y-auto bg-gray-100 p-6">
-
-              {/* Breadcrumb Navigation */}
-              {drillHistory.length > 0 && (
-                <div className="mb-4 flex items-center gap-2 text-xs font-medium">
-                  <button 
-                    onClick={() => setDrillHistory([])}
-                    className="text-blue-900 hover:underline flex items-center gap-1"
-                  >
-                    <span className="material-symbols-outlined text-sm">home</span>
-                    All Prices
-                  </button>
-                  {drillHistory.map((range, idx) => (
-                    <React.Fragment key={idx}>
-                      <span className="text-gray-400">/</span>
-                      <button 
-                        onClick={() => setDrillHistory(drillHistory.slice(0, idx + 1))}
-                        className={`${
-                          idx === drillHistory.length - 1 
-                            ? 'text-gray-900 font-bold' 
-                            : 'text-blue-900 hover:underline'
-                        }`}
-                      >
-                        £{range.min.toFixed(0)} - £{range.max.toFixed(0)}
-                      </button>
-                    </React.Fragment>
-                  ))}
-                </div>
-              )}
-
-              {/* --- HISTOGRAM COMPONENT --- */}
-              <div className="animate-histogram-slide">
-                <PriceHistogram 
-                  listings={listings} 
-                  onBucketSelect={handleDrillDown}
-                  priceRange={currentPriceRange}
-                  onGoBack={handleZoomOut}
-                  drillLevel={drillHistory.length}
-                />
-              </div>
-              {/* ------------------------------- */}
-
-              <div className="grid grid-cols-2 gap-4">
-                {displayedListings && displayedListings.map((item, idx) => (
-                  <div 
-                    key={`${item.title}-${idx}`} 
-                    className="bg-white rounded-xl border border-gray-200 p-4 flex gap-4 hover:shadow-md transition-all duration-300"
-                    style={{ 
-                      animationDelay: `${idx * 20}ms`,
-                      opacity: 0,
-                      animation: 'fadeInUp 0.4s ease-out forwards'
-                    }}
-                  >
-                    <div className="w-32 h-32 bg-gray-200 rounded-lg flex items-center justify-center overflow-hidden rounded-lg">
-                      {item.image ? (
-                        <img
-                          src={item.image}
-                          alt={item.title || "eBay listing"}
-                          className="w-full h-full object-cover"
-                          loading="lazy"
-                        />
-                      ) : (
-                        <span className="text-xs text-gray-500">No image</span>
-                      )}
-                    </div>
-                    <div className="flex flex-col justify-between flex-1">
-                      <div>
-                        <h4 className="text-sm font-bold text-blue-900 line-clamp-2 leading-tight cursor-pointer hover:underline">{item.title}</h4>
-                        {item.sold && (
-                          <p className="text-[11px] text-green-600 font-bold mt-1">{item.sold}</p>
-                        )}
-                      </div>
-                      <div className="flex items-end justify-between mt-2">
-                        <div>
-                          <p className="text-lg font-extrabold text-gray-900 leading-none">£{item.price}</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </main>
-          )}
-        </div>
-
-        {/* Footer */}
+      {/* Footer - Only show in modal mode */}
+      {mode === "modal" && (
         <footer className="px-6 py-4 border-t border-gray-200 bg-white flex justify-between items-center shrink-0">
-          <div className="flex items-center gap-6">
-            <div className="flex flex-col">
-              <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Average</span>
-              <span className="text-lg font-extrabold text-blue-900">£{stats.average}</span>
-            </div>
-            <div className="w-px h-8 bg-gray-200"></div>
-            <div className="flex flex-col">
-              <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Median</span>
-              <span className="text-lg font-extrabold text-blue-900">£{stats.median}</span>
-            </div>
-            <div className="w-px h-8 bg-gray-200"></div>
-            <div className="flex flex-col">
-              <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Suggested Sale Price</span>
-              <span className="text-lg font-extrabold text-green-600">£{stats.suggestedPrice}</span>
-            </div>
-          </div>
+          <StatsDisplay />
           <div className="flex gap-3">
             <Button variant="outline" size="md" onClick={() => onComplete?.()}>Cancel</Button>
-            {step === 3 && (
+            {listings && (
               <Button variant="primary" size="md" onClick={() => onComplete?.({ searchTerm, selectedFilters, listings, stats })}>
                 <Icon name="save" className="text-sm" />
                 Apply Research Data
@@ -787,7 +728,19 @@ export default function EbayResearchForm({ onComplete, category }) {
             )}
           </div>
         </footer>
+      )}
+    </>
+  );
+
+  return mode === "modal" ? (
+    <div className={wrapperClasses}>
+      <div className={containerClasses}>
+        {content}
       </div>
+    </div>
+  ) : (
+    <div className={containerClasses}>
+      {content}
     </div>
   );
 }
