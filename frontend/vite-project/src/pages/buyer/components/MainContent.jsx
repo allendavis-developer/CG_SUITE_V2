@@ -12,7 +12,6 @@ import EbayResearchForm from "@/components/forms/EbayResearchForm.jsx";
 import EmptyState from './EmptyState';
 import ProductSelection from './ProductSelection';
 import AttributeConfiguration from './AttributeConfiguration';
-import VariantSelector from './VariantSelector';
 import MarketComparisonsTable from './MarketComparisonsTable';
 import OfferSelection from './OfferSelection';
 
@@ -49,7 +48,8 @@ const MainContent = ({
     dependencies,
     variant,
     setVariant,
-    handleAttributeChange
+    handleAttributeChange,
+    setAllAttributeValues
   } = useProductAttributes(selectedModel?.product_id, variants);
 
   // Reset state when category changes
@@ -288,12 +288,7 @@ const MainContent = ({
               attributeValues={attributeValues}
               variants={variants}
               handleAttributeChange={handleAttributeChange}
-            />
-
-            <VariantSelector
-              attributes={attributes}
-              attributeValues={attributeValues}
-              variants={variants}
+              setAllAttributeValues={setAllAttributeValues}
               variant={variant}
               setVariant={setVariant}
             />

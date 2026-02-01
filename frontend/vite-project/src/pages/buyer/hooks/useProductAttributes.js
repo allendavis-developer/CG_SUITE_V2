@@ -156,12 +156,18 @@ export const useProductAttributes = (productId, variants) => {
     setAttributeValues(newValues);
   };
 
+  // NEW: Batch set all attributes at once without clearing
+  const setAllAttributeValues = (values) => {
+    setAttributeValues(values);
+  };
+
   return {
     attributes,
     attributeValues,
     dependencies,
     variant,
     setVariant,
-    handleAttributeChange
+    handleAttributeChange,
+    setAllAttributeValues // Export the new batch function
   };
 };

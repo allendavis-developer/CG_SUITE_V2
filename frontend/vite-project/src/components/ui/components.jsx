@@ -176,10 +176,14 @@ export const SearchableDropdown = ({ label, value, options, onChange, placeholde
     }
   }, [options]);
 
-  // Update selected value
+  // Update selected value (INCLUDING when it's cleared)
   useEffect(() => {
-    if (tomSelectInstance.current && value) {
-      tomSelectInstance.current.setValue(value, true); // true = silent (no onChange trigger)
+    if (tomSelectInstance.current) {
+      if (value) {
+        tomSelectInstance.current.setValue(value, true); // true = silent (no onChange trigger)
+      } else {
+        tomSelectInstance.current.clear(true); // Clear when value is empty/null
+      }
     }
   }, [value]);
 
