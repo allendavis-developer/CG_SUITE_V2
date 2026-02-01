@@ -74,6 +74,13 @@ function sendExtensionMessage(message) {
     });
 }
 
+function parseSoldDate(soldStr) {
+  if (!soldStr) return null;
+  const datePart = soldStr.replace(/^Sold\s+/, '').trim(); // "1 Feb 2026"
+  const parsed = new Date(datePart);
+  return isNaN(parsed) ? null : parsed;
+}
+
 
 function PriceHistogram({ listings, onBucketSelect, priceRange, onGoBack, drillLevel }) {
   const [bucketCount, setBucketCount] = useState(10);
@@ -411,7 +418,19 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal" 
       ]);
 
       if (scrapingPromise.success) {
-        setListings([...scrapingPromise.results].sort((a, b) => a.price - b.price));
+        console.log(scrapingPromise.results);
+        
+        const sortedByDate = [...scrapingPromise.results].sort((a, b) => {
+          const dateA = parseSoldDate(a.sold);
+          const dateB = parseSoldDate(b.sold);
+          // newest first
+          if (!dateA && !dateB) return 0;
+          if (!dateA) return 1;
+          if (!dateB) return -1;
+          return dateB - dateA;
+        });
+
+        setListings(sortedByDate);
         setStats(calculateStats(scrapingPromise.results));
       } else {
         alert("Scraping failed: " + (scrapingPromise.error || "Unknown error"));
@@ -674,8 +693,11 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal" 
 
             <div className="grid grid-cols-2 gap-4">
               {displayedListings && displayedListings.map((item, idx) => (
-                <div 
-                  key={`${item.title}-${idx}`} 
+                <a
+                  key={`${item.title}-${idx}`}
+                  href={item.url}                // ✅ link to eBay
+                  target="_blank"                // open in new tab
+                  rel="noopener noreferrer"      // security best practice
                   className="bg-white rounded-xl border border-gray-200 p-4 flex gap-4 hover:shadow-md transition-all duration-300"
                   style={{ 
                     animationDelay: `${idx * 20}ms`,
@@ -683,6 +705,7 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal" 
                     animation: 'fadeInUp 0.4s ease-out forwards'
                   }}
                 >
+
                   <div className="w-32 h-32 bg-gray-200 rounded-lg flex items-center justify-center overflow-hidden rounded-lg">
                     {item.image ? (
                       <img
@@ -708,7 +731,7 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal" 
                       </div>
                     </div>
                   </div>
-                </div>
+                </a>
               ))}
             </div>
           </main>
