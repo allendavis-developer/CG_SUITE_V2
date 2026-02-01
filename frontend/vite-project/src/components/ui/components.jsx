@@ -176,6 +176,23 @@ export const SearchableDropdown = ({ label, value, options, onChange, placeholde
     }
   }, [options]);
 
+  // Update placeholder when it changes
+  useEffect(() => {
+    if (tomSelectInstance.current) {
+      // Update the internal settings for any future resets
+      tomSelectInstance.current.settings.placeholder = placeholder;
+      
+      // Update the actual DOM element placeholder
+      const input = tomSelectInstance.current.control_input;
+      if (input) {
+        input.setAttribute('placeholder', placeholder);
+      }
+      
+      // Refresh the placeholder visibility
+      tomSelectInstance.current.refreshState();
+    }
+  }, [placeholder]);
+
   // Update selected value (INCLUDING when it's cleared)
   useEffect(() => {
     if (tomSelectInstance.current) {
