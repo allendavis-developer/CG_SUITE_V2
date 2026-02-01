@@ -16,6 +16,28 @@ const AttributeConfiguration = ({
   // Track if user selected via dropdown (to show all attributes)
   const [selectedViaDropdown, setSelectedViaDropdown] = useState(false);
 
+  const handleReset = () => {
+    // 1. Tell the UI to hide the extra attribute rows again
+    setSelectedViaDropdown(false);
+    
+    // 2. Clear the specific selected variant
+    setVariant(null);
+    
+    // 3. Create a "blank slate" for all attributes
+    const clearedValues = attributes.reduce((acc, attr) => {
+      acc[attr.code] = ''; 
+      return acc;
+    }, {});
+
+    // 4. Send that blank slate back to your main state
+    if (setAllAttributeValues) {
+      setAllAttributeValues(clearedValues);
+    } else {
+      // If you don't have the batch function, clear them one by one
+      attributes.forEach(attr => handleAttributeChange(attr.code, ''));
+    }
+  };
+
   // Filter variants based on currently selected attributes
   const filteredVariants = useMemo(() => {
     return variants.filter(v => {
@@ -133,13 +155,26 @@ const AttributeConfiguration = ({
       }
     });
   };
+  
 
   return (
     <div className="bg-gray-50 p-6 rounded-xl border border-gray-200">
-      <div className="flex items-start justify-between mb-4 gap-6">
-        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest pt-2">
-          Configuration & Condition
-        </h3>
+      <div className="flex items-center justify-between mb-4 gap-6">
+         <div className="flex items-center gap-3">
+          <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest">
+            Configuration & Condition
+          </h3>
+
+          {(variant || Object.values(attributeValues).some(v => v)) && (
+            <button 
+              onClick={handleReset}
+              className="px-2 py-0.5 text-xs font-bold bg-gray-200 hover:bg-red-100 hover:text-red-600 text-gray-600 rounded-full transition-all duration-200 uppercase tracking-widest"
+            >
+              Clear All
+            </button>
+          )}
+        </div>
+
         
         {/* Variant Search Dropdown - shows filtered variants based on selected attributes */}
         {variants.length > 0 && (
