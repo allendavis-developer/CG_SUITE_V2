@@ -2,7 +2,7 @@
 
 const EXTENSION_TIMEOUT = 60_000;
 
-function sendMessage(message) {
+export function sendMessage(message) {
   if (typeof window === "undefined") {
     return Promise.reject(
       new Error("Extension client can only run in the browser")

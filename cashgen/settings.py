@@ -39,6 +39,8 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = 50 * 1024 * 1024
 
 # Application definition
 
+DEBUG = True
+
 INSTALLED_APPS = [
      'dal',
     'dal_select2',

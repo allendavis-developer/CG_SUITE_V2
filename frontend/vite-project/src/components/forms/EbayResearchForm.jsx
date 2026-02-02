@@ -23,13 +23,13 @@ if (typeof document !== 'undefined') {
   document.head.appendChild(styleElement);
 }
 
-// --- Mock listings ---
-const mockListings = [
-  { title: "Apple iPhone 15 Pro - 256GB - Natural Titanium", condition: "Pre-owned", price: 899, shipping: 12.5, status: "Sold" },
-  { title: "iPhone 15 Pro 256GB Blue Titanium - Excellent Condition", condition: "Open Box", price: 945, shipping: 0, status: "Sold" },
-  { title: "Apple iPhone 15 Pro - 256GB - White Titanium", condition: "Pre-owned", price: 872, shipping: 9.99, status: "Sold" },
-  { title: "Brand New Sealed Apple iPhone 15 Pro 256GB Black", condition: "New", price: 1049, shipping: 0, status: "Sold" },
+const BASIC_FILTER_OPTIONS = [
+  "Used",
+  "UK Only",
+  "Sold items",
+  "Completed items",
 ];
+
 
 const EBAY_CATEGORY_MAP = {
   "phones": "9355",
@@ -292,28 +292,44 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
       const res = await fetch(`/api/ebay/filters/?q=${encodeURIComponent(term)}`);
       if (!res.ok) throw new Error('Failed to fetch filters');
       const data = await res.json();
-      
-      // Sort each filter's options by count (highest first)
-      const sortedFilters = (data.filters || []).map(filter => {
-        if (filter.type === 'checkbox' && filter.options) {
+
+          console.log(
+            data.filters.map(f => ({
+              name: f.name,
+              options: f.options?.map(o => o.label)
+            }))
+          );
+
+      const cleanedFilters = (data.filters || [])
+        .map(filter => {
+          if (filter.type !== "checkbox" || !filter.options) return filter;
+
+          const cleanedOptions = filter.options.filter(
+            option => !BASIC_FILTER_OPTIONS.includes(option.label)
+          );
+
+          // 🔥 If a filter has no options left, drop it entirely
+          if (cleanedOptions.length === 0) return null;
+
           return {
             ...filter,
-            options: [...filter.options].sort((a, b) => {
+            options: cleanedOptions.sort((a, b) => {
               const countA = a.count || 0;
               const countB = b.count || 0;
-              return countB - countA; // Descending order
+              return countB - countA;
             })
           };
-        }
-        return filter;
-      });
-      
-      setFilterOptions(sortedFilters);
+        })
+        .filter(Boolean); // remove nulls
+
+
+      setFilterOptions(cleanedFilters);
     } catch (err) {
       console.error('Error fetching eBay filters:', err);
       setFilterOptions([]);
     }
   };
+
 
   const calculateStats = (listingsData) => {
     if (!listingsData || listingsData.length === 0) {
