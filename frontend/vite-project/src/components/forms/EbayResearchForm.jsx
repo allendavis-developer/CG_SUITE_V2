@@ -255,8 +255,9 @@ function resolveEbayCategory(path) {
   return null;
 }
 
-function buildEbayUrl(searchTerm, filters, categoryPath) {
-  const categoryId = resolveEbayCategory(categoryPath);
+function buildEbayUrl(searchTerm, filters, categoryPath, behaveAsEbay = false) {
+  // If behaveAsEbay is true, ignore category mapping
+  const categoryId = behaveAsEbay ? null : resolveEbayCategory(categoryPath);
   
   // Base URL: use the category path if ID exists, otherwise generic search
   let url = categoryId 
@@ -297,20 +298,24 @@ function buildEbayUrl(searchTerm, filters, categoryPath) {
 }
 
 
-export default function EbayResearchForm({ onComplete, category, mode = "modal" }) {
-  const [searchTerm, setSearchTerm] = useState("");
-  const [filterOptions, setFilterOptions] = useState([]); // API filters
-  const [listings, setListings] = useState(null);
+export default function EbayResearchForm({ onComplete, category, mode = "modal", savedState = null }) {
+  // Initialize state from savedState if available
+  const [searchTerm, setSearchTerm] = useState(savedState?.searchTerm || "");
+  const [filterOptions, setFilterOptions] = useState(savedState?.filterOptions || []); // API filters
+  const [listings, setListings] = useState(savedState?.listings || null);
   const [loading, setLoading] = useState(false);
-  const [stats, setStats] = useState({ average: 0, median: 0, suggestedPrice: 0 });
+  const [stats, setStats] = useState(savedState?.stats || { average: 0, median: 0, suggestedPrice: 0 });
   
   // Track the last search term that was actually searched
-  const [lastSearchedTerm, setLastSearchedTerm] = useState("");
+  const [lastSearchedTerm, setLastSearchedTerm] = useState(savedState?.lastSearchedTerm || "");
   
   // Drill-down history: stack of price ranges
-  const [drillHistory, setDrillHistory] = useState([]);
+  const [drillHistory, setDrillHistory] = useState(savedState?.drillHistory || []);
+  
+  // Behave like eBay mode - when true, ignore category mapping
+  const [behaveAsEbay, setBehaveAsEbay] = useState(savedState?.behaveAsEbay || false);
 
-  const [selectedFilters, setSelectedFilters] = useState({
+  const [selectedFilters, setSelectedFilters] = useState(savedState?.selectedFilters || {
     basic: ["Completed & Sold", "Used", "UK Only"],
     apiFilters: {}, // eBay API filters
   });
@@ -400,7 +405,7 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal" 
     
     try {
       // Fetch filters and listings in parallel
-      const ebayUrl = buildEbayUrl(searchTerm, selectedFilters.apiFilters, category?.path);
+      const ebayUrl = buildEbayUrl(searchTerm, selectedFilters.apiFilters, category?.path, behaveAsEbay);
       
       const [filtersPromise, scrapingPromise] = await Promise.all([
         termChanged ? fetchEbayFilters(searchTerm) : Promise.resolve(),
@@ -487,6 +492,18 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal" 
     });
   }, [listings, currentPriceRange]);
 
+  // Helper to get current complete state for saving
+  const getCurrentState = () => ({
+    searchTerm,
+    filterOptions,
+    listings,
+    stats,
+    lastSearchedTerm,
+    drillHistory,
+    behaveAsEbay,
+    selectedFilters
+  });
+
   // Wrapper classes based on mode
   const wrapperClasses = mode === "modal"
     ? "fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-6"
@@ -532,7 +549,7 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal" 
               </p>
             </div>
           </div>
-          <button className="text-white/60 hover:text-white transition-colors p-1" onClick={() => onComplete?.()}>
+          <button className="text-white/60 hover:text-white transition-colors p-1" onClick={() => onComplete?.(getCurrentState())}>
             <Icon name="close" />
           </button>
         </header>
@@ -562,6 +579,20 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal" 
               {loading ? "Searching..." : "Search"}
             </Button>
           </div>
+        </div>
+        
+        {/* Behave like eBay checkbox */}
+        <div className="mt-3">
+          <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-gray-700">
+            <input
+              type="checkbox"
+              className="rounded border-gray-300 text-blue-900 focus:ring-blue-900"
+              checked={behaveAsEbay}
+              onChange={(e) => setBehaveAsEbay(e.target.checked)}
+            />
+            <span>Behave like eBay</span>
+            <span className="text-[10px] text-gray-500">(ignore category-based search)</span>
+          </label>
         </div>
       </div>
 
@@ -743,9 +774,9 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal" 
         <footer className="px-6 py-4 border-t border-gray-200 bg-white flex justify-between items-center shrink-0">
           <StatsDisplay />
           <div className="flex gap-3">
-            <Button variant="outline" size="md" onClick={() => onComplete?.()}>Cancel</Button>
+            <Button variant="outline" size="md" onClick={() => onComplete?.(getCurrentState())}>Cancel</Button>
             {listings && (
-              <Button variant="primary" size="md" onClick={() => onComplete?.({ searchTerm, selectedFilters, listings, stats })}>
+              <Button variant="primary" size="md" onClick={() => onComplete?.(getCurrentState())}>
                 <Icon name="save" className="text-sm" />
                 Apply Research Data
               </Button>

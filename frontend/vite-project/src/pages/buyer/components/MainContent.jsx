@@ -41,6 +41,7 @@ const MainContent = ({
   const [referenceData, setReferenceData] = useState(null);
   const [ourSalePrice, setOurSalePrice] = useState('');
   const [ebayData, setEbayData] = useState(null);
+  const [savedEbayState, setSavedEbayState] = useState(null); // ✨ Store complete eBay research state
 
   const {
     attributes,
@@ -115,6 +116,7 @@ const MainContent = ({
       setReferenceData(null);
       setOurSalePrice('');
       setEbayData(null);
+      setSavedEbayState(null); // ✨ Clear saved eBay state when variant changes
       return;
     }
 
@@ -195,9 +197,11 @@ const MainContent = ({
     addToCart(cartItem);
   };
 
+  // ✨ Updated to save complete state
   const handleEbayResearchComplete = (data) => {
     console.log('eBay research done', data);
     setEbayData(data);
+    setSavedEbayState(data); // Save the complete state for restoration
   };
 
   if (!selectedCategory) {
@@ -242,6 +246,7 @@ const MainContent = ({
             mode="page"
             category={selectedCategory}
             onComplete={handleEbayResearchComplete}
+            savedState={savedEbayState} // ✨ Pass saved state to restore previous research
           />
         </div>
       )}
@@ -302,6 +307,38 @@ const MainContent = ({
               setEbayModalOpen={setEbayModalOpen}
             />
 
+            {/* ✨ Reopen eBay Research button when data is saved */}
+            {savedEbayState && savedEbayState.listings && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="bg-blue-900 p-2 rounded-lg">
+                      <Icon name="analytics" className="text-yellow-400" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-blue-900">
+                        Previous eBay Research Available
+                      </h3>
+                      <p className="text-xs text-gray-600 mt-0.5">
+                        Search: <span className="font-bold">{savedEbayState.searchTerm}</span>
+                        {' • '}
+                        <span className="font-bold">{savedEbayState.listings.length}</span> listings
+                        {' • '}
+                        Median: <span className="font-bold">£{savedEbayState.stats?.median}</span>
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    variant="primary"
+                    icon="open_in_new"
+                    onClick={() => setEbayModalOpen(true)}
+                  >
+                    Reopen Research
+                  </Button>
+                </div>
+              </div>
+            )}
+
             <OfferSelection
               variant={variant}
               offers={offers}
@@ -317,9 +354,11 @@ const MainContent = ({
             open={isEbayModalOpen}
             onClose={() => setEbayModalOpen(false)}
             category={selectedCategory}
+            savedState={savedEbayState} // ✨ Pass saved state to modal
             onResearchComplete={(data) => {
               console.log('eBay research done', data);
               setEbayData(data);
+              setSavedEbayState(data); // ✨ Save the complete state
               setEbayModalOpen(false);
             }}
           />
