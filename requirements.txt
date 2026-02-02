@@ -22,9 +22,6 @@ openai
 pytest
 pytest-django
 
-# Desktop launcher
-pywebview
-
 #IDK
 whitenoise
 gunicorn

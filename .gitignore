@@ -14,6 +14,11 @@ staticfiles/
 venv/
 .venv/
 
+# just ignore everything pip installs:
+python/Lib/
+python/Scripts/
+python/Include
+
 # IDE
 .idea/
 .vscode/
