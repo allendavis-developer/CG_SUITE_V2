@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Button, Icon } from '../ui/components';
+import { scrapeEbay } from '@/services/extensionClient';
 
 // Add animation styles
 const fadeInUpAnimation = `
@@ -38,41 +39,6 @@ const EBAY_CATEGORY_MAP = {
   "gaming consoles": "139971",
   "guitars & basses": "3858",
 };
-
-// Helper function to send messages to extension via bridge
-function sendExtensionMessage(message) {
-    return new Promise((resolve, reject) => {
-        const requestId = Math.random().toString(36).substr(2, 9);
-        
-        // Listen for response
-        const responseHandler = (event) => {
-            if (event.data.type === 'EXTENSION_RESPONSE' && event.data.requestId === requestId) {
-                window.removeEventListener('message', responseHandler);
-                
-                if (event.data.error) {
-                    reject(new Error(event.data.error));
-                } else {
-                    resolve(event.data.response);
-                }
-            }
-        };
-        
-        window.addEventListener('message', responseHandler);
-        
-        // Send message to bridge
-        window.postMessage({
-            type: 'EXTENSION_MESSAGE',
-            requestId: requestId,
-            message: message
-        }, '*');
-        
-        // Timeout after 60 seconds
-        setTimeout(() => {
-            window.removeEventListener('message', responseHandler);
-            reject(new Error('Extension communication timeout'));
-        }, 60000);
-    });
-}
 
 function parseSoldDate(soldStr) {
   if (!soldStr) return null;
@@ -407,39 +373,30 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
       // Fetch filters and listings in parallel
       const ebayUrl = buildEbayUrl(searchTerm, selectedFilters.apiFilters, category?.path, behaveAsEbay);
       
-      const [filtersPromise, scrapingPromise] = await Promise.all([
+      const [_, scrapeResult] = await Promise.all([
         termChanged ? fetchEbayFilters(searchTerm) : Promise.resolve(),
-        sendExtensionMessage({
-          action: "scrape",
-          data: {
-            directUrl: ebayUrl,
-            competitors: ["eBay"],
-            ebayFilterSold: selectedFilters.basic.includes("Completed & Sold"),
-            ebayFilterUKOnly: selectedFilters.basic.includes("UK Only"),
-            ebayFilterUsed: selectedFilters.basic.includes("Used"),
-            apiFilters: selectedFilters.apiFilters
-          }
-        })
+        scrapeEbay({
+          directUrl: ebayUrl,
+          ebayFilterSold: selectedFilters.basic.includes("Completed & Sold"),
+          ebayFilterUKOnly: selectedFilters.basic.includes("UK Only"),
+          ebayFilterUsed: selectedFilters.basic.includes("Used"),
+          apiFilters: selectedFilters.apiFilters,
+        }),
       ]);
 
-      if (scrapingPromise.success) {
-        console.log(scrapingPromise.results);
-        
-        const sortedByDate = [...scrapingPromise.results].sort((a, b) => {
+      if (scrapeResult.success) {
+        const sortedByDate = [...scrapeResult.results].sort((a, b) => {
           const dateA = parseSoldDate(a.sold);
           const dateB = parseSoldDate(b.sold);
-          // newest first
-          if (!dateA && !dateB) return 0;
-          if (!dateA) return 1;
-          if (!dateB) return -1;
           return dateB - dateA;
         });
 
         setListings(sortedByDate);
-        setStats(calculateStats(scrapingPromise.results));
+        setStats(calculateStats(scrapeResult.results));
       } else {
-        alert("Scraping failed: " + (scrapingPromise.error || "Unknown error"));
+        alert("Scraping failed: " + (scrapeResult.error || "Unknown error"));
       }
+
     } catch (err) {
       console.error("Search error:", err);
     } finally {
@@ -713,7 +670,7 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
             {/* --- HISTOGRAM COMPONENT --- */}
             <div className="animate-histogram-slide">
               <PriceHistogram 
-                listings={listings} 
+                listings={displayedListings} 
                 onBucketSelect={handleDrillDown}
                 priceRange={currentPriceRange}
                 onGoBack={handleZoomOut}
