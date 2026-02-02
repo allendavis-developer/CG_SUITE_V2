@@ -478,12 +478,13 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
   });
 
   // Wrapper classes based on mode
+  // TODO: Why do we have ebay research modal if we do this
   const wrapperClasses = mode === "modal"
-    ? "fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-6"
+    ? "fixed inset-0 z-[100] flex items-start justify-center bg-black/40 backdrop-blur-sm"
     : "";
-  
+
   const containerClasses = mode === "modal"
-    ? "bg-white w-full max-w-6xl h-full max-h-[850px] rounded-xl shadow-2xl flex flex-col overflow-hidden border border-blue-200"
+    ? "bg-white w-full h-full flex flex-col overflow-hidden"
     : "bg-white w-full h-full flex flex-col overflow-hidden";
 
   // Stats component for reuse
