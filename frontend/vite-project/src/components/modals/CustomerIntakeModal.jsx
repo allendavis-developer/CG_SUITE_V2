@@ -10,6 +10,8 @@ function getCSRFToken() {
   return cookieValue;
 }
 
+
+
 export default function CustomerIntakeModal({ open = true, onClose }) {
   const [isExisting, setIsExisting] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState("");
@@ -18,13 +20,64 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
- const [tempCR, setTempCR] = useState(""); // new temporary cancel rate
+  const [tempCR, setTempCR] = useState(""); // new temporary cancel rate
+  const [nosposQuery, setNosposQuery] = useState("");
+  const [nosposResults, setNosposResults] = useState([]);
+  const [nosposLoading, setNosposLoading] = useState(false);
+
+  const mockNosposData = [
+    { id: 101, name: "Alice Johnson", phone: "555-1234", email: "alice@example.com", address: "123 Main St" },
+    { id: 102, name: "Bob Smith", phone: "555-5678", email: "bob@example.com", address: "456 Oak Ave" },
+    { id: 103, name: "Charlie Brown", phone: "555-8765", email: "charlie@example.com", address: "789 Pine Rd" },
+  ];
+
+  const fetchNosposCustomers = async (query) => {
+    setNosposLoading(true);
+    try {
+      if (!query.trim()) {
+        setNosposResults([]);
+        return;
+      }
+
+      // Filter mock data based on query
+      const results = mockNosposData.filter((c) =>
+        c.name.toLowerCase().includes(query.toLowerCase())
+      );
+
+      setNosposResults(results);
+    } catch (err) {
+      console.error("Error fetching NoSpos customers:", err);
+    } finally {
+      setNosposLoading(false);
+    }
+  };
+
 
   // Refs for form inputs
   const nameRef = useRef(null);
   const phoneRef = useRef(null);
   const emailRef = useRef(null);
   const addressRef = useRef(null);
+
+  const handleNosposSearch = () => {
+    if (!nosposQuery.trim()) {
+      setNosposResults([]);
+      return;
+    }
+
+    setNosposLoading(true);
+
+    // Simulate fetch delay
+    setTimeout(() => {
+      const results = mockNosposData.filter((c) =>
+        c.name.toLowerCase().includes(nosposQuery.toLowerCase())
+      );
+      setNosposResults(results);
+      setNosposLoading(false);
+    }, 300);
+  };
+
+
 
   // Fetch customers from API
   useEffect(() => {
@@ -282,16 +335,60 @@ const handleConfirm = async () => {
 
           {/* SearchableDropdown for Existing Customer only */}
           {isExisting && !loading && (
-            <div className="mb-6">
-              <SearchableDropdown
-                label="Find Customer"
-                value={selectedCustomer}
-                options={customerNames}
-                onChange={setSelectedCustomer}
-                placeholder="Search by name..."
+          <div className="mb-6 space-y-4">
+            {/* Local Customer Dropdown */}
+            <SearchableDropdown
+              label="Find Customer"
+              value={selectedCustomer}
+              options={customerNames}
+              onChange={setSelectedCustomer}
+              placeholder="Select customer from local list..."
+            />
+
+            {/* Plain NoSpos Search */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-bold uppercase tracking-wider text-gray-500">
+                Search Customer from NoSpos
+              </label>
+              <input
+                type="text"
+                value={nosposQuery}
+                onChange={(e) => setNosposQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleNosposSearch();
+                  }
+                }}
+                placeholder="Type full name and press Enter..."
+                className="w-full h-12 rounded-xl border border-gray-200 focus:ring-yellow-500 focus:border-yellow-500 px-4"
               />
+
+              {nosposLoading && (
+                <p className="text-sm text-gray-500 mt-1">Searching NoSpos...</p>
+              )}
+
+              {nosposResults.length > 0 && (
+                <ul className="mt-2 border border-gray-200 rounded-xl max-h-40 overflow-y-auto">
+                  {nosposResults.map((c) => (
+                    <li
+                      key={c.id}
+                      className="p-2 hover:bg-gray-100 cursor-pointer"
+                      onClick={() => {
+                        if (nameRef.current) nameRef.current.value = c.name || "";
+                        if (phoneRef.current) phoneRef.current.value = c.phone || "";
+                        if (emailRef.current) emailRef.current.value = c.email || "";
+                        if (addressRef.current) addressRef.current.value = c.address || "";
+                      }}
+                    >
+                    {c.name} {c.phone && `(${c.phone})`}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
-          )}
+          </div>
+        )}
 
           {/* Info Banner (Existing Customer only) */}
           {isExisting && selectedCustomer && (
