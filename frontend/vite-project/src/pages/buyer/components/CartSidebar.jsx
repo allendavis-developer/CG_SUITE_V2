@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { Icon, Button, CartItem } from '@/components/ui/components';
+import { useNavigate } from "react-router-dom"; // <-- add this
+
 
 /**
  * Shopping cart sidebar component
@@ -13,6 +15,7 @@ const CartSidebar = ({
 }) => {
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [overallExpectation, setOverallExpectation] = useState('');
+  const navigate = useNavigate(); // <-- call the hook here
 
   const removeItem = (id) => {
     setCartItems(cartItems.filter(item => item.id !== id));
@@ -215,7 +218,11 @@ const CartSidebar = ({
           variant="primary" 
           size="lg" 
           className="w-full group"
-          onClick={handleFinalize}
+          // In CartSidebar button
+          onClick={() => {
+            navigate('/negotiation', { state: { cartItems, customerData } });
+          }}
+
           disabled={isFinalizing || cartItems.length === 0}
         >
           {isFinalizing ? (
@@ -225,7 +232,7 @@ const CartSidebar = ({
             </>
           ) : (
             <>
-              Finalize Transaction
+              Negotiate
               <Icon
                 name="arrow_forward"
                 className="text-sm group-hover:translate-x-1 transition-transform"

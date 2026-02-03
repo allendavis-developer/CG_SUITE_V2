@@ -2,6 +2,8 @@ import React from "react";
 import { BrowserRouter, Routes, Route, useNavigate } from "react-router-dom";
 import { Button } from "./components/ui/components"; 
 import Buyer from "./pages/buyer/Buyer";
+import Negotiation from "./pages/buyer/Negotiation";
+
 
 function Home() {
   const navigate = useNavigate();
@@ -21,7 +23,9 @@ export default function App() {
       <Routes>
         <Route path="/react" element={<Home />} />
         <Route path="/buyer" element={<Buyer />} />
+        <Route path="/negotiation" element={<Negotiation />} /> {/* <-- new route */}
       </Routes>
     </BrowserRouter>
   );
 }
+
