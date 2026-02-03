@@ -14,6 +14,26 @@ const fadeInUpAnimation = `
       transform: translateY(0);
     }
   }
+  
+  /* Custom scrollbar for histogram */
+  .histogram-scrollbar::-webkit-scrollbar {
+    width: 8px;
+  }
+  
+  .histogram-scrollbar::-webkit-scrollbar-track {
+    background: #f1f5f9;
+    border-radius: 4px;
+  }
+  
+  .histogram-scrollbar::-webkit-scrollbar-thumb {
+    background: #1e3a8a;
+    border-radius: 4px;
+    transition: background 0.2s;
+  }
+  
+  .histogram-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #1e40af;
+  }
 `;
 
 // Inject styles into document
@@ -84,39 +104,38 @@ function PriceHistogram({ listings, onBucketSelect, priceRange, onGoBack, drillL
   const maxFreq = Math.max(...buckets.map(b => b.count));
 
   return (
-    <div className="bg-white p-5 rounded-xl border border-gray-200 mb-10 shadow-sm transition-all duration-500">
-      <div className="flex justify-between items-center mb-10">
-        <div className="flex items-center gap-4">
-          <div>
-            <h3 className="text-xs font-bold text-blue-900 uppercase tracking-wider">
-              Market Price Density {drillLevel > 0 && `(Level ${drillLevel})`}
-            </h3>
-            <p className="text-[10px] text-gray-500 mt-1">
-              {priceRange ? (
-                <>
-                  Drilling into <span className="font-bold text-blue-900">£{priceRange.min.toFixed(0)} - £{priceRange.max.toFixed(0)}</span> range
-                  {' '}(<span className="font-bold text-blue-900">{prices.filter(p => p >= priceRange.min && p <= priceRange.max).length}</span> listings)
-                </>
-              ) : (
-                <>
-                  Showing distribution across <span className="font-bold text-blue-900">{prices.length}</span> listings
-                </>
-              )}
-            </p>
-          </div>
-          
-          {drillLevel > 0 && (
-            <button
-              onClick={onGoBack}
-              className="flex items-center gap-2 px-3 py-1.5 bg-blue-900 text-white rounded-lg text-xs font-bold hover:bg-blue-800 transition-all transform hover:scale-105 shadow-md"
-            >
-              <span className="material-symbols-outlined text-sm">arrow_back</span>
-              Zoom Out
-            </button>
-          )}
+    <div className="bg-white h-full rounded-xl border border-gray-200 shadow-sm transition-all duration-500 flex flex-col">
+      {/* Header Section */}
+      <div className="p-4 border-b border-gray-200">
+        <div className="mb-4">
+          <h3 className="text-xs font-bold text-blue-900 uppercase tracking-wider">
+            Market Price Density {drillLevel > 0 && `(Level ${drillLevel})`}
+          </h3>
+          <p className="text-[10px] text-gray-500 mt-1">
+            {priceRange ? (
+              <>
+                Drilling into <span className="font-bold text-blue-900">£{priceRange.min.toFixed(0)} - £{priceRange.max.toFixed(0)}</span> range
+                {' '}(<span className="font-bold text-blue-900">{prices.filter(p => p >= priceRange.min && p <= priceRange.max).length}</span> listings)
+              </>
+            ) : (
+              <>
+                Showing distribution across <span className="font-bold text-blue-900">{prices.length}</span> listings
+              </>
+            )}
+          </p>
         </div>
         
-        <div className="flex items-center gap-4 bg-gray-50 px-3 py-2 rounded-lg border border-gray-100">
+        {drillLevel > 0 && (
+          <button
+            onClick={onGoBack}
+            className="flex items-center gap-2 px-3 py-1.5 bg-blue-900 text-white rounded-lg text-xs font-bold hover:bg-blue-800 transition-all transform hover:scale-105 shadow-md w-full justify-center mb-4"
+          >
+            <span className="material-symbols-outlined text-sm">arrow_back</span>
+            Zoom Out
+          </button>
+        )}
+        
+        <div className="flex flex-col gap-2 bg-gray-50 p-3 rounded-lg border border-gray-100">
           <label className="text-[10px] font-bold text-blue-900 uppercase">
             Buckets: {bucketCount}
           </label>
@@ -126,20 +145,21 @@ function PriceHistogram({ listings, onBucketSelect, priceRange, onGoBack, drillL
             max="20" 
             value={bucketCount}
             onChange={(e) => setBucketCount(parseInt(e.target.value))}
-            className="w-24 h-1.5 bg-blue-200 rounded-lg appearance-none cursor-pointer accent-blue-900"
+            className="w-full h-1.5 bg-blue-200 rounded-lg appearance-none cursor-pointer accent-blue-900"
           />
         </div>
       </div>
       
-      {/* Chart Area */}
-      <div className="flex items-end gap-1.5 h-44 px-2 border-b border-gray-100">
-        {buckets.map((bucket, i) => {
-          const heightPct = maxFreq > 0 ? (bucket.count / maxFreq) * 100 : 0;
+      {/* Chart Area - Vertical */}
+      <div className="flex-1 flex flex-col gap-1.5 p-4 overflow-y-auto histogram-scrollbar">
+        {buckets.slice().reverse().map((bucket, i) => {
+          const reverseIndex = buckets.length - 1 - i;
+          const widthPct = maxFreq > 0 ? (bucket.count / maxFreq) * 100 : 0;
           
           return (
             <div 
-              key={i} 
-              className={`flex-1 flex flex-col items-center h-full justify-end relative group transition-all duration-500 ${
+              key={reverseIndex} 
+              className={`flex items-center gap-2 relative group transition-all duration-500 ${
                 bucket.count > 0 ? 'cursor-pointer' : ''
               }`}
               onClick={() => bucket.count > 0 && onBucketSelect(bucket.rangeStart, bucket.rangeEnd)}
@@ -148,54 +168,50 @@ function PriceHistogram({ listings, onBucketSelect, priceRange, onGoBack, drillL
                 opacity: bucket.count > 0 ? 1 : 0.3
               }}
             >
-              
-              {/* --- Frequency Label (On Top) --- */}
-              {bucket.count > 0 && (
-                <span 
-                  className="absolute text-[10px] font-black text-blue-900 mb-1 transition-all duration-300 group-hover:scale-125"
-                  style={{ bottom: `${heightPct}%` }}
-                >
-                  {bucket.count}
-                </span>
-              )}
-
               {/* The Bar */}
-              <div 
-                className={`w-full transition-all duration-500 rounded-t-sm ${
-                  bucket.count > 0 
-                    ? 'bg-yellow-400 group-hover:bg-blue-900 group-hover:shadow-lg shadow-sm'
-                    : 'bg-gray-50'
-                }`}
-                style={{ 
-                  height: bucket.count > 0 ? `${Math.max(heightPct, 4)}%` : '2px',
-                  transform: 'scaleY(1)',
-                  transformOrigin: 'bottom'
-                }}
-              />
-
-              {/* Price Range Labels */}
-              <div className="absolute -bottom-8 flex flex-col items-center w-full">
-                <div className="text-blue-900/50 font-bold text-[8px] whitespace-nowrap">
-                  £{bucket.rangeStart.toFixed(0)}
-                </div>
+              <div className="flex-1 flex items-center justify-end">
+                {/* Frequency Label (Left of bar) */}
+                {bucket.count > 0 && (
+                  <span 
+                    className="text-[10px] font-black text-blue-900 mr-2 transition-all duration-300 group-hover:scale-125"
+                  >
+                    {bucket.count}
+                  </span>
+                )}
+                
+                <div 
+                  className={`h-6 transition-all duration-500 ${
+                    bucket.count > 0 
+                      ? 'bg-yellow-400 group-hover:bg-blue-900 group-hover:shadow-lg shadow-sm'
+                      : 'bg-gray-50'
+                  }`}
+                  style={{ 
+                    width: bucket.count > 0 ? `${Math.max(widthPct, 4)}%` : '2px',
+                    transform: 'scaleX(1)',
+                    transformOrigin: 'right'
+                  }}
+                />
+              </div>
+              
+              {/* Price Range Label (Right side) - Expanded width */}
+              <div className="text-blue-900 font-bold text-[10px] whitespace-nowrap w-28 text-left pl-2">
+                £{bucket.rangeStart.toFixed(0)} - £{bucket.rangeEnd.toFixed(0)}
               </div>
               
               {/* Tooltip on Hover */}
               {bucket.count > 0 && (
-                <div className="absolute bottom-full mb-6 hidden group-hover:flex flex-col items-center z-10">
+                <div className="absolute right-full mr-4 hidden group-hover:flex items-center z-10">
                   <div className="bg-blue-900 text-white text-[10px] py-1.5 px-2.5 rounded shadow-xl whitespace-nowrap">
                     £{bucket.rangeStart.toFixed(0)} - £{bucket.rangeEnd.toFixed(0)}
                     <div className="text-[9px] text-yellow-400 font-bold mt-0.5">🔍 Click to drill down</div>
                   </div>
-                  <div className="w-2 h-2 bg-blue-900 rotate-45 -mt-1"></div>
+                  <div className="w-2 h-2 bg-blue-900 rotate-45 -mr-1"></div>
                 </div>
               )}
-
             </div>
           );
         })}
       </div>
-      <div className="h-10"></div>
     </div>
   );
 
@@ -280,6 +296,9 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
   
   // Behave like eBay mode - when true, ignore category mapping
   const [behaveAsEbay, setBehaveAsEbay] = useState(savedState?.behaveAsEbay || false);
+  
+  // Histogram visibility
+  const [showHistogram, setShowHistogram] = useState(savedState?.showHistogram ?? true);
 
   const [selectedFilters, setSelectedFilters] = useState(savedState?.selectedFilters || {
     basic: ["Completed & Sold", "Used", "UK Only"],
@@ -465,6 +484,14 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
     });
   }, [listings, currentPriceRange]);
 
+  // Calculate stats based on displayed listings (filtered by current drill level)
+  const displayedStats = React.useMemo(() => {
+    if (!displayedListings || displayedListings.length === 0) {
+      return stats; // Fallback to overall stats if no filtered listings
+    }
+    return calculateStats(displayedListings);
+  }, [displayedListings, stats]);
+
   // Helper to get current complete state for saving
   const getCurrentState = () => ({
     searchTerm,
@@ -474,7 +501,8 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
     lastSearchedTerm,
     drillHistory,
     behaveAsEbay,
-    selectedFilters
+    selectedFilters,
+    showHistogram
   });
 
   // Wrapper classes based on mode
@@ -492,17 +520,17 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
     <div className="flex items-center gap-6">
       <div className="flex flex-col">
         <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Average</span>
-        <span className="text-lg font-extrabold text-blue-900">£{stats.average}</span>
+        <span className="text-lg font-extrabold text-blue-900">£{displayedStats.average}</span>
       </div>
       <div className="w-px h-8 bg-gray-200"></div>
       <div className="flex flex-col">
         <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Median</span>
-        <span className="text-lg font-extrabold text-blue-900">£{stats.median}</span>
+        <span className="text-lg font-extrabold text-blue-900">£{displayedStats.median}</span>
       </div>
       <div className="w-px h-8 bg-gray-200"></div>
       <div className="flex flex-col">
         <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Suggested Sale Price</span>
-        <span className="text-lg font-extrabold text-green-600">£{stats.suggestedPrice}</span>
+        <span className="text-lg font-extrabold text-green-600">£{displayedStats.suggestedPrice}</span>
       </div>
     </div>
   );
@@ -555,8 +583,8 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
           </div>
         </div>
         
-        {/* Behave like eBay checkbox */}
-        <div className="mt-3">
+        <div className="mt-3 flex items-center gap-4">
+          {/* Behave like eBay checkbox */}
           <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-gray-700">
             <input
               type="checkbox"
@@ -567,6 +595,22 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
             <span>Behave like eBay</span>
             <span className="text-[10px] text-gray-500">(ignore category-based search)</span>
           </label>
+          
+          {/* Show Histogram toggle */}
+          {listings && (
+            <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-gray-700">
+              <input
+                type="checkbox"
+                className="rounded border-gray-300 text-blue-900 focus:ring-blue-900"
+                checked={showHistogram}
+                onChange={(e) => setShowHistogram(e.target.checked)}
+              />
+              <span className="flex items-center gap-1">
+                <span className="material-symbols-outlined text-sm">bar_chart</span>
+                Show Price Distribution
+              </span>
+            </label>
+          )}
         </div>
       </div>
 
@@ -574,7 +618,7 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar filters */}
         {filterOptions.length > 0 && (
-          <aside className="w-64 border-r border-gray-200 overflow-y-auto bg-white p-4 space-y-6">
+          <aside className="w-64 border-r border-gray-200 overflow-y-auto bg-white p-4 space-y-6 histogram-scrollbar">
             {/* Basic Filters */}
             <div>
               <h3 className="text-xs font-bold text-blue-900 uppercase tracking-wider mb-2">Basic Filters</h3>
@@ -654,91 +698,95 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
 
         {/* Listings */}
         {listings && (
-          <main className="flex-1 overflow-y-auto bg-gray-100 p-6">
+          <main className="flex-1 overflow-y-auto bg-gray-100 flex">
+            {/* Listings Column */}
+            <div className="flex-1 overflow-y-auto p-6 histogram-scrollbar">
+              {/* Breadcrumb Navigation */}
+              {showHistogram && drillHistory.length > 0 && (
+                <div className="mb-4 flex items-center gap-2 text-xs font-medium">
+                  <button 
+                    onClick={() => setDrillHistory([])}
+                    className="text-blue-900 hover:underline flex items-center gap-1"
+                  >
+                    <span className="material-symbols-outlined text-sm">home</span>
+                    All Prices
+                  </button>
+                  {drillHistory.map((range, idx) => (
+                    <React.Fragment key={idx}>
+                      <span className="text-gray-400">/</span>
+                      <button 
+                        onClick={() => setDrillHistory(drillHistory.slice(0, idx + 1))}
+                        className={`${
+                          idx === drillHistory.length - 1 
+                            ? 'text-gray-900 font-bold' 
+                            : 'text-blue-900 hover:underline'
+                        }`}
+                      >
+                        £{range.min.toFixed(0)} - £{range.max.toFixed(0)}
+                      </button>
+                    </React.Fragment>
+                  ))}
+                </div>
+              )}
 
-            {/* Breadcrumb Navigation */}
-            {drillHistory.length > 0 && (
-              <div className="mb-4 flex items-center gap-2 text-xs font-medium">
-                <button 
-                  onClick={() => setDrillHistory([])}
-                  className="text-blue-900 hover:underline flex items-center gap-1"
-                >
-                  <span className="material-symbols-outlined text-sm">home</span>
-                  All Prices
-                </button>
-                {drillHistory.map((range, idx) => (
-                  <React.Fragment key={idx}>
-                    <span className="text-gray-400">/</span>
-                    <button 
-                      onClick={() => setDrillHistory(drillHistory.slice(0, idx + 1))}
-                      className={`${
-                        idx === drillHistory.length - 1 
-                          ? 'text-gray-900 font-bold' 
-                          : 'text-blue-900 hover:underline'
-                      }`}
-                    >
-                      £{range.min.toFixed(0)} - £{range.max.toFixed(0)}
-                    </button>
-                  </React.Fragment>
-                ))}
-              </div>
-            )}
+              <div className={`grid ${showHistogram ? 'grid-cols-1' : 'grid-cols-2'} gap-4`}>
+                {displayedListings && displayedListings.map((item, idx) => (
+                  <a
+                    key={`${item.title}-${idx}`}
+                    href={item.url}                // ✅ link to eBay
+                    target="_blank"                // open in new tab
+                    rel="noopener noreferrer"      // security best practice
+                    className="bg-white rounded-xl border border-gray-200 p-4 flex gap-4 hover:shadow-md transition-all duration-300"
+                    style={{ 
+                      animationDelay: `${idx * 20}ms`,
+                      opacity: 0,
+                      animation: 'fadeInUp 0.4s ease-out forwards'
+                    }}
+                  >
 
-            {/* --- HISTOGRAM COMPONENT --- */}
-            <div className="animate-histogram-slide">
-              <PriceHistogram 
-                listings={displayedListings} 
-                onBucketSelect={handleDrillDown}
-                priceRange={currentPriceRange}
-                onGoBack={handleZoomOut}
-                drillLevel={drillHistory.length}
-              />
-            </div>
-            {/* ------------------------------- */}
-
-            <div className="grid grid-cols-2 gap-4">
-              {displayedListings && displayedListings.map((item, idx) => (
-                <a
-                  key={`${item.title}-${idx}`}
-                  href={item.url}                // ✅ link to eBay
-                  target="_blank"                // open in new tab
-                  rel="noopener noreferrer"      // security best practice
-                  className="bg-white rounded-xl border border-gray-200 p-4 flex gap-4 hover:shadow-md transition-all duration-300"
-                  style={{ 
-                    animationDelay: `${idx * 20}ms`,
-                    opacity: 0,
-                    animation: 'fadeInUp 0.4s ease-out forwards'
-                  }}
-                >
-
-                  <div className="w-32 h-32 bg-gray-200 rounded-lg flex items-center justify-center overflow-hidden rounded-lg">
-                    {item.image ? (
-                      <img
-                        src={item.image}
-                        alt={item.title || "eBay listing"}
-                        className="w-full h-full object-cover"
-                        loading="lazy"
-                      />
-                    ) : (
-                      <span className="text-xs text-gray-500">No image</span>
-                    )}
-                  </div>
-                  <div className="flex flex-col justify-between flex-1">
-                    <div>
-                      <h4 className="text-sm font-bold text-blue-900 line-clamp-2 leading-tight cursor-pointer hover:underline">{item.title}</h4>
-                      {item.sold && (
-                        <p className="text-[11px] text-green-600 font-bold mt-1">{item.sold}</p>
+                    <div className="w-32 h-32 bg-gray-200 rounded-lg flex items-center justify-center overflow-hidden rounded-lg">
+                      {item.image ? (
+                        <img
+                          src={item.image}
+                          alt={item.title || "eBay listing"}
+                          className="w-full h-full object-cover"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <span className="text-xs text-gray-500">No image</span>
                       )}
                     </div>
-                    <div className="flex items-end justify-between mt-2">
+                    <div className="flex flex-col justify-between flex-1">
                       <div>
-                        <p className="text-lg font-extrabold text-gray-900 leading-none">£{item.price}</p>
+                        <h4 className="text-sm font-bold text-blue-900 line-clamp-2 leading-tight cursor-pointer hover:underline">{item.title}</h4>
+                        {item.sold && (
+                          <p className="text-[11px] text-green-600 font-bold mt-1">{item.sold}</p>
+                        )}
+                      </div>
+                      <div className="flex items-end justify-between mt-2">
+                        <div>
+                          <p className="text-lg font-extrabold text-gray-900 leading-none">£{item.price}</p>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </a>
-              ))}
+                  </a>
+                ))}
+              </div>
             </div>
+
+            {/* --- HISTOGRAM COMPONENT (Right Side) --- */}
+            {showHistogram && (
+              <aside className="w-80 border-l border-gray-200 overflow-hidden">
+                <PriceHistogram 
+                  listings={displayedListings} 
+                  onBucketSelect={handleDrillDown}
+                  priceRange={currentPriceRange}
+                  onGoBack={handleZoomOut}
+                  drillLevel={drillHistory.length}
+                />
+              </aside>
+            )}
+            {/* ------------------------------- */}
           </main>
         )}
       </div>
