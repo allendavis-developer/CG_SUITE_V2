@@ -154,45 +154,38 @@ const MainContent = ({
   }, [variant]);
 
   const handleAddToCart = () => {
-    if (!selectedModel || !selectedOfferId) {
-      alert('Please select an offer to give the customer');
+    if (!selectedModel || !variant || offers.length === 0) {
+      alert('Please select a variant and offer');
       return;
     }
 
     const selectedVariant = variants.find(v => v.cex_sku === variant);
 
-    let cartItem;
+    const normalizedOffers = offers.map(o => ({
+      id: o.id,
+      title: o.title,
+      price: Number(o.price)
+    }));
 
-    if (selectedOfferId === 'manual') {
-      if (!manualOfferPrice || parseFloat(manualOfferPrice) <= 0) return;
-
-      cartItem = {
-        id: Date.now(),
-        title: selectedModel.name,
-        subtitle: selectedVariant?.title || Object.values(attributeValues).filter(v => v).join(' / ') || 'Standard',
-        price: formatGBP(parseFloat(manualOfferPrice)),
-        customerExpectation: 0,
-        highlighted: false,
-        offerId: 'manual',
-        offerTitle: 'Manual Offer',
-        variantId: selectedVariant?.variant_id
-      };
-    } else {
-      const selectedOffer = offers.find(offer => offer.id === selectedOfferId);
-      if (!selectedOffer) return;
-
-      cartItem = {
-        id: Date.now(),
-        title: selectedModel.name,
-        subtitle: selectedVariant?.title || Object.values(attributeValues).filter(v => v).join(' / ') || 'Standard',
-        price: formatGBP(parseFloat(selectedOffer.price)),
-        customerExpectation: 0,
-        highlighted: false,
-        offerId: selectedOffer.id,
-        offerTitle: selectedOffer.title,
-        variantId: selectedVariant?.variant_id
-      };
+    if (manualOfferPrice && selectedOfferId === 'manual') {
+      normalizedOffers.unshift({
+        id: 'manual',
+        title: 'Manual Offer',
+        price: Number(manualOfferPrice)
+      });
     }
+
+    const cartItem = {
+      id: Date.now(),
+      title: selectedModel.name,
+      subtitle:
+        selectedVariant?.title ||
+        Object.values(attributeValues).filter(v => v).join(' / ') ||
+        'Standard',
+      offers: normalizedOffers,
+      selectedOfferId,
+      variantId: selectedVariant?.variant_id
+    };
 
     addToCart(cartItem);
   };

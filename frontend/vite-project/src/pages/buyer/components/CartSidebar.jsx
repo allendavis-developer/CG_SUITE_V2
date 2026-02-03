@@ -19,8 +19,8 @@ const CartSidebar = ({
   };
 
   const total = cartItems.reduce((sum, item) => {
-    const numericPrice = Number(item.price.replace(/[^0-9.]/g, ''));
-    return sum + numericPrice;
+    const selected = item.offers.find(o => o.id === item.selectedOfferId);
+    return sum + (selected ? selected.price : 0);
   }, 0);
 
   const handleFinalize = async () => {
@@ -99,22 +99,86 @@ const CartSidebar = ({
 
       <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-white">
         {cartItems.length === 0 ? (
-          <div className="text-center py-12">
-            <Icon name="shopping_cart" className="text-4xl text-gray-300 mb-2" />
-            <p className="text-sm text-gray-500">No items in cart</p>
-          </div>
-        ) : (
-          cartItems.map((item) => (
-            <CartItem
+        <div className="text-center py-12">
+          <Icon name="shopping_cart" className="text-4xl text-gray-300 mb-2" />
+          <p className="text-sm text-gray-500">No items in cart</p>
+        </div>
+      ) : (
+        cartItems.map((item) => {
+          const selectedOffer = item.offers.find(
+            o => o.id === item.selectedOfferId
+          );
+
+          return (
+            <div
               key={item.id}
-              title={item.title}
-              subtitle={item.subtitle}
-              price={item.price}
-              isHighlighted={false}
-              onRemove={() => removeItem(item.id)}
-            />
-          ))
+              className="border border-blue-900/20 rounded-lg p-3 bg-white"
+            >
+              {/* Header */}
+              <div className="flex justify-between items-start">
+                <div>
+                  <h4 className="font-bold text-sm text-blue-900">
+                    {item.title}
+                  </h4>
+                  <p className="text-xs text-blue-900/60">
+                    {item.subtitle}
+                  </p>
+                </div>
+
+                <Button
+                  variant="ghost"
+                  onClick={() => removeItem(item.id)}
+                >
+                  <Icon name="close" />
+                </Button>
+              </div>
+
+              {/* Offers */}
+            <div className="mt-2 flex flex-wrap items-center text-xs">
+              {item.offers.map((offer, index) => {
+                const isSelected = offer.id === item.selectedOfferId;
+
+                return (
+                  <React.Fragment key={offer.id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCartItems(cartItems.map(ci =>
+                          ci.id === item.id
+                            ? { ...ci, selectedOfferId: offer.id }
+                            : ci
+                        ));
+                      }}
+                      className={`px-2 py-0.5 rounded-md font-bold transition-colors
+                        ${isSelected
+                          ? 'bg-blue-900 text-white'
+                          : 'text-gray-500 hover:bg-gray-100'
+                        }`}
+                    >
+                      £{offer.price.toFixed(2)}
+                    </button>
+
+                    {index < item.offers.length - 1 && (
+                      <span className="mx-1 text-gray-300 select-none">/</span>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </div>
+
+
+
+        {/* Selected price */}
+        {selectedOffer && (
+          <div className="mt-3 text-right text-sm font-extrabold text-blue-900">
+            Selected: £{selectedOffer.price.toFixed(2)}
+          </div>
         )}
+      </div>
+    );
+  })
+)}
+
       </div>
 
       <div className="p-6 bg-white border-t border-blue-900/20 space-y-4">
