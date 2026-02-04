@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button, Icon } from '../ui/components';
 import { scrapeEbay } from '@/services/extensionClient';
 import { HorizontalOfferCard } from '@/components/ui/components';
@@ -23,7 +23,6 @@ const fadeInUpAnimation = `
   
   .histogram-scrollbar::-webkit-scrollbar-track {
     background: #f1f5f9;
-    border-radius: 4px;
   }
   
   .histogram-scrollbar::-webkit-scrollbar-thumb {
@@ -181,8 +180,10 @@ function PriceHistogram({ listings, onBucketSelect, priceRange, onGoBack, drillL
         </div>
       </div>
       
-      {/* Chart Area - Vertical */}
-      <div className="flex-1 flex flex-col gap-1.5 p-4 overflow-y-auto histogram-scrollbar">
+      {/* Chart Area - Fixed height with flex distribution */}
+      <div className="flex-1 flex flex-col p-4 overflow-hidden" style={{
+        gap: bucketCount <= 10 ? '6px' : bucketCount <= 15 ? '4px' : '2px'
+      }}>
         {buckets.slice().reverse().map((bucket, i) => {
           const reverseIndex = buckets.length - 1 - i;
           const widthPct = maxFreq > 0 ? (bucket.count / maxFreq) * 100 : 0;
@@ -190,17 +191,18 @@ function PriceHistogram({ listings, onBucketSelect, priceRange, onGoBack, drillL
           return (
             <div 
               key={reverseIndex} 
-              className={`flex items-center gap-2 relative group transition-all duration-500 ${
+              className={`flex flex-1 items-center gap-2 relative group transition-all duration-500 ${
                 bucket.count > 0 ? 'cursor-pointer' : ''
               }`}
               onClick={() => bucket.count > 0 && onBucketSelect(bucket.rangeStart, bucket.rangeEnd)}
               style={{
                 transform: `scale(${bucket.count > 0 ? 1 : 0.95})`,
-                opacity: bucket.count > 0 ? 1 : 0.3
+                opacity: bucket.count > 0 ? 1 : 0.3,
+                minHeight: '8px'
               }}
             >
               {/* The Bar */}
-              <div className="flex-1 flex items-center justify-end">
+              <div className="flex-1 flex items-center justify-end h-full">
                 {/* Frequency Label (Left of bar) */}
                 {bucket.count > 0 && (
                   <span 
@@ -211,7 +213,7 @@ function PriceHistogram({ listings, onBucketSelect, priceRange, onGoBack, drillL
                 )}
                 
                 <div 
-                  className={`h-6 transition-all duration-500 ${
+                  className={`h-full transition-all duration-500 ${
                     bucket.count > 0 
                       ? 'bg-yellow-400 group-hover:bg-blue-900 group-hover:shadow-lg shadow-sm'
                       : 'bg-gray-50'
@@ -223,7 +225,7 @@ function PriceHistogram({ listings, onBucketSelect, priceRange, onGoBack, drillL
                   }}
                 />
               </div>
-              
+                
               {/* Price Range Label (Right side) - Expanded width */}
               <div className="text-blue-900 font-bold text-[10px] whitespace-nowrap w-28 text-left pl-2">
                 £{bucket.rangeStart.toFixed(0)} - £{bucket.rangeEnd.toFixed(0)}
@@ -311,7 +313,7 @@ function buildEbayUrl(searchTerm, filters, categoryPath, behaveAsEbay = false) {
 }
 
 
-export default function EbayResearchForm({ onComplete, category, mode = "modal", savedState = null }) {
+export default function EbayResearchForm({ onComplete, category, mode = "modal", savedState = null, initialHistogramState = null }) {
   // Initialize state from savedState if available
   const [searchTerm, setSearchTerm] = useState(savedState?.searchTerm || "");
   const [filterOptions, setFilterOptions] = useState(savedState?.filterOptions || []); // API filters
@@ -328,8 +330,12 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
   // Behave like eBay mode - when true, ignore category mapping
   const [behaveAsEbay, setBehaveAsEbay] = useState(savedState?.behaveAsEbay || false);
   
-  // Histogram visibility
-  const [showHistogram, setShowHistogram] = useState(savedState?.showHistogram ?? true);
+  // Histogram visibility - use initialHistogramState if provided, otherwise check savedState, otherwise default based on mode
+  const [showHistogram, setShowHistogram] = useState(
+    initialHistogramState !== null 
+      ? initialHistogramState 
+      : (savedState?.showHistogram ?? (mode === "modal"))
+  );
 
   const [selectedFilters, setSelectedFilters] = useState(savedState?.selectedFilters || {
     basic: ["Completed & Sold", "Used", "UK Only"],
@@ -724,7 +730,7 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
       </div>
 
       {/* Main content */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className={`flex ${mode === "page" ? "h-[calc(100vh-200px)]" : "flex-1"} overflow-hidden`}>
         {/* Sidebar filters */}
         {filterOptions.length > 0 && (
           <aside className="w-64 border-r border-gray-200 overflow-y-auto bg-white p-4 space-y-6 histogram-scrollbar">

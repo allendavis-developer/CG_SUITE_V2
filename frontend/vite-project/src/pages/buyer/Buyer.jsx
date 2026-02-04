@@ -145,7 +145,7 @@ export default function Buyer() {
     setCartItems((prev) => [...prev, item]);
   };
 
-  // ✅ NEW FUNCTION: Update cart item with eBay research data
+  //  NEW FUNCTION: Update cart item with eBay research data
   const updateCartItemEbayData = (variantId, ebayData) => {
     console.log("Attempting to update item:", variantId);
     console.log("Current Cart Items:", cartItems.map(i => i.variantId));

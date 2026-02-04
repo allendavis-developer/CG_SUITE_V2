@@ -175,10 +175,10 @@ const MainContent = ({
         selectedVariant?.title ||
         Object.values(attributeValues).filter(v => v).join(' / ') ||
         'Standard',
-      // We keep the offers array for reference, but remove selectedOfferId
       offers: normalizedOffers,
-      variantId: selectedVariant?.variant_id, // THIS is the key
+      variantId: selectedVariant?.variant_id,
       category: selectedCategory?.name,
+      categoryObject: selectedCategory, // ✅ ADD THIS LINE - Store full category object
       model: selectedModel?.name,
       condition: attributeValues.condition || selectedVariant?.condition,
       color: attributeValues.color || selectedVariant?.color,
@@ -212,8 +212,9 @@ const MainContent = ({
       const customCartItem = {
         id: Date.now(),
         title: data.searchTerm || "eBay Research Item",
-        subtitle: filterSubtitle, // ✅ Now displays specific filters instead of repeating title
+        subtitle: filterSubtitle,
         category: selectedCategory?.name,
+        categoryObject: selectedCategory, // ✅ ADD THIS LINE - Store full category object
         offers: data.buyOffers.map((o, idx) => ({
           id: `ebay-${Date.now()}-${idx}`,
           title: ["1st Offer", "2nd Offer", "3rd Offer"][idx] || "Offer",
@@ -278,6 +279,8 @@ const MainContent = ({
             category={selectedCategory}
             onComplete={handleEbayResearchComplete}
             savedState={savedEbayState}
+            initialHistogramState={false} // Histogram unchecked by default
+
           />
         </div>
       )}
