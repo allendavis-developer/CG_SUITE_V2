@@ -27,7 +27,8 @@ const MainContent = ({
   availableModels, 
   selectedModel, 
   setSelectedModel, 
-  addToCart 
+  addToCart,
+  updateCartItemEbayData  // ✅ New prop to update cart items
 }) => {
   const [activeTab, setActiveTab] = useState('info');
   const [variants, setVariants] = useState([]);
@@ -41,7 +42,7 @@ const MainContent = ({
   const [referenceData, setReferenceData] = useState(null);
   const [ourSalePrice, setOurSalePrice] = useState('');
   const [ebayData, setEbayData] = useState(null);
-  const [savedEbayState, setSavedEbayState] = useState(null); // ✨ Store complete eBay research state
+  const [savedEbayState, setSavedEbayState] = useState(null);
 
   const {
     attributes,
@@ -116,7 +117,7 @@ const MainContent = ({
       setReferenceData(null);
       setOurSalePrice('');
       setEbayData(null);
-      setSavedEbayState(null); // ✨ Clear saved eBay state when variant changes
+      setSavedEbayState(null);
       return;
     }
 
@@ -184,17 +185,34 @@ const MainContent = ({
         'Standard',
       offers: normalizedOffers,
       selectedOfferId,
-      variantId: selectedVariant?.variant_id
+      variantId: selectedVariant?.variant_id,
+      // ✅ ADD ALL THE ITEM DETAILS
+      category: selectedCategory?.name,
+      model: selectedModel?.name,
+      condition: attributeValues.condition || selectedVariant?.condition,
+      color: attributeValues.color || selectedVariant?.color,
+      storage: attributeValues.storage || selectedVariant?.storage,
+      network: attributeValues.network || selectedVariant?.network,
+      // ✅ ATTACH EBAY RESEARCH DATA
+      ebayResearchData: savedEbayState || null,
+      // ✅ ADD REFERENCE DATA (CEX prices, etc.)
+      referenceData: referenceData
     };
 
+    console.log('Adding to cart with eBay data:', cartItem);
     addToCart(cartItem);
   };
 
-  // ✨ Updated to save complete state
   const handleEbayResearchComplete = (data) => {
     console.log('eBay research done', data);
     setEbayData(data);
-    setSavedEbayState(data); // Save the complete state for restoration
+    setSavedEbayState(data);
+    
+    // ✅ If there's a current variant in cart, update it with this eBay data
+    // This allows updating items that are already in cart
+    if (variant && typeof updateCartItemEbayData === 'function') {
+      updateCartItemEbayData(variant, data);
+    }
   };
 
   if (!selectedCategory) {
@@ -239,7 +257,7 @@ const MainContent = ({
             mode="page"
             category={selectedCategory}
             onComplete={handleEbayResearchComplete}
-            savedState={savedEbayState} // ✨ Pass saved state to restore previous research
+            savedState={savedEbayState}
           />
         </div>
       )}
@@ -300,7 +318,6 @@ const MainContent = ({
               setEbayModalOpen={setEbayModalOpen}
             />
 
-            {/* ✨ Reopen eBay Research button when data is saved */}
             {savedEbayState && savedEbayState.listings && (
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <div className="flex items-center justify-between">
@@ -347,11 +364,11 @@ const MainContent = ({
             open={isEbayModalOpen}
             onClose={() => setEbayModalOpen(false)}
             category={selectedCategory}
-            savedState={savedEbayState} // ✨ Pass saved state to modal
+            savedState={savedEbayState}
             onResearchComplete={(data) => {
               console.log('eBay research done', data);
               setEbayData(data);
-              setSavedEbayState(data); // ✨ Save the complete state
+              setSavedEbayState(data);
               setEbayModalOpen(false);
             }}
           />

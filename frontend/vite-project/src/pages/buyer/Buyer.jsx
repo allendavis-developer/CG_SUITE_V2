@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Header, Sidebar } from '@/components/ui/components';
 import CustomerIntakeModal from "@/components/modals/CustomerIntakeModal.jsx";
 import MainContent from '@/pages/buyer/components/MainContent';
 import CartSidebar from '@/pages/buyer/components/CartSidebar';
+import { useLocation } from 'react-router-dom';
 
 import { fetchProductModels } from '@/services/api';
 import { 
@@ -15,6 +16,8 @@ import {
  * Main Buyer application component
  */
 export default function Buyer() {
+  const location = useLocation();
+  
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [availableModels, setAvailableModels] = useState([]);
   const [selectedModel, setSelectedModel] = useState(null);
@@ -31,6 +34,27 @@ export default function Buyer() {
     cancelRate: 0,
     transactionType: 'sale'
   });
+
+  // ✅ Restore state when coming back from negotiation page
+  useEffect(() => {
+    if (location.state?.preserveCart) {
+      console.log('Restoring cart state from navigation:', location.state);
+      
+      if (location.state.cartItems) {
+        setCartItems(location.state.cartItems);
+      }
+      
+      if (location.state.customerData) {
+        setCustomerData(location.state.customerData);
+        setCustomerModalOpen(false); // Don't show modal if we have customer data
+      }
+      
+      if (location.state.currentRequestId) {
+        setCurrentRequestId(location.state.currentRequestId);
+        setRequestStatus('OPEN');
+      }
+    }
+  }, [location.state]);
 
   const handleCategorySelect = async (category) => {
     setSelectedCategory(category);
@@ -121,6 +145,23 @@ export default function Buyer() {
     setCartItems((prev) => [...prev, item]);
   };
 
+  // ✅ NEW FUNCTION: Update cart item with eBay research data
+  const updateCartItemEbayData = (variantId, ebayData) => {
+    setCartItems((prevItems) => 
+      prevItems.map((item) => {
+        // Match by variantId
+        if (item.variantId === variantId) {
+          console.log('Updating cart item with eBay data:', item.title);
+          return {
+            ...item,
+            ebayResearchData: ebayData
+          };
+        }
+        return item;
+      })
+    );
+  };
+
   return (
     <div className="bg-gray-50 text-gray-900 min-h-screen flex flex-col text-sm">
       <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -154,7 +195,8 @@ export default function Buyer() {
           availableModels={availableModels}
           selectedModel={selectedModel}
           setSelectedModel={setSelectedModel}
-          addToCart={addToCart}   
+          addToCart={addToCart}
+          updateCartItemEbayData={updateCartItemEbayData}  // ✅ Pass the update function
         />
         <CartSidebar 
           cartItems={cartItems} 

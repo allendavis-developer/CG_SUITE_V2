@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Icon, Button, CartItem } from '@/components/ui/components';
-import { useNavigate } from "react-router-dom"; // <-- add this
-
+import { useNavigate } from "react-router-dom";
 
 /**
  * Shopping cart sidebar component
@@ -15,7 +14,7 @@ const CartSidebar = ({
 }) => {
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [overallExpectation, setOverallExpectation] = useState('');
-  const navigate = useNavigate(); // <-- call the hook here
+  const navigate = useNavigate();
 
   const removeItem = (id) => {
     setCartItems(cartItems.filter(item => item.id !== id));
@@ -169,8 +168,6 @@ const CartSidebar = ({
               })}
             </div>
 
-
-
         {/* Selected price */}
         {selectedOffer && (
           <div className="mt-3 text-right text-sm font-extrabold text-blue-900">
@@ -218,11 +215,15 @@ const CartSidebar = ({
           variant="primary" 
           size="lg" 
           className="w-full group"
-          // In CartSidebar button
           onClick={() => {
-            navigate('/negotiation', { state: { cartItems, customerData } });
+            navigate('/negotiation', { 
+              state: { 
+                cartItems, 
+                customerData,
+                currentRequestId  // ✅ Pass the request ID
+              } 
+            });
           }}
-
           disabled={isFinalizing || cartItems.length === 0}
         >
           {isFinalizing ? (
