@@ -67,6 +67,11 @@ function parseSoldDate(soldStr) {
   return isNaN(parsed) ? null : parsed;
 }
 
+function roundToNearestFive(value) {
+  return Math.round(value / 5) * 5;
+}
+
+
 
 function PriceHistogram({ listings, onBucketSelect, priceRange, onGoBack, drillLevel }) {
   const [bucketCount, setBucketCount] = useState(10);
@@ -356,31 +361,33 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
     }
 
     const prices = listingsData.map(item => item.price).filter(p => p != null);
-    
     if (prices.length === 0) {
       return { average: 0, median: 0, suggestedPrice: 0 };
     }
 
-    // Calculate average
     const sum = prices.reduce((acc, price) => acc + price, 0);
-    const average = sum / prices.length;
+    const averageRaw = sum / prices.length;
 
-    // Calculate median
     const sortedPrices = [...prices].sort((a, b) => a - b);
     const mid = Math.floor(sortedPrices.length / 2);
-    const median = sortedPrices.length % 2 === 0
+    const medianRaw = sortedPrices.length % 2 === 0
       ? (sortedPrices[mid - 1] + sortedPrices[mid]) / 2
       : sortedPrices[mid];
 
-    // Calculate suggested price: £1 below if median is odd, £2 below if even
-    const medianRounded = Math.round(median);
-    const adjustment = medianRounded % 2 === 0 ? 2 : 1;
-    const suggestedPrice = median - adjustment;
+    // Round intelligently to market-friendly pricing
+    const average = roundToNearestFive(averageRaw);
+    const median = roundToNearestFive(medianRaw);
+
+    // Undercut slightly but stay on £5 grid
+    const suggestedPrice = Math.max(
+      roundToNearestFive(median - 5),
+      0
+    );
 
     return {
-      average: average.toFixed(2),
-      median: median.toFixed(2),
-      suggestedPrice: suggestedPrice.toFixed(2)
+      average,
+      median,
+      suggestedPrice
     };
   };
 
@@ -519,17 +526,44 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
   const StatsDisplay = () => (
     <div className="flex items-center gap-6">
       <div className="flex flex-col">
-        <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Average</span>
+        <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">
+          Average
+            <span
+              title="Rounded to nearest £5 for realistic market pricing"
+              className="text-[9px] text-blue-900 bg-blue-100 px-1.5 py-0.5 rounded"
+            >
+              £5
+            </span>
+
+          </span>
         <span className="text-lg font-extrabold text-blue-900">£{displayedStats.average}</span>
       </div>
       <div className="w-px h-8 bg-gray-200"></div>
       <div className="flex flex-col">
-        <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Median</span>
+        <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">
+          Median
+            <span
+              title="Rounded to nearest £5 for realistic market pricing"
+              className="text-[9px] text-blue-900 bg-blue-100 px-1.5 py-0.5 rounded"
+            >
+              £5
+            </span>
+
+          </span>
         <span className="text-lg font-extrabold text-blue-900">£{displayedStats.median}</span>
       </div>
       <div className="w-px h-8 bg-gray-200"></div>
       <div className="flex flex-col">
-        <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Suggested Sale Price</span>
+        <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">
+          Suggested Sale Price
+          <span
+            title="Rounded to nearest £5 for realistic market pricing"
+            className="text-[9px] text-blue-900 bg-blue-100 px-1.5 py-0.5 rounded"
+          >
+            £5
+          </span>
+
+          </span>
         <span className="text-lg font-extrabold text-green-600">£{displayedStats.suggestedPrice}</span>
       </div>
     </div>
