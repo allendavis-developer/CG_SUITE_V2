@@ -526,17 +526,23 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
   }, [displayedListings, stats]);
 
   // Helper to get current complete state for saving
-  const getCurrentState = () => ({
-    searchTerm,
-    filterOptions,
-    listings: listings ?? [],   
-    stats: displayedStats,
-    lastSearchedTerm,
-    drillHistory,
-    behaveAsEbay,
-    selectedFilters,
-    showHistogram
-  });
+  const getCurrentState = () => {
+    const offers = calculateBuyOffers(displayedStats.suggestedPrice);
+
+    return {
+      searchTerm,
+      filterOptions,
+      listings: listings ?? [],
+      stats: displayedStats,
+      buyOffers: offers,          
+      lastSearchedTerm,
+      drillHistory,
+      behaveAsEbay,
+      selectedFilters,
+      showHistogram
+    };
+  };
+
 
   // Wrapper classes based on mode
   // TODO: Why do we have ebay research modal if we do this

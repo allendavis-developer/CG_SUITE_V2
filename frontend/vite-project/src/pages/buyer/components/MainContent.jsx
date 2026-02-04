@@ -193,19 +193,47 @@ const MainContent = ({
   };
 
   const handleEbayResearchComplete = (data) => {
-    console.log('eBay research done', data);
     setEbayData(data);
     setSavedEbayState(data);
-    
-    //  FIX: Find the actual variant object to get its variant_id
-    const selectedVariant = variants.find(v => v.cex_sku === variant);
-    const targetId = selectedVariant?.variant_id;
 
-    if (targetId && typeof updateCartItemEbayData === 'function') {
-      // Pass the numeric ID that matches what's in the cart
-      updateCartItemEbayData(targetId, data);
+    if (isEbayCategory) {
+      // 1. Extract API filters (e.g., Storage, Network) and Basic filters (e.g., Used)
+      const apiFilterValues = Object.values(data.selectedFilters.apiFilters).flat();
+      const basicFilterValues = data.selectedFilters.basic;
+
+      // 2. Combine and filter out any empty strings/nulls
+      const allFilters = [...basicFilterValues, ...apiFilterValues].filter(Boolean);
+
+      // 3. Create a clean subtitle string
+      const filterSubtitle = allFilters.length > 0 
+        ? allFilters.join(' / ') 
+        : 'No filters applied';
+
+      const customCartItem = {
+        id: Date.now(),
+        title: data.searchTerm || "eBay Research Item",
+        subtitle: filterSubtitle, // ✅ Now displays specific filters instead of repeating title
+        category: selectedCategory?.name,
+        offers: data.buyOffers.map((o, idx) => ({
+          id: `ebay-${Date.now()}-${idx}`,
+          title: ["1st Offer", "2nd Offer", "3rd Offer"][idx] || "Offer",
+          price: Number(o.price)
+        })),
+        ebayResearchData: data,
+        isCustomEbayItem: true
+      };
+
+      addToCart(customCartItem);
+    } else {
+      // Standard logic for Modal mode
+      const selectedVariant = variants.find(v => v.cex_sku === variant);
+      const targetId = selectedVariant?.variant_id;
+      if (targetId && typeof updateCartItemEbayData === 'function') {
+        updateCartItemEbayData(targetId, data);
+      }
     }
   };
+
 
   if (!selectedCategory) {
     return (
