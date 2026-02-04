@@ -37,22 +37,22 @@ export default function Buyer() {
 
   // ✅ Restore state when coming back from negotiation page
   useEffect(() => {
+    // 1. Only restore if preserveCart is explicitly true
     if (location.state?.preserveCart) {
       console.log('Restoring cart state from navigation:', location.state);
       
-      if (location.state.cartItems) {
-        setCartItems(location.state.cartItems);
-      }
-      
+      if (location.state.cartItems) setCartItems(location.state.cartItems);
       if (location.state.customerData) {
         setCustomerData(location.state.customerData);
-        setCustomerModalOpen(false); // Don't show modal if we have customer data
+        setCustomerModalOpen(false);
       }
-      
       if (location.state.currentRequestId) {
         setCurrentRequestId(location.state.currentRequestId);
         setRequestStatus('OPEN');
       }
+
+      // 2. CRITICAL: Clear the state so a browser refresh doesn't trigger this again
+      window.history.replaceState({}, document.title);
     }
   }, [location.state]);
 
@@ -147,20 +147,17 @@ export default function Buyer() {
 
   // ✅ NEW FUNCTION: Update cart item with eBay research data
   const updateCartItemEbayData = (variantId, ebayData) => {
-    setCartItems((prevItems) => 
-      prevItems.map((item) => {
-        // Match by variantId
-        if (item.variantId === variantId) {
-          console.log('Updating cart item with eBay data:', item.title);
-          return {
-            ...item,
-            ebayResearchData: ebayData
-          };
-        }
-        return item;
-      })
-    );
-  };
+    console.log("Attempting to update item:", variantId);
+    console.log("Current Cart Items:", cartItems.map(i => i.variantId));
+      setCartItems(prevItems => {
+        return prevItems.map(item =>
+          // Match against the variantId assigned during handleAddToCart
+          item.variantId === variantId 
+            ? { ...item, ebayResearchData: ebayData } 
+            : item
+        );
+      });
+    };
 
   return (
     <div className="bg-gray-50 text-gray-900 min-h-screen flex flex-col text-sm">

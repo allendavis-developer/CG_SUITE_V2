@@ -13,6 +13,8 @@ const MarketComparisonsTable = ({
   ebayData, 
   setEbayModalOpen 
 }) => {
+  const hasEbayResearch = Boolean(ebayData?.lastSearchedTerm);
+
   return (
     <Card noPadding>
       <CardHeader
@@ -76,7 +78,7 @@ const MarketComparisonsTable = ({
             </tr>
           )}
 
-          {ebayData ? (
+          {hasEbayResearch ? (
             <tr className="hover:bg-gray-50 transition-colors">
               <td className="p-4 font-medium text-gray-900">eBay</td>
               <td className="p-4 font-bold text-gray-600">{formatGBP(parseFloat(ebayData.stats.median))}</td>

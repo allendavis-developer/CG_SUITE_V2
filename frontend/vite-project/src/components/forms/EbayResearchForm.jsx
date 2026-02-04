@@ -496,7 +496,7 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
   const getCurrentState = () => ({
     searchTerm,
     filterOptions,
-    listings,
+    listings: listings ?? [],   
     stats,
     lastSearchedTerm,
     drillHistory,

@@ -6,20 +6,22 @@ const Negotiation = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { cartItems, customerData, currentRequestId } = location.state || {};
+  const [items, setItems] = useState(cartItems || []);
 
   // Redirect if no cart data
   useEffect(() => {
-    if (!cartItems || cartItems.length === 0 || !customerData?.id) {
+    if (!items || items.length === 0 || !customerData?.id) {
       navigate("/buyer", { replace: true });
     }
-  }, [cartItems, customerData, navigate]);
+  }, [items, customerData, navigate]);
 
-  if (!cartItems || cartItems.length === 0 || !customerData?.id) {
+  
+  if (!items || items.length === 0 || !customerData?.id) {
     return null;
   }
 
   // Calculate totals
-  const totalOfferPrice = cartItems.reduce((sum, item) => {
+  const totalOfferPrice = items.reduce((sum, item) => {
     const selected = item.offers?.find(o => o.id === item.selectedOfferId);
     return sum + (selected ? selected.price : 0);
   }, 0);
@@ -50,7 +52,7 @@ const Negotiation = () => {
             <Button variant="secondary" onClick={() => navigate('/buyer', { 
               state: { 
                 preserveCart: true,
-                cartItems,
+                cartItems: items,
                 customerData,
                 currentRequestId
               }
@@ -77,24 +79,20 @@ const Negotiation = () => {
               </div>
               <div>
                 <p className="text-xs text-gray-500 uppercase tracking-wide">Cancel Rate</p>
-                <p className="font-semibold text-gray-900">{(customerData.cancelRate * 100).toFixed(1)}%</p>
+                <p className="font-semibold text-gray-900">{(customerData.cancelRate)}%</p>
               </div>
             </div>
           </div>
 
           {/* Summary Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
             <div className="bg-white rounded-lg shadow-sm p-4">
               <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Total Items</p>
-              <p className="text-2xl font-bold text-blue-900">{cartItems.length}</p>
+              <p className="text-2xl font-bold text-blue-900">{items.length}</p>
             </div>
             <div className="bg-white rounded-lg shadow-sm p-4">
               <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Total Offer Price</p>
               <p className="text-2xl font-bold text-green-600">£{totalOfferPrice.toFixed(2)}</p>
-            </div>
-            <div className="bg-white rounded-lg shadow-sm p-4">
-              <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Average Price per Item</p>
-              <p className="text-2xl font-bold text-gray-900">£{(totalOfferPrice / cartItems.length).toFixed(2)}</p>
             </div>
           </div>
         </div>
@@ -114,7 +112,7 @@ const Negotiation = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {cartItems.map((item, index) => {
+                {items.map((item, index) => {
                   const selectedOffer = item.offers?.find(o => o.id === item.selectedOfferId);
                   const ebayData = item.ebayResearchData;
 
@@ -177,24 +175,38 @@ const Negotiation = () => {
                       <td className="px-4 py-4">
                         <div className="space-y-1">
                           {item.offers && item.offers.length > 0 ? (
-                            item.offers.map((offer) => (
-                              <div 
-                                key={offer.id} 
-                                className={`flex items-center justify-between px-2 py-1 rounded text-xs ${
-                                  offer.id === item.selectedOfferId 
-                                    ? 'bg-blue-900 text-white font-bold' 
-                                    : 'bg-gray-100 text-gray-700'
-                                }`}
-                              >
-                                <span>{offer.name || offer.type || 'Offer'}</span>
-                                <span className="font-bold">£{offer.price.toFixed(2)}</span>
-                              </div>
-                            ))
+                            item.offers.map((offer) => {
+                              const isSelected = offer.id === item.selectedOfferId;
+
+                              return (
+                                <button
+                                  key={offer.id}
+                                  onClick={() => {
+                                    setItems(prev =>
+                                      prev.map(i =>
+                                        i.id === item.id
+                                          ? { ...i, selectedOfferId: offer.id }
+                                          : i
+                                      )
+                                    );
+                                  }}
+                                  className={`w-full flex items-center justify-between px-2 py-1 rounded text-xs transition
+                                    ${isSelected
+                                      ? "bg-blue-900 text-white font-bold"
+                                      : "bg-gray-100 text-gray-700 hover:bg-blue-100 hover:text-blue-900"
+                                    }`}
+                                >
+                                  <span>{offer.name || offer.type || "Offer"}</span>
+                                  <span className="font-bold">£{offer.price.toFixed(2)}</span>
+                                </button>
+                              );
+                            })
                           ) : (
                             <p className="text-xs text-gray-500">No offers available</p>
                           )}
                         </div>
                       </td>
+
 
                       {/* Selected Offer */}
                       <td className="px-4 py-4 text-right">
@@ -327,7 +339,7 @@ const Negotiation = () => {
           <Button variant="outline" size="lg" onClick={() => navigate('/buyer', { 
             state: { 
               preserveCart: true,
-              cartItems,
+              cartItems: items,
               customerData,
               currentRequestId
             }

@@ -38,7 +38,6 @@ const MainContent = ({
   const [offers, setOffers] = useState([]);
   const [isLoadingOffers, setIsLoadingOffers] = useState(false);
   const [selectedOfferId, setSelectedOfferId] = useState(null);
-  const [manualOfferPrice, setManualOfferPrice] = useState('');
   const [referenceData, setReferenceData] = useState(null);
   const [ourSalePrice, setOurSalePrice] = useState('');
   const [ebayData, setEbayData] = useState(null);
@@ -155,8 +154,9 @@ const MainContent = ({
   }, [variant]);
 
   const handleAddToCart = () => {
-    if (!selectedModel || !variant || offers.length === 0) {
-      alert('Please select a variant and offer');
+    // We only need to check if the model and variant exist now
+    if (!selectedModel || !variant) {
+      alert('Please select a variant');
       return;
     }
 
@@ -168,14 +168,6 @@ const MainContent = ({
       price: Number(o.price)
     }));
 
-    if (manualOfferPrice && selectedOfferId === 'manual') {
-      normalizedOffers.unshift({
-        id: 'manual',
-        title: 'Manual Offer',
-        price: Number(manualOfferPrice)
-      });
-    }
-
     const cartItem = {
       id: Date.now(),
       title: selectedModel.name,
@@ -183,23 +175,20 @@ const MainContent = ({
         selectedVariant?.title ||
         Object.values(attributeValues).filter(v => v).join(' / ') ||
         'Standard',
+      // We keep the offers array for reference, but remove selectedOfferId
       offers: normalizedOffers,
-      selectedOfferId,
-      variantId: selectedVariant?.variant_id,
-      // ✅ ADD ALL THE ITEM DETAILS
+      variantId: selectedVariant?.variant_id, // THIS is the key
       category: selectedCategory?.name,
       model: selectedModel?.name,
       condition: attributeValues.condition || selectedVariant?.condition,
       color: attributeValues.color || selectedVariant?.color,
       storage: attributeValues.storage || selectedVariant?.storage,
       network: attributeValues.network || selectedVariant?.network,
-      // ✅ ATTACH EBAY RESEARCH DATA
       ebayResearchData: savedEbayState || null,
-      // ✅ ADD REFERENCE DATA (CEX prices, etc.)
       referenceData: referenceData
     };
 
-    console.log('Adding to cart with eBay data:', cartItem);
+    console.log('Adding to cart (Offers included as reference only):', cartItem);
     addToCart(cartItem);
   };
 
@@ -208,10 +197,13 @@ const MainContent = ({
     setEbayData(data);
     setSavedEbayState(data);
     
-    // ✅ If there's a current variant in cart, update it with this eBay data
-    // This allows updating items that are already in cart
-    if (variant && typeof updateCartItemEbayData === 'function') {
-      updateCartItemEbayData(variant, data);
+    //  FIX: Find the actual variant object to get its variant_id
+    const selectedVariant = variants.find(v => v.cex_sku === variant);
+    const targetId = selectedVariant?.variant_id;
+
+    if (targetId && typeof updateCartItemEbayData === 'function') {
+      // Pass the numeric ID that matches what's in the cart
+      updateCartItemEbayData(targetId, data);
     }
   };
 
@@ -353,10 +345,6 @@ const MainContent = ({
               variant={variant}
               offers={offers}
               ourSalePrice={ourSalePrice}
-              selectedOfferId={selectedOfferId}
-              setSelectedOfferId={setSelectedOfferId}
-              manualOfferPrice={manualOfferPrice}
-              setManualOfferPrice={setManualOfferPrice}
             />
           </div>
 
@@ -366,11 +354,12 @@ const MainContent = ({
             category={selectedCategory}
             savedState={savedEbayState}
             onResearchComplete={(data) => {
-              console.log('eBay research done', data);
-              setEbayData(data);
-              setSavedEbayState(data);
-              setEbayModalOpen(false);
-            }}
+            // 1. This handles local state AND the cart update logic
+            handleEbayResearchComplete(data); 
+            
+            // 2. Close the modal
+            setEbayModalOpen(false);
+          }}
           />
         </>
       )}
