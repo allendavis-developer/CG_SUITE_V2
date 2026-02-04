@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Button, Icon } from '../ui/components';
 import { scrapeEbay } from '@/services/extensionClient';
+import { HorizontalOfferCard } from '@/components/ui/components';
 
 // Add animation styles
 const fadeInUpAnimation = `
@@ -71,6 +72,17 @@ function roundToNearestFive(value) {
   return Math.round(value / 5) * 5;
 }
 
+function calculateBuyOffers(sellPrice) {
+  if (!sellPrice || sellPrice <= 0) return [];
+
+  const margins = [0.6, 0.5, 0.4];
+
+  return margins.map(margin => ({
+    margin,
+    price: roundToNearestFive(sellPrice * (1 - margin))
+  }));
+}
+
 
 
 function PriceHistogram({ listings, onBucketSelect, priceRange, onGoBack, drillLevel }) {
@@ -89,6 +101,20 @@ function PriceHistogram({ listings, onBucketSelect, priceRange, onGoBack, drillL
   const max = priceRange ? priceRange.max : Math.max(...prices);
   const totalRange = max - min;
   const rawStep = totalRange / bucketCount;
+
+  if (min === max) {
+    return (
+      <div className="bg-white h-full rounded-xl border border-gray-200 shadow-sm p-4">
+        <h3 className="text-xs font-bold text-blue-900 uppercase tracking-wider mb-2">
+          Market Price Density
+        </h3>
+        <p className="text-[10px] text-gray-500">
+          Not enough price variation to build a distribution.
+        </p>
+      </div>
+    );
+  }
+
 
   const buckets = Array(bucketCount).fill(0).map((_, i) => ({
     count: 0,
@@ -569,6 +595,38 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
     </div>
   );
 
+  const BuyOffersDisplay = () => {
+    const offers = calculateBuyOffers(displayedStats.suggestedPrice);
+
+    if (!offers.length) return null;
+
+    const offerLabels = ["1st Offer", "2nd Offer", "3rd Offer"];
+
+    return (
+      <div className="flex flex-wrap items-center gap-4">
+        {offers.map(({ price }, idx) => (
+          <HorizontalOfferCard
+            key={idx}
+            title={offerLabels[idx] || `${idx + 1}th Offer`}
+            price={`£${price}`}
+            margin={Math.round([0.6, 0.5, 0.4][idx] * 100)} // still keep margin if needed
+          />
+        ))}
+      </div>
+    );
+  };
+
+
+
+  const StatsAndBuyOffers = () => (
+    <div className="flex items-center gap-6 flex-wrap">
+      <StatsDisplay />
+      <BuyOffersDisplay />
+    </div>
+  );
+
+
+
   const content = (
     <>
       {/* Header - Only show in modal mode */}
@@ -593,10 +651,21 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
 
       {/* Stats at top - Only show in page mode when we have results */}
       {mode === "page" && listings && (
-        <div className="px-6 py-4 border-b border-gray-200 bg-white">
-          <StatsDisplay />
-        </div>
+      <div className="px-6 py-4 border-b border-gray-200 bg-white flex items-center justify-between gap-6 flex-wrap">
+        <StatsAndBuyOffers />
+        <Button
+          variant="primary"
+          size="md"
+          onClick={() => onComplete?.(getCurrentState())}
+          className="shrink-0 mt-2 md:mt-0"
+        >
+          <Icon name="add_shopping_cart" className="text-sm" />
+          Add to Cart
+        </Button>
+      </div>
       )}
+
+
 
       {/* Search Input */}
       <div className="px-6 py-4 border-b border-gray-200 bg-gray-100/50">
@@ -828,7 +897,7 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
       {/* Footer - Only show in modal mode */}
       {mode === "modal" && (
         <footer className="px-6 py-4 border-t border-gray-200 bg-white flex justify-between items-center shrink-0">
-          <StatsDisplay />
+          <StatsAndBuyOffers  />
           <div className="flex gap-3">
             <Button variant="outline" size="md" onClick={() => onComplete?.(getCurrentState())}>Cancel</Button>
             {listings && (

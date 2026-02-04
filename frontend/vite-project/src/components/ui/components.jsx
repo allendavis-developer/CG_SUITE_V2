@@ -545,6 +545,58 @@ export const OfferCard = ({ title, price, margin, isHighlighted, onClick }) => (
   </div>
 );
 
+
+// Horizontal Offer Card 
+export const HorizontalOfferCard = ({
+  title,
+  price,
+  margin,
+  isHighlighted,
+  onClick
+}) => (
+  <div
+    onClick={onClick}
+    className={`
+      flex items-center justify-between px-3 py-2 rounded-lg bg-white cursor-pointer relative
+      border transition-all duration-150 ease-out
+      ${
+        isHighlighted
+          ? `
+            border-blue-900
+            ring-1 ring-blue-900
+            shadow-md
+            scale-[1.02]
+          `
+          : `
+            border-blue-900/30
+            hover:border-blue-900
+            hover:shadow-sm
+          `
+      }
+    `}
+  >
+    {/* Left accent bar */}
+    <div
+      className={`absolute top-0 left-0 h-full w-1 rounded-l ${
+        isHighlighted ? 'bg-yellow-500' : 'bg-yellow-500/60'
+      }`}
+    />
+
+    {/* Content Row */}
+    <div className="flex items-center gap-2 flex-1 ml-2 text-blue-900 font-extrabold text-sm uppercase">
+      <span className="truncate">{title}</span>
+      <span className="text-gray-400">/</span>
+      <span>{price}</span>
+      <span className="text-gray-400">/</span>
+      <span className="flex items-center gap-1">
+        <span className="text-gray-500 font-bold">MARGIN</span>
+        <span className="text-yellow-500 font-bold">{margin}%</span>
+      </span>
+    </div>
+  </div>
+);
+
+
 // ==================== CART COMPONENTS ====================
 
 // Cart Item Component
