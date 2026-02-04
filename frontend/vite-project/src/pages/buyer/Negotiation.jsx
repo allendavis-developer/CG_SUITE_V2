@@ -1,12 +1,31 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Button, Icon, Header } from "@/components/ui/components";
+import EbayResearchForm from "@/components/forms/EbayResearchForm";
 
 const Negotiation = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { cartItems, customerData, currentRequestId } = location.state || {};
   const [items, setItems] = useState(cartItems || []);
+
+  // Add these to your state hooks in Negotiation.jsx
+  const [researchItem, setResearchItem] = useState(null);
+
+  const handleReopenResearch = (item) => {
+    setResearchItem(item); // This opens the modal
+  };
+
+  const handleResearchComplete = (updatedState) => {
+    if (updatedState && researchItem) {
+      setItems(prevItems => prevItems.map(i => 
+        i.id === researchItem.id 
+          ? { ...i, ebayResearchData: updatedState } 
+          : i
+      ));
+    }
+    setResearchItem(null); // This closes the modal
+  };
 
   // Redirect if no cart data
   useEffect(() => {
@@ -105,7 +124,6 @@ const Negotiation = () => {
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">#</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Item Details</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Specifications</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Available Offers</th>
                   <th className="px-4 py-3 text-right text-xs font-semibold text-gray-700 uppercase tracking-wider">Selected Offer</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">eBay Research</th>
@@ -141,35 +159,6 @@ const Negotiation = () => {
                         </div>
                       </td>
 
-                      {/* Specifications */}
-                      <td className="px-4 py-4">
-                        <div className="space-y-1 text-xs">
-                          {item.condition && (
-                            <div className="flex items-center gap-2">
-                              <span className="text-gray-500 font-semibold">Condition:</span>
-                              <span className={`px-2 py-0.5 rounded text-xs font-bold ${
-                                item.condition === 'New' ? 'bg-green-100 text-green-800' :
-                                item.condition === 'Used' ? 'bg-yellow-100 text-yellow-800' :
-                                'bg-gray-100 text-gray-800'
-                              }`}>
-                                {item.condition}
-                              </span>
-                            </div>
-                          )}
-                          {item.color && (
-                            <p><span className="text-gray-500 font-semibold">Color:</span> {item.color}</p>
-                          )}
-                          {item.storage && (
-                            <p><span className="text-gray-500 font-semibold">Storage:</span> {item.storage}</p>
-                          )}
-                          {item.network && (
-                            <p><span className="text-gray-500 font-semibold">Network:</span> {item.network}</p>
-                          )}
-                          {item.serialNumber && (
-                            <p><span className="text-gray-500 font-semibold">Serial:</span> {item.serialNumber}</p>
-                          )}
-                        </div>
-                      </td>
 
                       {/* Available Offers */}
                       <td className="px-4 py-4">
@@ -224,108 +213,48 @@ const Negotiation = () => {
                         )}
                       </td>
 
-                      {/* eBay Research Data */}
                       <td className="px-4 py-4">
-                        {ebayData ? (
-                          <div className="space-y-2 text-xs">
-                            {/* Stats */}
-                            {ebayData.stats && (
-                              <div className="bg-gray-50 rounded p-2 space-y-1">
-                                <p className="font-bold text-gray-700 mb-1">Market Stats:</p>
-                                {ebayData.stats.average && (
-                                  <p>
-                                    <span className="text-gray-500">Average:</span>
-                                    <span className="font-bold text-gray-900 ml-1">£{ebayData.stats.average}</span>
-                                  </p>
-                                )}
-                                {ebayData.stats.median && (
-                                  <p>
-                                    <span className="text-gray-500">Median:</span>
-                                    <span className="font-bold text-gray-900 ml-1">£{ebayData.stats.median}</span>
-                                  </p>
-                                )}
-                                {ebayData.stats.suggestedPrice && (
-                                  <p>
-                                    <span className="text-gray-500">Suggested:</span>
-                                    <span className="font-bold text-green-600 ml-1">£{ebayData.stats.suggestedPrice}</span>
-                                  </p>
-                                )}
-                              </div>
-                            )}
-
-                            {/* Search Term */}
-                            {ebayData.searchTerm && (
-                              <p className="text-gray-600">
-                                <span className="font-semibold">Search:</span> {ebayData.searchTerm}
+                      {ebayData ? (
+                        <div className="space-y-2 text-xs">
+                          
+                          {/* Drilled Median Price */}
+                          {ebayData.stats?.median && (
+                            <div className="bg-blue-50 border border-blue-200 rounded-md px-3 py-2">
+                              <p className="text-[10px] uppercase tracking-wide text-blue-700 font-bold">
+                                Market Median
                               </p>
-                            )}
-
-                            {/* Listings Count */}
-                            {ebayData.listings && (
-                              <p className="text-gray-600">
-                                <span className="font-semibold">Listings:</span> {ebayData.listings.length} found
+                              <p className="text-lg font-extrabold text-blue-900">
+                                £{Number(ebayData.stats.median).toFixed(2)}
                               </p>
-                            )}
+                              {ebayData.drillHistory?.length > 0 && (
+                                <p className="text-[10px] text-blue-700 mt-0.5">
+                                  Based on drilled range
+                                </p>
+                              )}
+                            </div>
+                          )}
 
-                            {/* Filters Applied */}
-                            {ebayData.selectedFilters && (
-                              <div className="mt-2">
-                                <p className="font-semibold text-gray-700">Filters:</p>
-                                {ebayData.selectedFilters.basic && ebayData.selectedFilters.basic.length > 0 && (
-                                  <div className="flex flex-wrap gap-1 mt-1">
-                                    {ebayData.selectedFilters.basic.map((filter, idx) => (
-                                      <span key={idx} className="px-1.5 py-0.5 bg-blue-100 text-blue-800 rounded text-[10px] font-medium">
-                                        {filter}
-                                      </span>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            )}
-
-                            {/* Drill History */}
-                            {ebayData.drillHistory && ebayData.drillHistory.length > 0 && (
-                              <div className="mt-2">
-                                <p className="font-semibold text-gray-700">Price Range:</p>
-                                {ebayData.drillHistory.map((range, idx) => (
-                                  <p key={idx} className="text-gray-600">
-                                    £{range.min.toFixed(0)} - £{range.max.toFixed(0)}
-                                  </p>
-                                ))}
-                              </div>
-                            )}
-
-                            {/* Top Listings Preview */}
-                            {ebayData.listings && ebayData.listings.length > 0 && (
-                              <details className="mt-2">
-                                <summary className="cursor-pointer font-semibold text-blue-900 hover:underline">
-                                  View Recent Listings ({Math.min(3, ebayData.listings.length)})
-                                </summary>
-                                <div className="mt-2 space-y-2 max-h-40 overflow-y-auto">
-                                  {ebayData.listings.slice(0, 3).map((listing, idx) => (
-                                    <div key={idx} className="bg-white border border-gray-200 rounded p-2">
-                                      <p className="font-medium text-gray-900 text-[11px] line-clamp-1">
-                                        {listing.title}
-                                      </p>
-                                      <div className="flex justify-between items-center mt-1">
-                                        <span className="font-bold text-green-600">£{listing.price}</span>
-                                        {listing.sold && (
-                                          <span className="text-[10px] text-green-600">{listing.sold}</span>
-                                        )}
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              </details>
-                            )}
-                          </div>
-                        ) : (
-                          <div className="text-center py-2">
-                            <Icon name="search_off" className="text-gray-300 text-lg mb-1" />
-                            <p className="text-xs text-gray-500">No research data</p>
-                          </div>
-                        )}
-                      </td>
+                          {/* Refine Button */}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full mt-2 text-[10px]"
+                            onClick={() => handleReopenResearch(item)}
+                          >
+                            <Icon name="edit_note" className="text-xs" />
+                            Refine Research
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => handleReopenResearch(item)}
+                        >
+                          <Icon name="search" /> Start Research
+                        </Button>
+                      )}
+                    </td>
                     </tr>
                   );
                 })}
@@ -333,6 +262,16 @@ const Negotiation = () => {
             </table>
           </div>
         </div>
+
+        {/* Research Modal Overlay */}
+        {researchItem && (
+          <EbayResearchForm
+            mode="modal"
+            category={{ path: [researchItem.category] }}
+            savedState={researchItem.ebayResearchData} // This restores the filters/listings
+            onComplete={handleResearchComplete}
+          />
+        )}
 
         {/* Action Buttons */}
         <div className="mt-6 flex justify-end gap-3">
