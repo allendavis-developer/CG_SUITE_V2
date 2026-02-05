@@ -82,7 +82,6 @@ export const CardHeader = ({ title, subtitle, actions }) => (
   </div>
 );
 
-// Custom Dropdown Component
 export const CustomDropdown = ({ label, value, options, onChange }) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = React.useRef(null);
@@ -97,9 +96,16 @@ export const CustomDropdown = ({ label, value, options, onChange }) => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const filteredOptions = options.filter(option => option !== value);
+
   return (
     <div className="space-y-1.5" ref={dropdownRef}>
-      {label && <label className="text-xs font-bold text-gray-500 uppercase">{label}</label>}
+      {label && (
+        <label className="text-xs font-bold text-gray-500 uppercase">
+          {label}
+        </label>
+      )}
+
       <div className="relative">
         <button
           type="button"
@@ -107,11 +113,17 @@ export const CustomDropdown = ({ label, value, options, onChange }) => {
           className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-900 text-left flex items-center justify-between hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 transition-all"
         >
           <span className="font-medium">{value}</span>
-          <Icon name="expand_more" className={`text-gray-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+          <Icon
+            name="expand_more"
+            className={`text-gray-400 transition-transform duration-200 ${
+              isOpen ? 'rotate-180' : ''
+            }`}
+          />
         </button>
-        {isOpen && (
+
+        {isOpen && filteredOptions.length > 0 && (
           <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden max-h-60 overflow-y-auto">
-            {options.map((option) => (
+            {filteredOptions.map((option) => (
               <button
                 key={option}
                 type="button"
@@ -119,11 +131,7 @@ export const CustomDropdown = ({ label, value, options, onChange }) => {
                   onChange(option);
                   setIsOpen(false);
                 }}
-                className={`w-full px-3 py-2.5 text-sm text-left hover:bg-gray-50 transition-colors ${
-                  value === option 
-                    ? 'bg-yellow-500/10 text-blue-900 font-semibold' 
-                    : 'text-gray-700'
-                }`}
+                className="w-full px-3 py-2.5 text-sm text-left text-gray-700 hover:bg-gray-50 transition-colors"
               >
                 {option}
               </button>

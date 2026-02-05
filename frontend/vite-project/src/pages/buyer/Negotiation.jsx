@@ -2,6 +2,23 @@ import React, { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Button, Icon, Header } from "@/components/ui/components";
 import EbayResearchForm from "@/components/forms/EbayResearchForm";
+import { CustomDropdown } from "@/components/ui/components";
+
+
+
+const TRANSACTION_OPTIONS = [
+  { value: 'sale', label: 'Direct Sale' },
+  { value: 'buyback', label: 'Buy Back' },
+  { value: 'store_credit', label: 'Store Credit' }
+];
+
+const TRANSACTION_META = {
+  sale: 'text-emerald-600',
+  buyback: 'text-purple-600',
+  store_credit: 'text-blue-600'
+};
+
+
 
 const Negotiation = () => {
   const navigate = useNavigate();
@@ -10,6 +27,16 @@ const Negotiation = () => {
   const [items, setItems] = useState(cartItems || []);
   const [researchItem, setResearchItem] = useState(null);
   const [totalExpectation, setTotalExpectation] = useState("");
+  const [transactionType, setTransactionType] = useState(
+    customerData?.transactionType || 'sale'
+  );
+
+  useEffect(() => {
+    if (customerData?.transactionType) {
+      setTransactionType(customerData.transactionType);
+    }
+  }, [customerData]);
+
 
   const handleReopenResearch = (item) => {
     setResearchItem(item);
@@ -517,13 +544,21 @@ const Negotiation = () => {
                 Cancel Rate: {customerData.cancelRate}%
               </p>
               <span style={{ color: 'rgba(20, 69, 132, 0.4)' }}>•</span>
-              <p className={`text-sm font-bold ${
-                customerData.transactionType === 'sale' 
-                  ? 'text-emerald-600' 
-                  : 'text-purple-600'
-              }`}>
-                {customerData.transactionType === 'sale' ? 'Direct Sale' : 'Buy Back'}
-              </p>
+              <div className="relative">
+               <div className={TRANSACTION_META[transactionType]}>
+                <CustomDropdown
+                  value={
+                    TRANSACTION_OPTIONS.find(o => o.value === transactionType)?.label
+                  }
+                  options={TRANSACTION_OPTIONS.map(o => o.label)}
+                  onChange={(label) => {
+                    const selected = TRANSACTION_OPTIONS.find(o => o.label === label);
+                    if (selected) setTransactionType(selected.value);
+                  }}
+                />
+              </div>
+
+              </div>
             </div>
           </div>
 

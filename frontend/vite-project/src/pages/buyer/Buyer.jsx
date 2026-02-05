@@ -24,7 +24,7 @@ export default function Buyer() {
     transactionType: 'sale'
   });
 
-  const [intent, setIntent] = useState('unknown'); // default intent
+  const [intent, setIntent] = useState('UNKNOWN'); // default intent - matches Django model
 
   // Restore cart state on navigation
   useEffect(() => {
@@ -38,10 +38,23 @@ export default function Buyer() {
     }
   }, [location.state]);
 
+  // Map frontend transaction types to Django RequestIntent values
+  const mapTransactionTypeToIntent = (transactionType) => {
+    const intentMap = {
+      'sale': 'DIRECT_SALE',
+      'buyback': 'BUYBACK',
+      'store_credit': 'STORE_CREDIT'
+    };
+    return intentMap[transactionType] || 'UNKNOWN';
+  };
+
   // Handle customer selection
   const handleCustomerSelected = (customerInfo) => {
     setCustomerModalOpen(false);
     if (!customerInfo) return;
+
+    // Map the transaction type to the Django intent
+    const mappedIntent = mapTransactionTypeToIntent(customerInfo.transactionType);
 
     setCustomerData({
       id: customerInfo.id,
@@ -50,7 +63,11 @@ export default function Buyer() {
       transactionType: customerInfo.transactionType || 'sale'
     });
 
+    // Set the intent based on transaction type
+    setIntent(mappedIntent);
+
     console.log("Selected customer:", customerInfo);
+    console.log("Mapped intent:", mappedIntent);
   };
 
   const handleCategorySelect = async (category) => {

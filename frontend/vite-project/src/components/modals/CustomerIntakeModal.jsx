@@ -15,7 +15,7 @@ function getCSRFToken() {
 export default function CustomerIntakeModal({ open = true, onClose }) {
   const [isExisting, setIsExisting] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState("");
-  const [transactionType, setTransactionType] = useState("sale"); // "sale" or "buyback"
+  const [transactionType, setTransactionType] = useState("sale"); // "sale", "buyback", or "store_credit"
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -272,8 +272,8 @@ const handleConfirm = async () => {
 
         {/* Toggle - Transaction Type */}
         <div className="px-8 pb-6">
-          <div className="bg-gray-100 p-1 rounded-xl flex border border-gray-200">
-            <label className="flex-1 cursor-pointer">
+          <div className="bg-gray-100 p-1 rounded-xl grid grid-cols-3 gap-1 border border-gray-200">
+            <label className="cursor-pointer">
               <input
                 type="radio"
                 name="transaction-toggle"
@@ -288,7 +288,7 @@ const handleConfirm = async () => {
                 Direct Sale
               </div>
             </label>
-            <label className="flex-1 cursor-pointer">
+            <label className="cursor-pointer">
               <input
                 type="radio"
                 name="transaction-toggle"
@@ -301,6 +301,21 @@ const handleConfirm = async () => {
                   autorenew
                 </span>
                 Buy Back
+              </div>
+            </label>
+            <label className="cursor-pointer">
+              <input
+                type="radio"
+                name="transaction-toggle"
+                className="hidden peer"
+                checked={transactionType === "store_credit"}
+                onChange={() => setTransactionType("store_credit")}
+              />
+              <div className="flex items-center justify-center gap-2 py-3 rounded-lg text-sm font-bold transition-all peer-checked:bg-white peer-checked:shadow-sm text-gray-500 peer-checked:text-yellow-500">
+                <span className="material-symbols-outlined text-lg">
+                  account_balance_wallet
+                </span>
+                Store Credit
               </div>
             </label>
           </div>

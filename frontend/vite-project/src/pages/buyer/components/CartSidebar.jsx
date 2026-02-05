@@ -15,6 +15,28 @@ const CartSidebar = ({
   const [isFinalizing, setIsFinalizing] = useState(false);
   const navigate = useNavigate();
 
+  const TRANSACTION_DISPLAY = {
+    sale: {
+      label: 'Direct Sale',
+      className: 'text-emerald-600'
+    },
+    buyback: {
+      label: 'Buy Back',
+      className: 'text-purple-600'
+    },
+    store_credit: {
+      label: 'Store Credit',
+      className: 'text-blue-600'
+    }
+  };
+
+  const transactionMeta =
+    TRANSACTION_DISPLAY[customerData.transactionType] || {
+      label: 'Unknown',
+      className: 'text-gray-400'
+    };
+
+
   const removeItem = (id) => {
     setCartItems(cartItems.filter(item => item.id !== id));
   };
@@ -83,13 +105,10 @@ const CartSidebar = ({
             Cancel Rate: {customerData.cancelRate}%
           </p>
           <span className="text-blue-900/40">•</span>
-          <p className={`text-sm font-bold ${
-            customerData.transactionType === 'sale' 
-              ? 'text-emerald-600' 
-              : 'text-purple-600'
-          }`}>
-            {customerData.transactionType === 'sale' ? 'Direct Sale' : 'Buy Back'}
+          <p className={`text-sm font-bold ${transactionMeta.className}`}>
+            {transactionMeta.label}
           </p>
+
         </div>
       </div>
 
