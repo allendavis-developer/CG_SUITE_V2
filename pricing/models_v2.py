@@ -768,6 +768,14 @@ class RequestItem(models.Model):
         help_text="Expectation for this item"
     )
 
+    # New field to store raw data used in pricing
+    raw_data = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Raw data used for pricing decisions (for auditing/review purposes)"
+    )
+
+
     notes = models.TextField(blank=True)
 
     class Meta:
