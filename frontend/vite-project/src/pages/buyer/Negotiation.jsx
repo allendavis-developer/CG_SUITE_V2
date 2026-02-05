@@ -9,6 +9,7 @@ const Negotiation = () => {
   const { cartItems, customerData, currentRequestId } = location.state || {};
   const [items, setItems] = useState(cartItems || []);
   const [researchItem, setResearchItem] = useState(null);
+  const [totalExpectation, setTotalExpectation] = useState("");
 
   const handleReopenResearch = (item) => {
     setResearchItem(item);
@@ -25,6 +26,26 @@ const Negotiation = () => {
     setResearchItem(null);
   };
 
+  // Calculate total from individual item expectations
+  const calculateTotalFromItems = () => {
+    return items.reduce((sum, item) => {
+      if (item.customerExpectation) {
+        const value = parseFloat(item.customerExpectation.replace(/[£,]/g, '')) || 0;
+        const quantity = item.quantity || 1;
+        return sum + (value * quantity);
+      }
+      return sum;
+    }, 0);
+  };
+
+  // Update total expectation when items change
+  useEffect(() => {
+    const total = calculateTotalFromItems();
+    if (total > 0) {
+      setTotalExpectation(total.toFixed(2));
+    }
+  }, [items]);
+
   // Redirect if no cart data
   useEffect(() => {
     if (!items || items.length === 0 || !customerData?.id) {
@@ -36,15 +57,17 @@ const Negotiation = () => {
     return null;
   }
 
-  // Calculate totals
+  // Calculate totals with quantity
   const totalOfferPrice = items.reduce((sum, item) => {
+    const quantity = item.quantity || 1;
+    
     if (item.selectedOfferId === 'manual' && item.manualOffer) {
       // Parse manual offer value, removing £ symbol and converting to number
       const manualValue = parseFloat(item.manualOffer.replace(/[£,]/g, '')) || 0;
-      return sum + manualValue;
+      return sum + (manualValue * quantity);
     }
     const selected = item.offers?.find(o => o.id === item.selectedOfferId);
-    return sum + (selected ? selected.price : 0);
+    return sum + (selected ? selected.price * quantity : 0);
   }, 0);
 
   return (
@@ -110,44 +133,9 @@ const Negotiation = () => {
       `}</style>
 
       {/* Header */}
-      <header className="flex items-center justify-between whitespace-nowrap border-b border-ui-border px-6 py-3 sticky top-0 z-50" style={{ background: 'var(--brand-blue)' }}>
-        <div className="flex items-center gap-8">
-          <div className="flex items-center gap-4" style={{ color: 'var(--brand-orange)' }}>
-            <div className="size-6 flex items-center justify-center rounded" style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}>
-              <span className="material-symbols-outlined text-sm font-bold">receipt_long</span>
-            </div>
-            <h2 className="text-white text-lg font-bold leading-tight tracking-tight">Trade-In Batch Review</h2>
-          </div>
-          <div className="flex items-center gap-4">
-            <label className="flex flex-col min-w-64 h-9">
-              <div className="flex w-full flex-1 items-stretch rounded-lg h-full overflow-hidden border" style={{ borderColor: 'rgba(255, 255, 255, 0.2)' }}>
-                <div className="flex items-center justify-center pl-3" style={{ background: 'rgba(255, 255, 255, 0.1)', color: 'rgba(255, 255, 255, 0.6)' }}>
-                  <span className="material-symbols-outlined text-sm">search</span>
-                </div>
-                <input 
-                  className="flex w-full min-w-0 flex-1 resize-none overflow-hidden text-white focus:outline-0 focus:ring-0 border-none h-full text-sm font-normal px-2" 
-                  style={{ background: 'rgba(255, 255, 255, 0.1)' }}
-                  placeholder="Search Batch Items..."
-                />
-              </div>
-            </label>
-          </div>
-        </div>
-        <div className="flex flex-1 justify-end gap-6 items-center">
-          <nav className="flex items-center gap-6">
-            <a className="text-sm font-semibold" style={{ color: 'var(--brand-orange)' }} href="#">Current Batch</a>
-            <a className="text-sm font-medium hover:text-brand-orange transition-colors" style={{ color: 'rgba(255, 255, 255, 0.7)' }} href="#">History</a>
-          </nav>
-          <div className="flex gap-2">
-            <button className="flex items-center justify-center rounded-lg h-9 w-9 text-white transition-colors" style={{ background: 'rgba(255, 255, 255, 0.1)' }}>
-              <span className="material-symbols-outlined text-sm">notifications</span>
-            </button>
-            <div className="h-9 w-9 rounded-full flex items-center justify-center text-xs font-extrabold" style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}>
-              {customerData.name?.split(' ').map(n => n[0]).join('') || 'JD'}
-            </div>
-          </div>
-        </div>
-      </header>
+      <Header 
+        userName={customerData.name?.split(' ').map(n => n[0]).join('') || 'JD'}
+      />
 
       <main className="flex flex-1 overflow-hidden h-[calc(100vh-61px)]">
         {/* Main Table Section */}
@@ -194,7 +182,8 @@ const Negotiation = () => {
                         outline: 'none'
                       }}
                       type="text" 
-                      defaultValue={totalOfferPrice.toFixed(2)}
+                      value={totalExpectation}
+                      onChange={(e) => setTotalExpectation(e.target.value)}
                       placeholder="0.00"
                     />
                   </div>
@@ -233,6 +222,7 @@ const Negotiation = () => {
 
                 {/* Item Rows */}
                 {items.map((item, index) => {
+                  const quantity = item.quantity || 1;
                   const selectedOffer = item.offers?.find(o => o.id === item.selectedOfferId);
                   const ebayData = item.ebayResearchData;
                   const offer1 = item.offers?.[0];
@@ -242,7 +232,7 @@ const Negotiation = () => {
                   return (
                     <tr key={item.id || index}>
                       {/* Qty */}
-                      <td className="text-center font-bold">1</td>
+                      <td className="text-center font-bold">{quantity}</td>
 
                       {/* Item Name & Attributes */}
                       <td>
@@ -266,7 +256,16 @@ const Negotiation = () => {
                           prev.map(i => i.id === item.id ? { ...i, selectedOfferId: offer1.id } : i)
                         )}
                       >
-                        {offer1 ? `£${offer1.price.toFixed(2)}` : '-'}
+                        {offer1 ? (
+                          <div>
+                            <div>£{(offer1.price * quantity).toFixed(2)}</div>
+                            {quantity > 1 && (
+                              <div className="text-[9px]" style={{ color: 'var(--text-muted)' }}>
+                                (£{offer1.price.toFixed(2)} × {quantity})
+                              </div>
+                            )}
+                          </div>
+                        ) : '-'}
                       </td>
 
                       {/* 2nd Offer */}
@@ -281,7 +280,16 @@ const Negotiation = () => {
                           prev.map(i => i.id === item.id ? { ...i, selectedOfferId: offer2.id } : i)
                         )}
                       >
-                        {offer2 ? `£${offer2.price.toFixed(2)}` : '-'}
+                        {offer2 ? (
+                          <div>
+                            <div>£{(offer2.price * quantity).toFixed(2)}</div>
+                            {quantity > 1 && (
+                              <div className="text-[9px]" style={{ color: 'var(--text-muted)' }}>
+                                (£{offer2.price.toFixed(2)} × {quantity})
+                              </div>
+                            )}
+                          </div>
+                        ) : '-'}
                       </td>
 
                       {/* 3rd Offer */}
@@ -296,7 +304,16 @@ const Negotiation = () => {
                           prev.map(i => i.id === item.id ? { ...i, selectedOfferId: offer3.id } : i)
                         )}
                       >
-                        {offer3 ? `£${offer3.price.toFixed(2)}` : '-'}
+                        {offer3 ? (
+                          <div>
+                            <div>£{(offer3.price * quantity).toFixed(2)}</div>
+                            {quantity > 1 && (
+                              <div className="text-[9px]" style={{ color: 'var(--text-muted)' }}>
+                                (£{offer3.price.toFixed(2)} × {quantity})
+                              </div>
+                            )}
+                          </div>
+                        ) : '-'}
                       </td>
 
                       {/* Manual Offer */}
@@ -374,9 +391,16 @@ const Negotiation = () => {
                       <td>
                         {ebayData?.stats?.median ? (
                           <div className="flex items-center justify-between gap-2">
-                            <span className="text-[13px] font-bold" style={{ color: 'var(--brand-blue)' }}>
-                              £{Number(ebayData.stats.median).toFixed(2)}
-                            </span>
+                            <div>
+                              <div className="text-[13px] font-bold" style={{ color: 'var(--brand-blue)' }}>
+                                £{(Number(ebayData.stats.median) * quantity).toFixed(2)}
+                              </div>
+                              {quantity > 1 && (
+                                <div className="text-[9px]" style={{ color: 'var(--text-muted)' }}>
+                                  (£{Number(ebayData.stats.median).toFixed(2)} × {quantity})
+                                </div>
+                              )}
+                            </div>
                             <button 
                               className="flex items-center justify-center size-7 rounded transition-colors shrink-0"
                               style={{ 

@@ -276,26 +276,10 @@ export const Header = ({ onSearch, userName = "JD" }) => (
         </div>
         <h2 className="text-white text-lg font-bold leading-tight tracking-tight">CashGenerator</h2>
       </div>
-      <Input 
-        placeholder="Search Catalog (Ctrl+K)"
-        icon="search"
-        onChange={(e) => onSearch && onSearch(e.target.value)}
-      />
     </div>
     <div className="flex flex-1 justify-end gap-6 items-center">
       <nav className="flex items-center gap-6">
-        <a className="text-yellow-500 text-sm font-semibold" href="#">Processing</a>
-        <a className="text-white/70 text-sm font-medium hover:text-yellow-500 transition-colors" href="#">Trade-In History</a>
-        <a className="text-white/70 text-sm font-medium hover:text-yellow-500 transition-colors" href="#">Valuation Trends</a>
       </nav>
-      <div className="flex gap-2">
-        <button className="flex items-center justify-center rounded-lg h-9 w-9 bg-white/10 text-white hover:text-yellow-500 transition-colors">
-          <Icon name="notifications" className="text-sm" />
-        </button>
-        <div className="h-9 w-9 rounded-full bg-yellow-500 flex items-center justify-center text-blue-900 text-xs font-extrabold">
-          {userName}
-        </div>
-      </div>
     </div>
   </header>
 );

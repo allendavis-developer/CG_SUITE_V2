@@ -176,9 +176,10 @@ const MainContent = ({
         Object.values(attributeValues).filter(v => v).join(' / ') ||
         'Standard',
       offers: normalizedOffers,
+      quantity: 1, // ✅ ADD THIS LINE - Initialize quantity
       variantId: selectedVariant?.variant_id,
       category: selectedCategory?.name,
-      categoryObject: selectedCategory, // ✅ ADD THIS LINE - Store full category object
+      categoryObject: selectedCategory,
       model: selectedModel?.name,
       condition: attributeValues.condition || selectedVariant?.condition,
       color: attributeValues.color || selectedVariant?.color,
@@ -213,8 +214,9 @@ const MainContent = ({
         id: Date.now(),
         title: data.searchTerm || "eBay Research Item",
         subtitle: filterSubtitle,
+        quantity: 1, // ✅ ADD THIS LINE - Initialize quantity for eBay items
         category: selectedCategory?.name,
-        categoryObject: selectedCategory, // ✅ ADD THIS LINE - Store full category object
+        categoryObject: selectedCategory,
         offers: data.buyOffers.map((o, idx) => ({
           id: `ebay-${Date.now()}-${idx}`,
           title: ["1st Offer", "2nd Offer", "3rd Offer"][idx] || "Offer",

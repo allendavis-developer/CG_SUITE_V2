@@ -36,9 +36,6 @@ const OfferSelection = ({
           );
         })}
       </div>
-      <p className="mt-4 text-xs text-gray-400 italic">
-        * Valuations are automatically calculated and added to the cart for negotiation.
-      </p>
     </div>
   );
 };

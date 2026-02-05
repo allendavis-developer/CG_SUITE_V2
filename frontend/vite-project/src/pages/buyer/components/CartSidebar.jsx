@@ -19,6 +19,33 @@ const CartSidebar = ({
     setCartItems(cartItems.filter(item => item.id !== id));
   };
 
+  const updateQuantity = (id, newQuantity) => {
+    if (newQuantity < 1) {
+      removeItem(id);
+      return;
+    }
+    
+    setCartItems(cartItems.map(item => 
+      item.id === id 
+        ? { ...item, quantity: newQuantity }
+        : item
+    ));
+  };
+
+  const incrementQuantity = (id) => {
+    const item = cartItems.find(item => item.id === id);
+    if (item) {
+      updateQuantity(id, (item.quantity || 1) + 1);
+    }
+  };
+
+  const decrementQuantity = (id) => {
+    const item = cartItems.find(item => item.id === id);
+    if (item) {
+      updateQuantity(id, (item.quantity || 1) - 1);
+    }
+  };
+
   return (
     <aside className="w-1/5 border-l border-blue-900/20 flex flex-col bg-white">
       {/* Customer Header */}
@@ -55,7 +82,7 @@ const CartSidebar = ({
               className="border border-blue-900/10 rounded-lg p-3 bg-gray-50/30"
             >
               <div className="flex justify-between items-start">
-                <div>
+                <div className="flex-1">
                   <h4 className="font-bold text-sm text-blue-900">
                     {item.title}
                   </h4>
@@ -70,6 +97,37 @@ const CartSidebar = ({
                 >
                   <Icon name="close" className="text-sm" />
                 </Button>
+              </div>
+
+              {/* Quantity Controls */}
+              <div className="mt-3 flex items-center gap-2">
+                <span className="text-xs text-gray-500 font-medium">Qty:</span>
+                <div className="flex items-center border border-blue-900/20 rounded-md overflow-hidden">
+                  <Button
+                    variant="ghost"
+                    className="h-7 w-7 p-0 min-w-0 rounded-none hover:bg-blue-50"
+                    onClick={() => decrementQuantity(item.id)}
+                  >
+                    <Icon name="remove" className="text-sm text-blue-900" />
+                  </Button>
+                  <input
+                    type="number"
+                    min="1"
+                    value={item.quantity || 1}
+                    onChange={(e) => {
+                      const value = parseInt(e.target.value) || 1;
+                      updateQuantity(item.id, value);
+                    }}
+                    className="w-12 h-7 text-center text-sm font-semibold text-blue-900 border-x border-blue-900/20 focus:outline-none focus:bg-blue-50"
+                  />
+                  <Button
+                    variant="ghost"
+                    className="h-7 w-7 p-0 min-w-0 rounded-none hover:bg-blue-50"
+                    onClick={() => incrementQuantity(item.id)}
+                  >
+                    <Icon name="add" className="text-sm text-blue-900" />
+                  </Button>
+                </div>
               </div>
 
               {/* Read-only Offers Display */}
