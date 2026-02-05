@@ -585,6 +585,7 @@ class VariantAdmin(admin.ModelAdmin):
         "cex_sku",
         "variant_signature",
         "product__name",
+        "title"
     )
     ordering = ("product", "condition_grade")
     autocomplete_fields = ("product", "condition_grade")
@@ -669,10 +670,7 @@ class CustomerAdmin(admin.ModelAdmin):
     ordering = ("-created_at",)
 
 
-class RequestItemInline(admin.TabularInline):
-    model = RequestItem
-    extra = 0
-
+    
 
 class RequestStatusHistoryInline(admin.TabularInline):
     model = RequestStatusHistory
@@ -684,18 +682,25 @@ class RequestStatusHistoryInline(admin.TabularInline):
         return False
 
 
+# 3. NOW YOUR INLINE WORKS
+class RequestItemInline(admin.TabularInline):
+    model = RequestItem
+    extra = 0
+    autocomplete_fields = ['variant']
+    fields = ('variant', 'expectation_gbp', 'notes')
+    
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('variant')
+
+# 4. NOW YOUR REQUEST ADMIN WORKS
 @admin.register(Request)
 class RequestAdmin(admin.ModelAdmin):
     list_display = ("request_id", "customer", "intent", "created_at")
-    list_filter = ("intent",)
-    search_fields = ("customer__name", "customer__phone_number")
-    ordering = ("-created_at",)
-
+    list_select_related = ("customer",)
+    search_fields = ("request_id", "customer__name", "customer__phone_number")
     autocomplete_fields = ("customer",)
-    inlines = [
-        RequestItemInline,
-        RequestStatusHistoryInline,
-    ]
+    inlines = [RequestItemInline]
+    
 
 
 @admin.register(RequestItem)

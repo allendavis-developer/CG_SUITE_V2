@@ -5,11 +5,8 @@ import MainContent from '@/pages/buyer/components/MainContent';
 import CartSidebar from '@/pages/buyer/components/CartSidebar';
 import { useLocation } from 'react-router-dom';
 
-import { fetchProductModels } from '@/services/api';
+import { fetchProductModels, updateRequestItemRawData } from '@/services/api';
 
-/**
- * Main Buyer application component
- */
 export default function Buyer() {
   const location = useLocation();
   
@@ -27,21 +24,34 @@ export default function Buyer() {
     transactionType: 'sale'
   });
 
-  // ✅ Restore state when coming back from negotiation page
+  const [intent, setIntent] = useState('unknown'); // default intent
+
+  // Restore cart state on navigation
   useEffect(() => {
     if (location.state?.preserveCart) {
-      console.log('Restoring cart state from navigation:', location.state);
-      
       if (location.state.cartItems) setCartItems(location.state.cartItems);
       if (location.state.customerData) {
         setCustomerData(location.state.customerData);
         setCustomerModalOpen(false);
       }
-
-      // 2. CRITICAL: Clear the state so a browser refresh doesn't trigger this again
       window.history.replaceState({}, document.title);
     }
   }, [location.state]);
+
+  // Handle customer selection
+  const handleCustomerSelected = (customerInfo) => {
+    setCustomerModalOpen(false);
+    if (!customerInfo) return;
+
+    setCustomerData({
+      id: customerInfo.id,
+      name: customerInfo.customerName,
+      cancelRate: customerInfo.cancelRate || 0,
+      transactionType: customerInfo.transactionType || 'sale'
+    });
+
+    console.log("Selected customer:", customerInfo);
+  };
 
   const handleCategorySelect = async (category) => {
     setSelectedCategory(category);
@@ -54,16 +64,40 @@ export default function Buyer() {
     setCartItems((prev) => [...prev, item]);
   };
 
-  //  NEW FUNCTION: Update cart item with eBay research data
-  const updateCartItemEbayData = (variantId, ebayData) => {
-    console.log("Attempting to update item:", variantId);
-    console.log("Current Cart Items:", cartItems.map(i => i.variantId));
+  /**
+   * Update cart item with eBay research data
+   * This handles both local state update AND backend sync
+   */
+  const updateCartItemEbayData = async (variantId, ebayData) => {
     setCartItems(prevItems => {
-      return prevItems.map(item =>
-        item.variantId === variantId 
-          ? { ...item, ebayResearchData: ebayData } 
-          : item
-      );
+      return prevItems.map(item => {
+        if (item.variantId === variantId) {
+          const updatedItem = {
+            ...item,
+            ebayResearchData: ebayData
+          };
+
+          // ✅ If the item already has a request_item_id, update the backend
+          if (item.request_item_id) {
+            updateRequestItemRawData(item.request_item_id, ebayData)
+              .then(result => {
+                if (result) {
+                  console.log('✅ Successfully updated raw_data on backend for request_item_id:', item.request_item_id);
+                } else {
+                  console.error('❌ Failed to update raw_data on backend');
+                }
+              })
+              .catch(err => {
+                console.error('❌ Error updating raw_data:', err);
+              });
+          } else {
+            console.log('ℹ️ Item does not have request_item_id yet, will be included when added to cart');
+          }
+
+          return updatedItem;
+        }
+        return item;
+      });
     });
   };
 
@@ -78,18 +112,7 @@ export default function Buyer() {
 
       <CustomerIntakeModal
         open={isCustomerModalOpen}
-        onClose={(customerInfo) => {
-          setCustomerModalOpen(false);
-          if (customerInfo) {
-            setCustomerData({
-              id: customerInfo.id,
-              name: customerInfo.customerName,
-              cancelRate: customerInfo.cancelRate || 0,
-              transactionType: customerInfo.transactionType || 'sale'
-            });
-            console.log("Selected customer:", customerInfo);
-          }
-        }}
+        onClose={handleCustomerSelected}
       />
 
       <Header onSearch={(val) => console.log('Search:', val)} />
@@ -102,6 +125,9 @@ export default function Buyer() {
           setSelectedModel={setSelectedModel}
           addToCart={addToCart}
           updateCartItemEbayData={updateCartItemEbayData}
+          customerData={customerData}
+          intent={intent}
+          setIntent={setIntent}
         />
         <CartSidebar 
           cartItems={cartItems} 

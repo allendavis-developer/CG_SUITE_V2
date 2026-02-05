@@ -125,7 +125,8 @@ class RequestItemSerializer(serializers.ModelSerializer):
             'request',
             'variant',
             'variant_details',
-            'initial_expectation_gbp',
+            'expectation_gbp',
+            'raw_data',
             'notes'
         ]
         read_only_fields = ['request_item_id']

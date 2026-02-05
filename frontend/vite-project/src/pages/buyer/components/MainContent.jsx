@@ -17,6 +17,8 @@ import OfferSelection from './OfferSelection';
 
 import { useProductAttributes } from '@/pages/buyer/hooks/useProductAttributes';
 import { fetchCompetitorStats, fetchVariantPrices } from '@/services/api';
+import { createRequest, addRequestItem, updateRequestItemRawData } from '@/services/api';
+
 import { formatGBP } from '@/utils/helpers';
 
 /**
@@ -28,7 +30,9 @@ const MainContent = ({
   selectedModel, 
   setSelectedModel, 
   addToCart,
-  updateCartItemEbayData  // ✅ New prop to update cart items
+  updateCartItemEbayData,
+  customerData,
+  intent
 }) => {
   const [activeTab, setActiveTab] = useState('info');
   const [variants, setVariants] = useState([]);
@@ -42,6 +46,7 @@ const MainContent = ({
   const [ourSalePrice, setOurSalePrice] = useState('');
   const [ebayData, setEbayData] = useState(null);
   const [savedEbayState, setSavedEbayState] = useState(null);
+  const [request, setRequest] = useState(null); // holds the backend request object
 
   const {
     attributes,
@@ -153,7 +158,7 @@ const MainContent = ({
     setSelectedOfferId(null);
   }, [variant]);
 
-  const handleAddToCart = () => {
+  const handleAddToCart = async () => {
     if (!selectedModel || !variant) {
       alert('Please select a variant');
       return;
@@ -191,27 +196,56 @@ const MainContent = ({
       cexBuyPrice: referenceData?.cex_tradein_cash ? Number(referenceData.cex_tradein_cash) : null,
       cexVoucherPrice: referenceData?.cex_tradein_voucher ? Number(referenceData.cex_tradein_voucher) : null,
       ebayResearchData: savedEbayState || null,
-      referenceData: referenceData // Keeps the full object if needed
+      referenceData: referenceData,
+      request_item_id: null
     };
-    console.log("Current Reference Data:", referenceData)
 
-    console.log('Adding to cart with specific prices:', cartItem);
-    addToCart(cartItem);
+    try {
+      if (!request) {
+        // ✅ Create request with the first item
+        const payload = {
+          customer_id: customerData.id,
+          intent: intent,
+          item: {
+            variant: cartItem.variantId,
+            expectation_gbp: null, // ✅ Don't auto-populate - user will set manually
+            raw_data: cartItem.ebayResearchData,
+            notes: ''
+          }
+        };
+        console.log('🔍 Payload being sent to backend:', JSON.stringify(payload, null, 2));
+        const newRequest = await createRequest(payload);
+        setRequest(newRequest);
+        cartItem.request_item_id = newRequest.items[0].request_item_id;
+      } else {
+        // ✅ Add additional items to existing request
+        const requestItemPayload = {
+          variant: cartItem.variantId,
+          expectation_gbp: null, // ✅ Don't auto-populate - user will set manually
+          raw_data: cartItem.ebayResearchData,
+          notes: ''
+        };
+        const createdRequestItem = await addRequestItem(request.request_id, requestItemPayload);
+        cartItem.request_item_id = createdRequestItem.request_item_id;
+      }
+
+      addToCart(cartItem);
+
+    } catch (err) {
+      console.error('Failed to add item to request:', err);
+      alert('Failed to add item to request. Check console for details.');
+    }
   };
 
-  const handleEbayResearchComplete = (data) => {
+  const handleEbayResearchComplete = async (data) => {
     setEbayData(data);
     setSavedEbayState(data);
 
     if (isEbayCategory) {
-      // 1. Extract API filters (e.g., Storage, Network) and Basic filters (e.g., Used)
+      // eBay-only items: variant is null
       const apiFilterValues = Object.values(data.selectedFilters.apiFilters).flat();
       const basicFilterValues = data.selectedFilters.basic;
-
-      // 2. Combine and filter out any empty strings/nulls
       const allFilters = [...basicFilterValues, ...apiFilterValues].filter(Boolean);
-
-      // 3. Create a clean subtitle string
       const filterSubtitle = allFilters.length > 0 
         ? allFilters.join(' / ') 
         : 'No filters applied';
@@ -220,7 +254,7 @@ const MainContent = ({
         id: Date.now(),
         title: data.searchTerm || "eBay Research Item",
         subtitle: filterSubtitle,
-        quantity: 1, // ✅ ADD THIS LINE - Initialize quantity for eBay items
+        quantity: 1,
         category: selectedCategory?.name,
         categoryObject: selectedCategory,
         offers: data.buyOffers.map((o, idx) => ({
@@ -229,20 +263,60 @@ const MainContent = ({
           price: Number(o.price)
         })),
         ebayResearchData: data,
-        isCustomEbayItem: true
+        isCustomEbayItem: true,
+        variantId: null, // ✅ eBay items have no variant
+        request_item_id: null
       };
 
-      addToCart(customCartItem);
+      try {
+        if (!request) {
+          // Create request with eBay item
+          const payload = {
+            customer_id: customerData.id,
+            intent: intent,
+            item: {
+              variant: null, // ✅ eBay items have no variant
+              expectation_gbp: null, // ✅ Don't auto-populate for eBay items
+              raw_data: data,
+              notes: ''
+            }
+          };
+          const newRequest = await createRequest(payload);
+          setRequest(newRequest);
+          customCartItem.request_item_id = newRequest.items[0].request_item_id;
+        } else {
+          // Add eBay item to existing request
+          const requestItemPayload = {
+            variant: null, // ✅ eBay items have no variant
+            expectation_gbp: null, // ✅ Don't auto-populate for eBay items
+            raw_data: data,
+            notes: ''
+          };
+          const createdRequestItem = await addRequestItem(request.request_id, requestItemPayload);
+          customCartItem.request_item_id = createdRequestItem.request_item_id;
+        }
+
+        addToCart(customCartItem);
+      } catch (err) {
+        console.error('Failed to add eBay item to request:', err);
+        alert('Failed to add eBay item to request. Check console for details.');
+      }
     } else {
-      // Standard logic for Modal mode
+      // Non-eBay items with eBay research: update raw_data
       const selectedVariant = variants.find(v => v.cex_sku === variant);
       const targetId = selectedVariant?.variant_id;
+      
       if (targetId && typeof updateCartItemEbayData === 'function') {
+        // Update cart item locally
         updateCartItemEbayData(targetId, data);
+        
+        // ✅ Update raw_data on backend if item already exists
+        // Find the cart item with this variant to get request_item_id
+        // This assumes you have access to cart items or can pass request_item_id
+        // For now, we'll update via the parent component's callback
       }
     }
   };
-
 
   if (!selectedCategory) {
     return (
@@ -287,8 +361,7 @@ const MainContent = ({
             category={selectedCategory}
             onComplete={handleEbayResearchComplete}
             savedState={savedEbayState}
-            initialHistogramState={false} // Histogram unchecked by default
-
+            initialHistogramState={false}
           />
         </div>
       )}
@@ -393,12 +466,9 @@ const MainContent = ({
             category={selectedCategory}
             savedState={savedEbayState}
             onResearchComplete={(data) => {
-            // 1. This handles local state AND the cart update logic
-            handleEbayResearchComplete(data); 
-            
-            // 2. Close the modal
-            setEbayModalOpen(false);
-          }}
+              handleEbayResearchComplete(data);
+              setEbayModalOpen(false);
+            }}
           />
         </>
       )}

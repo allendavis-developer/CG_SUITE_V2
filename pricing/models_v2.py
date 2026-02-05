@@ -738,6 +738,10 @@ class Request(models.Model):
         help_text="Overall expectation for the request"
     )
 
+    def __str__(self):
+        # This will show "Request #101 - John Doe (BUYBACK)"
+        return f"Request #{self.request_id} - {self.customer.name} ({self.intent})"
+    
     class Meta:
         db_table = "buying_request"
 

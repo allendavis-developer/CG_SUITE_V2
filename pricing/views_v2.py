@@ -121,9 +121,10 @@ def requests_view(request):
             )
             
             # Create the first item
-            item_data['request'] = new_request.request_id
-            item_serializer = RequestItemSerializer(data=item_data)
-            
+            item_payload = item_data.copy()  # ✅ Create a copy
+            item_payload['request'] = new_request.request_id
+            item_serializer = RequestItemSerializer(data=item_payload)
+
             if item_serializer.is_valid():
                 item_serializer.save()
             else:
@@ -180,6 +181,72 @@ def request_detail(request, request_id):
     
     serializer = RequestSerializer(existing_request)
     return Response(serializer.data)
+
+
+@api_view(['POST'])
+def update_request_intent(request, request_id):
+    """
+    POST: Update the intent of a request
+    """
+    existing_request = get_object_or_404(Request, request_id=request_id)
+
+    new_intent = request.data.get('intent')
+    if not new_intent:
+        return Response(
+            {"error": "Missing 'intent' field in request data"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    if new_intent not in [choice[0] for choice in RequestIntent.choices]:
+        return Response(
+            {"error": f"Invalid intent. Valid choices: {[choice[0] for choice in RequestIntent.choices]}"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    existing_request.intent = new_intent
+    existing_request.save(update_fields=['intent'])
+
+    return Response(
+        {
+            "request_id": existing_request.request_id,
+            "intent": existing_request.intent
+        },
+        status=status.HTTP_200_OK
+    )
+
+
+@api_view(['POST'])
+def update_request_item_raw_data(request, request_item_id):
+    """
+    POST: Update raw_data field for a specific request item
+    """
+    existing_item = get_object_or_404(RequestItem, request_item_id=request_item_id)
+
+    new_raw_data = request.data.get('raw_data')
+    if new_raw_data is None:
+        return Response(
+            {"error": "Missing 'raw_data' field in request data"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Optional: ensure it's a valid JSON object
+    if not isinstance(new_raw_data, dict):
+        return Response(
+            {"error": "'raw_data' must be a JSON object/dict"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    existing_item.raw_data = new_raw_data
+    existing_item.save(update_fields=['raw_data'])
+
+    return Response(
+        {
+            "request_item_id": existing_item.request_item_id,
+            "raw_data": existing_item.raw_data
+        },
+        status=status.HTTP_200_OK
+    )
+
 
 @api_view(['POST'])
 def finish_request(request, request_id):
