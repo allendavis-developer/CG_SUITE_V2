@@ -707,14 +707,17 @@ class Customer(models.Model):
 class RequestIntent(models.TextChoices):
     BUYBACK = "BUYBACK"
     DIRECT_SALE = "DIRECT_SALE"
+    STORE_CREDIT = "STORE_CREDIT"
     UNKNOWN = "UNKNOWN"
 
+
+from django.db import models
 
 class Request(models.Model):
     request_id = models.AutoField(primary_key=True)
 
     customer = models.ForeignKey(
-        Customer,
+        "Customer",
         on_delete=models.CASCADE,
         related_name="requests"
     )
@@ -726,6 +729,14 @@ class Request(models.Model):
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
+
+    overall_expectation_gbp = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Overall expectation for the request"
+    )
 
     class Meta:
         db_table = "buying_request"
@@ -741,25 +752,26 @@ class RequestItem(models.Model):
     )
 
     variant = models.ForeignKey(
-        Variant,
+        "Variant",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         help_text="Resolved variant after identification"
     )
 
-    initial_expectation_gbp = models.DecimalField(
+    # Renamed to match request's naming convention
+    expectation_gbp = models.DecimalField(
         max_digits=10,
         decimal_places=2,
         null=True,
-        blank=True
+        blank=True,
+        help_text="Expectation for this item"
     )
 
     notes = models.TextField(blank=True)
 
     class Meta:
         db_table = "buying_request_item"
-
 
 class RequestStatus(models.TextChoices):
     OPEN = "OPEN"

@@ -704,7 +704,7 @@ class RequestItemAdmin(admin.ModelAdmin):
         "request_item_id",
         "request",
         "variant",
-        "initial_expectation_gbp",
+        "expectation_gbp",
     )
     list_filter = ("variant__product__category",)
     search_fields = ("variant__cex_sku",)

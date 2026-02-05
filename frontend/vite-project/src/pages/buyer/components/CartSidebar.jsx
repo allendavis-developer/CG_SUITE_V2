@@ -47,21 +47,25 @@ const CartSidebar = ({
   };
 
   const getOfferMinMax = () => {
-    let min = null;
-    let max = null;
+    let minTotal = 0;
+    let maxTotal = 0;
 
     cartItems.forEach(item => {
       const qty = item.quantity || 1;
-
-      item.offers?.forEach(offer => {
-        const total = offer.price * qty;
-
-        if (min === null || total < min) min = total;
-        if (max === null || total > max) max = total;
-      });
+      if (item.offers && item.offers.length > 0) {
+        const itemMin = Math.min(...item.offers.map(o => o.price));
+        const itemMax = Math.max(...item.offers.map(o => o.price));
+        minTotal += itemMin * qty;
+        maxTotal += itemMax * qty;
+      }
     });
 
-    return { min, max };
+    // If cart is empty, return nulls
+    if (cartItems.length === 0) {
+      return { min: null, max: null };
+    }
+
+    return { min: minTotal, max: maxTotal };
   };
 
   const { min: offerMin, max: offerMax } = getOfferMinMax();
