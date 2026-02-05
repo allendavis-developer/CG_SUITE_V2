@@ -299,9 +299,10 @@ def variant_prices(request):
             status=status.HTTP_404_NOT_FOUND
         )
 
-    # CeX reference prices (DO NOT MODIFY)
+    # CeX reference prices 
     cex_sale_price = float(variant.current_price_gbp)
     cex_tradein_cash = float(variant.tradein_cash)
+    cex_tradein_voucher = float(variant.tradein_voucher)
 
     # CeX absolute margin
     cex_margin = cex_sale_price - cex_tradein_cash
@@ -368,6 +369,7 @@ def variant_prices(request):
         "reference_data": {
             "cex_sale_price": cex_sale_price,
             "cex_tradein_cash": cex_tradein_cash,
+            "cex_tradein_voucher": cex_tradein_voucher,
             "cex_margin": cex_margin,
             "cex_based_sale_price": round(cex_based_sale_price, 2),
             "percentage_used": percentage_used

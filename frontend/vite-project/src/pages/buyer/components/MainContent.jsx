@@ -154,7 +154,6 @@ const MainContent = ({
   }, [variant]);
 
   const handleAddToCart = () => {
-    // We only need to check if the model and variant exist now
     if (!selectedModel || !variant) {
       alert('Please select a variant');
       return;
@@ -176,7 +175,7 @@ const MainContent = ({
         Object.values(attributeValues).filter(v => v).join(' / ') ||
         'Standard',
       offers: normalizedOffers,
-      quantity: 1, // ✅ ADD THIS LINE - Initialize quantity
+      quantity: 1,
       variantId: selectedVariant?.variant_id,
       category: selectedCategory?.name,
       categoryObject: selectedCategory,
@@ -185,11 +184,18 @@ const MainContent = ({
       color: attributeValues.color || selectedVariant?.color,
       storage: attributeValues.storage || selectedVariant?.storage,
       network: attributeValues.network || selectedVariant?.network,
+      
+      // Added specific price fields for easy access
+      ourSalePrice: ourSalePrice ? Number(ourSalePrice) : null,
+      cexSellPrice: referenceData?.cex_sale_price ? Number(referenceData.cex_sale_price) : null,
+      cexBuyPrice: referenceData?.cex_tradein_cash ? Number(referenceData.cex_tradein_cash) : null,
+      cexVoucherPrice: referenceData?.cex_tradein_voucher ? Number(referenceData.cex_tradein_voucher) : null,
       ebayResearchData: savedEbayState || null,
-      referenceData: referenceData
+      referenceData: referenceData // Keeps the full object if needed
     };
+    console.log("Current Reference Data:", referenceData)
 
-    console.log('Adding to cart (Offers included as reference only):', cartItem);
+    console.log('Adding to cart with specific prices:', cartItem);
     addToCart(cartItem);
   };
 

@@ -209,6 +209,9 @@ const Negotiation = () => {
                 <tr>
                   <th className="w-12 text-center">Qty</th>
                   <th className="min-w-[220px]">Item Name &amp; Attributes</th>
+                  <th className="w-24">CeX Buy</th>
+                  <th className="w-24">CeX Buy Voucher</th>
+                  <th className="w-24">CeX Sell</th>
                   <th className="w-24">1st Offer</th>
                   <th className="w-24">2nd Offer</th>
                   <th className="w-24">3rd Offer</th>
@@ -243,6 +246,49 @@ const Negotiation = () => {
                           {item.subtitle || item.category || 'No details'} {item.model && `| ${item.model}`}
                         </div>
                       </td>
+                      
+                      {/* CeX Buy Column */}
+                    <td className="font-medium text-emerald-700">
+                      {item.cexBuyPrice ? (
+                        <div>
+                          <div>£{(item.cexBuyPrice * quantity).toFixed(2)}</div>
+                          {quantity > 1 && (
+                            <div className="text-[9px] opacity-70">
+                              (£{item.cexBuyPrice.toFixed(2)} × {quantity})
+                            </div>
+                          )}
+                        </div>
+                      ) : '—'}
+                    </td>
+
+                    {/* CeX Buy Voucher Column */}
+                    <td className="font-medium text-amber-700">
+                      {item.cexVoucherPrice ? (
+                        <div>
+                          <div>£{(item.cexVoucherPrice * quantity).toFixed(2)}</div>
+                          {quantity > 1 && (
+                            <div className="text-[9px] opacity-70">
+                              (£{item.cexVoucherPrice.toFixed(2)} × {quantity})
+                            </div>
+                          )}
+                        </div>
+                      ) : '—'}
+                    </td>
+
+                    {/* CeX Sell Column */}
+                    <td className="font-medium text-blue-800">
+                      {item.cexSellPrice ? (
+                        <div>
+                          <div>£{(item.cexSellPrice * quantity).toFixed(2)}</div>
+                          {quantity > 1 && (
+                            <div className="text-[9px] opacity-70">
+                              (£{item.cexSellPrice.toFixed(2)} × {quantity})
+                            </div>
+                          )}
+                        </div>
+                      ) : '—'}
+                    </td>
+
 
                       {/* 1st Offer */}
                       <td 
