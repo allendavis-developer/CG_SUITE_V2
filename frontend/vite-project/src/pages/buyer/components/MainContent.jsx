@@ -130,7 +130,7 @@ const MainContent = ({
       
       try {
         const data = await fetchVariantPrices(variant);
-        setOffers(data.offers);
+        setOffers(data.cash_offers);
         setReferenceData(data.referenceData);
         
         if (data.referenceData && data.referenceData.cex_based_sale_price) {

@@ -63,12 +63,26 @@ export default function Buyer() {
       transactionType: customerInfo.transactionType || 'sale'
     });
 
+    
+
+
     // Set the intent based on transaction type
     setIntent(mappedIntent);
 
     console.log("Selected customer:", customerInfo);
     console.log("Mapped intent:", mappedIntent);
   };
+
+  const handleTransactionTypeChange = (newType) => {
+      setCustomerData(prev => ({
+        ...prev,
+        transactionType: newType
+      }));
+
+      // Keep intent in sync too
+      setIntent(mapTransactionTypeToIntent(newType));
+  };
+
 
   const handleCategorySelect = async (category) => {
     setSelectedCategory(category);
@@ -146,11 +160,13 @@ export default function Buyer() {
           intent={intent}
           setIntent={setIntent}
         />
-        <CartSidebar 
-          cartItems={cartItems} 
-          setCartItems={setCartItems}
-          customerData={customerData}
-        />
+      <CartSidebar 
+        cartItems={cartItems} 
+        setCartItems={setCartItems}
+        customerData={customerData}
+        onTransactionTypeChange={handleTransactionTypeChange}
+      />
+
       </main>
     </div>
   );

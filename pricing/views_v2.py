@@ -339,17 +339,8 @@ def variant_market_stats(request):
     serializer = VariantMarketStatsSerializer(variant)
     return Response(serializer.data)
 
-
 @api_view(['GET'])
 def variant_prices(request):
-    """
-    Logic:
-    - Sale price is derived from CeX price using pricing rules
-      (fallback to 85% if no rule applies)
-    - First Offer: Same absolute margin as CeX at our sale price
-    - Second Offer: Midpoint between First and Third
-    - Third Offer: Match CeX trade-in cash
-    """
     sku = request.GET.get('sku')
 
     if not sku:
@@ -366,83 +357,85 @@ def variant_prices(request):
             status=status.HTTP_404_NOT_FOUND
         )
 
-    # CeX reference prices 
+    # --- Reference Data ---
     cex_sale_price = float(variant.current_price_gbp)
     cex_tradein_cash = float(variant.tradein_cash)
     cex_tradein_voucher = float(variant.tradein_voucher)
 
-    # CeX absolute margin
-    cex_margin = cex_sale_price - cex_tradein_cash
-
-    # 🔹 Determine sale price using pricing rules
-    target_sale_price = variant.get_target_sell_price()
-
-    if target_sale_price is not None:
-        cex_based_sale_price = float(target_sale_price)
-        percentage_used = round(
-            cex_based_sale_price / cex_sale_price * 100, 2
-        )
+    # Our Target Sale Price
+    target_sell_price = variant.get_target_sell_price()
+    if target_sell_price is not None:
+        our_sale_price = float(target_sell_price)
+        percentage_used = round(our_sale_price / cex_sale_price * 100, 2)
     else:
-        # Backwards-compatible fallback
         percentage_used = 85.0
-        cex_based_sale_price = cex_sale_price * 0.85
+        our_sale_price = cex_sale_price * 0.85
 
-    # Third offer: match CeX trade-in cash
-    third_offer = cex_tradein_cash
-
-    # First offer: same absolute margin as CeX
-    first_offer = cex_based_sale_price - cex_margin
-    first_offer = max(first_offer, 0)
-
-    # Second offer: midpoint
-    second_offer = (first_offer + third_offer) / 2
-
-    # Margin % helper
+    # --- Calculation Helpers ---
     def calculate_margin_percentage(offer_price, sale_price):
-        if sale_price == 0:
-            return 0
+        if sale_price <= 0: return 0
         margin_amount = sale_price - offer_price
         return round((margin_amount / sale_price) * 100, 1)
 
-    first_margin = calculate_margin_percentage(first_offer, cex_based_sale_price)
-    second_margin = calculate_margin_percentage(second_offer, cex_based_sale_price)
-    third_margin = calculate_margin_percentage(third_offer, cex_based_sale_price)
+    def generate_offer_set(cex_reference_buy_price, prefix):
+        """
+        Generates First, Second, and Third offers based on a CeX reference price.
+        Logic: 
+        - Third: Match CeX
+        - First: Match CeX absolute margin
+        - Second: Midpoint
+        """
+        # Absolute margin CeX makes on this item
+        cex_abs_margin = cex_sale_price - cex_reference_buy_price
+        
+        # 1. First Offer: Same absolute margin at our (usually lower) sale price
+        offer_1 = max(our_sale_price - cex_abs_margin, 0)
+        
+        # 3. Third Offer: Match CeX trade-in price exactly
+        offer_3 = cex_reference_buy_price
+        
+        # 2. Second Offer: Midpoint
+        offer_2 = (offer_1 + offer_3) / 2
 
-    offers = [
-        {
-            "id": 1,
-            "title": "First Offer",
-            "price": round(first_offer, 2),
-            "margin": first_margin
-        },
-        {
-            "id": 2,
-            "title": "Second Offer",
-            "price": round(second_offer, 2),
-            "margin": second_margin
-        },
-        {
-            "id": 3,
-            "title": "Third Offer",
-            "price": round(third_offer, 2),
-            "margin": third_margin,
-            "isHighlighted": True
-        }
-    ]
+        return [
+            {
+                "id": f"{prefix}_1",
+                "title": "First Offer",
+                "price": round(offer_1, 2),
+                "margin": calculate_margin_percentage(offer_1, our_sale_price)
+            },
+            {
+                "id": f"{prefix}_2",
+                "title": "Second Offer",
+                "price": round(offer_2, 2),
+                "margin": calculate_margin_percentage(offer_2, our_sale_price)
+            },
+            {
+                "id": f"{prefix}_3",
+                "title": "Third Offer",
+                "price": round(offer_3, 2),
+                "margin": calculate_margin_percentage(offer_3, our_sale_price),
+                "isHighlighted": True
+            }
+        ]
+
+    # Generate both sets
+    cash_offers = generate_offer_set(cex_tradein_cash, "cash")
+    voucher_offers = generate_offer_set(cex_tradein_voucher, "voucher")
 
     return Response({
         "sku": sku,
-        "offers": offers,
+        "cash_offers": cash_offers,
+        "voucher_offers": voucher_offers,
         "reference_data": {
             "cex_sale_price": cex_sale_price,
             "cex_tradein_cash": cex_tradein_cash,
             "cex_tradein_voucher": cex_tradein_voucher,
-            "cex_margin": cex_margin,
-            "cex_based_sale_price": round(cex_based_sale_price, 2),
+            "our_sale_price": round(our_sale_price, 2),
             "percentage_used": percentage_used
         }
     })
-
+    
 # react app
 def react_app(request):
     return render(request, "react.html")

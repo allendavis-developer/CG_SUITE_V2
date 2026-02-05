@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { Button, Icon, Header } from "@/components/ui/components";
 import EbayResearchForm from "@/components/forms/EbayResearchForm";
 import { CustomDropdown } from "@/components/ui/components";
-
+import CustomerTransactionHeader from './components/CustomerTransactionHeader'
 
 
 const TRANSACTION_OPTIONS = [
@@ -535,32 +535,11 @@ const Negotiation = () => {
 
         {/* Sidebar */}
         <aside className="w-80 border-l flex flex-col bg-white shrink-0" style={{ borderColor: 'rgba(20, 69, 132, 0.2)' }}>
-          <div className="bg-white p-6">
-            <h1 className="text-xl font-extrabold tracking-tight" style={{ color: 'var(--brand-blue)' }}>
-              {customerData.name}
-            </h1>
-            <div className="flex items-center gap-2 mt-2">
-              <p className="text-sm font-medium" style={{ color: 'rgba(20, 69, 132, 0.8)' }}>
-                Cancel Rate: {customerData.cancelRate}%
-              </p>
-              <span style={{ color: 'rgba(20, 69, 132, 0.4)' }}>•</span>
-              <div className="relative">
-               <div className={TRANSACTION_META[transactionType]}>
-                <CustomDropdown
-                  value={
-                    TRANSACTION_OPTIONS.find(o => o.value === transactionType)?.label
-                  }
-                  options={TRANSACTION_OPTIONS.map(o => o.label)}
-                  onChange={(label) => {
-                    const selected = TRANSACTION_OPTIONS.find(o => o.label === label);
-                    if (selected) setTransactionType(selected.value);
-                  }}
-                />
-              </div>
-
-              </div>
-            </div>
-          </div>
+          <CustomerTransactionHeader
+            customer={customerData}
+            transactionType={transactionType}
+            onTransactionChange={setTransactionType}
+          />
 
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
             {/* Space for future content */}

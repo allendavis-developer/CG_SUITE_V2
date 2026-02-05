@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Icon, Button } from '@/components/ui/components';
 import { useNavigate } from "react-router-dom";
+import CustomerTransactionHeader from './CustomerTransactionHeader'
 
 /**
  * Shopping cart sidebar component - No totals, non-selectable offers
@@ -10,9 +11,12 @@ const CartSidebar = ({
   setCartItems = () => {}, 
   customerData,
   currentRequestId,
-  onFinalize
+  onFinalize,
+  onTransactionTypeChange  // <--- add this
+
 }) => {
   const [isFinalizing, setIsFinalizing] = useState(false);
+
   const navigate = useNavigate();
 
   const TRANSACTION_DISPLAY = {
@@ -96,21 +100,14 @@ const CartSidebar = ({
   return (
     <aside className="w-1/5 border-l border-blue-900/20 flex flex-col bg-white">
       {/* Customer Header */}
-      <div className="bg-white p-6 shadow-md shadow-blue-900/10">
-        <h1 className="text-blue-900 text-xl font-extrabold tracking-tight">
-          {customerData.name}
-        </h1>
-        <div className="flex items-center gap-2 mt-2">
-          <p className="text-blue-900/80 text-sm font-medium">
-            Cancel Rate: {customerData.cancelRate}%
-          </p>
-          <span className="text-blue-900/40">•</span>
-          <p className={`text-sm font-bold ${transactionMeta.className}`}>
-            {transactionMeta.label}
-          </p>
+      <CustomerTransactionHeader
+        customer={customerData}
+        transactionType={customerData.transactionType}      // controlled by parent
+        onTransactionChange={onTransactionTypeChange}      // call parent setter
+        containerClassName="shadow-md shadow-blue-900/10"
+      />
 
-        </div>
-      </div>
+
 
       {/* Cart Items List */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-white">

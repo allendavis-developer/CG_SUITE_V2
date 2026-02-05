@@ -86,7 +86,7 @@ export const fetchVariantPrices = async (sku) => {
     
     const data = await res.json();
     return {
-      offers: data.offers,
+      cash_offers: data.cash_offers,
       referenceData: data.reference_data
     };
   } catch (err) {
