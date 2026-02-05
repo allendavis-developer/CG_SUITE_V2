@@ -46,6 +46,27 @@ const CartSidebar = ({
     }
   };
 
+  const getOfferMinMax = () => {
+    let min = null;
+    let max = null;
+
+    cartItems.forEach(item => {
+      const qty = item.quantity || 1;
+
+      item.offers?.forEach(offer => {
+        const total = offer.price * qty;
+
+        if (min === null || total < min) min = total;
+        if (max === null || total > max) max = total;
+      });
+    });
+
+    return { min, max };
+  };
+
+  const { min: offerMin, max: offerMax } = getOfferMinMax();
+
+
   return (
     <aside className="w-1/5 border-l border-blue-900/20 flex flex-col bg-white">
       {/* Customer Header */}
@@ -153,8 +174,35 @@ const CartSidebar = ({
         )}
       </div>
 
-      {/* Footer Action Only - Grand Total Removed */}
-      <div className="p-6 bg-white border-t border-blue-900/20">
+     {/* Footer – Offer Range + Action */}
+      <div className="p-6 bg-white border-t border-blue-900/20 space-y-4">
+        
+        {/* Offer Min / Max */}
+        <div className="space-y-1">
+          <div className="flex justify-between items-baseline">
+            <span className="text-2xl font-black uppercase tracking-widest text-blue-900">
+              Offer Min
+            </span>
+            <span className="text-3xl font-black text-blue-900 tabular-nums">
+              {offerMin !== null ? `£${offerMin.toFixed(2)}` : '—'}
+            </span>
+          </div>
+
+          <div className="flex justify-between items-baseline">
+            <span className="text-2xl font-black uppercase tracking-widest text-blue-900">
+              Offer Max
+            </span>
+            <span className="text-3xl font-black text-blue-900 tabular-nums">
+              {offerMax !== null ? `£${offerMax.toFixed(2)}` : '—'}
+            </span>
+          </div>
+        </div>
+
+
+
+
+
+        {/* Negotiate Button */}
         <Button 
           variant="primary" 
           size="lg" 
@@ -164,7 +212,9 @@ const CartSidebar = ({
               state: { 
                 cartItems, 
                 customerData,
-                currentRequestId 
+                currentRequestId,
+                offerMin,
+                offerMax
               } 
             });
           }}
@@ -175,11 +225,15 @@ const CartSidebar = ({
           ) : (
             <>
               Negotiate
-              <Icon name="arrow_forward" className="ml-2 text-sm group-hover:translate-x-1 transition-transform" />
+              <Icon
+                name="arrow_forward"
+                className="ml-2 text-sm group-hover:translate-x-1 transition-transform"
+              />
             </>
           )}
         </Button>
       </div>
+
     </aside>
   );
 };
