@@ -431,7 +431,7 @@ def variant_prices(request):
             "cex_sale_price": cex_sale_price,
             "cex_tradein_cash": cex_tradein_cash,
             "cex_tradein_voucher": cex_tradein_voucher,
-            "our_sale_price": round(our_sale_price, 2),
+            "cex_based_sale_price": round(our_sale_price, 2),
             "percentage_used": percentage_used
         }
     })

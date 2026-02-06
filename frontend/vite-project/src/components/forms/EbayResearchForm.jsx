@@ -841,6 +841,32 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
                       </button>
                     </React.Fragment>
                   ))}
+
+                  {displayedListings && (
+                  <div className="mb-4 flex items-center gap-4">
+                    <div className="px-4 py-2 rounded-xl bg-blue-900 text-white shadow-md flex items-center gap-3">
+                      <span className="material-symbols-outlined text-yellow-400 text-lg">
+                        inventory_2
+                      </span>
+
+                      <div className="leading-tight">
+                        <div className="text-[10px] uppercase tracking-wider text-blue-200">
+                          Listings in view
+                        </div>
+                        <div className="text-2xl font-extrabold">
+                          {displayedListings.length}
+                        </div>
+                      </div>
+                    </div>
+
+                    {drillHistory.length > 0 && (
+                      <div className="text-xs text-gray-500">
+                        from <span className="font-bold text-gray-900">{listings.length}</span> total
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 </div>
               )}
 

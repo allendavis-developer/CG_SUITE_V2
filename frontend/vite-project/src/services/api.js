@@ -78,7 +78,11 @@ export const fetchAttributes = async (productId) => {
  * Fetch variant prices and offers
  */
 export const fetchVariantPrices = async (sku) => {
-  if (!sku) return { offers: [], referenceData: null };
+  if (!sku) return { 
+    cash_offers: [], 
+    voucher_offers: [], 
+    referenceData: null 
+  };
 
   try {
     const res = await fetch(`/api/variant-prices/?sku=${sku}`);
@@ -86,12 +90,17 @@ export const fetchVariantPrices = async (sku) => {
     
     const data = await res.json();
     return {
-      cash_offers: data.cash_offers,
+      cash_offers: data.cash_offers || [],
+      voucher_offers: data.voucher_offers || [],
       referenceData: data.reference_data
     };
   } catch (err) {
     console.error('Error fetching offers:', err);
-    return { offers: [], referenceData: null };
+    return { 
+      cash_offers: [], 
+      voucher_offers: [], 
+      referenceData: null 
+    };
   }
 };
 /* ------------------------- Request APIs ------------------------- */

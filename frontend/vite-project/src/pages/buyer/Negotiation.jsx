@@ -31,6 +31,9 @@ const Negotiation = () => {
     customerData?.transactionType || 'sale'
   );
 
+  // Determine if we should show voucher offers
+  const useVoucherOffers = transactionType === 'store_credit';
+
   useEffect(() => {
     if (customerData?.transactionType) {
       setTransactionType(customerData.transactionType);
@@ -93,7 +96,13 @@ const Negotiation = () => {
       const manualValue = parseFloat(item.manualOffer.replace(/[£,]/g, '')) || 0;
       return sum + (manualValue * quantity);
     }
-    const selected = item.offers?.find(o => o.id === item.selectedOfferId);
+    
+    // Select the appropriate offers based on transaction type
+    const displayOffers = useVoucherOffers 
+      ? (item.voucherOffers || item.offers) 
+      : (item.cashOffers || item.offers);
+    
+    const selected = displayOffers?.find(o => o.id === item.selectedOfferId);
     return sum + (selected ? selected.price * quantity : 0);
   }, 0);
 
@@ -236,12 +245,12 @@ const Negotiation = () => {
                 <tr>
                   <th className="w-12 text-center">Qty</th>
                   <th className="min-w-[220px]">Item Name &amp; Attributes</th>
-                  <th className="w-24">CeX Buy</th>
-                  <th className="w-24">CeX Buy Voucher</th>
+                  <th className="w-24">CeX Buy (Cash)</th>
+                  <th className="w-24">CeX Buy (Voucher)</th>
                   <th className="w-24">CeX Sell</th>
-                  <th className="w-24">1st Offer</th>
-                  <th className="w-24">2nd Offer</th>
-                  <th className="w-24">3rd Offer</th>
+                  <th className="w-24">1st Offer {useVoucherOffers ? '(Voucher)' : '(Cash)'}</th>
+                  <th className="w-24">2nd Offer {useVoucherOffers ? '(Voucher)' : '(Cash)'}</th>
+                  <th className="w-24">3rd Offer {useVoucherOffers ? '(Voucher)' : '(Cash)'}</th>
                   <th className="w-32">Manual Offer</th>
                   <th className="w-32">Customer Expectation</th>
                   <th className="w-36">eBay Price</th>
@@ -253,11 +262,17 @@ const Negotiation = () => {
                 {/* Item Rows */}
                 {items.map((item, index) => {
                   const quantity = item.quantity || 1;
-                  const selectedOffer = item.offers?.find(o => o.id === item.selectedOfferId);
+                  
+                  // Select the appropriate offers based on transaction type
+                  const displayOffers = useVoucherOffers 
+                    ? (item.voucherOffers || item.offers) 
+                    : (item.cashOffers || item.offers);
+                  
+                  const selectedOffer = displayOffers?.find(o => o.id === item.selectedOfferId);
                   const ebayData = item.ebayResearchData;
-                  const offer1 = item.offers?.[0];
-                  const offer2 = item.offers?.[1];
-                  const offer3 = item.offers?.[2];
+                  const offer1 = displayOffers?.[0];
+                  const offer2 = displayOffers?.[1];
+                  const offer3 = displayOffers?.[2];
 
                   return (
                     <tr key={item.id || index}>
@@ -274,47 +289,47 @@ const Negotiation = () => {
                         </div>
                       </td>
                       
-                      {/* CeX Buy Column */}
-                    <td className="font-medium text-emerald-700">
-                      {item.cexBuyPrice ? (
-                        <div>
-                          <div>£{(item.cexBuyPrice * quantity).toFixed(2)}</div>
-                          {quantity > 1 && (
-                            <div className="text-[9px] opacity-70">
-                              (£{item.cexBuyPrice.toFixed(2)} × {quantity})
-                            </div>
-                          )}
-                        </div>
-                      ) : '—'}
-                    </td>
+                      {/* CeX Buy (Cash) Column */}
+                      <td className="font-medium text-emerald-700">
+                        {item.cexBuyPrice ? (
+                          <div>
+                            <div>£{(item.cexBuyPrice * quantity).toFixed(2)}</div>
+                            {quantity > 1 && (
+                              <div className="text-[9px] opacity-70">
+                                (£{item.cexBuyPrice.toFixed(2)} × {quantity})
+                              </div>
+                            )}
+                          </div>
+                        ) : '—'}
+                      </td>
 
-                    {/* CeX Buy Voucher Column */}
-                    <td className="font-medium text-amber-700">
-                      {item.cexVoucherPrice ? (
-                        <div>
-                          <div>£{(item.cexVoucherPrice * quantity).toFixed(2)}</div>
-                          {quantity > 1 && (
-                            <div className="text-[9px] opacity-70">
-                              (£{item.cexVoucherPrice.toFixed(2)} × {quantity})
-                            </div>
-                          )}
-                        </div>
-                      ) : '—'}
-                    </td>
+                      {/* CeX Buy (Voucher) Column */}
+                      <td className="font-medium text-amber-700">
+                        {item.cexVoucherPrice ? (
+                          <div>
+                            <div>£{(item.cexVoucherPrice * quantity).toFixed(2)}</div>
+                            {quantity > 1 && (
+                              <div className="text-[9px] opacity-70">
+                                (£{item.cexVoucherPrice.toFixed(2)} × {quantity})
+                              </div>
+                            )}
+                          </div>
+                        ) : '—'}
+                      </td>
 
-                    {/* CeX Sell Column */}
-                    <td className="font-medium text-blue-800">
-                      {item.cexSellPrice ? (
-                        <div>
-                          <div>£{(item.cexSellPrice * quantity).toFixed(2)}</div>
-                          {quantity > 1 && (
-                            <div className="text-[9px] opacity-70">
-                              (£{item.cexSellPrice.toFixed(2)} × {quantity})
-                            </div>
-                          )}
-                        </div>
-                      ) : '—'}
-                    </td>
+                      {/* CeX Sell Column */}
+                      <td className="font-medium text-blue-800">
+                        {item.cexSellPrice ? (
+                          <div>
+                            <div>£{(item.cexSellPrice * quantity).toFixed(2)}</div>
+                            {quantity > 1 && (
+                              <div className="text-[9px] opacity-70">
+                                (£{item.cexSellPrice.toFixed(2)} × {quantity})
+                              </div>
+                            )}
+                          </div>
+                        ) : '—'}
+                      </td>
 
 
                       {/* 1st Offer */}

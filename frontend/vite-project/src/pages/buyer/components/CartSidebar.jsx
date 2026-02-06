@@ -219,9 +219,6 @@ const CartSidebar = ({
         </div>
 
 
-
-
-
         {/* Negotiate Button */}
         <Button 
           variant="primary" 

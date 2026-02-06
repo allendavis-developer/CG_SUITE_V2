@@ -7,20 +7,32 @@ import { formatGBP, calculateMargin } from '@/utils/helpers';
  */
 const OfferSelection = ({ 
   variant, 
-  offers, 
-  ourSalePrice 
+  offers = [], // Default to empty array to prevent undefined errors
+  referenceData,
+  offerType = 'cash' // 'cash' or 'voucher'
 }) => {
-  if (!variant || offers.length === 0) return null;
+  // Don't render if no variant selected or offers still loading
+  if (!variant || !offers || offers.length === 0) return null;
+
+  // Determine the header text based on offer type
+  const headerText = offerType === 'voucher' 
+    ? 'Available Voucher Valuations' 
+    : 'Available Trade-In Valuations';
+
+  // Get our sale price from referenceData
+  const ourSalePrice = referenceData?.our_sale_price;
 
   return (
     <div>
       <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">
-        Available Trade-In Valuations
+        {headerText}
       </h3>
 
       <div className="grid grid-cols-3 gap-4 opacity-90">
         {offers.map((offer) => {
-          const recalculatedMargin = calculateMargin(offer.price, ourSalePrice);
+          const recalculatedMargin = ourSalePrice 
+            ? calculateMargin(offer.price, ourSalePrice)
+            : null;
           
           return (
             <OfferCard

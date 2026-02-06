@@ -16,7 +16,7 @@ export default function Buyer() {
   
   const [cartItems, setCartItems] = useState([]);
   const [isCustomerModalOpen, setCustomerModalOpen] = useState(true);
-  
+
   const [customerData, setCustomerData] = useState({
     id: null,
     name: 'No Customer Selected',
@@ -25,6 +25,7 @@ export default function Buyer() {
   });
 
   const [intent, setIntent] = useState('UNKNOWN'); // default intent - matches Django model
+  const [request, setRequest] = useState(null);
 
   // Restore cart state on navigation
   useEffect(() => {
@@ -37,6 +38,30 @@ export default function Buyer() {
       window.history.replaceState({}, document.title);
     }
   }, [location.state]);
+
+  useEffect(() => {
+    if (!cartItems.length) return;
+
+    const useVoucher = customerData.transactionType === 'store_credit';
+
+    setCartItems(prevItems =>
+      prevItems.map(item => {
+        // eBay-only items don't have cash/voucher splits
+        if (item.isCustomEbayItem) return item;
+
+        const nextOffers = useVoucher
+          ? item.voucherOffers ?? []
+          : item.cashOffers ?? [];
+
+        return {
+          ...item,
+          offers: nextOffers,
+          offerType: useVoucher ? 'voucher' : 'cash'
+        };
+      })
+    );
+  }, [customerData.transactionType]);
+
 
   // Map frontend transaction types to Django RequestIntent values
   const mapTransactionTypeToIntent = (transactionType) => {
@@ -159,12 +184,15 @@ export default function Buyer() {
           customerData={customerData}
           intent={intent}
           setIntent={setIntent}
+          request={request}
+          setRequest={setRequest}
         />
       <CartSidebar 
         cartItems={cartItems} 
         setCartItems={setCartItems}
         customerData={customerData}
         onTransactionTypeChange={handleTransactionTypeChange}
+        currentRequestId={request?.request_id}
       />
 
       </main>
