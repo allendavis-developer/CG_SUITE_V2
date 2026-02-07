@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useNotification } from '@/contexts/NotificationContext';
 import { API_BASE_URL } from '@/services/api';
-import { Header, Icon } from '@/components/ui/components';
+import { Header, Icon, CustomDropdown } from '@/components/ui/components';
 
 const RequestsOverview = () => {
   const navigate = useNavigate();
@@ -94,7 +94,7 @@ const RequestsOverview = () => {
       case 'OPEN':
         return 'Open Requests';
       case 'BOOKED_FOR_TESTING':
-        return 'Testing Requests';
+        return 'Booked For Testing';
       case 'CANCELLED':
         return 'Cancelled Requests';
       case 'TESTING_COMPLETE':
@@ -239,17 +239,12 @@ const RequestsOverview = () => {
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <select
-                className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors font-semibold text-sm focus:ring-0 focus:border-gray-200"
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
-              >
-                <option value="ALL">All Status</option>
-                <option value="OPEN">Open</option>
-                <option value="BOOKED_FOR_TESTING">Testing</option>
-                <option value="CANCELLED">Cancelled</option>
-                <option value="TESTING_COMPLETE">Testing Complete</option>
-              </select>
+              <CustomDropdown
+                label=""
+                value={getFilterTitle(filterStatus)}
+                options={['ALL', 'OPEN', 'BOOKED_FOR_TESTING', 'TESTING_COMPLETE']}
+                onChange={(value) => setFilterStatus(value)}
+              />
               <button 
                 className="flex items-center gap-2 px-4 py-2 bg-blue-900 text-white rounded-lg hover:bg-blue-800 transition-colors font-bold"
                 onClick={() => navigate('/buyer')}

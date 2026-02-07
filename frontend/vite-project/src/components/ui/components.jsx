@@ -99,14 +99,14 @@ export const CustomDropdown = ({ label, value, options, onChange }) => {
   const filteredOptions = options.filter(option => option !== value);
 
   return (
-    <div className="space-y-1.5" ref={dropdownRef}>
+    <div className="flex items-center gap-2" ref={dropdownRef}>
       {label && (
         <label className="text-xs font-bold text-gray-500 uppercase">
           {label}
         </label>
       )}
 
-      <div className="relative">
+      <div className="relative w-48">
         <button
           type="button"
           onClick={() => setIsOpen(!isOpen)}
