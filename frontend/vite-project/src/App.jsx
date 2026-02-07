@@ -21,7 +21,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/react" element={<Home />} />
+        <Route path="/" element={<Home />} />
         <Route path="/buyer" element={<Buyer />} />
         <Route path="/negotiation" element={<Negotiation />} /> {/* <-- new route */}
       </Routes>
