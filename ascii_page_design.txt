@@ -1,0 +1,67 @@
+Here's an ASCII art design proposal for the "View All Requests" page:
+
+```
++--------------------------------------------------------------------------------+
+| Header (e.g., Logo, User Info, Navigation Links including "View All Requests") |
++--------------------------------------------------------------------------------+
+|                                                                                |
+|  Request List:                                                                 |
+|  +--------------------------------------------------------------------------+  |
+|  | Filter/Search Bar (e.g., by Request ID, Customer Name, Status)           |  |
+|  +--------------------------------------------------------------------------+  |
+|                                                                                |
+|  +--------------------------------------------------------------------------+  |
+|  | ID       | Customer Name  | Status     | Type       | Total Offer | View |  |
+|  |----------|----------------|------------|------------|-------------|------|  |
+|  | #001     | Alice Smith    | In Progress| Sale       | £150.00     | [>]  |  |
+|  |          |                |            |            |             |      |  |
+|  | #002     | Bob Johnson    | Booked     | Buy Back   | £200.00     | [>]  |  |
+|  |          |                |            |            |             |      |  |
+|  | #003     | Charlie Brown  | Completed  | Store Credit| £50.00     | [>]  |  |
+|  |          |                |            |            |             |      |  |
+|  | ...                                                                    |  |
+|  +--------------------------------------------------------------------------+  |
+|                                                                                |
+|  (When 'View' button for a request is clicked, a detail view expands inline)   |
+|                                                                                |
+|  +--------------------------------------------------------------------------+  |
+|  | ID       | Customer Name  | Status     | Type       | Total Offer | View |  |
+|  |----------|----------------|------------|------------|-------------|------|  |
+|  | #001     | Alice Smith    | In Progress| Sale       | £150.00     | [v]  |  |
+|  |          |    Request ID: #001                                           |  |
+|  |          |    Customer: Alice Smith (alice@example.com, 07xxx-xxxxxx)    |  |
+|  |          |    Items:                                                     |  |
+|  |          |      - Item 1 (Laptop ABC)                                    |  |
+|  |          |        + Raw eBay Data:                                       |  |
+|  |          |          {                                                    |  |
+|  |          |            "median": 100,                                     |  |
+|  |          |            "count": 50,                                       |  |
+|  |          |            "last_updated": "2023-10-26T10:00:00Z",            |  |
+|  |          |            "search_term": "laptop abc used"                   |  |
+|  |          |          }                                                    |  |
+|  |          |      - Item 2 (Phone XYZ)                                     |  |
+|  |          |        + Raw eBay Data:                                       |  |
+|  |          |          {                                                    |  |
+|  |          |            "median": 50,                                      |  |
+|  |          |            "count": 20,                                       |  |
+|  |          |            "last_updated": "2023-10-26T10:00:00Z",            |  |
+|  |          |            "search_term": "phone xyz unlocked"                |  |
+|  |          |          }                                                    |  |
+|  |          +-------------------------------------------------------------+  |
+|  | #002     | Bob Johnson    | Booked     | Buy Back   | £200.00     | [>]  |  |
+|  |          |                |            |            |             |      |  |
+|  | ...                                                                    |  |
+|  +--------------------------------------------------------------------------+  |
+|                                                                                |
+|  Pagination Controls (e.g., < Previous 1 2 3 Next >)                          |
+|                                                                                |
++--------------------------------------------------------------------------------+
+```
+
+This design proposes:
+*   **Header:** Standard application header for navigation.
+*   **Filter/Search Bar:** To easily find specific requests.
+*   **Request Table:** Displays core request information in a tabular format.
+*   **Expandable Rows:** Each row can be expanded to reveal detailed information for that request, including a list of its associated items.
+*   **Raw eBay Data:** For each item, the raw eBay research data will be displayed, likely in a JSON-formatted block for clarity.
+*   **Pagination Controls:** To handle a large number of requests efficiently.
