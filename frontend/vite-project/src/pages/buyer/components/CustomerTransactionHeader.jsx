@@ -17,6 +17,7 @@ const CustomerTransactionHeader = ({
   transactionType,
   onTransactionChange,
   containerClassName = '',
+  readOnly = false, // Add readOnly prop with default false
 }) => {
   const transaction = TRANSACTION_META[transactionType] || {
     label: 'Unknown',
@@ -37,14 +38,18 @@ const CustomerTransactionHeader = ({
         <span className="text-blue-900/40">•</span>
 
         <div className={transaction.className}>
-          <CustomDropdown
-            value={transaction.label}
-            options={TRANSACTION_OPTIONS.map(o => o.label)}
-            onChange={(label) => {
-              const selected = TRANSACTION_OPTIONS.find(o => o.label === label);
-              if (selected) onTransactionChange(selected.value);
-            }}
-          />
+          {readOnly ? ( // Conditional rendering based on readOnly prop
+            <span className="text-sm font-semibold">{transaction.label}</span>
+          ) : (
+            <CustomDropdown
+              value={transaction.label}
+              options={TRANSACTION_OPTIONS.map(o => o.label)}
+              onChange={(label) => {
+                const selected = TRANSACTION_OPTIONS.find(o => o.label === label);
+                if (selected) onTransactionChange(selected.value);
+              }}
+            />
+          )}
         </div>
       </div>
     </div>

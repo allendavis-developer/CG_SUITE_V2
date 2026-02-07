@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation, useParams } from "react-router-dom";
 import { Button, Icon, Header } from "@/components/ui/components";
 import EbayResearchForm from "@/components/forms/EbayResearchForm";
 import { CustomDropdown } from "@/components/ui/components";
 import CustomerTransactionHeader from './components/CustomerTransactionHeader'
-import { finishRequest } from '@/services/api'; // Added this line
-import { useNotification } from '@/contexts/NotificationContext'; // Added this line
+import { finishRequest, fetchRequestDetail } from '@/services/api';
+import { useNotification } from '@/contexts/NotificationContext';
 
 
 const TRANSACTION_OPTIONS = [
@@ -22,67 +22,30 @@ const TRANSACTION_META = {
 
 
 
-const Negotiation = () => {
+const Negotiation = ({ mode }) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { cartItems, customerData, currentRequestId } = location.state || {};
-  const [items, setItems] = useState(cartItems || []);
+  const { requestId: paramsRequestId } = useParams(); // Get requestId from URL params
+  const { cartItems, customerData: initialCustomerData, currentRequestId: initialRequestId } = location.state || {};
+  
+  // Determine the actual requestId to use (from params if in view mode, else from location state)
+  const actualRequestId = mode === 'view' ? paramsRequestId : initialRequestId;
+
+  const [items, setItems] = useState([]); // Initialize empty
+  const [customerData, setCustomerData] = useState({}); // Initialize empty
   const [researchItem, setResearchItem] = useState(null);
   const [totalExpectation, setTotalExpectation] = useState("");
-  const [transactionType, setTransactionType] = useState(
-    customerData?.transactionType || 'sale'
-  );
+  const [transactionType, setTransactionType] = useState('sale'); // Default to 'sale'
+  const [isLoading, setIsLoading] = useState(true); // Always start loading, then set to false once initialized for any mode
 
   const { showNotification } = useNotification();
 
   // Determine if we should show voucher offers
   const useVoucherOffers = transactionType === 'store_credit';
 
-  useEffect(() => {
-    if (customerData?.transactionType) {
-      setTransactionType(customerData.transactionType);
-    }
-  }, [customerData]);
-
-
-  const handleReopenResearch = (item) => {
-    setResearchItem(item);
-  };
-
-  const handleResearchComplete = (updatedState) => {
-    if (updatedState && researchItem) {
-      setItems(prevItems => prevItems.map(i => 
-        i.id === researchItem.id 
-          ? { ...i, ebayResearchData: updatedState } 
-          : i
-      ));
-    }
-    setResearchItem(null);
-  };
-
-  // Calculate total from individual item expectations
-  const calculateTotalFromItems = () => {
-    return items.reduce((sum, item) => {
-      if (item.customerExpectation) {
-        const value = parseFloat(item.customerExpectation.replace(/[£,]/g, '')) || 0;
-        const quantity = item.quantity || 1;
-        return sum + (value * quantity);
-      }
-      return sum;
-    }, 0);
-  };
-
-  // Update total expectation when items change
-  useEffect(() => {
-    const total = calculateTotalFromItems();
-    if (total > 0) {
-      setTotalExpectation(total.toFixed(2));
-    }
-  }, [items]);
-
   // Function to handle finalizing the transaction
   const handleFinalizeTransaction = async () => {
-    if (!currentRequestId) {
+    if (!actualRequestId) { // Use actualRequestId here
       console.error("No current request ID available to finalize.");
       return;
     }
@@ -125,7 +88,9 @@ const Negotiation = () => {
         manual_offer_gbp: item.manualOffer ? (parseFloat(item.manualOffer.replace(/[£,]/g, '')) || 0) : null,
         customer_expectation_gbp: item.customerExpectation ? (parseFloat(item.customerExpectation.replace(/[£,]/g, '')) || 0) : null,
         negotiated_price_gbp: negotiatedPrice * quantity,
-        raw_data: item.ebayResearchData || {}
+        cash_offers_json: item.cashOffers || [],       // New dedicated field
+        voucher_offers_json: item.voucherOffers || [], // New dedicated field
+        raw_data: item.ebayResearchData || {}          // Only ebayResearchData
       };
     });
 
@@ -136,25 +101,173 @@ const Negotiation = () => {
     };
 
     try {
-      await finishRequest(currentRequestId, payload);
+      await finishRequest(actualRequestId, payload); // Use actualRequestId here
       showNotification("Transaction finalized successfully and booked for testing!", 'success');
-      navigate("/buyer"); // Navigate back to the buyer page
+      navigate("/transaction-complete"); // Navigate to the new transaction complete page
     } catch (error) {
       console.error("Error finalizing transaction:", error);
       showNotification(`Failed to finalize transaction: ${error.message}`, 'error');
     }
   };
 
-  // Redirect if no cart data
   useEffect(() => {
-    if (!items || items.length === 0 || !customerData?.id) {
-      navigate("/buyer", { replace: true });
-    }
-  }, [items, customerData, navigate]);
+    if (mode === 'view' && actualRequestId) {
+      const loadRequestDetails = async () => {
+        setIsLoading(true);
+        try {
+          const data = await fetchRequestDetail(actualRequestId);
+          if (data) {
+            // Map backend data to frontend state format
+            setCustomerData({
+                id: data.customer_details.customer_id, // Corrected to customer_details
+                name: data.customer_details.name, // Corrected to customer_details
+                cancelRate: data.customer_details.cancel_rate, // Corrected to customer_details
+                transactionType: (data.intent === 'DIRECT_SALE' ? 'sale' : data.intent === 'BUYBACK' ? 'buyback' : 'store_credit')
+            });
+            setTotalExpectation(data.overall_expectation_gbp?.toString() || '');
+            setTransactionType(data.intent === 'DIRECT_SALE' ? 'sale' : data.intent === 'BUYBACK' ? 'buyback' : 'store_credit');
 
-  if (!items || items.length === 0 || !customerData?.id) {
-    return null;
+            const mappedItems = data.items.map(item => {
+                const ebayResearchData = item.raw_data || null; // raw_data now contains only ebayResearchData
+
+                // Extract saved offers from dedicated fields
+                let savedCashOffers = item.cash_offers_json || [];
+                let savedVoucherOffers = item.voucher_offers_json || [];
+
+                // --- NEW LOGIC FOR EBAY ITEMS WITH MISSING VOUCHER OFFERS ---
+                // Check if it's an eBay research item based on raw_data presence
+                // and if cash offers exist but voucher offers are missing, generate them.
+                if (ebayResearchData && savedCashOffers.length > 0 && savedVoucherOffers.length === 0) {
+                    savedVoucherOffers = savedCashOffers.map(offer => ({
+                        id: `ebay-voucher-${offer.id}`, // Ensure unique IDs
+                        title: offer.title,
+                        price: Number((offer.price * 1.10).toFixed(2)) // 10% more, rounded to 2 decimal places
+                    }));
+                }
+                // --- END NEW LOGIC ---
+
+                // Determine the currently displayed offers based on transaction type (for local logic)
+                const displayOffers = (transactionType === 'store_credit') ? savedVoucherOffers : savedCashOffers;
+
+                                return {
+                                    id: item.request_item_id,
+                                    request_item_id: item.request_item_id,
+                                    title: ebayResearchData?.searchTerm || item.variant_details?.title || 'N/A',
+                                    subtitle: ebayResearchData
+                                              ? (Object.values(ebayResearchData.selectedFilters?.apiFilters || {}).flat().join(' / ') ||
+                                                 ebayResearchData.selectedFilters?.basic?.join(' / ') || 'eBay Filters')
+                                              : (item.variant_details?.cex_sku || 'No details'),
+                                    quantity: item.quantity,                    selectedOfferId: item.selected_offer_id,
+                    manualOffer: item.manual_offer_gbp?.toString() || '',
+                    customerExpectation: item.customer_expectation_gbp?.toString() || '',
+                    ebayResearchData: ebayResearchData, 
+                    cexBuyPrice: (mode === 'view' && item.cex_buy_cash_at_negotiation !== null)
+                                ? parseFloat(item.cex_buy_cash_at_negotiation)
+                                : (item.variant_details?.tradein_cash ? parseFloat(item.variant_details.tradein_cash) : null),
+                    cexVoucherPrice: (mode === 'view' && item.cex_buy_voucher_at_negotiation !== null)
+                                ? parseFloat(item.cex_buy_voucher_at_negotiation)
+                                : (item.variant_details?.tradein_voucher ? parseFloat(item.variant_details.tradein_voucher) : null),
+                    cexSellPrice: (mode === 'view' && item.cex_sell_at_negotiation !== null)
+                                ? parseFloat(item.cex_sell_at_negotiation)
+                                : (item.variant_details?.current_price_gbp ? parseFloat(item.variant_details.current_price_gbp) : null),
+                    
+                    offers: displayOffers, 
+                    cashOffers: savedCashOffers, 
+                    voucherOffers: savedVoucherOffers, 
+                };
+            });
+            setItems(mappedItems);
+          } else {
+            showNotification("Request details not found.", "error");
+            navigate("/requests-overview", { replace: true });
+          }
+        } catch (err) {
+          console.error("Failed to load request details:", err);
+          showNotification(`Failed to load request details: ${err.message}`, "error");
+          navigate("/requests-overview", { replace: true });
+        } finally {
+          setIsLoading(false);
+        }
+      };
+      loadRequestDetails();
+    } else if (mode === 'negotiate') {
+        // For negotiate mode, initialize from location.state if state is currently empty
+        // This prevents overwriting user selections during validation re-renders
+        if (cartItems && cartItems.length > 0 && items.length === 0) { // Only set if items are empty and cartItems exist
+            setItems(cartItems);
+        }
+        if (initialCustomerData?.id && !customerData?.id) { // Only set if customerData is empty and initialCustomerData exists
+            setCustomerData(initialCustomerData);
+            setTotalExpectation(initialCustomerData?.overall_expectation_gbp?.toString() || "");
+            setTransactionType(initialCustomerData?.transactionType || 'sale');
+        }
+
+        // If data is still missing, redirect
+        if ((!cartItems || cartItems.length === 0 || !initialCustomerData?.id) && !isLoading) { // Add !isLoading check
+            navigate("/buyer", { replace: true });
+        } else {
+            setIsLoading(false); // Finished initial setup for negotiate mode
+        }
+    }
+  }, [mode, actualRequestId, navigate, initialCustomerData, cartItems, showNotification]);
+
+
+  useEffect(() => {
+    if (customerData?.transactionType) {
+      setTransactionType(customerData.transactionType);
+    }
+  }, [customerData]);
+
+
+  const handleReopenResearch = (item) => {
+    setResearchItem(item);
+  };
+
+  const handleResearchComplete = (updatedState) => {
+    if (updatedState && researchItem) {
+      setItems(prevItems => prevItems.map(i => 
+        i.id === researchItem.id 
+          ? { ...i, ebayResearchData: updatedState } 
+          : i
+      ));
+    }
+    setResearchItem(null);
+  };
+
+  // Calculate total from individual item expectations
+  const calculateTotalFromItems = () => {
+    return items.reduce((sum, item) => {
+      if (item.customerExpectation) {
+        const value = parseFloat(item.customerExpectation.replace(/[£,]/g, '')) || 0;
+        const quantity = item.quantity || 1;
+        return sum + (value * quantity);
+      }
+      return sum;
+    }, 0);
+  };
+
+  // Update total expectation when items change
+  useEffect(() => {
+    const total = calculateTotalFromItems();
+    if (total > 0) {
+      setTotalExpectation(total.toFixed(2));
+    } else if (mode === 'view' && customerData?.id) {
+        // If in view mode, use the stored overall_expectation_gbp directly
+        setTotalExpectation(customerData.overall_expectation_gbp?.toFixed(2) || "");
+    }
+  }, [items, mode, customerData]);
+
+
+
+  if (isLoading) {
+    return (
+        <div className="bg-ui-bg min-h-screen flex items-center justify-center">
+            <p>Loading request details...</p>
+        </div>
+    );
   }
+
+
 
   // Calculate totals with quantity
   const totalOfferPrice = items.reduce((sum, item) => {
@@ -250,22 +363,22 @@ const Negotiation = () => {
             <div className="flex items-center justify-between gap-6">
               {/* Back to Cart Button */}
               <button
-                onClick={() => navigate('/buyer', { 
-                  state: { 
+                onClick={() => navigate(mode === 'view' ? '/requests-overview' : '/buyer', { 
+                  state: mode === 'negotiate' ? { 
                     preserveCart: true,
                     cartItems: items,
                     customerData,
-                    currentRequestId
-                  }
+                    currentRequestId: actualRequestId
+                  } : undefined
                 })}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg border font-medium text-sm transition-all hover:shadow-md"
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg border font-medium text-sm transition-all ${mode === 'view' ? '' : 'hover:shadow-md'}`}
                 style={{ 
                   borderColor: 'var(--ui-border)',
                   color: 'var(--brand-blue)'
                 }}
               >
                 <span className="material-symbols-outlined text-lg">arrow_back</span>
-                Back to Cart
+                {mode === 'view' ? 'Back to Requests' : 'Back to Cart'}
               </button>
 
               {/* Total Expectation Input */}
@@ -290,6 +403,7 @@ const Negotiation = () => {
                       value={totalExpectation}
                       onChange={(e) => setTotalExpectation(e.target.value)}
                       placeholder="0.00"
+                      readOnly={mode === 'view'}
                     />
                   </div>
                 </div>
@@ -301,7 +415,7 @@ const Negotiation = () => {
                   Request ID
                 </p>
                 <p className="text-lg font-bold" style={{ color: 'var(--brand-blue)' }}>
-                  #{currentRequestId || 'N/A'}
+                  #{actualRequestId || 'N/A'}
                 </p>
               </div>
             </div>
@@ -403,13 +517,13 @@ const Negotiation = () => {
 
                       {/* 1st Offer */}
                       <td 
-                        className="font-semibold cursor-pointer"
+                        className={`font-semibold ${mode === 'view' ? '' : 'cursor-pointer'}`}
                         style={item.selectedOfferId === offer1?.id ? { 
                           background: 'rgba(247, 185, 24, 0.1)', 
                           fontWeight: 'bold',
                           color: 'var(--brand-blue)'
                         } : {}}
-                        onClick={() => offer1 && setItems(prev =>
+                        onClick={() => offer1 && mode !== 'view' && setItems(prev =>
                           prev.map(i => i.id === item.id ? { ...i, selectedOfferId: offer1.id } : i)
                         )}
                       >
@@ -427,13 +541,13 @@ const Negotiation = () => {
 
                       {/* 2nd Offer */}
                       <td 
-                        className="font-semibold cursor-pointer"
+                        className={`font-semibold ${mode === 'view' ? '' : 'cursor-pointer'}`}
                         style={item.selectedOfferId === offer2?.id ? { 
                           background: 'rgba(247, 185, 24, 0.1)', 
                           fontWeight: 'bold',
                           color: 'var(--brand-blue)'
                         } : {}}
-                        onClick={() => offer2 && setItems(prev =>
+                        onClick={() => offer2 && mode !== 'view' && setItems(prev =>
                           prev.map(i => i.id === item.id ? { ...i, selectedOfferId: offer2.id } : i)
                         )}
                       >
@@ -451,13 +565,13 @@ const Negotiation = () => {
 
                       {/* 3rd Offer */}
                       <td 
-                        className="font-semibold cursor-pointer"
+                        className={`font-semibold ${mode === 'view' ? '' : 'cursor-pointer'}`}
                         style={item.selectedOfferId === offer3?.id ? { 
                           background: 'rgba(247, 185, 24, 0.1)', 
                           fontWeight: 'bold',
                           color: 'var(--brand-blue)'
                         } : {}}
-                        onClick={() => offer3 && setItems(prev =>
+                        onClick={() => offer3 && mode !== 'view' && setItems(prev =>
                           prev.map(i => i.id === item.id ? { ...i, selectedOfferId: offer3.id } : i)
                         )}
                       >
@@ -491,7 +605,7 @@ const Negotiation = () => {
                           placeholder="£0.00" 
                           type="text"
                           value={item.manualOffer || ''}
-                          onChange={(e) => {
+                          onChange={mode === 'view' ? undefined : (e) => {
                             const value = e.target.value;
                             setItems(prev =>
                               prev.map(i =>
@@ -505,7 +619,7 @@ const Negotiation = () => {
                               )
                             );
                           }}
-                          onClick={() => {
+                          onClick={mode === 'view' ? undefined : () => {
                             if (item.manualOffer) {
                               setItems(prev =>
                                 prev.map(i =>
@@ -516,6 +630,7 @@ const Negotiation = () => {
                               );
                             }
                           }}
+                          readOnly={mode === 'view'}
                         />
                       </td>
 
@@ -531,7 +646,7 @@ const Negotiation = () => {
                           placeholder="£0.00" 
                           type="text"
                           value={item.customerExpectation || ''}
-                          onChange={(e) => {
+                          onChange={mode === 'view' ? undefined : (e) => {
                             const value = e.target.value;
                             setItems(prev =>
                               prev.map(i =>
@@ -541,6 +656,7 @@ const Negotiation = () => {
                               )
                             );
                           }}
+                          readOnly={mode === 'view'}
                         />
                       </td>
 
@@ -559,13 +675,14 @@ const Negotiation = () => {
                               )}
                             </div>
                             <button 
-                              className="flex items-center justify-center size-7 rounded transition-colors shrink-0"
+                              className={`flex items-center justify-center size-7 rounded transition-colors shrink-0 ${!ebayData ? 'opacity-50 cursor-not-allowed' : ''}`}
                               style={{ 
                                 background: 'var(--brand-orange)',
                                 color: 'var(--brand-blue)'
                               }}
                               onClick={() => handleReopenResearch(item)}
-                              title="Refine Research"
+                              title={!ebayData ? 'No eBay data to show' : 'View/Refine Research'}
+                              disabled={!ebayData}
                             >
                               <span className="material-symbols-outlined text-[16px]">edit_note</span>
                             </button>
@@ -574,13 +691,14 @@ const Negotiation = () => {
                           <div className="flex items-center justify-between gap-2">
                             <span className="text-[13px] font-medium" style={{ color: 'var(--text-muted)' }}>—</span>
                             <button 
-                              className="flex items-center justify-center size-7 rounded transition-colors shrink-0"
+                              className={`flex items-center justify-center size-7 rounded transition-colors shrink-0 ${!ebayData && mode === 'view' ? 'opacity-50 cursor-not-allowed' : ''}`}
                               style={{ 
                                 background: 'var(--brand-orange)',
                                 color: 'var(--brand-blue)'
                               }}
-                              onClick={() => handleReopenResearch(item)}
-                              title="Research"
+                              onClick={(!ebayData && mode === 'view') ? undefined : () => handleReopenResearch(item)}
+                              title={(!ebayData && mode === 'view') ? 'No research available' : 'Research'}
+                              disabled={(!ebayData && mode === 'view')}
                             >
                               <span className="material-symbols-outlined text-[16px]">search_insights</span>
                             </button>
@@ -623,6 +741,7 @@ const Negotiation = () => {
             customer={customerData}
             transactionType={transactionType}
             onTransactionChange={setTransactionType}
+            readOnly={mode === 'view'}
           />
 
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
@@ -645,15 +764,16 @@ const Negotiation = () => {
               </span>
             </div>
             <button 
-              className="w-full font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 group active:scale-[0.98]"
+              className={`w-full font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 group active:scale-[0.98] ${mode === 'view' ? 'opacity-50 cursor-not-allowed' : ''}`}
               style={{ 
                 background: 'var(--brand-orange)',
                 color: 'var(--brand-blue)',
                 boxShadow: '0 10px 15px -3px rgba(247, 185, 24, 0.3)'
               }}
-              onClick={handleFinalizeTransaction}
+              onClick={mode === 'view' ? undefined : handleFinalizeTransaction}
+              disabled={mode === 'view'}
             >
-              <span className="text-base uppercase tracking-tight">Finalize Transaction</span>
+              <span className="text-base uppercase tracking-tight">Book for Testing</span>
               <span className="material-symbols-outlined text-xl group-hover:translate-x-1 transition-transform">arrow_forward</span>
             </button>
           </div>
@@ -668,6 +788,7 @@ const Negotiation = () => {
           savedState={researchItem.ebayResearchData}
           onComplete={handleResearchComplete}
           initialHistogramState={true}
+          readOnly={mode === 'view'}
         />
       )}
     </div>

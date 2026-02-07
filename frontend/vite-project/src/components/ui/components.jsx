@@ -287,6 +287,9 @@ export const Header = ({ onSearch, userName = "JD" }) => (
     </div>
     <div className="flex flex-1 justify-end gap-6 items-center">
       <nav className="flex items-center gap-6">
+        <a href="/requests-overview" className="text-white/70 hover:text-white text-sm font-medium transition-colors">
+          All Requests
+        </a>
       </nav>
     </div>
   </header>

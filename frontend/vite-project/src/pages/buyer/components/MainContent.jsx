@@ -290,6 +290,18 @@ const MainContent = ({
         ? allFilters.join(' / ') 
         : 'No filters applied';
 
+      const cashOffers = data.buyOffers.map((o, idx) => ({
+          id: `ebay-cash-${Date.now()}-${idx}`, // Make IDs unique for cash
+          title: ["1st Offer", "2nd Offer", "3rd Offer"][idx] || "Offer",
+          price: Number(o.price)
+      }));
+
+      const voucherOffers = cashOffers.map(offer => ({
+          id: `ebay-voucher-${offer.id}`, // Make IDs unique for voucher
+          title: offer.title,
+          price: Number((offer.price * 1.10).toFixed(2)) // 10% more, rounded to 2 decimal places
+      }));
+
       const customCartItem = {
         id: Date.now(),
         title: data.searchTerm || "eBay Research Item",
@@ -297,11 +309,9 @@ const MainContent = ({
         quantity: 1,
         category: selectedCategory?.name,
         categoryObject: selectedCategory,
-        offers: data.buyOffers.map((o, idx) => ({
-          id: `ebay-${Date.now()}-${idx}`,
-          title: ["1st Offer", "2nd Offer", "3rd Offer"][idx] || "Offer",
-          price: Number(o.price)
-        })),
+        offers: useVoucherOffers ? voucherOffers : cashOffers, // Default to appropriate offer type
+        cashOffers: cashOffers, // Store cash offers
+        voucherOffers: voucherOffers, // Store voucher offers
         ebayResearchData: data,
         isCustomEbayItem: true,
         variantId: null, // ✅ eBay items have no variant

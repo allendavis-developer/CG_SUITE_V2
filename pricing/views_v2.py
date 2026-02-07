@@ -1,9 +1,14 @@
 from django.shortcuts import render, get_object_or_404
 from django.db import transaction
+from django.http import JsonResponse
+
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
-from decimal import Decimal, InvalidOperation # Add this line
+from decimal import Decimal, InvalidOperation
+from django.db.models import OuterRef, Subquery, Max
+import requests
+from pricing.utils.ebay_filters import extract_filters, extract_ebay_search_params
 
 from .models_v2 import ( ProductCategory, Product, Variant, Customer,
 Request, RequestItem, RequestStatus, RequestStatusHistory,
@@ -216,6 +221,58 @@ def update_request_intent(request, request_id):
     )
 
 
+@api_view(['GET'])
+def requests_overview_list(request):
+    """
+    GET: List all requests, optionally filtered by status.
+    Query params: ?status=OPEN or ?status=BOOKED_FOR_TESTING
+    """
+    requests = Request.objects.all().prefetch_related(
+        'items',
+        'items__variant', # Pre-fetch variant details for items
+        'status_history'
+    ).select_related('customer').order_by('-created_at') # Order by creation date, newest first
+
+    status_filter = request.query_params.get('status')
+    if status_filter:
+        # Filter by the latest status in the history
+        requests = requests.filter(status_history__status=status_filter, status_history__effective_at=(
+            RequestStatusHistory.objects.filter(request=OuterRef('pk')).order_by('-effective_at').values('effective_at')[:1]
+        ))
+        
+    serializer = RequestSerializer(requests, many=True)
+    return Response(serializer.data)
+
+
+@api_view(['GET'])
+def requests_overview_list(request):
+    """
+    GET: List all requests, optionally filtered by status.
+    Query params: ?status=OPEN or ?status=BOOKED_FOR_TESTING
+    """
+    # Annotate each request with its latest status
+    latest_status_subquery = Subquery(
+        RequestStatusHistory.objects.filter(request=OuterRef('pk'))
+        .order_by('-effective_at')
+        .values('status')[:1]
+    )
+    
+    requests = Request.objects.annotate(
+        latest_status=latest_status_subquery
+    ).prefetch_related(
+        'items',
+        'items__variant',
+        'status_history'
+    ).select_related('customer').order_by('-created_at')
+
+    status_filter = request.query_params.get('status')
+    if status_filter:
+        requests = requests.filter(latest_status=status_filter)
+        
+    serializer = RequestSerializer(requests, many=True)
+    return Response(serializer.data)
+
+
 @api_view(['POST'])
 def update_request_item_raw_data(request, request_item_id):
     """
@@ -319,6 +376,16 @@ def finish_request(request, request_id):
 
         # Update fields for RequestItem
         update_fields = []
+
+        # Save historical variant prices
+        if request_item.variant:
+            request_item.cex_buy_cash_at_negotiation = request_item.variant.tradein_cash
+            update_fields.append('cex_buy_cash_at_negotiation')
+            request_item.cex_buy_voucher_at_negotiation = request_item.variant.tradein_voucher
+            update_fields.append('cex_buy_voucher_at_negotiation')
+            request_item.cex_sell_at_negotiation = request_item.variant.current_price_gbp
+            update_fields.append('cex_sell_at_negotiation')
+
         if 'quantity' in item_data:
             request_item.quantity = item_data['quantity']
             update_fields.append('quantity')
@@ -355,6 +422,14 @@ def finish_request(request, request_id):
         if 'raw_data' in item_data:
             request_item.raw_data = item_data['raw_data']
             update_fields.append('raw_data')
+        
+        if 'cash_offers_json' in item_data:
+            request_item.cash_offers_json = item_data['cash_offers_json']
+            update_fields.append('cash_offers_json')
+        
+        if 'voucher_offers_json' in item_data:
+            request_item.voucher_offers_json = item_data['voucher_offers_json']
+            update_fields.append('voucher_offers_json')
         
         if update_fields:
             request_item.save(update_fields=update_fields)
@@ -633,3 +708,100 @@ def product_variants(request):
         "attributes": attributes,
         "dependencies": dependencies
     })
+
+
+@api_view(['GET'])
+def get_ebay_filters(request):
+    search_term = request.GET.get("q", "").strip()
+    ebay_search_url = request.GET.get("url", "").strip()
+
+    if not search_term and not ebay_search_url:
+        return Response(
+            {"success": False, "error": "Provide either q or url"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    ebay_url = "https://www.ebay.co.uk/sch/ajax/refine"
+
+    if ebay_search_url:
+        try:
+            params = extract_ebay_search_params(ebay_search_url)
+        except Exception:
+            return Response(
+                {"success": False, "error": "Invalid eBay URL"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+    else:
+        params = {
+            "_nkw": search_term,
+            "_sacat": 0,
+            "_fsrp": 1,
+            "rt": "nc",
+        }
+
+    # force refinement payload options
+    params.update({
+        "modules": "SEARCH_REFINEMENTS_MODEL_V2:fa",
+        "no_encode_refine_params": 1,
+    })
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0 Safari/537.36"
+        ),
+        "Accept": "application/json",
+        "Accept-Language": "en-GB,en;q=0.9",
+        "Referer": "https://www.ebay.co.uk/",
+    }
+
+    session = requests.Session()
+    session.headers.update(headers)
+
+    # warm cookies
+    session.get("https://www.ebay.co.uk/", timeout=10)
+
+    try:
+        response = session.get(
+            ebay_url,
+            params=params,
+            timeout=20,
+        )
+        # Log the actual URL that was requested
+        print(f"Request sent to: {response.url}")
+
+        response.raise_for_status()
+    except requests.RequestException as e:
+        return Response(
+            {"success": False, "error": str(e)},
+            status=status.HTTP_502_BAD_GATEWAY
+        )
+    data = response.json()
+
+    refinements_module = None
+    if data.get("_type") == "SearchRefinementsModule":
+        refinements_module = data
+    else:
+        for module in data.get("modules", []):
+            if module.get("_type") == "SearchRefinementsModule":
+                refinements_module = module
+                break
+
+    if not refinements_module:
+        return Response(
+            {"success": False, "error": "No refinements module found"},
+            status=status.HTTP_502_BAD_GATEWAY
+        )
+
+    filters = extract_filters(refinements_module)
+
+    return JsonResponse({
+        "success": True,
+        "source": "url" if ebay_search_url else "query",
+        "query": search_term or params.get("_nkw"),
+        "filters": filters,
+    })
+
+
+

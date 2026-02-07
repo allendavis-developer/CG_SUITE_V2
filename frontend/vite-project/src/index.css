@@ -126,4 +126,28 @@
   html {
     @apply font-sans;
     }
+
+  /* Custom scrollbar styles */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: #f1f5f9; }
+  ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+  ::-webkit-scrollbar-thumb:hover { background: #144584; }
+
+  /* Material symbols font size */
+  .material-symbols-outlined { font-size: 20px; }
+}
+
+@layer components {
+  .data-table th {
+    @apply bg-slate-50 text-brand-blue font-bold text-[11px] uppercase tracking-wider px-6 py-4 border-b border-ui-border sticky top-0 z-10;
+  }
+  .data-table td {
+    @apply px-6 py-4 border-b border-ui-border align-middle;
+  }
+  .data-table tr {
+    @apply hover:bg-slate-50 cursor-pointer transition-colors;
+  }
+  .status-pill {
+    @apply px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider inline-flex items-center justify-center;
+  }
 }

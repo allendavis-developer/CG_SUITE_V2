@@ -259,10 +259,75 @@ class RequestItemAdmin(admin.ModelAdmin):
         "request",
         "variant",
         "expectation_gbp",
+        "quantity",
+        "customer_expectation_gbp",
+        "negotiated_price_gbp",
+        "get_cex_buy_cash",
+        "get_cex_buy_voucher",
+        "get_cex_sell_price",
     )
     list_filter = ("variant__product__category",)
-    search_fields = ("variant__cex_sku",)
+    search_fields = (
+        "variant__cex_sku",
+        "request__customer__name",
+        "request__customer__phone_number",
+    )
     autocomplete_fields = ("request", "variant")
+    readonly_fields = (
+        "raw_data",
+        "cash_offers_json",
+        "voucher_offers_json",
+        "customer_expectation_gbp",
+        "negotiated_price_gbp",
+        "get_cex_buy_cash",
+        "get_cex_buy_voucher",
+        "get_cex_sell_price",
+    )
+    fieldsets = (
+        (None, {
+            'fields': (
+                'request',
+                'variant',
+                'expectation_gbp',
+                'quantity',
+                'notes'
+            )
+        }),
+        ('Variant Details (from linked Variant)', { # Updated fieldset title
+            'fields': (
+                'get_cex_buy_cash',
+                'get_cex_buy_voucher',
+                'get_cex_sell_price',
+            ),
+        }),
+        ('Offers & Negotiation', {
+            'fields': (
+                'customer_expectation_gbp',
+                'selected_offer_id',
+                'manual_offer_gbp',
+                'negotiated_price_gbp',
+                'cash_offers_json',
+                'voucher_offers_json',
+            )
+        }),
+        ('Raw Data', {
+            'fields': ('raw_data',),
+            'classes': ('collapse',),
+            'description': "Raw data used for pricing decisions."
+        }),
+    )
+
+    def get_cex_buy_cash(self, obj):
+        return obj.variant.tradein_cash if obj.variant else None
+    get_cex_buy_cash.short_description = "CeX Buy (Cash)"
+
+    def get_cex_buy_voucher(self, obj):
+        return obj.variant.tradein_voucher if obj.variant else None
+    get_cex_buy_voucher.short_description = "CeX Buy (Voucher)"
+
+    def get_cex_sell_price(self, obj):
+        return obj.variant.current_price_gbp if obj.variant else None
+    get_cex_sell_price.short_description = "CeX Sell Price"
 
 
 @admin.register(TradeIn)

@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Button, Icon } from '../ui/components';
 import { scrapeEbay } from '@/services/extensionClient';
 import { HorizontalOfferCard } from '@/components/ui/components';
 
-// Add animation styles
+// Add animation styles - MOVED OUTSIDE COMPONENT, RUNS ONCE
 const fadeInUpAnimation = `
   @keyframes fadeInUp {
     from {
@@ -36,11 +36,13 @@ const fadeInUpAnimation = `
   }
 `;
 
-// Inject styles into document
-if (typeof document !== 'undefined') {
+// Inject styles into document - RUNS ONCE ON MODULE LOAD
+let stylesInjected = false;
+if (typeof document !== 'undefined' && !stylesInjected) {
   const styleElement = document.createElement('style');
   styleElement.textContent = fadeInUpAnimation;
   document.head.appendChild(styleElement);
+  stylesInjected = true;
 }
 
 const BASIC_FILTER_OPTIONS = [
@@ -82,24 +84,64 @@ function calculateBuyOffers(sellPrice) {
   }));
 }
 
-
-
-function PriceHistogram({ listings, onBucketSelect, priceRange, onGoBack, drillLevel }) {
+// MEMOIZED HISTOGRAM COMPONENT
+const PriceHistogram = React.memo(function PriceHistogram({ listings, onBucketSelect, priceRange, onGoBack, drillLevel, readOnly }) {
   const [bucketCount, setBucketCount] = useState(10);
 
+  // MEMOIZE PRICE EXTRACTION
+  const prices = useMemo(() => {
+    if (!listings || listings.length === 0) return [];
+    return listings
+      .map(l => (typeof l.price === 'string' ? parseFloat(l.price.replace(/[^0-9.]/g, '')) : l.price))
+      .filter(p => !isNaN(p) && p > 0);
+  }, [listings]);
+
+  // MEMOIZE MIN/MAX CALCULATION
+  const { min, max } = useMemo(() => {
+    if (prices.length === 0) return { min: 0, max: 0 };
+    const calculatedMin = priceRange ? priceRange.min : Math.min(...prices);
+    const calculatedMax = priceRange ? priceRange.max : Math.max(...prices);
+    return { min: calculatedMin, max: calculatedMax };
+  }, [prices, priceRange]);
+
+  // MEMOIZE BUCKETS CALCULATION
+  const { buckets, maxFreq } = useMemo(() => {
+    if (prices.length === 0 || min === max) {
+      return { buckets: [], maxFreq: 0 };
+    }
+
+    const totalRange = max - min;
+    const rawStep = totalRange / bucketCount;
+
+    const newBuckets = Array(bucketCount).fill(0).map((_, i) => ({
+      count: 0,
+      rangeStart: min + (i * rawStep),
+      rangeEnd: min + ((i + 1) * rawStep)
+    }));
+
+    prices.forEach(price => {
+      // Only count prices within current range
+      if (priceRange && (price < priceRange.min || price > priceRange.max)) return;
+      
+      let index = Math.floor((price - min) / rawStep);
+      if (index >= bucketCount) index = bucketCount - 1;
+      if (index < 0) index = 0;
+      newBuckets[index].count++;
+    });
+
+    const calculatedMaxFreq = Math.max(...newBuckets.map(b => b.count));
+
+    return { buckets: newBuckets, maxFreq: calculatedMaxFreq };
+  }, [prices, min, max, bucketCount, priceRange]);
+
+  // MEMOIZE FILTERED PRICES COUNT
+  const filteredPricesCount = useMemo(() => {
+    if (!priceRange) return prices.length;
+    return prices.filter(p => p >= priceRange.min && p <= priceRange.max).length;
+  }, [prices, priceRange]);
+
   if (!listings || listings.length === 0) return null;
-
-  const prices = listings
-    .map(l => (typeof l.price === 'string' ? parseFloat(l.price.replace(/[^0-9.]/g, '')) : l.price))
-    .filter(p => !isNaN(p) && p > 0);
-
   if (prices.length === 0) return null;
-
-  // Use priceRange if drilling down, otherwise use full range
-  const min = priceRange ? priceRange.min : Math.min(...prices);
-  const max = priceRange ? priceRange.max : Math.max(...prices);
-  const totalRange = max - min;
-  const rawStep = totalRange / bucketCount;
 
   if (min === max) {
     return (
@@ -114,25 +156,6 @@ function PriceHistogram({ listings, onBucketSelect, priceRange, onGoBack, drillL
     );
   }
 
-
-  const buckets = Array(bucketCount).fill(0).map((_, i) => ({
-    count: 0,
-    rangeStart: min + (i * rawStep),
-    rangeEnd: min + ((i + 1) * rawStep)
-  }));
-
-  prices.forEach(price => {
-    // Only count prices within current range
-    if (priceRange && (price < priceRange.min || price > priceRange.max)) return;
-    
-    let index = Math.floor((price - min) / rawStep);
-    if (index >= bucketCount) index = bucketCount - 1;
-    if (index < 0) index = 0;
-    buckets[index].count++;
-  });
-
-  const maxFreq = Math.max(...buckets.map(b => b.count));
-
   return (
     <div className="bg-white h-full rounded-xl border border-gray-200 shadow-sm transition-all duration-500 flex flex-col">
       {/* Header Section */}
@@ -145,7 +168,7 @@ function PriceHistogram({ listings, onBucketSelect, priceRange, onGoBack, drillL
             {priceRange ? (
               <>
                 Drilling into <span className="font-bold text-blue-900">£{priceRange.min.toFixed(0)} - £{priceRange.max.toFixed(0)}</span> range
-                {' '}(<span className="font-bold text-blue-900">{prices.filter(p => p >= priceRange.min && p <= priceRange.max).length}</span> listings)
+                {' '}(<span className="font-bold text-blue-900">{filteredPricesCount}</span> listings)
               </>
             ) : (
               <>
@@ -159,6 +182,7 @@ function PriceHistogram({ listings, onBucketSelect, priceRange, onGoBack, drillL
           <button
             onClick={onGoBack}
             className="flex items-center gap-2 px-3 py-1.5 bg-blue-900 text-white rounded-lg text-xs font-bold hover:bg-blue-800 transition-all transform hover:scale-105 shadow-md w-full justify-center mb-4"
+            disabled={false} 
           >
             <span className="material-symbols-outlined text-sm">arrow_back</span>
             Zoom Out
@@ -176,6 +200,7 @@ function PriceHistogram({ listings, onBucketSelect, priceRange, onGoBack, drillL
             value={bucketCount}
             onChange={(e) => setBucketCount(parseInt(e.target.value))}
             className="w-full h-1.5 bg-blue-200 rounded-lg appearance-none cursor-pointer accent-blue-900"
+            disabled={false} 
           />
         </div>
       </div>
@@ -247,8 +272,7 @@ function PriceHistogram({ listings, onBucketSelect, priceRange, onGoBack, drillL
       </div>
     </div>
   );
-
-}
+});
 
 /**
  * Finds the most specific eBay ID by checking path items from right-to-left
@@ -313,7 +337,7 @@ function buildEbayUrl(searchTerm, filters, categoryPath, behaveAsEbay = false) {
 }
 
 
-export default function EbayResearchForm({ onComplete, category, mode = "modal", savedState = null, initialHistogramState = null }) {
+export default function EbayResearchForm({ onComplete, category, mode = "modal", savedState = null, initialHistogramState = null, readOnly = false }) {
   // Initialize state from savedState if available
   const [searchTerm, setSearchTerm] = useState(savedState?.searchTerm || "");
   const [filterOptions, setFilterOptions] = useState(savedState?.filterOptions || []); // API filters
@@ -343,18 +367,18 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
   });
 
   // --- Fetch eBay filters (initial) ---
-  const fetchEbayFilters = async (term) => {
+  const fetchEbayFilters = useCallback(async (term) => {
     try {
       const res = await fetch(`/api/ebay/filters/?q=${encodeURIComponent(term)}`);
       if (!res.ok) throw new Error('Failed to fetch filters');
       const data = await res.json();
 
-          console.log(
-            data.filters.map(f => ({
-              name: f.name,
-              options: f.options?.map(o => o.label)
-            }))
-          );
+      console.log(
+        data.filters.map(f => ({
+          name: f.name,
+          options: f.options?.map(o => o.label)
+        }))
+      );
 
       const cleanedFilters = (data.filters || [])
         .map(filter => {
@@ -378,16 +402,15 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
         })
         .filter(Boolean); // remove nulls
 
-
       setFilterOptions(cleanedFilters);
     } catch (err) {
       console.error('Error fetching eBay filters:', err);
       setFilterOptions([]);
     }
-  };
+  }, []);
 
-
-  const calculateStats = (listingsData) => {
+  // MEMOIZE calculateStats FUNCTION
+  const calculateStats = useCallback((listingsData) => {
     if (!listingsData || listingsData.length === 0) {
       return { average: 0, median: 0, suggestedPrice: 0 };
     }
@@ -421,9 +444,9 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
       median,
       suggestedPrice
     };
-  };
+  }, []);
 
-  const handleSearch = async () => {
+  const handleSearch = useCallback(async () => {
     if (!searchTerm.trim()) return;
     
     const termChanged = searchTerm.trim() !== lastSearchedTerm;
@@ -476,9 +499,9 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
     } finally {
       setLoading(false);
     }
-  };
+  }, [searchTerm, lastSearchedTerm, selectedFilters, category?.path, behaveAsEbay, fetchEbayFilters, calculateStats]);
 
-  const handleApiFilterChange = (filterName, value, type, rangeKey) => {
+  const handleApiFilterChange = useCallback((filterName, value, type, rangeKey) => {
     setSelectedFilters(prev => {
       const newFilters = { ...prev.apiFilters };
       if (type === 'checkbox') {
@@ -495,23 +518,23 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
       }
       return { ...prev, apiFilters: newFilters };
     });
-  };
+  }, []);
 
-  const handleDrillDown = (rangeStart, rangeEnd) => {
+  const handleDrillDown = useCallback((rangeStart, rangeEnd) => {
     // Add current range to history and drill down
     setDrillHistory(prev => [...prev, { min: rangeStart, max: rangeEnd }]);
-  };
+  }, []);
 
-  const handleZoomOut = () => {
+  const handleZoomOut = useCallback(() => {
     // Remove the last drill level
     setDrillHistory(prev => prev.slice(0, -1));
-  };
+  }, []);
 
   // Get current price range (latest in history, or null for full view)
   const currentPriceRange = drillHistory.length > 0 ? drillHistory[drillHistory.length - 1] : null;
   
-  // Filter listings based on current drill level
-  const displayedListings = React.useMemo(() => {
+  // Filter listings based on current drill level - PROPERLY MEMOIZED
+  const displayedListings = useMemo(() => {
     if (!listings) return null;
     if (!currentPriceRange) return listings;
 
@@ -523,16 +546,16 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
     });
   }, [listings, currentPriceRange]);
 
-  // Calculate stats based on displayed listings (filtered by current drill level)
-  const displayedStats = React.useMemo(() => {
+  // Calculate stats based on displayed listings (filtered by current drill level) - PROPERLY MEMOIZED
+  const displayedStats = useMemo(() => {
     if (!displayedListings || displayedListings.length === 0) {
       return stats; // Fallback to overall stats if no filtered listings
     }
     return calculateStats(displayedListings);
-  }, [displayedListings, stats]);
+  }, [displayedListings, stats, calculateStats]);
 
-  // Helper to get current complete state for saving
-  const getCurrentState = () => {
+  // Helper to get current complete state for saving - MEMOIZED
+  const getCurrentState = useCallback(() => {
     const offers = calculateBuyOffers(displayedStats.suggestedPrice);
 
     return {
@@ -547,21 +570,24 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
       selectedFilters,
       showHistogram
     };
-  };
+  }, [searchTerm, filterOptions, listings, displayedStats, lastSearchedTerm, drillHistory, behaveAsEbay, selectedFilters, showHistogram]);
 
+  // MEMOIZED CALLBACK FOR ONCOMPLETE
+  const handleComplete = useCallback(() => {
+    onComplete?.(getCurrentState());
+  }, [onComplete, getCurrentState]);
 
   // Wrapper classes based on mode
-  // TODO: Why do we have ebay research modal if we do this
   const wrapperClasses = mode === "modal"
-    ? "fixed inset-0 z-[100] flex items-start justify-center bg-black/40 backdrop-blur-sm"
+    ? "fixed inset-0 z-[100] flex items-start justify-center bg-black/40"
     : "";
 
   const containerClasses = mode === "modal"
     ? "bg-white w-full h-full flex flex-col overflow-hidden"
     : "bg-white w-full h-full flex flex-col overflow-hidden";
 
-  // Stats component for reuse
-  const StatsDisplay = () => (
+  // MEMOIZED STATS DISPLAY COMPONENT
+  const StatsDisplay = useMemo(() => () => (
     <div className="flex items-center gap-6">
       <div className="flex flex-col">
         <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">
@@ -605,16 +631,17 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
         <span className="text-lg font-extrabold text-green-600">£{displayedStats.suggestedPrice}</span>
       </div>
     </div>
-  );
+  ), [displayedStats]);
 
-  const BuyOffersDisplay = () => {
+  // MEMOIZED BUY OFFERS DISPLAY
+  const BuyOffersDisplay = useMemo(() => {
     const offers = calculateBuyOffers(displayedStats.suggestedPrice);
 
     if (!offers.length) return null;
 
     const offerLabels = ["1st Offer", "2nd Offer", "3rd Offer"];
 
-    return (
+    return () => (
       <div className="flex flex-wrap items-center gap-4">
         {offers.map(({ price }, idx) => (
           <HorizontalOfferCard
@@ -626,18 +653,22 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
         ))}
       </div>
     );
-  };
+  }, [displayedStats.suggestedPrice]);
 
-
-
-  const StatsAndBuyOffers = () => (
+  const StatsAndBuyOffers = useMemo(() => () => (
     <div className="flex items-center gap-6 flex-wrap">
       <StatsDisplay />
-      <BuyOffersDisplay />
+      {BuyOffersDisplay && <BuyOffersDisplay />}
     </div>
-  );
+  ), [StatsDisplay, BuyOffersDisplay]);
 
-
+  // MEMOIZE BASIC FILTER CHANGE HANDLER
+  const handleBasicFilterChange = useCallback((filter, checked) => {
+    const newBasic = checked
+      ? [...selectedFilters.basic, filter]
+      : selectedFilters.basic.filter(f => f !== filter);
+    setSelectedFilters(prev => ({ ...prev, basic: newBasic }));
+  }, [selectedFilters.basic]);
 
   const content = (
     <>
@@ -655,7 +686,7 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
               </p>
             </div>
           </div>
-          <button className="text-white/60 hover:text-white transition-colors p-1" onClick={() => onComplete?.(getCurrentState())}>
+          <button className="text-white/60 hover:text-white transition-colors p-1" onClick={handleComplete}>
             <Icon name="close" />
           </button>
         </header>
@@ -668,16 +699,15 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
         <Button
           variant="primary"
           size="md"
-          onClick={() => onComplete?.(getCurrentState())}
+          onClick={readOnly ? undefined : handleComplete}
           className="shrink-0 mt-2 md:mt-0"
+          disabled={readOnly}
         >
           <Icon name="add_shopping_cart" className="text-sm" />
           Add to Cart
         </Button>
       </div>
       )}
-
-
 
       {/* Search Input */}
       <div className="px-6 py-4 border-b border-gray-200 bg-gray-100/50">
@@ -688,13 +718,17 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
             className="w-full border border-gray-300 rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-blue-200 focus:border-blue-900 outline-none shadow-sm"
             placeholder="Search eBay listings..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+            onChange={readOnly ? undefined : (e) => setSearchTerm(e.target.value)}
+            onKeyDown={readOnly ? undefined : (e) => e.key === 'Enter' && handleSearch()}
+            readOnly={readOnly}
+            disabled={readOnly}
           />
           <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
-            <Button variant="primary" size="sm" onClick={handleSearch} disabled={loading}>
-              {loading ? "Searching..." : "Search"}
-            </Button>
+            {!readOnly && (
+              <Button variant="primary" size="sm" onClick={handleSearch} disabled={loading}>
+                {loading ? "Searching..." : "Search"}
+              </Button>
+            )}
           </div>
         </div>
         
@@ -705,7 +739,8 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
               type="checkbox"
               className="rounded border-gray-300 text-blue-900 focus:ring-blue-900"
               checked={behaveAsEbay}
-              onChange={(e) => setBehaveAsEbay(e.target.checked)}
+              onChange={readOnly ? undefined : (e) => setBehaveAsEbay(e.target.checked)}
+              disabled={readOnly}
             />
             <span>Behave like eBay</span>
             <span className="text-[10px] text-gray-500">(ignore category-based search)</span>
@@ -718,7 +753,8 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
                 type="checkbox"
                 className="rounded border-gray-300 text-blue-900 focus:ring-blue-900"
                 checked={showHistogram}
-                onChange={(e) => setShowHistogram(e.target.checked)}
+                onChange={readOnly ? undefined : (e) => setShowHistogram(e.target.checked)}
+                disabled={readOnly}
               />
               <span className="flex items-center gap-1">
                 <span className="material-symbols-outlined text-sm">bar_chart</span>
@@ -744,12 +780,8 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
                       type="checkbox"
                       className="rounded border-gray-300 text-blue-900 focus:ring-blue-900"
                       checked={selectedFilters.basic.includes(filter)}
-                      onChange={(e) => {
-                        const newBasic = e.target.checked
-                          ? [...selectedFilters.basic, filter]
-                          : selectedFilters.basic.filter(f => f !== filter);
-                        setSelectedFilters(prev => ({ ...prev, basic: newBasic }));
-                      }}
+                      onChange={readOnly ? undefined : (e) => handleBasicFilterChange(filter, e.target.checked)}
+                      disabled={readOnly}
                     />
                     <span>{filter}</span>
                   </label>
@@ -768,7 +800,8 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
                         type="checkbox"
                         className="rounded border-gray-300 text-blue-900 focus:ring-blue-900"
                         checked={selectedFilters.apiFilters[filter.name]?.includes(option.label) || false}
-                        onChange={(e) => handleApiFilterChange(filter.name, { label: option.label, checked: e.target.checked }, 'checkbox')}
+                        onChange={readOnly ? undefined : (e) => handleApiFilterChange(filter.name, { label: option.label, checked: e.target.checked }, 'checkbox')}
+                        disabled={readOnly}
                       />
                       <span>{option.label} {option.count ? `(${option.count})` : ""}</span>
                     </label>
@@ -781,14 +814,16 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
                         placeholder="Min"
                         className="w-full p-2 border rounded text-xs focus:ring-blue-900"
                         value={selectedFilters.apiFilters[filter.name]?.min || ""}
-                        onChange={(e) => handleApiFilterChange(filter.name, e.target.value, 'range', 'min')}
+                        onChange={readOnly ? undefined : (e) => handleApiFilterChange(filter.name, e.target.value, 'range', 'min')}
+                        disabled={readOnly}
                       />
                       <input
                         type="number"
                         placeholder="Max"
                         className="w-full p-2 border rounded text-xs focus:ring-blue-900"
                         value={selectedFilters.apiFilters[filter.name]?.max || ""}
-                        onChange={(e) => handleApiFilterChange(filter.name, e.target.value, 'range', 'max')}
+                        onChange={readOnly ? undefined : (e) => handleApiFilterChange(filter.name, e.target.value, 'range', 'max')}
+                        disabled={readOnly}
                       />
                     </div>
                   )}
@@ -801,8 +836,8 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
               <Button 
                 variant="primary" 
                 size="md" 
-                onClick={handleSearch} 
-                disabled={loading}
+                onClick={readOnly ? undefined : handleSearch} 
+                disabled={readOnly || loading}
                 className="w-full"
               >
                 {loading ? "Applying..." : "Apply Filters"}
@@ -874,9 +909,9 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
                 {displayedListings && displayedListings.map((item, idx) => (
                   <a
                     key={`${item.title}-${idx}`}
-                    href={item.url}                // ✅ link to eBay
-                    target="_blank"                // open in new tab
-                    rel="noopener noreferrer"      // security best practice
+                    href={item.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="bg-white rounded-xl border border-gray-200 p-4 flex gap-4 hover:shadow-md transition-all duration-300"
                     style={{ 
                       animationDelay: `${idx * 20}ms`,
@@ -924,6 +959,7 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
                   priceRange={currentPriceRange}
                   onGoBack={handleZoomOut}
                   drillLevel={drillHistory.length}
+                  readOnly={readOnly}
                 />
               </aside>
             )}
@@ -937,11 +973,15 @@ export default function EbayResearchForm({ onComplete, category, mode = "modal",
         <footer className="px-6 py-4 border-t border-gray-200 bg-white flex justify-between items-center shrink-0">
           <StatsAndBuyOffers  />
           <div className="flex gap-3">
-            <Button variant="outline" size="md" onClick={() => onComplete?.(getCurrentState())}>Cancel</Button>
+            <Button variant="outline" size="md" onClick={readOnly ? undefined : handleComplete} disabled={readOnly}>Cancel</Button>
             {listings && (
-              <Button variant="primary" size="md" onClick={() => onComplete?.(getCurrentState())}>
-                <Icon name="save" className="text-sm" />
-                Apply Research Data
+              <Button 
+                variant="primary" 
+                size="md" 
+                onClick={handleComplete} 
+                disabled={loading && !readOnly}
+              >
+                {readOnly ? "OK" : <><Icon name="save" className="text-sm" /> Apply Research Data</>}
               </Button>
             )}
           </div>

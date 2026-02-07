@@ -8,14 +8,16 @@ urlpatterns = [
 
     # new frontend rewrite api calls needed
     path('api/product-categories/', v2.categories_list, name='product-categories'),
+    path("api/ebay/filters/", v2.get_ebay_filters, name="api-get-ebay-filters"),
     path('api/products/', v2.products_list),  
     path('api/product-variants/', v2.product_variants),  
     path('api/market-stats/', v2.variant_market_stats),
     path('api/variant-prices/', v2.variant_prices),
     path('api/customers/', v2.customers_view),
     path('api/requests/', v2.requests_view, name='requests'),
-    path('api/requests/<int:request_id>/items/', v2.add_request_item, name='add_request_item'),
+    path('api/requests/<int:request_id>/items/', v2.add_request_item, name='add_request_`item'),
     path('api/requests/<int:request_id>/', v2.request_detail, name='request_detail'),
+    path('api/requests/overview/', v2.requests_overview_list, name='requests_overview_list'),
     path('api/requests/<int:request_id>/finish/', v2.finish_request, name='finish_request'),
     path('api/requests/<int:request_id>/cancel/', v2.cancel_request, name='cancel_request'),
     path('api/requests/<int:request_id>/update-intent/', v2.update_request_intent, name='update_request_intent'),

@@ -132,8 +132,18 @@ class RequestItemSerializer(serializers.ModelSerializer):
             'manual_offer_gbp',
             'customer_expectation_gbp',
             'negotiated_price_gbp',
+            'cash_offers_json',  # Add new field
+            'voucher_offers_json', # Add new field
+            'cex_buy_cash_at_negotiation',
+            'cex_buy_voucher_at_negotiation',
+            'cex_sell_at_negotiation',
         ]
-        read_only_fields = ['request_item_id']
+        read_only_fields = [
+            'request_item_id',
+            'cex_buy_cash_at_negotiation',
+            'cex_buy_voucher_at_negotiation',
+            'cex_sell_at_negotiation',
+        ]
     
     def validate_customer_expectation_gbp(self, value):
         if value is not None and value < 0:

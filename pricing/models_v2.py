@@ -822,7 +822,45 @@ class RequestItem(models.Model):
         help_text="Final negotiated price for this item after selection"
     )
 
+    cash_offers_json = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Snapshot of cash offers presented during negotiation"
+    )
+
+    voucher_offers_json = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Snapshot of voucher offers presented during negotiation"
+    )
+
     notes = models.TextField(blank=True)
+
+    # Historical prices at the time of negotiation, denormalized from Variant
+    cex_buy_cash_at_negotiation = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal('0.00'))],
+        help_text="CeX Buy (Cash) price at negotiation time"
+    )
+    cex_buy_voucher_at_negotiation = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal('0.00'))],
+        help_text="CeX Buy (Voucher) price at negotiation time"
+    )
+    cex_sell_at_negotiation = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal('0.01'))],
+        help_text="CeX Sell price at negotiation time"
+    )
 
     class Meta:
         db_table = "buying_request_item"
