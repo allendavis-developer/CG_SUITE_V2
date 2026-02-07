@@ -125,15 +125,19 @@ class RequestItemSerializer(serializers.ModelSerializer):
             'request',
             'variant',
             'variant_details',
-            'expectation_gbp',
             'raw_data',
-            'notes'
+            'notes',
+            'quantity',
+            'selected_offer_id',
+            'manual_offer_gbp',
+            'customer_expectation_gbp',
+            'negotiated_price_gbp',
         ]
         read_only_fields = ['request_item_id']
     
-    def validate_initial_expectation_gbp(self, value):
+    def validate_customer_expectation_gbp(self, value):
         if value is not None and value < 0:
-            raise serializers.ValidationError("Initial expectation cannot be negative")
+            raise serializers.ValidationError("Customer expectation cannot be negative")
         return value
 
 
@@ -158,6 +162,8 @@ class RequestSerializer(serializers.ModelSerializer):
             'customer_details',
             'intent',
             'created_at',
+            'overall_expectation_gbp',
+            'negotiated_grand_total_gbp',
             'items',
             'current_status',
             'status_history'

@@ -196,26 +196,39 @@ export const fetchRequestDetail = async (requestId) => {
  * Finish a request (moves it to BOOKED_FOR_TESTING)
  * @param {number} requestId
  */
-export const finishRequest = async (requestId) => {
-  if (!requestId) return null;
+export const finishRequest = async (requestId, payload) => {
+  if (!requestId || !payload) {
+    console.error("finishRequest requires a requestId and a payload.");
+    return null;
+  }
 
   try {
     const res = await fetch(`${API_BASE_URL}/requests/${requestId}/finish/`, {
       method: 'POST',
       headers: {
+        'Content-Type': 'application/json',
         'X-CSRFToken': getCSRFToken()
-      }
+      },
+      body: JSON.stringify(payload)
     });
 
     if (!res.ok) {
-      const errData = await res.json();
-      throw new Error(errData.error || 'Failed to finish request');
+      let errorMessage = 'Failed to finish request';
+      try {
+        const errData = await res.json();
+        errorMessage = errData.error || errorMessage;
+      } catch (parseErr) {
+        const errorText = await res.text();
+        console.error('Server returned non-JSON response:', errorText.substring(0, 500));
+        errorMessage = `Server error (${res.status})`;
+      }
+      throw new Error(errorMessage);
     }
 
     return await res.json(); // { request_id, status, items_count }
   } catch (err) {
     console.error('Error finishing request:', err);
-    return null;
+    throw err; // Re-throw the error
   }
 };
 

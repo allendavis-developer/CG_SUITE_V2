@@ -738,6 +738,14 @@ class Request(models.Model):
         help_text="Overall expectation for the request"
     )
 
+    negotiated_grand_total_gbp = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Grand total of all negotiated item prices in GBP"
+    )
+
     def __str__(self):
         # This will show "Request #101 - John Doe (BUYBACK)"
         return f"Request #{self.request_id} - {self.customer.name} ({self.intent})"
@@ -779,6 +787,40 @@ class RequestItem(models.Model):
         help_text="Raw data used for pricing decisions (for auditing/review purposes)"
     )
 
+    quantity = models.PositiveIntegerField(
+        default=1,
+        help_text="Quantity of this item in the request"
+    )
+    selected_offer_id = models.CharField(
+        max_length=50,
+        null=True,
+        blank=True,
+        help_text="ID of the offer selected for this item (e.g., 'manual', 'cash_1', 'voucher_2')"
+    )
+    manual_offer_gbp = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal('0.00'))],
+        help_text="Manually entered offer price for this item"
+    )
+    customer_expectation_gbp = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal('0.00'))],
+        help_text="Customer's expected price for this item"
+    )
+    negotiated_price_gbp = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal('0.00'))],
+        help_text="Final negotiated price for this item after selection"
+    )
 
     notes = models.TextField(blank=True)
 

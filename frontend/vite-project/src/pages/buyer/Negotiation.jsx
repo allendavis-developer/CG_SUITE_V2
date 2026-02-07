@@ -4,6 +4,8 @@ import { Button, Icon, Header } from "@/components/ui/components";
 import EbayResearchForm from "@/components/forms/EbayResearchForm";
 import { CustomDropdown } from "@/components/ui/components";
 import CustomerTransactionHeader from './components/CustomerTransactionHeader'
+import { finishRequest } from '@/services/api'; // Added this line
+import { useNotification } from '@/contexts/NotificationContext'; // Added this line
 
 
 const TRANSACTION_OPTIONS = [
@@ -30,6 +32,8 @@ const Negotiation = () => {
   const [transactionType, setTransactionType] = useState(
     customerData?.transactionType || 'sale'
   );
+
+  const { showNotification } = useNotification();
 
   // Determine if we should show voucher offers
   const useVoucherOffers = transactionType === 'store_credit';
@@ -75,6 +79,71 @@ const Negotiation = () => {
       setTotalExpectation(total.toFixed(2));
     }
   }, [items]);
+
+  // Function to handle finalizing the transaction
+  const handleFinalizeTransaction = async () => {
+    if (!currentRequestId) {
+      console.error("No current request ID available to finalize.");
+      return;
+    }
+
+    // --- Validation ---
+    for (const item of items) {
+      if (!item.selectedOfferId) {
+        showNotification(`Please select an offer for item: ${item.title || 'Unknown Item'}`, 'error');
+        return; // Stop if validation fails
+      }
+
+      if (item.selectedOfferId === 'manual') {
+        const manualValue = parseFloat(item.manualOffer?.replace(/[£,]/g, '')) || 0;
+        if (manualValue <= 0) {
+          showNotification(`Please enter a valid manual offer for item: ${item.title || 'Unknown Item'}`, 'error');
+          return; // Stop if validation fails
+        }
+      }
+    }
+
+    // Calculate negotiated_price_gbp for each item
+    const itemsData = items.map(item => {
+      const quantity = item.quantity || 1;
+      let negotiatedPrice = 0;
+
+      if (item.selectedOfferId === 'manual' && item.manualOffer) {
+        negotiatedPrice = parseFloat(item.manualOffer.replace(/[£,]/g, '')) || 0;
+      } else {
+        const displayOffers = useVoucherOffers
+          ? (item.voucherOffers || item.offers)
+          : (item.cashOffers || item.offers);
+        const selected = displayOffers?.find(o => o.id === item.selectedOfferId);
+        negotiatedPrice = selected ? selected.price : 0;
+      }
+
+      return {
+        request_item_id: item.request_item_id, // Use the backend-assigned request_item_id
+        quantity: quantity,
+        selected_offer_id: item.selectedOfferId,
+        manual_offer_gbp: item.manualOffer ? (parseFloat(item.manualOffer.replace(/[£,]/g, '')) || 0) : null,
+        customer_expectation_gbp: item.customerExpectation ? (parseFloat(item.customerExpectation.replace(/[£,]/g, '')) || 0) : null,
+        negotiated_price_gbp: negotiatedPrice * quantity,
+        raw_data: item.ebayResearchData || {}
+      };
+    });
+
+    const payload = {
+      items_data: itemsData,
+      overall_expectation_gbp: parseFloat(totalExpectation.replace(/[£,]/g, '')) || 0,
+      negotiated_grand_total_gbp: totalOfferPrice // totalOfferPrice is already a number
+    };
+
+    try {
+      await finishRequest(currentRequestId, payload);
+      showNotification("Transaction finalized successfully and booked for testing!", 'success');
+      navigate("/buyer"); // Navigate back to the buyer page
+    } catch (error) {
+      console.error("Error finalizing transaction:", error);
+      showNotification(`Failed to finalize transaction: ${error.message}`, 'error');
+    }
+  };
 
   // Redirect if no cart data
   useEffect(() => {
@@ -582,6 +651,7 @@ const Negotiation = () => {
                 color: 'var(--brand-blue)',
                 boxShadow: '0 10px 15px -3px rgba(247, 185, 24, 0.3)'
               }}
+              onClick={handleFinalizeTransaction}
             >
               <span className="text-base uppercase tracking-tight">Finalize Transaction</span>
               <span className="material-symbols-outlined text-xl group-hover:translate-x-1 transition-transform">arrow_forward</span>

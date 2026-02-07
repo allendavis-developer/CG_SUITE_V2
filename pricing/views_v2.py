@@ -3,6 +3,7 @@ from django.db import transaction
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
+from decimal import Decimal, InvalidOperation # Add this line
 
 from .models_v2 import ( ProductCategory, Product, Variant, Customer,
 Request, RequestItem, RequestStatus, RequestStatusHistory,
@@ -251,36 +252,126 @@ def update_request_item_raw_data(request, request_item_id):
 @api_view(['POST'])
 def finish_request(request, request_id):
     """
-    POST: Finish a request and move it to BOOKED_FOR_TESTING status
+    POST: Finalize a request with negotiation data and move it to BOOKED_FOR_TESTING status.
+    Expects:
+    - items_data: list of dicts, each containing request_item_id and negotiated fields.
+    - overall_expectation_gbp: Decimal, customer's total expectation.
+    - negotiated_grand_total_gbp: Decimal, the final grand total offer.
     """
     existing_request = get_object_or_404(Request, request_id=request_id)
-    
+
     # Check current status
     current_status = existing_request.status_history.first()
     if not current_status or current_status.status != RequestStatus.OPEN:
         return Response(
-            {"error": "Can only finish OPEN requests"},
+            {"error": "Can only finalize OPEN requests"},
             status=status.HTTP_400_BAD_REQUEST
         )
-    
+
     # Ensure request has at least one item
     if not existing_request.items.exists():
         return Response(
-            {"error": "Cannot finish request with no items"},
+            {"error": "Cannot finalize request with no items"},
             status=status.HTTP_400_BAD_REQUEST
         )
-    
+
+    items_data = request.data.get('items_data', [])
+    overall_expectation_gbp = request.data.get('overall_expectation_gbp')
+    negotiated_grand_total_gbp = request.data.get('negotiated_grand_total_gbp')
+
+    # Validate incoming data for main request
+    if overall_expectation_gbp is not None:
+        try:
+            existing_request.overall_expectation_gbp = Decimal(str(overall_expectation_gbp))
+        except InvalidOperation:
+            return Response(
+                {"error": "Invalid format for overall_expectation_gbp"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+    if negotiated_grand_total_gbp is not None:
+        try:
+            existing_request.negotiated_grand_total_gbp = Decimal(str(negotiated_grand_total_gbp))
+        except InvalidOperation:
+            return Response(
+                {"error": "Invalid format for negotiated_grand_total_gbp"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+    existing_request.save(update_fields=['overall_expectation_gbp', 'negotiated_grand_total_gbp'])
+
+    # Update individual request items
+    for item_data in items_data:
+        request_item_id = item_data.get('request_item_id')
+        if not request_item_id:
+            return Response(
+                {"error": "Each item in items_data must have a 'request_item_id'"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            request_item = existing_request.items.get(request_item_id=request_item_id)
+        except RequestItem.DoesNotExist:
+            return Response(
+                {"error": f"RequestItem with ID {request_item_id} not found for this request"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Update fields for RequestItem
+        update_fields = []
+        if 'quantity' in item_data:
+            request_item.quantity = item_data['quantity']
+            update_fields.append('quantity')
+        if 'selected_offer_id' in item_data:
+            request_item.selected_offer_id = item_data['selected_offer_id']
+            update_fields.append('selected_offer_id')
+        if 'manual_offer_gbp' in item_data:
+            try:
+                request_item.manual_offer_gbp = Decimal(str(item_data['manual_offer_gbp'])) if item_data['manual_offer_gbp'] is not None else None
+                update_fields.append('manual_offer_gbp')
+            except InvalidOperation:
+                return Response(
+                    {"error": f"Invalid format for manual_offer_gbp for item {request_item_id}"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        if 'customer_expectation_gbp' in item_data:
+            try:
+                request_item.customer_expectation_gbp = Decimal(str(item_data['customer_expectation_gbp'])) if item_data['customer_expectation_gbp'] is not None else None
+                update_fields.append('customer_expectation_gbp')
+            except InvalidOperation:
+                return Response(
+                    {"error": f"Invalid format for customer_expectation_gbp for item {request_item_id}"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        if 'negotiated_price_gbp' in item_data:
+            try:
+                request_item.negotiated_price_gbp = Decimal(str(item_data['negotiated_price_gbp'])) if item_data['negotiated_price_gbp'] is not None else None
+                update_fields.append('negotiated_price_gbp')
+            except InvalidOperation:
+                return Response(
+                    {"error": f"Invalid format for negotiated_price_gbp for item {request_item_id}"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        if 'raw_data' in item_data:
+            request_item.raw_data = item_data['raw_data']
+            update_fields.append('raw_data')
+        
+        if update_fields:
+            request_item.save(update_fields=update_fields)
+
     # Create new status history entry
     RequestStatusHistory.objects.create(
         request=existing_request,
         status=RequestStatus.BOOKED_FOR_TESTING
     )
-    
+
     return Response(
         {
             "request_id": existing_request.request_id,
             "status": RequestStatus.BOOKED_FOR_TESTING,
-            "items_count": existing_request.items.count()
+            "items_count": existing_request.items.count(),
+            "overall_expectation_gbp": existing_request.overall_expectation_gbp,
+            "negotiated_grand_total_gbp": existing_request.negotiated_grand_total_gbp
         },
         status=status.HTTP_200_OK
     )
