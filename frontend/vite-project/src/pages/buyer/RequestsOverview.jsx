@@ -43,15 +43,11 @@ const RequestsOverview = () => {
 
   const getStatusColor = (status) => {
     switch (status) {
-      case 'OPEN': 
+      case 'QUOTE': 
         return 'bg-blue-600/10 text-blue-600';
       case 'BOOKED_FOR_TESTING': 
-        return 'bg-amber-600/10 text-amber-600'; // Changed color for 'TESTING'
-      case 'TESTING':
         return 'bg-amber-600/10 text-amber-600';
-      case 'CANCELLED': 
-        return 'bg-red-500/10 text-red-500';
-      case 'TESTING_COMPLETE': 
+      case 'COMPLETE': 
         return 'bg-purple-600/10 text-purple-600';
       default: 
         return 'bg-gray-600/10 text-gray-600';
@@ -60,7 +56,13 @@ const RequestsOverview = () => {
 
   const formatStatus = (status) => {
     if (status === 'BOOKED_FOR_TESTING') {
-      return 'Testing';
+      return 'Booked for Testing';
+    }
+    if (status === 'QUOTE') {
+      return 'Quote';
+    }
+    if (status === 'COMPLETE') {
+      return 'Complete';
     }
     return status.replace(/_/g, ' ');
   };
@@ -91,14 +93,12 @@ const RequestsOverview = () => {
     switch (status) {
       case 'ALL':
         return 'All Requests';
-      case 'OPEN':
-        return 'Open Requests';
+      case 'QUOTE':
+        return 'Quote Requests';
       case 'BOOKED_FOR_TESTING':
         return 'Booked For Testing';
-      case 'CANCELLED':
-        return 'Cancelled Requests';
-      case 'TESTING_COMPLETE':
-        return 'Completed Requests';
+      case 'COMPLETE':
+        return 'Complete Requests';
       default:
         return 'Requests';
     }
@@ -106,9 +106,9 @@ const RequestsOverview = () => {
 
   // Calculate stats
   const stats = {
-    total: requests.filter(r => r.current_status === 'OPEN').length,
+    total: requests.filter(r => r.current_status === 'QUOTE').length,
     booked: requests.filter(r => r.current_status === 'BOOKED_FOR_TESTING').length,
-    completed: requests.filter(r => r.current_status === 'TESTING_COMPLETE').length,
+    completed: requests.filter(r => r.current_status === 'COMPLETE').length,
   };
 
   // Filter requests by search query
@@ -204,7 +204,7 @@ const RequestsOverview = () => {
               <h3 className="text-white/40 text-[10px] font-black uppercase tracking-widest mb-4">Today's Stats</h3>
               <div className="space-y-4">
                 <div className="bg-white/5 p-3 rounded-lg border border-white/10">
-                  <p className="text-white/50 text-[10px] font-bold uppercase tracking-wider">Open Requests</p>
+                  <p className="text-white/50 text-[10px] font-bold uppercase tracking-wider">Quote Requests</p>
                   <p className="text-xl font-extrabold text-white mt-1">{stats.total}</p>
                 </div>
                 <div className="bg-white/5 p-3 rounded-lg border border-white/10">
@@ -242,7 +242,7 @@ const RequestsOverview = () => {
               <CustomDropdown
                 label=""
                 value={getFilterTitle(filterStatus)}
-                options={['ALL', 'OPEN', 'BOOKED_FOR_TESTING', 'TESTING_COMPLETE']}
+                options={['ALL', 'QUOTE', 'BOOKED_FOR_TESTING', 'COMPLETE']}
                 onChange={(value) => setFilterStatus(value)}
               />
               <button 
@@ -293,7 +293,7 @@ const RequestsOverview = () => {
                       <td className="font-bold text-blue-900 text-[13px]">£{Number(requestItem.negotiated_grand_total_gbp)?.toFixed(2) || '0.00'}</td>
                       <td>
                         <span className={`status-pill ${getStatusColor(requestItem.current_status)}`}>
-                          {formatStatus(requestItem.current_status === 'BOOKED_FOR_TESTING' ? 'TESTING' : requestItem.current_status)}
+                          {formatStatus(requestItem.current_status)}
                         </span>
                       </td>
                       <td className="text-gray-600">

@@ -77,7 +77,7 @@ def products_list(request):
 def requests_view(request):
     """
     GET: List all requests
-    POST: Create a new request with initial item (status: OPEN)
+    POST: Create a new request with initial item (status: QUOTE)
     """
     if request.method == 'GET':
         requests = Request.objects.all().prefetch_related(
@@ -123,7 +123,7 @@ def requests_view(request):
             # Create initial status history entry
             RequestStatusHistory.objects.create(
                 request=new_request,
-                status=RequestStatus.OPEN
+                status=RequestStatus.QUOTE
             )
             
             # Create the first item
@@ -147,15 +147,15 @@ def requests_view(request):
 @api_view(['POST'])
 def add_request_item(request, request_id):
     """
-    POST: Add another item to an existing OPEN request
+    POST: Add another item to an existing QUOTE request
     """
     existing_request = get_object_or_404(Request, request_id=request_id)
     
     # Check current status
     current_status = existing_request.status_history.first()
-    if not current_status or current_status.status != RequestStatus.OPEN:
+    if not current_status or current_status.status != RequestStatus.QUOTE:
         return Response(
-            {"error": "Can only add items to OPEN requests"},
+            {"error": "Can only add items to QUOTE requests"},
             status=status.HTTP_400_BAD_REQUEST
         )
     
@@ -225,7 +225,7 @@ def update_request_intent(request, request_id):
 def requests_overview_list(request):
     """
     GET: List all requests, optionally filtered by status.
-    Query params: ?status=OPEN or ?status=BOOKED_FOR_TESTING
+    Query params: ?status=QUOTE or ?status=BOOKED_FOR_TESTING or ?status=COMPLETE
     """
     requests = Request.objects.all().prefetch_related(
         'items',
@@ -248,7 +248,7 @@ def requests_overview_list(request):
 def requests_overview_list(request):
     """
     GET: List all requests, optionally filtered by status.
-    Query params: ?status=OPEN or ?status=BOOKED_FOR_TESTING
+    Query params: ?status=QUOTE or ?status=BOOKED_FOR_TESTING or ?status=COMPLETE
     """
     # Annotate each request with its latest status
     latest_status_subquery = Subquery(
@@ -319,9 +319,9 @@ def finish_request(request, request_id):
 
     # Check current status
     current_status = existing_request.status_history.first()
-    if not current_status or current_status.status != RequestStatus.OPEN:
+    if not current_status or current_status.status != RequestStatus.QUOTE:
         return Response(
-            {"error": "Can only finalize OPEN requests"},
+            {"error": "Can only finalize QUOTE requests"},
             status=status.HTTP_400_BAD_REQUEST
         )
 
@@ -455,28 +455,11 @@ def finish_request(request, request_id):
 @api_view(['POST'])
 def cancel_request(request, request_id):
     """
-    POST: Cancel a request (can be done from any status except CANCELLED)
+    POST: Cancel a request - removed, as CANCELLED status no longer exists
     """
-    existing_request = get_object_or_404(Request, request_id=request_id)
-    
-    current_status = existing_request.status_history.first()
-    if current_status and current_status.status == RequestStatus.CANCELLED:
-        return Response(
-            {"error": "Request is already cancelled"},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-    
-    RequestStatusHistory.objects.create(
-        request=existing_request,
-        status=RequestStatus.CANCELLED
-    )
-    
     return Response(
-        {
-            "request_id": existing_request.request_id,
-            "status": RequestStatus.CANCELLED
-        },
-        status=status.HTTP_200_OK
+        {"error": "Cancellation is no longer supported. Requests can only be QUOTE, BOOKED_FOR_TESTING, or COMPLETE."},
+        status=status.HTTP_400_BAD_REQUEST
     )
 
 

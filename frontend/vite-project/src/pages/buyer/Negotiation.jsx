@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
 import { Button, Icon, Header } from "@/components/ui/components";
 import EbayResearchForm from "@/components/forms/EbayResearchForm";
@@ -149,15 +149,25 @@ const Negotiation = ({ mode }) => {
                 // Determine the currently displayed offers based on transaction type (for local logic)
                 const displayOffers = (transactionType === 'store_credit') ? savedVoucherOffers : savedCashOffers;
 
-                                return {
-                                    id: item.request_item_id,
-                                    request_item_id: item.request_item_id,
-                                    title: ebayResearchData?.searchTerm || item.variant_details?.title || 'N/A',
-                                    subtitle: ebayResearchData
-                                              ? (Object.values(ebayResearchData.selectedFilters?.apiFilters || {}).flat().join(' / ') ||
-                                                 ebayResearchData.selectedFilters?.basic?.join(' / ') || 'eBay Filters')
-                                              : (item.variant_details?.cex_sku || 'No details'),
-                                    quantity: item.quantity,                    selectedOfferId: item.selected_offer_id,
+                // Prefer CeX data for title/subtitle when available, fall back to eBay research
+                const cexTitle = item.variant_details?.title;
+                const cexSubtitle = item.variant_details?.cex_sku;
+                const ebaySubtitleFromFilters =
+                    ebayResearchData
+                        ? (Object.values(ebayResearchData.selectedFilters?.apiFilters || {})
+                            .flat()
+                            .join(' / ') ||
+                           ebayResearchData.selectedFilters?.basic?.join(' / ') ||
+                           'eBay Filters')
+                        : null;
+
+                return {
+                    id: item.request_item_id,
+                    request_item_id: item.request_item_id,
+                    title: cexTitle || ebayResearchData?.searchTerm || 'N/A',
+                    subtitle: cexSubtitle || ebaySubtitleFromFilters || 'No details',
+                    quantity: item.quantity,
+                    selectedOfferId: item.selected_offer_id,
                     manualOffer: item.manual_offer_gbp?.toString() || '',
                     customerExpectation: item.customer_expectation_gbp?.toString() || '',
                     ebayResearchData: ebayResearchData, 
@@ -218,13 +228,85 @@ const Negotiation = ({ mode }) => {
     }
   }, [customerData]);
 
+  // Track previous transaction type so we can keep the same offer index
+  // when toggling between cash and store credit in negotiate mode.
+  const prevTransactionTypeRef = useRef(transactionType);
+
+  useEffect(() => {
+    if (mode !== 'negotiate') {
+      prevTransactionTypeRef.current = transactionType;
+      return;
+    }
+
+    const prevType = prevTransactionTypeRef.current;
+    
+    // Only run if transaction type actually changed
+    if (prevType === transactionType) {
+      return;
+    }
+
+    console.log('Transaction type changed from', prevType, 'to', transactionType);
+
+    setItems(prevItems =>
+      prevItems.map(item => {
+        // Don't override manual selections
+        if (item.selectedOfferId === 'manual') {
+          return item;
+        }
+
+        const prevUseVoucher = prevType === 'store_credit';
+        const newUseVoucher = transactionType === 'store_credit';
+
+        const prevOffers = prevUseVoucher
+          ? (item.voucherOffers || item.offers)
+          : (item.cashOffers || item.offers);
+
+        const newOffers = newUseVoucher
+          ? (item.voucherOffers || item.offers)
+          : (item.cashOffers || item.offers);
+
+        console.log('Item:', item.title);
+        console.log('  selectedOfferId:', item.selectedOfferId);
+        console.log('  prevOffers:', prevOffers?.map(o => o.id));
+        console.log('  newOffers:', newOffers?.map(o => o.id));
+
+        if (!prevOffers || !newOffers) {
+          console.log('  -> No offers, returning unchanged');
+          return item;
+        }
+
+        const prevIndex = prevOffers.findIndex(o => o.id === item.selectedOfferId);
+        console.log('  prevIndex:', prevIndex);
+        
+        if (prevIndex < 0) {
+          console.log('  -> Selected offer not found in prevOffers, returning unchanged');
+          return item;
+        }
+        
+        if (!newOffers[prevIndex]) {
+          console.log('  -> No offer at index', prevIndex, 'in newOffers, returning unchanged');
+          return item;
+        }
+
+        console.log('  -> Setting selectedOfferId to', newOffers[prevIndex].id);
+        return {
+          ...item,
+          selectedOfferId: newOffers[prevIndex].id,
+        };
+      })
+    );
+
+    prevTransactionTypeRef.current = transactionType;
+  }, [transactionType, mode]);
+
 
   const handleReopenResearch = (item) => {
     setResearchItem(item);
   };
 
   const handleResearchComplete = (updatedState) => {
-    if (updatedState && researchItem) {
+    // Only update items if not in view mode (read-only)
+    if (updatedState && researchItem && mode !== 'view') {
       setItems(prevItems => prevItems.map(i => 
         i.id === researchItem.id 
           ? { ...i, ebayResearchData: updatedState } 
@@ -417,6 +499,12 @@ const Negotiation = ({ mode }) => {
                 <p className="text-lg font-bold" style={{ color: 'var(--brand-blue)' }}>
                   #{actualRequestId || 'N/A'}
                 </p>
+                {mode === 'view' && (
+                  <p className="mt-1 inline-flex items-center justify-end gap-1 text-[10px] font-bold uppercase tracking-widest text-red-600">
+                    <span className="material-symbols-outlined text-[12px]">visibility_off</span>
+                    View Only
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -436,10 +524,7 @@ const Negotiation = ({ mode }) => {
                   <th className="w-24">3rd Offer {useVoucherOffers ? '(Voucher)' : '(Cash)'}</th>
                   <th className="w-32">Manual Offer</th>
                   <th className="w-32">Customer Expectation</th>
-                  <th className="w-24" title="CeX items: Based on market data. eBay items: eBay median - £5">
-                    Our Sale Price
-                    <span className="material-symbols-outlined text-[10px] ml-1 opacity-60" style={{ fontSize: '12px' }}>info</span>
-                  </th>
+                  <th className="w-24">Our Sale Price</th>
                   <th className="w-36">eBay Price</th>
                   <th className="w-36">Cash Converters</th>
                 </tr>
@@ -460,6 +545,7 @@ const Negotiation = ({ mode }) => {
                   const offer1 = displayOffers?.[0];
                   const offer2 = displayOffers?.[1];
                   const offer3 = displayOffers?.[2];
+                  const isViewMode = mode === 'view';
 
                   return (
                     <tr key={item.id || index}>
@@ -528,7 +614,11 @@ const Negotiation = ({ mode }) => {
                           color: 'var(--brand-blue)'
                         } : {}}
                         onClick={() => offer1 && mode !== 'view' && setItems(prev =>
-                          prev.map(i => i.id === item.id ? { ...i, selectedOfferId: offer1.id } : i)
+                          prev.map(i =>
+                            i.id === item.id
+                              ? { ...i, selectedOfferId: offer1.id }
+                              : i
+                          )
                         )}
                       >
                         {offer1 ? (
@@ -552,7 +642,11 @@ const Negotiation = ({ mode }) => {
                           color: 'var(--brand-blue)'
                         } : {}}
                         onClick={() => offer2 && mode !== 'view' && setItems(prev =>
-                          prev.map(i => i.id === item.id ? { ...i, selectedOfferId: offer2.id } : i)
+                          prev.map(i =>
+                            i.id === item.id
+                              ? { ...i, selectedOfferId: offer2.id }
+                              : i
+                          )
                         )}
                       >
                         {offer2 ? (
@@ -576,7 +670,11 @@ const Negotiation = ({ mode }) => {
                           color: 'var(--brand-blue)'
                         } : {}}
                         onClick={() => offer3 && mode !== 'view' && setItems(prev =>
-                          prev.map(i => i.id === item.id ? { ...i, selectedOfferId: offer3.id } : i)
+                          prev.map(i =>
+                            i.id === item.id
+                              ? { ...i, selectedOfferId: offer3.id }
+                              : i
+                          )
                         )}
                       >
                         {offer3 ? (
@@ -729,14 +827,13 @@ const Negotiation = ({ mode }) => {
                               )}
                             </div>
                             <button 
-                              className={`flex items-center justify-center size-7 rounded transition-colors shrink-0 ${!ebayData ? 'opacity-50 cursor-not-allowed' : ''}`}
+                              className="flex items-center justify-center size-7 rounded transition-colors shrink-0"
                               style={{ 
                                 background: 'var(--brand-orange)',
                                 color: 'var(--brand-blue)'
                               }}
                               onClick={() => handleReopenResearch(item)}
-                              title={!ebayData ? 'No eBay data to show' : 'View/Refine Research'}
-                              disabled={!ebayData}
+                              title={isViewMode ? 'View eBay Research (Read-only)' : 'View/Refine Research'}
                             >
                               <span className="material-symbols-outlined text-[16px]">edit_note</span>
                             </button>
@@ -751,8 +848,8 @@ const Negotiation = ({ mode }) => {
                                 color: 'var(--brand-blue)'
                               }}
                               onClick={(!ebayData && mode === 'view') ? undefined : () => handleReopenResearch(item)}
-                              title={(!ebayData && mode === 'view') ? 'No research available' : 'Research'}
-                              disabled={(!ebayData && mode === 'view')}
+                              title={(!ebayData && mode === 'view') ? 'No research available' : (!ebayData ? 'Research' : 'View eBay Research (Read-only)')}
+                              disabled={!ebayData && mode === 'view'}
                             >
                               <span className="material-symbols-outlined text-[16px]">search_insights</span>
                             </button>

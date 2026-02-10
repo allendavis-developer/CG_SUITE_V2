@@ -686,14 +686,8 @@ class Customer(models.Model):
             return 0.0
         
         # Get the latest status for each request
-        # Count how many have their latest status as CANCELLED
-        cancelled_count = 0
-        for request in self.requests.all():
-            latest_status = request.status_history.first()
-            if latest_status and latest_status.status == RequestStatus.CANCELLED:
-                cancelled_count += 1
-        
-        return round((cancelled_count / total_requests) * 100, 2)
+        # Note: CANCELLED status has been removed, so cancel_rate is always 0
+        return 0.0
     
 
     def __str__(self):  
@@ -866,10 +860,9 @@ class RequestItem(models.Model):
         db_table = "buying_request_item"
 
 class RequestStatus(models.TextChoices):
-    OPEN = "OPEN"
+    QUOTE = "QUOTE"
     BOOKED_FOR_TESTING = "BOOKED_FOR_TESTING"
-    TESTING_COMPLETE = "TESTING_COMPLETE"
-    CANCELLED = "CANCELLED"
+    COMPLETE = "COMPLETE"
 
 
 class RequestStatusHistory(models.Model):

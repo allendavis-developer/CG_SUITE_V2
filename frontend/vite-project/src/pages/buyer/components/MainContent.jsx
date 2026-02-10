@@ -568,38 +568,6 @@ const MainContent = ({
               setEbayModalOpen={setEbayModalOpen}
             />
 
-
-            {savedEbayState && savedEbayState.listings && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="bg-blue-900 p-2 rounded-lg">
-                      <Icon name="analytics" className="text-yellow-400" />
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-bold text-blue-900">
-                        Previous eBay Research Available
-                      </h3>
-                      <p className="text-xs text-gray-600 mt-0.5">
-                        Search: <span className="font-bold">{savedEbayState.searchTerm}</span>
-                        {' • '}
-                        <span className="font-bold">{savedEbayState.listings.length}</span> listings
-                        {' • '}
-                        Median: <span className="font-bold">£{savedEbayState.stats?.median}</span>
-                      </p>
-                    </div>
-                  </div>
-                  <Button
-                    variant="primary"
-                    icon="open_in_new"
-                    onClick={() => setEbayModalOpen(true)}
-                  >
-                    Reopen Research
-                  </Button>
-                </div>
-              </div>
-            )}
-
             {isLoadingOffers ? (
               <div className="flex items-center justify-center py-8">
                 <Icon name="sync" className="animate-spin text-2xl text-blue-900 mr-3" />

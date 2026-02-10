@@ -101,10 +101,17 @@ const MarketComparisonsTable = ({
                   return min === max ? formatGBP(min) : `${formatGBP(min)} - ${formatGBP(max)}`;
                 })()}
               </td>
-              <td className="p-4 text-right">
-                <span className="text-emerald-600 inline-flex items-center gap-1 text-xs font-bold">
-                  <Icon name="check_circle" className="text-xs" /> Verified
-                </span>
+              <td className="p-4">
+                <div className="flex justify-end">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    icon="refresh"
+                    onClick={() => setEbayModalOpen(true)}
+                  >
+                    Refine Research
+                  </Button>
+                </div>
               </td>
             </tr>
           ) : (
