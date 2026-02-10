@@ -90,12 +90,25 @@ def requests_view(request):
 
     elif request.method == 'POST':
         customer_id = request.data.get('customer_id')
-        intent = request.data.get('intent', RequestIntent.UNKNOWN)
+        intent = request.data.get('intent')
         item_data = request.data.get('item')
         
         if not customer_id:
             return Response(
                 {"error": "customer_id is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if not intent:
+            return Response(
+                {"error": "intent is required. Must be one of: BUYBACK, DIRECT_SALE, STORE_CREDIT"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validate intent
+        if intent not in [choice[0] for choice in RequestIntent.choices]:
+            return Response(
+                {"error": f"Invalid intent. Must be one of: {', '.join([c[0] for c in RequestIntent.choices])}"},
                 status=status.HTTP_400_BAD_REQUEST
             )
         

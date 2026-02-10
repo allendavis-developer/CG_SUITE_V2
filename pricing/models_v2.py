@@ -702,7 +702,6 @@ class RequestIntent(models.TextChoices):
     BUYBACK = "BUYBACK"
     DIRECT_SALE = "DIRECT_SALE"
     STORE_CREDIT = "STORE_CREDIT"
-    UNKNOWN = "UNKNOWN"
 
 
 from django.db import models
@@ -718,8 +717,7 @@ class Request(models.Model):
 
     intent = models.CharField(
         max_length=20,
-        choices=RequestIntent.choices,
-        default=RequestIntent.UNKNOWN
+        choices=RequestIntent.choices
     )
 
     created_at = models.DateTimeField(auto_now_add=True)

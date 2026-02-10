@@ -253,6 +253,14 @@ const MainContent = ({
     };
 
     if (!request) {
+      // Validate required fields before creating request
+      if (!customerData?.id) {
+        throw new Error('Customer must be selected before adding items');
+      }
+      if (!intent) {
+        throw new Error('Transaction type must be selected before adding items');
+      }
+      
       const payload = {
         customer_id: customerData.id,
         intent,

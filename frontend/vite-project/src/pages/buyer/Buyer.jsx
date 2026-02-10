@@ -27,7 +27,7 @@ export default function Buyer() {
     transactionType: 'sale'
   });
 
-  const [intent, setIntent] = useState('UNKNOWN'); // default intent - matches Django model
+  const [intent, setIntent] = useState(null); // intent must be set when customer is selected
   const [request, setRequest] = useState(null);
   
   // Confirmation dialog state
@@ -87,7 +87,11 @@ export default function Buyer() {
       'buyback': 'BUYBACK',
       'store_credit': 'STORE_CREDIT'
     };
-    return intentMap[transactionType] || 'UNKNOWN';
+    const mapped = intentMap[transactionType];
+    if (!mapped) {
+      throw new Error(`Invalid transaction type: ${transactionType}. Must be one of: sale, buyback, store_credit`);
+    }
+    return mapped;
   };
 
   // Handle customer selection

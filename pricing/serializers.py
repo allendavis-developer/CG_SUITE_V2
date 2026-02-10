@@ -182,9 +182,12 @@ class RequestSerializer(serializers.ModelSerializer):
     
     def get_current_status(self, obj):
         latest_status = obj.status_history.first()
-        return latest_status.status if latest_status else None
+        # Always return a status - default to QUOTE if no status history exists
+        return latest_status.status if latest_status else RequestStatus.QUOTE
     
     def validate_intent(self, value):
+        if not value:
+            raise serializers.ValidationError("Intent is required. Must be one of: BUYBACK, DIRECT_SALE, STORE_CREDIT")
         if value not in [choice[0] for choice in RequestIntent.choices]:
             raise serializers.ValidationError(f"Invalid intent. Must be one of: {', '.join([c[0] for c in RequestIntent.choices])}")
         return value
