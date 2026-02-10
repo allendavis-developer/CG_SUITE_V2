@@ -7,7 +7,7 @@ import {
   SearchableDropdown
 } from '@/components/ui/components';
 
-import EbayResearchModal from "@/components/modals/EbayResearchModal.jsx";
+import EbayResearchForm from "@/components/forms/EbayResearchForm.jsx";
 import AttributeConfiguration from './AttributeConfiguration';
 import MarketComparisonsTable from './MarketComparisonsTable';
 import OfferSelection from './OfferSelection';
@@ -147,16 +147,17 @@ const ProductCategoryContent = ({
         )}
       </div>
 
-      <EbayResearchModal
-        open={mainContentEbayModalOpen} // Use the prop for modal open state
-        onClose={onEbayModalClose} // Use the prop for modal close handler
-        category={selectedCategory}
-        savedState={savedEbayState}
-        onResearchComplete={(data) => {
-          handleEbayResearchComplete(data);
-          onEbayModalClose(); // Use the prop for modal close handler
-        }}
-      />
+      {mainContentEbayModalOpen && (
+        <EbayResearchForm
+          mode="modal"
+          category={selectedCategory}
+          savedState={savedEbayState}
+          onComplete={(data) => {
+            handleEbayResearchComplete(data);
+            onEbayModalClose(); // Use the prop for modal close handler
+          }}
+        />
+      )}
     </>
   );
 };

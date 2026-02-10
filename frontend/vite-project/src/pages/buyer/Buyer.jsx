@@ -158,6 +158,7 @@ export default function Buyer() {
   };
 
   const addToCart = (item) => {
+    // Check current state first to determine notification message
     setCartItems((prev) => {
       // Check if item already exists in cart
       const existingItemIndex = prev.findIndex(cartItem => {
@@ -187,14 +188,20 @@ export default function Buyer() {
           quantity: newQuantity
         };
         
-        // Show notification
-        showNotification(`Quantity increased to ${newQuantity} for ${item.title}`, 'success');
+        // Show notification after state update (defer to avoid render-time state update)
+        setTimeout(() => {
+          showNotification(`Quantity increased to ${newQuantity} for ${item.title}`, 'success');
+        }, 0);
         
         return updatedItems;
       }
 
       // Otherwise, add as new item
-      showNotification(`${item.title} added to cart`, 'success');
+      // Show notification after state update (defer to avoid render-time state update)
+      setTimeout(() => {
+        showNotification(`${item.title} added to cart`, 'success');
+      }, 0);
+      
       return [...prev, item];
     });
   };

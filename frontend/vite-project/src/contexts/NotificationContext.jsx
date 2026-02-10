@@ -1,13 +1,16 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useState, useRef } from 'react';
 import NotificationToast from '@/components/ui/NotificationToast';
 
 const NotificationContext = createContext();
 
 export const NotificationProvider = ({ children }) => {
   const [notifications, setNotifications] = useState([]);
+  const idCounterRef = useRef(0);
 
   const showNotification = (message, type = 'info') => {
-    const id = Date.now();
+    // Use counter + timestamp to ensure unique IDs even with rapid calls
+    // Using useRef to avoid state update delays
+    const id = `${Date.now()}-${idCounterRef.current++}`;
     setNotifications((prev) => [...prev, { id, message, type }]);
   };
 

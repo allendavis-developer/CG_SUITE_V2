@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from "react";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
 import { Button, Icon, Header } from "@/components/ui/components";
 import EbayResearchForm from "@/components/forms/EbayResearchForm";
+import CashConvertersResearchForm from "@/components/forms/CashConvertersResearchForm";
 import { CustomDropdown } from "@/components/ui/components";
 import CustomerTransactionHeader from './components/CustomerTransactionHeader'
 import { finishRequest, fetchRequestDetail } from '@/services/api';
@@ -34,6 +35,7 @@ const Negotiation = ({ mode }) => {
   const [items, setItems] = useState([]); // Initialize empty
   const [customerData, setCustomerData] = useState({}); // Initialize empty
   const [researchItem, setResearchItem] = useState(null);
+  const [cashConvertersResearchItem, setCashConvertersResearchItem] = useState(null);
   const [totalExpectation, setTotalExpectation] = useState("");
   const [transactionType, setTransactionType] = useState('sale'); // Default to 'sale'
   const [isLoading, setIsLoading] = useState(true); // Always start loading, then set to false once initialized for any mode
@@ -314,6 +316,22 @@ const Negotiation = ({ mode }) => {
       ));
     }
     setResearchItem(null);
+  };
+
+  const handleReopenCashConvertersResearch = (item) => {
+    setCashConvertersResearchItem(item);
+  };
+
+  const handleCashConvertersResearchComplete = (updatedState) => {
+    // Only update items if not in view mode (read-only)
+    if (updatedState && cashConvertersResearchItem && mode !== 'view') {
+      setItems(prevItems => prevItems.map(i => 
+        i.id === cashConvertersResearchItem.id 
+          ? { ...i, cashConvertersResearchData: updatedState } 
+          : i
+      ));
+    }
+    setCashConvertersResearchItem(null);
   };
 
   // Calculate total from individual item expectations
@@ -924,22 +942,53 @@ const Negotiation = ({ mode }) => {
                         )}
                       </td>
 
-                      {/* Cash Converters - Work in Progress */}
+                      {/* Cash Converters */}
                       <td>
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-[13px] font-medium" style={{ color: 'var(--text-muted)' }}>—</span>
-                          <button 
-                            className="flex items-center justify-center size-7 rounded transition-colors shrink-0 opacity-50 cursor-not-allowed"
-                            style={{ 
-                              background: 'var(--brand-orange)',
-                              color: 'var(--brand-blue)'
-                            }}
-                            disabled
-                            title="Coming Soon"
-                          >
-                            <span className="material-symbols-outlined text-[16px]">search_insights</span>
-                          </button>
-                        </div>
+                        {(() => {
+                          const cashConvertersData = item.cashConvertersResearchData;
+                          const isViewMode = mode === 'view';
+                          
+                          return cashConvertersData?.stats?.median ? (
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="text-[13px] font-medium" style={{ color: 'var(--brand-blue)' }}>
+                                <div>£{(Number(cashConvertersData.stats.median) * quantity).toFixed(2)}</div>
+                                {quantity > 1 && (
+                                  <div className="text-[9px] opacity-70">
+                                    (£{Number(cashConvertersData.stats.median).toFixed(2)} × {quantity})
+                                  </div>
+                                )}
+                              </div>
+                              <button 
+                                className={`flex items-center justify-center size-7 rounded transition-colors shrink-0 ${!cashConvertersData && isViewMode ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                style={{ 
+                                  background: 'var(--brand-orange)',
+                                  color: 'var(--brand-blue)'
+                                }}
+                                onClick={(!cashConvertersData && isViewMode) ? undefined : () => handleReopenCashConvertersResearch(item)}
+                                title={isViewMode ? 'View Cash Converters Research (Read-only)' : 'View/Refine Research'}
+                                disabled={!cashConvertersData && isViewMode}
+                              >
+                                <span className="material-symbols-outlined text-[16px]">store</span>
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[13px] font-medium" style={{ color: 'var(--text-muted)' }}>—</span>
+                              <button 
+                                className={`flex items-center justify-center size-7 rounded transition-colors shrink-0 ${!cashConvertersData && isViewMode ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                style={{ 
+                                  background: 'var(--brand-orange)',
+                                  color: 'var(--brand-blue)'
+                                }}
+                                onClick={(!cashConvertersData && isViewMode) ? undefined : () => handleReopenCashConvertersResearch(item)}
+                                title={(!cashConvertersData && isViewMode) ? 'No research available' : (!cashConvertersData ? 'Research' : 'View Cash Converters Research (Read-only)')}
+                                disabled={!cashConvertersData && isViewMode}
+                              >
+                                <span className="material-symbols-outlined text-[16px]">store</span>
+                              </button>
+                            </div>
+                          );
+                        })()}
                       </td>
                     </tr>
                   );
@@ -1005,6 +1054,18 @@ const Negotiation = ({ mode }) => {
           category={researchItem.categoryObject || { path: [researchItem.category], name: researchItem.category }}
           savedState={researchItem.ebayResearchData}
           onComplete={handleResearchComplete}
+          initialHistogramState={true}
+          readOnly={mode === 'view'}
+        />
+      )}
+
+      {/* Cash Converters Research Modal Overlay */}
+      {cashConvertersResearchItem && (
+        <CashConvertersResearchForm
+          mode="modal"
+          category={cashConvertersResearchItem.categoryObject || { path: [cashConvertersResearchItem.category], name: cashConvertersResearchItem.category }}
+          savedState={cashConvertersResearchItem.cashConvertersResearchData}
+          onComplete={handleCashConvertersResearchComplete}
           initialHistogramState={true}
           readOnly={mode === 'view'}
         />

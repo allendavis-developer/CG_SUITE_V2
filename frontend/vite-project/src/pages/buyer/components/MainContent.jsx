@@ -7,7 +7,6 @@ import {
   SearchableDropdown
 } from '@/components/ui/components';
 
-import EbayResearchModal from "@/components/modals/EbayResearchModal.jsx";
 import EbayResearchForm from "@/components/forms/EbayResearchForm.jsx";
 import EmptyState from './EmptyState';
 import ProductSelection from './ProductSelection';
@@ -593,16 +592,17 @@ const MainContent = ({
             )}
           </div>
 
-          <EbayResearchModal
-            open={isEbayModalOpen}
-            onClose={() => setEbayModalOpen(false)}
-            category={selectedCategory}
-            savedState={savedEbayState}
-            onResearchComplete={(data) => {
-              handleEbayResearchComplete(data);
-              setEbayModalOpen(false);
-            }}
-          />
+          {isEbayModalOpen && (
+            <EbayResearchForm
+              mode="modal"
+              category={selectedCategory}
+              savedState={savedEbayState}
+              onComplete={(data) => {
+                handleEbayResearchComplete(data);
+                setEbayModalOpen(false);
+              }}
+            />
+          )}
         </>
       )}
     </section>
