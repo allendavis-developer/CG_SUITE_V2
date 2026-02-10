@@ -34,7 +34,8 @@ const MainContent = ({
   customerData,
   intent,
   request,
-  setRequest
+  setRequest,
+  selectedCartItem = null  // <--- new: cart item to populate details from
 
 }) => {
   // Determine if we should use voucher offers based on transaction type
@@ -166,6 +167,80 @@ const MainContent = ({
 
     loadOffers();
   }, [variant, useVoucherOffers]); // Add useVoucherOffers to dependencies
+
+  // Step 1: Set model when cart item is selected
+  useEffect(() => {
+    if (!selectedCartItem) {
+      return;
+    }
+
+    // Skip eBay-only items (they have no variant)
+    if (selectedCartItem.isCustomEbayItem) {
+      // For eBay items, just restore the eBay research data
+      if (selectedCartItem.ebayResearchData) {
+        setSavedEbayState(selectedCartItem.ebayResearchData);
+        setEbayData(selectedCartItem.ebayResearchData);
+      }
+      return;
+    }
+
+    // Find and set the model (this will trigger variants to load)
+    const modelToSet = availableModels.find(m => m.name === selectedCartItem.model);
+    if (modelToSet) {
+      // Always set the model to ensure variants reload, even if it's the same model
+      setSelectedModel(modelToSet);
+    }
+  }, [selectedCartItem, availableModels]);
+
+  // Step 2: Set variant and attributes once variants are loaded
+  useEffect(() => {
+    if (!selectedCartItem || !variants || variants.length === 0) {
+      return;
+    }
+
+    // Skip eBay-only items
+    if (selectedCartItem.isCustomEbayItem) {
+      return;
+    }
+
+    // Find the variant by variantId
+    const variantToSet = variants.find(v => v.variant_id === selectedCartItem.variantId);
+    if (variantToSet) {
+      // Set attribute values from the variant's attribute_values
+      // This should happen BEFORE setting the variant to avoid race conditions
+      if (variantToSet.attribute_values) {
+        setAllAttributeValues(variantToSet.attribute_values);
+      }
+      
+      // Then set the variant
+      setVariant(variantToSet.cex_sku);
+    }
+
+    // Restore eBay research data if available
+    if (selectedCartItem.ebayResearchData) {
+      setSavedEbayState(selectedCartItem.ebayResearchData);
+      setEbayData(selectedCartItem.ebayResearchData);
+    }
+
+    // Restore reference data and offers if available (don't wait for variant to load)
+    if (selectedCartItem.referenceData) {
+      setReferenceData(selectedCartItem.referenceData);
+      
+      // Set offers based on transaction type
+      const displayOffers = useVoucherOffers 
+        ? selectedCartItem.voucherOffers || selectedCartItem.offers 
+        : selectedCartItem.cashOffers || selectedCartItem.offers;
+      
+      if (displayOffers) {
+        setOffers(displayOffers);
+      }
+      
+      // Restore sale price
+      if (selectedCartItem.ourSalePrice) {
+        setOurSalePrice(selectedCartItem.ourSalePrice.toString());
+      }
+    }
+  }, [selectedCartItem, variants, useVoucherOffers]);
 
   const createOrAppendRequestItem = async ({ variantId, rawData }) => {
     const itemPayload = {

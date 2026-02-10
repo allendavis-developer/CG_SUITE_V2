@@ -16,6 +16,7 @@ export default function Buyer() {
   
   const [cartItems, setCartItems] = useState([]);
   const [isCustomerModalOpen, setCustomerModalOpen] = useState(true);
+  const [selectedCartItem, setSelectedCartItem] = useState(null); // Track selected cart item
 
   const [customerData, setCustomerData] = useState({
     id: null,
@@ -120,6 +121,22 @@ export default function Buyer() {
     setCartItems((prev) => [...prev, item]);
   };
 
+  const handleCartItemSelect = async (item) => {
+    // If clicking the same item, deselect it
+    if (selectedCartItem?.id === item.id) {
+      setSelectedCartItem(null);
+    } else {
+      // Load the category and models WITHOUT resetting selectedModel
+      if (item.categoryObject) {
+        setSelectedCategory(item.categoryObject);
+        const models = await fetchProductModels(item.categoryObject);
+        setAvailableModels(models);
+      }
+      // Set the selected cart item AFTER models are loaded
+      setSelectedCartItem(item);
+    }
+  };
+
   /**
    * Update cart item with eBay research data
    * This handles both local state update AND backend sync
@@ -186,6 +203,7 @@ export default function Buyer() {
           setIntent={setIntent}
           request={request}
           setRequest={setRequest}
+          selectedCartItem={selectedCartItem}
         />
       <CartSidebar 
         cartItems={cartItems} 
@@ -193,6 +211,8 @@ export default function Buyer() {
         customerData={customerData}
         onTransactionTypeChange={handleTransactionTypeChange}
         currentRequestId={request?.request_id}
+        onItemSelect={handleCartItemSelect}
+        selectedCartItemId={selectedCartItem?.id}
       />
 
       </main>

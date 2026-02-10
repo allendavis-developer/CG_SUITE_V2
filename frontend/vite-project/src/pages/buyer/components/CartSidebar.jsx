@@ -12,7 +12,9 @@ const CartSidebar = ({
   customerData,
   currentRequestId,
   onFinalize,
-  onTransactionTypeChange  // <--- add this
+  onTransactionTypeChange,  // <--- add this
+  onItemSelect = () => {},   // <--- new: callback when item is clicked
+  selectedCartItemId = null  // <--- new: track which item is selected
 
 }) => {
   const [isFinalizing, setIsFinalizing] = useState(false);
@@ -117,13 +119,30 @@ const CartSidebar = ({
             <p className="text-sm text-gray-500">No items in cart</p>
           </div>
         ) : (
-          cartItems.map((item) => (
+          <>
+            <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded-md">
+              <p className="text-xs text-blue-700 text-center flex items-center justify-center gap-1">
+                <Icon name="info" className="text-sm" />
+                Click any item to view details
+              </p>
+            </div>
+            {cartItems.map((item) => (
             <div
               key={item.id}
-              className="border border-blue-900/10 rounded-lg p-3 bg-gray-50/30"
+              className={`border rounded-lg p-3 cursor-pointer transition-all relative ${
+                selectedCartItemId === item.id
+                  ? 'border-blue-600 bg-blue-50 shadow-md'
+                  : 'border-blue-900/10 bg-gray-50/30 hover:border-blue-400 hover:bg-blue-50/50'
+              }`}
+              onClick={() => onItemSelect(item)}
             >
+              {selectedCartItemId === item.id && (
+                <div className="absolute top-2 right-2">
+                  <Icon name="check_circle" className="text-blue-600 text-base" />
+                </div>
+              )}
               <div className="flex justify-between items-start">
-                <div className="flex-1">
+                <div className="flex-1 pr-6">
                   <h4 className="font-bold text-sm text-blue-900">
                     {item.title}
                   </h4>
@@ -134,7 +153,10 @@ const CartSidebar = ({
                 <Button
                   variant="ghost"
                   className="h-6 w-6 p-0 min-w-0"
-                  onClick={() => removeItem(item.id)}
+                  onClick={(e) => {
+                    e.stopPropagation(); // Prevent item selection when removing
+                    removeItem(item.id);
+                  }}
                 >
                   <Icon name="close" className="text-sm" />
                 </Button>
@@ -190,7 +212,8 @@ const CartSidebar = ({
                 </div>
               </div>
             </div>
-          ))
+          ))}
+          </>
         )}
       </div>
 
