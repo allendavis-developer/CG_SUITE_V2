@@ -549,8 +549,31 @@ const Negotiation = ({ mode }) => {
 
                   return (
                     <tr key={item.id || index}>
-                      {/* Qty */}
-                      <td className="text-center font-bold">{quantity}</td>
+                      {/* Qty (editable in negotiate mode) */}
+                      <td className="text-center">
+                        {mode === 'view' ? (
+                          <span className="font-bold">{quantity}</span>
+                        ) : (
+                          <input
+                            className="w-12 text-center border rounded px-1 py-0.5 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-[var(--brand-blue)]"
+                            type="number"
+                            min="1"
+                            value={quantity}
+                            onChange={(e) => {
+                              const raw = e.target.value;
+                              const parsed = parseInt(raw, 10);
+                              const safeQuantity = Number.isNaN(parsed) || parsed <= 0 ? 1 : parsed;
+                              setItems(prev =>
+                                prev.map(i =>
+                                  i.id === item.id
+                                    ? { ...i, quantity: safeQuantity }
+                                    : i
+                                )
+                              );
+                            }}
+                          />
+                        )}
+                      </td>
 
                       {/* Item Name & Attributes */}
                       <td>
@@ -795,20 +818,64 @@ const Negotiation = ({ mode }) => {
                         />
                       </td>
 
-                      {/* Our Sale Price */}
+                      {/* Our Sale Price (editable in negotiate mode) */}
                       <td className="font-medium text-purple-700">
                         {(() => {
-                          const ourPrice = item.ourSalePrice || item.ebayResearchData?.stats?.suggestedPrice;
-                          return ourPrice ? (
+                          const baseOurPrice =
+                            item.ourSalePrice !== undefined && item.ourSalePrice !== null && item.ourSalePrice !== ''
+                              ? Number(item.ourSalePrice)
+                              : (item.ebayResearchData?.stats?.suggestedPrice != null
+                                  ? Number(item.ebayResearchData.stats.suggestedPrice)
+                                  : null);
+
+                          const displayValue =
+                            item.ourSalePrice !== undefined && item.ourSalePrice !== null
+                              ? String(item.ourSalePrice)
+                              : (baseOurPrice != null ? String(baseOurPrice) : '');
+
+                          // View mode: keep as read-only display
+                          if (mode === 'view') {
+                            return baseOurPrice != null ? (
+                              <div>
+                                <div>£{(baseOurPrice * quantity).toFixed(2)}</div>
+                                {quantity > 1 && (
+                                  <div className="text-[9px] opacity-70">
+                                    (£{baseOurPrice.toFixed(2)} × {quantity})
+                                  </div>
+                                )}
+                              </div>
+                            ) : '—';
+                          }
+
+                          // Negotiate mode: editable input (per-unit), with total shown underneath
+                          return (
                             <div>
-                              <div>£{(Number(ourPrice) * quantity).toFixed(2)}</div>
-                              {quantity > 1 && (
-                                <div className="text-[9px] opacity-70">
-                                  (£{Number(ourPrice).toFixed(2)} × {quantity})
+                              <input
+                                className="w-full h-full border-0 text-xs font-semibold text-center px-3 py-2 focus:outline-none focus:ring-0 bg-white rounded"
+                                placeholder="£0.00"
+                                type="text"
+                                value={displayValue}
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  setItems(prev =>
+                                    prev.map(i =>
+                                      i.id === item.id
+                                        ? { ...i, ourSalePrice: value }
+                                        : i
+                                    )
+                                  );
+                                }}
+                              />
+                              {displayValue && !isNaN(Number(displayValue)) && (
+                                <div className="text-[9px] opacity-70 mt-0.5">
+                                  £{(Number(displayValue) * quantity).toFixed(2)}
+                                  {quantity > 1 && (
+                                    <span>{` ( £${Number(displayValue).toFixed(2)} × ${quantity} )`}</span>
+                                  )}
                                 </div>
                               )}
                             </div>
-                          ) : '—';
+                          );
                         })()}
                       </td>
 
