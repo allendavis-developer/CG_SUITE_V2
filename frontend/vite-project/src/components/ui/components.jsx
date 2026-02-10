@@ -82,7 +82,7 @@ export const CardHeader = ({ title, subtitle, actions }) => (
   </div>
 );
 
-export const CustomDropdown = ({ label, value, options, onChange }) => {
+export const CustomDropdown = ({ label, value, options, onChange, labelPosition = 'left' }) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = React.useRef(null);
 
@@ -98,6 +98,56 @@ export const CustomDropdown = ({ label, value, options, onChange }) => {
 
   const filteredOptions = options.filter(option => option !== value);
 
+  const dropdownButton = (
+    <div className="relative w-full">
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-900 text-left flex items-center justify-between hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 transition-all"
+      >
+        <span className="font-medium">{value}</span>
+        <Icon
+          name="expand_more"
+          className={`text-gray-400 transition-transform duration-200 ${
+            isOpen ? 'rotate-180' : ''
+          }`}
+        />
+      </button>
+
+      {isOpen && filteredOptions.length > 0 && (
+        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden max-h-60 overflow-y-auto">
+          {filteredOptions.map((option) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => {
+                onChange(option);
+                setIsOpen(false);
+              }}
+              className="w-full px-3 py-2.5 text-sm text-left text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
+  if (labelPosition === 'top') {
+    return (
+      <div className="flex flex-col gap-1.5" ref={dropdownRef}>
+        {label && (
+          <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">
+            {label}
+          </label>
+        )}
+        {dropdownButton}
+      </div>
+    );
+  }
+
+  // Default: left position
   return (
     <div className="flex items-center gap-2" ref={dropdownRef}>
       {label && (
@@ -105,39 +155,8 @@ export const CustomDropdown = ({ label, value, options, onChange }) => {
           {label}
         </label>
       )}
-
-      <div className="relative w-48">
-        <button
-          type="button"
-          onClick={() => setIsOpen(!isOpen)}
-          className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-900 text-left flex items-center justify-between hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 transition-all"
-        >
-          <span className="font-medium">{value}</span>
-          <Icon
-            name="expand_more"
-            className={`text-gray-400 transition-transform duration-200 ${
-              isOpen ? 'rotate-180' : ''
-            }`}
-          />
-        </button>
-
-        {isOpen && filteredOptions.length > 0 && (
-          <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden max-h-60 overflow-y-auto">
-            {filteredOptions.map((option) => (
-              <button
-                key={option}
-                type="button"
-                onClick={() => {
-                  onChange(option);
-                  setIsOpen(false);
-                }}
-                className="w-full px-3 py-2.5 text-sm text-left text-gray-700 hover:bg-gray-50 transition-colors"
-              >
-                {option}
-              </button>
-            ))}
-          </div>
-        )}
+      <div className="w-48">
+        {dropdownButton}
       </div>
     </div>
   );

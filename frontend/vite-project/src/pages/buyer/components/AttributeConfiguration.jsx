@@ -176,8 +176,8 @@ const AttributeConfiguration = ({
         </div>
       </div>
 
-      {/* Attribute Dropdowns */}
-      <div className="space-y-8">
+      {/* Attribute Dropdowns - Horizontal Layout */}
+      <div className="flex flex-wrap gap-4">
         {attributes.map((attr, index) => {
           const previousSelections = Object.entries(attributeValues)
             .filter(([code]) => {
@@ -238,13 +238,15 @@ const AttributeConfiguration = ({
           }
 
           return (
-            <CustomDropdown
-              key={attr.code}
-              label={attr.name}
-              value={attributeValues[attr.code] || ''}
-              options={options}
-              onChange={(val) => handleAttributeChangeWrapper(attr.code, val)}
-            />
+            <div key={attr.code} className="flex-1 min-w-[200px]">
+              <CustomDropdown
+                label={attr.name}
+                value={attributeValues[attr.code] || ''}
+                options={options}
+                onChange={(val) => handleAttributeChangeWrapper(attr.code, val)}
+                labelPosition="top"
+              />
+            </div>
           );
         })}
       </div>
