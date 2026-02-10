@@ -91,7 +91,16 @@ const MarketComparisonsTable = ({
                 Based on {ebayData.listings.length} sold listings
               </td>
 
-              <td className="p-4 italic text-gray-600/60">—</td>
+              <td className="p-4 font-bold text-blue-900">
+                {(() => {
+                  const buyOffers = ebayData.buyOffers || [];
+                  if (buyOffers.length === 0) return '—';
+                  const prices = buyOffers.map(o => o.price);
+                  const min = Math.min(...prices);
+                  const max = Math.max(...prices);
+                  return min === max ? formatGBP(min) : `${formatGBP(min)} - ${formatGBP(max)}`;
+                })()}
+              </td>
               <td className="p-4 text-right">
                 <span className="text-emerald-600 inline-flex items-center gap-1 text-xs font-bold">
                   <Icon name="check_circle" className="text-xs" /> Verified

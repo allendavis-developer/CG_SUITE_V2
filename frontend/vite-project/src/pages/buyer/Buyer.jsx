@@ -4,11 +4,13 @@ import CustomerIntakeModal from "@/components/modals/CustomerIntakeModal.jsx";
 import MainContent from '@/pages/buyer/components/MainContent';
 import CartSidebar from '@/pages/buyer/components/CartSidebar';
 import { useLocation } from 'react-router-dom';
+import { useNotification } from '@/contexts/NotificationContext';
 
 import { fetchProductModels, updateRequestItemRawData } from '@/services/api';
 
 export default function Buyer() {
   const location = useLocation();
+  const { showNotification } = useNotification();
   
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [availableModels, setAvailableModels] = useState([]);
@@ -27,6 +29,10 @@ export default function Buyer() {
 
   const [intent, setIntent] = useState('UNKNOWN'); // default intent - matches Django model
   const [request, setRequest] = useState(null);
+  
+  // Confirmation dialog state
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [pendingTransactionType, setPendingTransactionType] = useState(null);
 
   // Restore cart state on navigation
   useEffect(() => {
@@ -47,8 +53,18 @@ export default function Buyer() {
 
     setCartItems(prevItems =>
       prevItems.map(item => {
-        // eBay-only items don't have cash/voucher splits
-        if (item.isCustomEbayItem) return item;
+        // eBay-only items also need their offers updated
+        if (item.isCustomEbayItem) {
+          const nextOffers = useVoucher
+            ? item.voucherOffers ?? []
+            : item.cashOffers ?? [];
+          
+          return {
+            ...item,
+            offers: nextOffers,
+            offerType: useVoucher ? 'voucher' : 'cash'
+          };
+        }
 
         const nextOffers = useVoucher
           ? item.voucherOffers ?? []
@@ -100,6 +116,17 @@ export default function Buyer() {
   };
 
   const handleTransactionTypeChange = (newType) => {
+      // If cart has items, show confirmation dialog
+      if (cartItems.length > 0 && newType !== customerData.transactionType) {
+        setPendingTransactionType(newType);
+        setShowConfirmDialog(true);
+      } else {
+        // No items in cart, change immediately
+        applyTransactionTypeChange(newType);
+      }
+  };
+  
+  const applyTransactionTypeChange = (newType) => {
       setCustomerData(prev => ({
         ...prev,
         transactionType: newType
@@ -107,6 +134,15 @@ export default function Buyer() {
 
       // Keep intent in sync too
       setIntent(mapTransactionTypeToIntent(newType));
+      
+      // Close dialog and reset pending state
+      setShowConfirmDialog(false);
+      setPendingTransactionType(null);
+  };
+  
+  const cancelTransactionTypeChange = () => {
+      setShowConfirmDialog(false);
+      setPendingTransactionType(null);
   };
 
 
@@ -118,7 +154,45 @@ export default function Buyer() {
   };
 
   const addToCart = (item) => {
-    setCartItems((prev) => [...prev, item]);
+    setCartItems((prev) => {
+      // Check if item already exists in cart
+      const existingItemIndex = prev.findIndex(cartItem => {
+        // For CeX items, match by variantId
+        if (!item.isCustomEbayItem && item.variantId) {
+          return cartItem.variantId === item.variantId;
+        }
+        
+        // For eBay items, match by search term and category
+        if (item.isCustomEbayItem) {
+          return (
+            cartItem.isCustomEbayItem &&
+            cartItem.title === item.title &&
+            cartItem.category === item.category
+          );
+        }
+        
+        return false;
+      });
+
+      // If item exists, increment quantity
+      if (existingItemIndex !== -1) {
+        const updatedItems = [...prev];
+        const newQuantity = (updatedItems[existingItemIndex].quantity || 1) + 1;
+        updatedItems[existingItemIndex] = {
+          ...updatedItems[existingItemIndex],
+          quantity: newQuantity
+        };
+        
+        // Show notification
+        showNotification(`Quantity increased to ${newQuantity} for ${item.title}`, 'success');
+        
+        return updatedItems;
+      }
+
+      // Otherwise, add as new item
+      showNotification(`${item.title} added to cart`, 'success');
+      return [...prev, item];
+    });
   };
 
   const handleCartItemSelect = async (item) => {
@@ -216,6 +290,64 @@ export default function Buyer() {
       />
 
       </main>
+      
+      {/* Transaction Type Change Confirmation Dialog */}
+      {showConfirmDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 w-[500px] shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="bg-yellow-100 p-2 rounded-lg">
+                <span className="material-symbols-outlined text-yellow-600 text-2xl">warning</span>
+              </div>
+              <h2 className="text-xl font-bold text-blue-900">Change Transaction Type?</h2>
+            </div>
+            
+            <p className="text-sm text-gray-700 mb-2">
+              You are about to change the transaction type to{' '}
+              <span className="font-bold text-blue-900">
+                {pendingTransactionType === 'store_credit' ? 'Store Credit' : 
+                 pendingTransactionType === 'buyback' ? 'Buy Back' : 'Direct Sale'}
+              </span>.
+            </p>
+            
+            <p className="text-sm text-gray-700 mb-4">
+              {pendingTransactionType === 'store_credit' ? (
+                <>This will switch all offers to <span className="font-bold">voucher prices</span>.</>
+              ) : (
+                <>This will switch all offers to <span className="font-bold">cash prices</span>.</>
+              )}
+            </p>
+            
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-6">
+              <p className="text-xs text-blue-800 mb-2">
+                <span className="material-symbols-outlined text-sm mr-1" style={{ fontSize: '14px', verticalAlign: 'middle' }}>info</span>
+                All {cartItems.length} item{cartItems.length !== 1 ? 's' : ''} in your cart will be updated with new valuations.
+              </p>
+              {pendingTransactionType === 'store_credit' && (
+                <p className="text-xs text-blue-700 ml-5">
+                  • CeX items: Updated to CeX voucher prices<br/>
+                  • eBay items: Cash offers +10%
+                </p>
+              )}
+            </div>
+            
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={cancelTransactionTypeChange}
+                className="px-6 py-2.5 text-sm font-bold text-gray-600 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => applyTransactionTypeChange(pendingTransactionType)}
+                className="px-6 py-2.5 text-sm font-bold text-white bg-blue-900 rounded-lg hover:bg-blue-800 transition-colors shadow-md"
+              >
+                Confirm Change
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

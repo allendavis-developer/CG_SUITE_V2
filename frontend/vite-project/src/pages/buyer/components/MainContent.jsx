@@ -145,7 +145,8 @@ const MainContent = ({
         setReferenceData({
           ...data.referenceData,
           cash_offers: data.cash_offers,
-          voucher_offers: data.voucher_offers
+          voucher_offers: data.voucher_offers,
+          our_sale_price: data.referenceData?.cex_based_sale_price || null
         });
         
         if (data.referenceData && data.referenceData.cex_based_sale_price) {
@@ -176,10 +177,11 @@ const MainContent = ({
 
     // Skip eBay-only items (they have no variant)
     if (selectedCartItem.isCustomEbayItem) {
-      // For eBay items, just restore the eBay research data
+      // For eBay items, restore the eBay research data and switch to research tab
       if (selectedCartItem.ebayResearchData) {
         setSavedEbayState(selectedCartItem.ebayResearchData);
         setEbayData(selectedCartItem.ebayResearchData);
+        setActiveTab('research');
       }
       return;
     }
@@ -390,7 +392,8 @@ const MainContent = ({
         ebayResearchData: data,
         isCustomEbayItem: true,
         variantId: null, // ✅ eBay items have no variant
-        request_item_id: null
+        request_item_id: null,
+        ourSalePrice: data.stats?.suggestedPrice ? Number(data.stats.suggestedPrice) : null
       };
 
       try {
@@ -424,6 +427,43 @@ const MainContent = ({
     }
   };
 
+  // Special handling for selected eBay cart items
+  if (selectedCartItem?.isCustomEbayItem) {
+    return (
+      <section className="w-3/5 bg-white flex flex-col overflow-y-auto">
+        <div className="flex items-center px-8 bg-gray-50 border-b border-gray-200 sticky top-0 z-40">
+          <div className="flex items-center gap-3 py-4">
+            <div className="bg-blue-900 p-1.5 rounded">
+              <span className="material-symbols-outlined text-yellow-400 text-sm">analytics</span>
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-blue-900">eBay Research Item</h2>
+              <p className="text-[10px] text-gray-500 uppercase tracking-wider">Viewing saved research</p>
+            </div>
+          </div>
+        </div>
+        
+        <div className="p-8">
+          {savedEbayState ? (
+            <EbayResearchForm
+              mode="page"
+              category={selectedCartItem.categoryObject || { name: 'eBay', path: ['eBay'] }}
+              onComplete={() => {}} // Read-only mode
+              savedState={savedEbayState}
+              initialHistogramState={false}
+              readOnly={true}
+            />
+          ) : (
+            <div className="text-center py-12">
+              <span className="material-symbols-outlined text-4xl text-gray-300 mb-2">search_off</span>
+              <p className="text-sm text-gray-500">No research data available</p>
+            </div>
+          )}
+        </div>
+      </section>
+    );
+  }
+  
   if (!selectedCategory) {
     return (
       <section className="w-3/5 bg-white flex flex-col overflow-y-auto">

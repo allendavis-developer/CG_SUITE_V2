@@ -196,7 +196,7 @@ const CartSidebar = ({
               {/* Read-only Offers Display */}
               <div className="mt-3 pt-2 border-t border-gray-100">
                 <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1">
-                  Valuation Options:
+                  Valuation Options {customerData.transactionType === 'store_credit' ? '(Voucher)' : '(Cash)'}:
                 </p>
                 <div className="flex flex-wrap items-center text-xs text-gray-600">
                   {item.offers.map((offer, index) => (
@@ -223,18 +223,28 @@ const CartSidebar = ({
         {/* Offer Min / Max */}
         <div className="space-y-1">
           <div className="flex justify-between items-baseline">
-            <span className="text-2xl font-black uppercase tracking-widest text-blue-900">
-              Offer Min
-            </span>
+            <div className="flex flex-col">
+              <span className="text-2xl font-black uppercase tracking-widest text-blue-900">
+                Offer Min
+              </span>
+              <span className="text-[9px] text-gray-500 font-bold">
+                {customerData.transactionType === 'store_credit' ? '(Voucher)' : '(Cash)'}
+              </span>
+            </div>
             <span className="text-3xl font-black text-blue-900 tabular-nums">
               {offerMin !== null ? `£${offerMin.toFixed(2)}` : '—'}
             </span>
           </div>
 
           <div className="flex justify-between items-baseline">
-            <span className="text-2xl font-black uppercase tracking-widest text-blue-900">
-              Offer Max
-            </span>
+            <div className="flex flex-col">
+              <span className="text-2xl font-black uppercase tracking-widest text-blue-900">
+                Offer Max
+              </span>
+              <span className="text-[9px] text-gray-500 font-bold">
+                {customerData.transactionType === 'store_credit' ? '(Voucher)' : '(Cash)'}
+              </span>
+            </div>
             <span className="text-3xl font-black text-blue-900 tabular-nums">
               {offerMax !== null ? `£${offerMax.toFixed(2)}` : '—'}
             </span>
