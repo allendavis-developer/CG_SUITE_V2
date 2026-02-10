@@ -193,7 +193,7 @@ const RequestsOverview = () => {
               <nav className="space-y-1">
                 <a 
                   className="flex items-center gap-3 text-white py-2 bg-white/10 rounded-lg px-3 -mx-3 cursor-pointer"
-                  onClick={() => navigate('/requests')}
+                  onClick={() => navigate('/requests-overview')}
                 >
                   <span className="material-symbols-outlined text-sm text-amber-400">receipt_long</span>
                   <span className="text-sm font-bold">Overview</span>
