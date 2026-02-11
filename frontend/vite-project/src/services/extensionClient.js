@@ -10,3 +10,13 @@ export async function scrapeEbay(params) {
     },
   });
 }
+
+export async function scrapeCashConverters(params) {
+  return sendMessage({
+    action: "scrape",
+    data: {
+      competitors: ["CashConverters"],
+      ...params,
+    },
+  });
+}

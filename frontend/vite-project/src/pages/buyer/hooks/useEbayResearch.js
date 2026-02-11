@@ -180,7 +180,15 @@ export function useEbayResearch(category, savedState = null) {
   // --- Fetch eBay filters (initial) ---
   const fetchEbayFilters = useCallback(async (term) => {
     try {
-      const res = await fetch(`/api/ebay/filters/?q=${encodeURIComponent(term)}`);
+      // Build URL with category path if available
+      let url = `/api/ebay/filters/?q=${encodeURIComponent(term)}`;
+      if (category?.path && Array.isArray(category.path)) {
+        category.path.forEach(pathSegment => {
+          url += `&category_path=${encodeURIComponent(pathSegment)}`;
+        });
+      }
+      
+      const res = await fetch(url);
       if (!res.ok) throw new Error('Failed to fetch filters');
       const data = await res.json();
 
@@ -218,7 +226,7 @@ export function useEbayResearch(category, savedState = null) {
       console.error('Error fetching eBay filters:', err);
       setFilterOptions([]);
     }
-  }, []);
+  }, [category?.path]);
 
   const handleSearch = useCallback(async () => {
     if (!searchTerm.trim()) return;

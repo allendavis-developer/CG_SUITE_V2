@@ -78,7 +78,7 @@ export default function CashConvertersResearchForm({
       // Configuration
       mode={mode}
       readOnly={readOnly}
-      basicFilterOptions={["Completed & Sold", "Used", "UK Only"]}
+      basicFilterOptions={[]}
       searchPlaceholder="Search Cash Converters listings..."
       headerTitle="Cash Converters Market Research"
       headerSubtitle="Real-time valuation lookup"

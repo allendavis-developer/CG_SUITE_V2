@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { scrapeEbay } from '@/services/extensionClient';
+
+// Flag to control pagination: set to true to fetch only first page, false to fetch all pages
+const FETCH_ONLY_FIRST_PAGE = true;
 
 const BASIC_FILTER_OPTIONS = [
   "Used",
@@ -60,48 +62,104 @@ function resolveCashConvertersCategory(path) {
   return null;
 }
 
-function buildCashConvertersUrl(searchTerm, filters, categoryPath, behaveAsGeneric = false) {
-  // For now, using eBay URL structure - can be replaced with Cash Converters specific URL building
-  // If behaveAsGeneric is true, ignore category mapping
-  const categoryId = behaveAsGeneric ? null : resolveCashConvertersCategory(categoryPath);
+/**
+ * Build Cash Converters public search results URL for scraping
+ * Format: https://www.cashconverters.co.uk/search-results?Sort=default&page=1&query=xbox%20series%20x&f[category][0]=all&f[locations][0]=all&f[Model Name][0]=Xbox Series X
+ * 
+ * @param {string} searchTerm - Search query
+ * @param {Object} apiFilters - Selected API filters in format: { "Filter Name": ["Value1", "Value2"] }
+ * @param {Array} categoryPath - Category path array
+ * @param {boolean} behaveAsGeneric - Whether to ignore category mapping
+ */
+function buildCashConvertersScrapeUrl(searchTerm, apiFilters, categoryPath, behaveAsGeneric = false) {
+  // Build public-facing search results page URL (for scraping)
+  const baseUrl = "https://www.cashconverters.co.uk/search-results";
   
-  // Base URL: use the category path if ID exists, otherwise generic search
-  // TODO: Replace with actual Cash Converters URL structure
-  let url = categoryId 
-    ? `https://www.ebay.co.uk/sch/${categoryId}/i.html` 
-    : "https://www.ebay.co.uk/sch/i.html";
-
   const params = {
-    _nkw: searchTerm.replace(/ /g, "+"),
-    _from: "R40"
+    Sort: "default",
+    page: "1",
+    query: searchTerm // Will be URL encoded when building query string
   };
-
-  // If we aren't using a specific category path, search site-wide
-  if (!categoryId) {
-    params._sacat = "0";
+  
+  // Add default filter parameters
+  params["f[category][0]"] = "all";
+  params["f[locations][0]"] = "all";
+  
+  // Add selected API filters
+  // Format: f[FilterName][0]=FilterValue, f[FilterName][1]=FilterValue2, etc.
+  if (apiFilters && typeof apiFilters === 'object') {
+    Object.entries(apiFilters).forEach(([filterName, filterValues]) => {
+      if (Array.isArray(filterValues) && filterValues.length > 0) {
+        // Add each selected filter value with index [0], [1], etc.
+        filterValues.forEach((value, index) => {
+          // URL encode the filter name and value
+          const encodedKey = `f[${filterName}][${index}]`;
+          params[encodedKey] = value; // Value will be URL encoded when building query string
+        });
+      }
+    });
   }
-
-  // Double-encode API filters for URL parser
-  Object.entries(filters || {}).forEach(([filterName, value]) => {
-    const encodedKey = encodeURIComponent(encodeURIComponent(filterName));
-    
-    if (Array.isArray(value)) {
-      params[encodedKey] = value
-        .map(v => encodeURIComponent(encodeURIComponent(v)))
-        .join("|");
-    } else if (typeof value === "object") {
-      if (value.min) params[`${encodedKey}_min`] = encodeURIComponent(encodeURIComponent(value.min));
-      if (value.max) params[`${encodedKey}_max`] = encodeURIComponent(encodeURIComponent(value.max));
-    } else {
-      params[encodedKey] = encodeURIComponent(encodeURIComponent(value));
-    }
-  });
-
+  
+  // Build query string with proper URL encoding
   const queryString = Object.entries(params)
-    .map(([key, val]) => `${key}=${val}`)
+    .map(([key, val]) => {
+      // URL encode both key and value
+      const encodedKey = encodeURIComponent(key);
+      const encodedVal = encodeURIComponent(val);
+      return `${encodedKey}=${encodedVal}`;
+    })
     .join("&");
 
-  return `${url}?${queryString}`;
+  return `${baseUrl}?${queryString}`;
+}
+
+/**
+ * Fetch Cash Converters results page by page via Django backend proxy, invoking callback for each page
+ * @param {string} searchResultsUrl - The public search results URL
+ * @param {Function} onPageFetched - Callback invoked with results after each page loads
+ */
+async function fetchCashConvertersResultsStreaming(searchResultsUrl, onPageFetched) {
+  let page = 1;
+  let hasMore = true;
+
+  while (hasMore) {
+    try {
+      // Call Django backend proxy endpoint with fetch_only_first_page flag
+      const backendUrl = `/api/cashconverters/results/?url=${encodeURIComponent(searchResultsUrl)}&page=${page}&fetch_only_first_page=${FETCH_ONLY_FIRST_PAGE}`;
+      
+      const response = await fetch(backendUrl);
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+      const data = await response.json();
+
+      if (!data.success) {
+        throw new Error(data.error || "Failed to fetch results");
+      }
+
+      const results = data.results || [];
+
+      if (results.length === 0) {
+        hasMore = false;
+      } else {
+        console.log(`Page ${page} fetched:`, results.length, "items");
+        
+        // Invoke callback with new results
+        onPageFetched(results);
+        
+        // Stop after first page if flag is set
+        if (FETCH_ONLY_FIRST_PAGE) {
+          hasMore = false;
+        } else {
+          page++;
+        }
+      }
+    } catch (err) {
+      console.error("Failed to fetch CashConverters API page:", page, err);
+      hasMore = false;
+    }
+  }
+
+  console.log("Cash Converters pages fetched", FETCH_ONLY_FIRST_PAGE ? "(first page only)" : "(all pages)");
 }
 
 function calculateStats(listingsData) {
@@ -174,14 +232,22 @@ export function useCashConvertersResearch(category, savedState = null) {
     apiFilters: {},
   });
 
-  // --- Fetch filters (for now using eBay endpoint - can be replaced) ---
+  // --- Fetch Cash Converters filters ---
   const fetchFilters = useCallback(async (term) => {
     try {
-      // TODO: Replace with Cash Converters specific filter endpoint
-      const res = await fetch(`/api/ebay/filters/?q=${encodeURIComponent(term)}`);
+      // Build URL without category path
+      const url = `/api/cashconverters/filters/?q=${encodeURIComponent(term)}`;
+      
+      const res = await fetch(url);
       if (!res.ok) throw new Error('Failed to fetch filters');
       const data = await res.json();
 
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to fetch filters');
+      }
+
+      // Cash Converters filters are already in the correct format from the API
+      // Just clean out basic filter options if needed
       const cleanedFilters = (data.filters || [])
         .map(filter => {
           if (filter.type !== "checkbox" || !filter.options) return filter;
@@ -205,7 +271,7 @@ export function useCashConvertersResearch(category, savedState = null) {
 
       setFilterOptions(cleanedFilters);
     } catch (err) {
-      console.error('Error fetching filters:', err);
+      console.error('Error fetching Cash Converters filters:', err);
       setFilterOptions([]);
     }
   }, []);
@@ -231,35 +297,36 @@ export function useCashConvertersResearch(category, savedState = null) {
     setLoading(true);
     
     try {
-      // For now, using eBay scraping - TODO: Replace with Cash Converters specific scraping
-      const url = buildCashConvertersUrl(searchTerm, selectedFilters.apiFilters, category?.path, behaveAsGeneric);
+      // Build public search results URL for scraping (different from API URL used for filters)
+      const scrapeUrl = buildCashConvertersScrapeUrl(
+        searchTerm,
+        selectedFilters.apiFilters,
+        category?.path,
+        behaveAsGeneric
+      );
+
+      console.log("CashConverters scrape URL:", scrapeUrl);
       
-      const [_, scrapeResult] = await Promise.all([
-        termChanged ? fetchFilters(searchTerm) : Promise.resolve(),
-        scrapeEbay({
-          directUrl: url,
-          ebayFilterSold: selectedFilters.basic.includes("Completed & Sold"),
-          ebayFilterUKOnly: selectedFilters.basic.includes("UK Only"),
-          ebayFilterUsed: selectedFilters.basic.includes("Used"),
-          apiFilters: selectedFilters.apiFilters,
-        }),
-      ]);
-
-      if (scrapeResult.success) {
-        const sortedByDate = [...scrapeResult.results].sort((a, b) => {
-          const dateA = parseSoldDate(a.sold);
-          const dateB = parseSoldDate(b.sold);
-          return dateB - dateA;
-        });
-
-        setListings(sortedByDate);
-        setStats(calculateStats(scrapeResult.results));
-      } else {
-        alert("Scraping failed: " + (scrapeResult.error || "Unknown error"));
+      // Initialize empty results array
+      let accumulatedResults = [];
+      
+      // Start fetching filters (don't wait for it)
+      if (termChanged) {
+        fetchFilters(searchTerm);
       }
+      
+      // Fetch listings page by page, updating state as each page arrives
+      await fetchCashConvertersResultsStreaming(scrapeUrl, (pageResults) => {
+        accumulatedResults = [...accumulatedResults, ...pageResults];
+        setListings([...accumulatedResults]);
+        setStats(calculateStats(accumulatedResults));
+      });
+
+      console.log("CashConverters API complete:", accumulatedResults.length, "total items");
 
     } catch (err) {
-      console.error("Search error:", err);
+      console.error("Cash Converters search error:", err);
+      alert("Cash Converters fetching failed: " + err.message);
     } finally {
       setLoading(false);
     }

@@ -1,5 +1,70 @@
 from urllib.parse import urlparse, parse_qsl
 
+# eBay category mapping - maps category path segments to eBay category IDs
+EBAY_CATEGORY_MAP = {
+    "phones": "9355",
+    "games": "139973",
+    "tablets": "58058",
+    "laptops": "175672",
+    "gaming consoles": "139971",
+    "guitars & basses": "3858",
+    "smartphones and mobile": "9355",
+    "games (discs & cartridges)": "139973",
+    "cameras": "31388",
+    "headphones": "15052",
+    "smartwatches": "178893",
+}
+
+def resolve_ebay_category(category_path):
+    """
+    Finds the most specific eBay category ID by checking path items from right-to-left
+    
+    Args:
+        category_path: List of category path segments, e.g., ["Electronics", "Mobile Phones", "Smartphones"]
+    
+    Returns:
+        eBay category ID string or None
+    """
+    if not category_path or not isinstance(category_path, list):
+        return None
+    
+    # Search from most specific (end of array) to most general (start)
+    for i in range(len(category_path) - 1, -1, -1):
+        segment = category_path[i].lower()
+        if segment in EBAY_CATEGORY_MAP:
+            return EBAY_CATEGORY_MAP[segment]
+    
+    return None
+
+def build_ebay_search_url(search_term, category_path=None):
+    """
+    Build eBay search URL with optional category
+    
+    Args:
+        search_term: Search query string
+        category_path: Optional category path array
+    
+    Returns:
+        eBay search URL string
+    """
+    category_id = resolve_ebay_category(category_path) if category_path else None
+    
+    if category_id:
+        base_url = f"https://www.ebay.co.uk/sch/{category_id}/i.html"
+    else:
+        base_url = "https://www.ebay.co.uk/sch/i.html"
+    
+    params = {
+        "_nkw": search_term.replace(" ", "+"),
+        "_from": "R40"
+    }
+    
+    if not category_id:
+        params["_sacat"] = "0"
+    
+    query_string = "&".join([f"{k}={v}" for k, v in params.items()])
+    return f"{base_url}?{query_string}"
+
 def extract_ebay_search_params(ebay_url: str) -> dict:
     parsed = urlparse(ebay_url)
     # Use parse_qsl to get raw values without automatic decoding

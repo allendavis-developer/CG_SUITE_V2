@@ -9,6 +9,8 @@ urlpatterns = [
     # new frontend rewrite api calls needed
     path('api/product-categories/', v2.categories_list, name='product-categories'),
     path("api/ebay/filters/", v2.get_ebay_filters, name="api-get-ebay-filters"),
+    path("api/cashconverters/filters/", v2.get_cashconverters_filters, name="api-get-cashconverters-filters"),
+    path("api/cashconverters/results/", v2.get_cashconverters_results, name="api-get-cashconverters-results"),
     path('api/products/', v2.products_list),  
     path('api/product-variants/', v2.product_variants),  
     path('api/market-stats/', v2.variant_market_stats),
