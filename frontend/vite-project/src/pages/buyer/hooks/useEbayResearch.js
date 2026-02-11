@@ -24,18 +24,41 @@ function parseSoldDate(soldStr) {
   return isNaN(parsed) ? null : parsed;
 }
 
-function roundToNearestFive(value) {
-  return Math.round(value / 5) * 5;
+/**
+ * Determines the appropriate rounding increment based on the value
+ * Returns a "nice number" that scales appropriately for cheap vs expensive items
+ * @param {number} value - The value to determine rounding for
+ * @returns {number} The rounding increment (e.g., 0.5, 1, 2, 5, 10, 50, 100)
+ */
+function getRoundingIncrement(value) {
+  if (value < 5) return 0.5;      // For very cheap items (< £5): round to 50p
+  if (value < 20) return 1;       // For cheap items (< £20): round to £1
+  if (value < 50) return 2;       // For low items (< £50): round to £2
+  if (value < 200) return 5;      // For medium items (< £200): round to £5
+  if (value < 500) return 10;     // For higher items (< £500): round to £10
+  if (value < 2000) return 50;    // For expensive items (< £2000): round to £50
+  return 100;                     // For very expensive items (>= £2000): round to £100
+}
+
+/**
+ * Rounds a value to the nearest increment
+ * @param {number} value - The value to round
+ * @param {number} increment - The rounding increment
+ * @returns {number} The rounded value
+ */
+function roundToNearest(value, increment) {
+  return Math.round(value / increment) * increment;
 }
 
 function calculateBuyOffers(sellPrice) {
   if (!sellPrice || sellPrice <= 0) return [];
 
   const margins = [0.6, 0.5, 0.4];
+  const roundingIncrement = getRoundingIncrement(sellPrice);
 
   return margins.map(margin => ({
     margin,
-    price: roundToNearestFive(sellPrice * (1 - margin))
+    price: roundToNearest(sellPrice * (1 - margin), roundingIncrement)
   }));
 }
 
@@ -103,12 +126,12 @@ function buildEbayUrl(searchTerm, filters, categoryPath, behaveAsEbay = false) {
 
 function calculateStats(listingsData) {
   if (!listingsData || listingsData.length === 0) {
-    return { average: 0, median: 0, suggestedPrice: 0 };
+    return { average: 0, median: 0, suggestedPrice: 0, roundingIncrement: 5 };
   }
 
   const prices = listingsData.map(item => item.price).filter(p => p != null);
   if (prices.length === 0) {
-    return { average: 0, median: 0, suggestedPrice: 0 };
+    return { average: 0, median: 0, suggestedPrice: 0, roundingIncrement: 5 };
   }
 
   const sum = prices.reduce((acc, price) => acc + price, 0);
@@ -120,20 +143,24 @@ function calculateStats(listingsData) {
     ? (sortedPrices[mid - 1] + sortedPrices[mid]) / 2
     : sortedPrices[mid];
 
-  // Round intelligently to market-friendly pricing
-  const average = roundToNearestFive(averageRaw);
-  const median = roundToNearestFive(medianRaw);
+  // Determine rounding increment based on median value for consistency
+  const roundingIncrement = getRoundingIncrement(medianRaw);
 
-  // Undercut slightly but stay on £5 grid
+  // Round intelligently to market-friendly pricing using the determined increment
+  const average = roundToNearest(averageRaw, roundingIncrement);
+  const median = roundToNearest(medianRaw, roundingIncrement);
+
+  // Undercut slightly but stay on the same rounding grid
   const suggestedPrice = Math.max(
-    roundToNearestFive(median - 5),
+    roundToNearest(median - roundingIncrement, roundingIncrement),
     0
   );
 
   return {
     average,
     median,
-    suggestedPrice
+    suggestedPrice,
+    roundingIncrement
   };
 }
 
@@ -158,7 +185,7 @@ export function useEbayResearch(category, savedState = null) {
   const [filterOptions, setFilterOptions] = useState(savedState?.filterOptions || []); // API filters
   const [listings, setListings] = useState(savedState?.listings || null);
   const [loading, setLoading] = useState(false);
-  const [stats, setStats] = useState(savedState?.stats || { average: 0, median: 0, suggestedPrice: 0 });
+  const [stats, setStats] = useState(savedState?.stats || { average: 0, median: 0, suggestedPrice: 0, roundingIncrement: 5 });
   
   // Track the last search term that was actually searched
   const [lastSearchedTerm, setLastSearchedTerm] = useState(savedState?.lastSearchedTerm || "");
@@ -239,7 +266,7 @@ export function useEbayResearch(category, savedState = null) {
     // If search term changed, reset filters and fetch everything fresh
     if (termChanged) {
       setListings(null);
-      setStats({ average: 0, median: 0, suggestedPrice: 0 });
+      setStats({ average: 0, median: 0, suggestedPrice: 0, roundingIncrement: 5 });
       setFilterOptions([]);
       setSelectedFilters(prev => ({
         ...prev,

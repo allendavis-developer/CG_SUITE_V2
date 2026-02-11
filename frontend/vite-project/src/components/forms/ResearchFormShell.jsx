@@ -324,49 +324,63 @@ export default function ResearchFormShell({
     }
   }, [selectedOfferIndex]);
 
+  // Helper function to format rounding increment for display
+  const formatRoundingIncrement = useCallback((increment) => {
+    if (increment < 1) {
+      return `${increment * 100}p`; // e.g., "50p" for 0.5
+    }
+    return `£${increment}`; // e.g., "£1", "£5", "£10"
+  }, []);
+
   // MEMOIZED STATS DISPLAY COMPONENT
-  const StatsDisplay = useMemo(() => () => (
-    <div className="flex items-center gap-6">
-      <div className="flex flex-col">
-        <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">
-          Average
-          <span
-            title="Rounded to nearest £5 for realistic market pricing"
-            className="text-[9px] text-blue-900 bg-blue-100 px-1.5 py-0.5 rounded"
-          >
-            £5
+  const StatsDisplay = useMemo(() => {
+    const roundingIncrement = displayedStats.roundingIncrement || 5;
+    const roundingLabel = formatRoundingIncrement(roundingIncrement);
+    const roundingTitle = `Rounded to nearest ${roundingLabel} for realistic market pricing`;
+    
+    return () => (
+      <div className="flex items-center gap-6">
+        <div className="flex flex-col">
+          <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">
+            Average
+            <span
+              title={roundingTitle}
+              className="text-[9px] text-blue-900 bg-blue-100 px-1.5 py-0.5 rounded"
+            >
+              {roundingLabel}
+            </span>
           </span>
-        </span>
-        <span className="text-lg font-extrabold text-blue-900">£{displayedStats.average}</span>
-      </div>
-      <div className="w-px h-8 bg-gray-200"></div>
-      <div className="flex flex-col">
-        <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">
-          Median
-          <span
-            title="Rounded to nearest £5 for realistic market pricing"
-            className="text-[9px] text-blue-900 bg-blue-100 px-1.5 py-0.5 rounded"
-          >
-            £5
+          <span className="text-lg font-extrabold text-blue-900">£{displayedStats.average}</span>
+        </div>
+        <div className="w-px h-8 bg-gray-200"></div>
+        <div className="flex flex-col">
+          <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">
+            Median
+            <span
+              title={roundingTitle}
+              className="text-[9px] text-blue-900 bg-blue-100 px-1.5 py-0.5 rounded"
+            >
+              {roundingLabel}
+            </span>
           </span>
-        </span>
-        <span className="text-lg font-extrabold text-blue-900">£{displayedStats.median}</span>
-      </div>
-      <div className="w-px h-8 bg-gray-200"></div>
-      <div className="flex flex-col">
-        <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">
-          Suggested Sale Price
-          <span
-            title="Rounded to nearest £5 for realistic market pricing"
-            className="text-[9px] text-blue-900 bg-blue-100 px-1.5 py-0.5 rounded"
-          >
-            £5
+          <span className="text-lg font-extrabold text-blue-900">£{displayedStats.median}</span>
+        </div>
+        <div className="w-px h-8 bg-gray-200"></div>
+        <div className="flex flex-col">
+          <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">
+            Suggested Sale Price
+            <span
+              title={roundingTitle}
+              className="text-[9px] text-blue-900 bg-blue-100 px-1.5 py-0.5 rounded"
+            >
+              {roundingLabel}
+            </span>
           </span>
-        </span>
-        <span className="text-lg font-extrabold text-green-600">£{displayedStats.suggestedPrice}</span>
+          <span className="text-lg font-extrabold text-green-600">£{displayedStats.suggestedPrice}</span>
+        </div>
       </div>
-    </div>
-  ), [displayedStats]);
+    );
+  }, [displayedStats, formatRoundingIncrement]);
 
   // Manual offer change handler - memoized to prevent input re-creation
   const handleManualOfferChange = useCallback((e) => {

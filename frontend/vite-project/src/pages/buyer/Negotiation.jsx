@@ -878,12 +878,10 @@ const Negotiation = ({ mode }) => {
                           const minOffer = offerPrices.length > 0 ? Math.min(...offerPrices) : 0;
                           const maxOffer = offerPrices.length > 0 ? Math.max(...offerPrices) : 0;
                           
-                          // Check if manual offer is outside reasonable range
-                          const manualValue = item.manualOffer ? parseFloat(item.manualOffer.replace(/[£,]/g, '')) : null;
-                          const isOutOfRange = manualValue && (manualValue < minOffer * 0.5 || manualValue > maxOffer * 1.5);
-                          
                           // Calculate margin for manual offer
+                          const manualValue = item.manualOffer ? parseFloat(item.manualOffer.replace(/[£,]/g, '')) : null;
                           const manualMargin = manualValue ? calculateMargin(manualValue) : null;
+                          const hasNegativeMargin = manualMargin !== null && manualMargin < 0;
                           
                           return (
                             <div className="flex flex-col">
@@ -892,10 +890,10 @@ const Negotiation = ({ mode }) => {
                                   className="w-full border-0 text-xs font-semibold text-center px-3 py-2 focus:outline-none focus:ring-0"
                                   style={{ 
                                     background: item.manualOffer && item.selectedOfferId === 'manual' 
-                                      ? (isOutOfRange ? 'rgba(239, 68, 68, 0.1)' : 'rgba(247, 185, 24, 0.1)')
+                                      ? (hasNegativeMargin ? 'rgba(239, 68, 68, 0.1)' : 'rgba(247, 185, 24, 0.1)')
                                       : 'transparent',
                                     color: item.manualOffer && item.selectedOfferId === 'manual'
-                                      ? (isOutOfRange ? '#dc2626' : 'var(--brand-blue)')
+                                      ? (hasNegativeMargin ? '#dc2626' : 'var(--brand-blue)')
                                       : 'inherit',
                                     fontWeight: item.manualOffer && item.selectedOfferId === 'manual' 
                                       ? 'bold' 
@@ -932,10 +930,10 @@ const Negotiation = ({ mode }) => {
                                   }}
                                   readOnly={mode === 'view'}
                                 />
-                                {/* Warning for out of range */}
-                                {isOutOfRange && item.selectedOfferId === 'manual' && (
+                                {/* Warning for negative margin */}
+                                {hasNegativeMargin && item.selectedOfferId === 'manual' && (
                                   <div className="absolute right-1 top-1/2 -translate-y-1/2">
-                                    <span className="material-symbols-outlined text-red-600 text-xs" title="Manual offer is significantly outside the suggested range">
+                                    <span className="material-symbols-outlined text-red-600 text-xs" title="Manual offer results in negative margin">
                                       warning
                                     </span>
                                   </div>
