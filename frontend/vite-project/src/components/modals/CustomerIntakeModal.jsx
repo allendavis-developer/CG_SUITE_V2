@@ -1,25 +1,15 @@
 import React, { useState, useRef, useEffect } from "react";
 import { SearchableDropdown } from "../ui/components"; // import your component
 
-// Get CSRF token from cookie
-function getCSRFToken() {
-  const cookieValue = document.cookie
-    .split('; ')
-    .find(row => row.startsWith('csrftoken='))
-    ?.split('=')[1];
-  return cookieValue;
-}
 
 
 
 export default function CustomerIntakeModal({ open = true, onClose }) {
-  const [isExisting, setIsExisting] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState("");
   const [transactionType, setTransactionType] = useState("sale"); // "sale", "buyback", or "store_credit"
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [saving, setSaving] = useState(false);
   const [tempCR, setTempCR] = useState(""); // new temporary cancel rate
   const [nosposQuery, setNosposQuery] = useState("");
   const [nosposResults, setNosposResults] = useState([]);
@@ -106,7 +96,7 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
 
     // Populate form when existing customer is selected
     useEffect(() => {
-    if (isExisting && selectedCustomer) {
+    if (selectedCustomer) {
         const customer = customers.find(c => c.name === selectedCustomer);
         if (customer) {
         if (nameRef.current) nameRef.current.value = customer.name || "";
@@ -114,14 +104,8 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
         if (emailRef.current) emailRef.current.value = customer.email || "";
         if (addressRef.current) addressRef.current.value = customer.address || "";
         }
-    } else if (!isExisting) {
-        // Clear form for new customer
-        if (nameRef.current) nameRef.current.value = "";
-        if (phoneRef.current) phoneRef.current.value = "";
-        if (emailRef.current) emailRef.current.value = "";
-        if (addressRef.current) addressRef.current.value = "";
     }
-    }, [isExisting, selectedCustomer, customers]);
+    }, [selectedCustomer, customers]);
 
   if (!open) return null;
 
@@ -139,61 +123,19 @@ const handleConfirm = async () => {
     return;
   }
 
-  // If new customer, create them first
-  if (!isExisting) {
-    setSaving(true);
-    setError(null);
-    
-    try {
-      const response = await fetch("/api/customers/", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRFToken": getCSRFToken()
-        },
-        body: JSON.stringify(customerData),
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to create customer");
-      }
-
-      const newCustomer = await response.json();
-      
-      // Pass the complete data back to parent
-      onClose({
-        isExisting: false,
-        transactionType,
-        customer: newCustomer,
-        id: newCustomer.id,
-        customerName: newCustomer.name,
-        phone: newCustomer.phone,
-        email: newCustomer.email,
-        address: newCustomer.address,
-        cancelRate: newCustomer.cancel_rate || 0,
-      });
-    } catch (err) {
-      setError(err.message);
-      console.error("Error creating customer:", err);
-      setSaving(false);
-      return;
-    }
-  } else {
-    // Existing customer - just return the data
-    const selectedCustomerData = customers.find(c => c.name === selectedCustomer);
-    onClose({
-        isExisting: true,
-        transactionType,
-        customer: selectedCustomerData,
-        id: selectedCustomerData?.id,
-        customerName: nameRef.current?.value || "",
-        phone: phoneRef.current?.value || "",
-        email: emailRef.current?.value || "",
-        address: addressRef.current?.value || "",
-        cancelRate: tempCR || selectedCustomerData?.cancel_rate || 0, // use tempCR if set
-    });
-
-  }
+  // Existing customer - just return the data
+  const selectedCustomerData = customers.find(c => c.name === selectedCustomer);
+  onClose({
+      isExisting: true,
+      transactionType,
+      customer: selectedCustomerData,
+      id: selectedCustomerData?.id,
+      customerName: nameRef.current?.value || "",
+      phone: phoneRef.current?.value || "",
+      email: emailRef.current?.value || "",
+      address: addressRef.current?.value || "",
+      cancelRate: tempCR || selectedCustomerData?.cancel_rate || 0, // use tempCR if set
+  });
 };
 
   const handleCancel = () => {
@@ -222,7 +164,7 @@ const handleConfirm = async () => {
             <div>
               <h3 className="text-xl font-bold leading-none">Customer Intake</h3>
               <p className="text-white/70 text-sm mt-1">
-                Identify or register the customer to proceed
+                Find and select an existing customer to proceed
               </p>
             </div>
           </div>
@@ -234,44 +176,8 @@ const handleConfirm = async () => {
           </button>
         </header>
 
-        {/* Toggle - Customer Type */}
-        <div className="px-8 pt-8 pb-4">
-          <div className="bg-gray-100 p-1 rounded-xl flex border border-gray-200">
-            <label className="flex-1 cursor-pointer">
-              <input
-                type="radio"
-                name="cust-toggle"
-                className="hidden peer"
-                checked={!isExisting}
-                onChange={() => setIsExisting(false)}
-              />
-              <div className="flex items-center justify-center gap-2 py-3 rounded-lg text-sm font-bold transition-all peer-checked:bg-white peer-checked:shadow-sm text-gray-500 peer-checked:text-yellow-500">
-                <span className="material-symbols-outlined text-lg">
-                  person_add
-                </span>
-                New Customer
-              </div>
-            </label>
-            <label className="flex-1 cursor-pointer">
-              <input
-                type="radio"
-                name="cust-toggle"
-                className="hidden peer"
-                checked={isExisting}
-                onChange={() => setIsExisting(true)}
-              />
-              <div className="flex items-center justify-center gap-2 py-3 rounded-lg text-sm font-bold transition-all peer-checked:bg-white peer-checked:shadow-sm text-gray-500 peer-checked:text-yellow-500">
-                <span className="material-symbols-outlined text-lg">
-                  manage_search
-                </span>
-                Existing Customer
-              </div>
-            </label>
-          </div>
-        </div>
-
         {/* Toggle - Transaction Type */}
-        <div className="px-8 pb-6">
+        <div className="px-8 pt-8 pb-6">
           <div className="bg-gray-100 p-1 rounded-xl grid grid-cols-3 gap-1 border border-gray-200">
             <label className="cursor-pointer">
               <input
@@ -348,8 +254,8 @@ const handleConfirm = async () => {
             </div>
           )}
 
-          {/* SearchableDropdown for Existing Customer only */}
-          {isExisting && !loading && (
+          {/* SearchableDropdown for Existing Customer */}
+          {!loading && (
           <div className="mb-6 space-y-4">
             {/* Local Customer Dropdown */}
             <SearchableDropdown
@@ -405,8 +311,8 @@ const handleConfirm = async () => {
           </div>
         )}
 
-          {/* Info Banner (Existing Customer only) */}
-          {isExisting && selectedCustomer && (
+          {/* Info Banner */}
+          {selectedCustomer && (
             <div className="mb-6 bg-blue-900/5 border border-blue-900/20 rounded-xl p-4 flex items-start gap-3">
               <span className="material-symbols-outlined text-blue-900 mt-0.5">
                 info
@@ -475,8 +381,8 @@ const handleConfirm = async () => {
             />
             </div>
 
-            {/* Temp Cancel Rate Field (Existing Customer only) */}
-            {isExisting && selectedCustomer && (
+            {/* Temp Cancel Rate Field */}
+            {selectedCustomer && (
             <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-bold uppercase tracking-wider text-gray-500">
                 Cancel Rate (%)
@@ -501,30 +407,17 @@ const handleConfirm = async () => {
           <button
             onClick={handleCancel}
             className="px-6 py-3 text-sm font-bold text-gray-600 hover:text-gray-900 transition-colors"
-            disabled={saving}
           >
             Cancel
           </button>
           <button
             onClick={handleConfirm}
-            disabled={saving}
-            className="bg-yellow-500 hover:brightness-105 active:scale-[0.98] text-blue-900 font-black py-4 px-10 rounded-xl shadow-lg shadow-yellow-500/20 flex items-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            className="bg-yellow-500 hover:brightness-105 active:scale-[0.98] text-blue-900 font-black py-4 px-10 rounded-xl shadow-lg shadow-yellow-500/20 flex items-center gap-2 transition-all"
           >
-            {saving ? (
-              <>
-                <span className="material-symbols-outlined animate-spin">
-                  progress_activity
-                </span>
-                Creating...
-              </>
-            ) : (
-              <>
-                Confirm &amp; Proceed
-                <span className="material-symbols-outlined font-bold">
-                  arrow_forward
-                </span>
-              </>
-            )}
+            Confirm &amp; Proceed
+            <span className="material-symbols-outlined font-bold">
+              arrow_forward
+            </span>
           </button>
         </footer>
       </div>

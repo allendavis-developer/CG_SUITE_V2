@@ -568,6 +568,20 @@ const Negotiation = ({ mode }) => {
                   const offer3 = displayOffers?.[2];
                   const isViewMode = mode === 'view';
 
+                  // Calculate Our Sale Price for margin calculations
+                  const ourSalePrice =
+                    item.ourSalePrice !== undefined && item.ourSalePrice !== null && item.ourSalePrice !== ''
+                      ? Number(item.ourSalePrice)
+                      : (item.ebayResearchData?.stats?.suggestedPrice != null
+                          ? Number(item.ebayResearchData.stats.suggestedPrice)
+                          : null);
+
+                  // Helper function to calculate margin percentage
+                  const calculateMargin = (offerPrice) => {
+                    if (!ourSalePrice || !offerPrice || ourSalePrice <= 0) return null;
+                    return ((ourSalePrice - offerPrice) / ourSalePrice) * 100;
+                  };
+
                   return (
                     <tr key={item.id || index}>
                       {/* Qty (editable in negotiate mode) */}
@@ -668,6 +682,16 @@ const Negotiation = ({ mode }) => {
                         {offer1 ? (
                           <div>
                             <div>£{(offer1.price * quantity).toFixed(2)}</div>
+                            {(() => {
+                              const margin = calculateMargin(offer1.price);
+                              return margin !== null ? (
+                                <div className="text-[9px] font-medium" style={{ 
+                                  color: margin >= 0 ? '#059669' : '#dc2626' 
+                                }}>
+                                  {margin >= 0 ? '+' : ''}{margin.toFixed(1)}% margin
+                                </div>
+                              ) : null;
+                            })()}
                             {quantity > 1 && (
                               <div className="text-[9px]" style={{ color: 'var(--text-muted)' }}>
                                 (£{offer1.price.toFixed(2)} × {quantity})
@@ -696,6 +720,16 @@ const Negotiation = ({ mode }) => {
                         {offer2 ? (
                           <div>
                             <div>£{(offer2.price * quantity).toFixed(2)}</div>
+                            {(() => {
+                              const margin = calculateMargin(offer2.price);
+                              return margin !== null ? (
+                                <div className="text-[9px] font-medium" style={{ 
+                                  color: margin >= 0 ? '#059669' : '#dc2626' 
+                                }}>
+                                  {margin >= 0 ? '+' : ''}{margin.toFixed(1)}% margin
+                                </div>
+                              ) : null;
+                            })()}
                             {quantity > 1 && (
                               <div className="text-[9px]" style={{ color: 'var(--text-muted)' }}>
                                 (£{offer2.price.toFixed(2)} × {quantity})
@@ -724,6 +758,16 @@ const Negotiation = ({ mode }) => {
                         {offer3 ? (
                           <div>
                             <div>£{(offer3.price * quantity).toFixed(2)}</div>
+                            {(() => {
+                              const margin = calculateMargin(offer3.price);
+                              return margin !== null ? (
+                                <div className="text-[9px] font-medium" style={{ 
+                                  color: margin >= 0 ? '#059669' : '#dc2626' 
+                                }}>
+                                  {margin >= 0 ? '+' : ''}{margin.toFixed(1)}% margin
+                                </div>
+                              ) : null;
+                            })()}
                             {quantity > 1 && (
                               <div className="text-[9px]" style={{ color: 'var(--text-muted)' }}>
                                 (£{offer3.price.toFixed(2)} × {quantity})
@@ -745,54 +789,75 @@ const Negotiation = ({ mode }) => {
                           const manualValue = item.manualOffer ? parseFloat(item.manualOffer.replace(/[£,]/g, '')) : null;
                           const isOutOfRange = manualValue && (manualValue < minOffer * 0.5 || manualValue > maxOffer * 1.5);
                           
+                          // Calculate margin for manual offer
+                          const manualMargin = manualValue ? calculateMargin(manualValue) : null;
+                          
                           return (
-                            <>
-                              <input 
-                                className="w-full h-full border-0 text-xs font-semibold text-center px-3 py-2 focus:outline-none focus:ring-0"
-                                style={{ 
-                                  background: item.manualOffer && item.selectedOfferId === 'manual' 
-                                    ? (isOutOfRange ? 'rgba(239, 68, 68, 0.1)' : 'rgba(247, 185, 24, 0.1)')
-                                    : 'transparent',
-                                  color: item.manualOffer && item.selectedOfferId === 'manual'
-                                    ? (isOutOfRange ? '#dc2626' : 'var(--brand-blue)')
-                                    : 'inherit',
-                                  fontWeight: item.manualOffer && item.selectedOfferId === 'manual' 
-                                    ? 'bold' 
-                                    : 'semibold'
-                                }}
-                                placeholder="£0.00" 
-                                type="text"
-                                value={item.manualOffer || ''}
-                                title={offerPrices.length > 0 ? `Suggested range: £${minOffer.toFixed(2)} - £${maxOffer.toFixed(2)}` : ''}
-                                onChange={mode === 'view' ? undefined : (e) => {
-                                  const value = e.target.value;
-                                  setItems(prev =>
-                                    prev.map(i =>
-                                      i.id === item.id
-                                        ? { 
-                                            ...i, 
-                                            manualOffer: value,
-                                            selectedOfferId: value ? 'manual' : i.selectedOfferId
-                                          }
-                                        : i
-                                    )
-                                  );
-                                }}
-                                onClick={mode === 'view' ? undefined : () => {
-                                  if (item.manualOffer) {
+                            <div className="flex flex-col">
+                              <div className="relative">
+                                <input 
+                                  className="w-full border-0 text-xs font-semibold text-center px-3 py-2 focus:outline-none focus:ring-0"
+                                  style={{ 
+                                    background: item.manualOffer && item.selectedOfferId === 'manual' 
+                                      ? (isOutOfRange ? 'rgba(239, 68, 68, 0.1)' : 'rgba(247, 185, 24, 0.1)')
+                                      : 'transparent',
+                                    color: item.manualOffer && item.selectedOfferId === 'manual'
+                                      ? (isOutOfRange ? '#dc2626' : 'var(--brand-blue)')
+                                      : 'inherit',
+                                    fontWeight: item.manualOffer && item.selectedOfferId === 'manual' 
+                                      ? 'bold' 
+                                      : 'semibold'
+                                  }}
+                                  placeholder="£0.00" 
+                                  type="text"
+                                  value={item.manualOffer || ''}
+                                  title={offerPrices.length > 0 ? `Suggested range: £${minOffer.toFixed(2)} - £${maxOffer.toFixed(2)}` : ''}
+                                  onChange={mode === 'view' ? undefined : (e) => {
+                                    const value = e.target.value;
                                     setItems(prev =>
                                       prev.map(i =>
                                         i.id === item.id
-                                          ? { ...i, selectedOfferId: 'manual' }
+                                          ? { 
+                                              ...i, 
+                                              manualOffer: value,
+                                              selectedOfferId: value ? 'manual' : i.selectedOfferId
+                                            }
                                           : i
                                       )
                                     );
-                                  }
-                                }}
-                                readOnly={mode === 'view'}
-                              />
+                                  }}
+                                  onClick={mode === 'view' ? undefined : () => {
+                                    if (item.manualOffer) {
+                                      setItems(prev =>
+                                        prev.map(i =>
+                                          i.id === item.id
+                                            ? { ...i, selectedOfferId: 'manual' }
+                                            : i
+                                        )
+                                      );
+                                    }
+                                  }}
+                                  readOnly={mode === 'view'}
+                                />
+                                {/* Warning for out of range */}
+                                {isOutOfRange && item.selectedOfferId === 'manual' && (
+                                  <div className="absolute right-1 top-1/2 -translate-y-1/2">
+                                    <span className="material-symbols-outlined text-red-600 text-xs" title="Manual offer is significantly outside the suggested range">
+                                      warning
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                              {/* Margin display */}
+                              {manualMargin !== null && item.manualOffer && item.selectedOfferId === 'manual' && (
+                                <div className="text-[9px] font-medium px-3 pb-1" style={{ 
+                                  color: manualMargin >= 0 ? '#059669' : '#dc2626' 
+                                }}>
+                                  {manualMargin >= 0 ? '+' : ''}{manualMargin.toFixed(1)}% margin
+                                </div>
+                              )}
                               {/* Tooltip showing range */}
-                              {!mode === 'view' && offerPrices.length > 0 && (
+                              {mode !== 'view' && offerPrices.length > 0 && (
                                 <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-10">
                                   <div className="bg-blue-900 text-white text-[10px] py-1.5 px-2.5 rounded shadow-xl whitespace-nowrap">
                                     Suggested: £{minOffer.toFixed(2)} - £{maxOffer.toFixed(2)}
@@ -800,15 +865,7 @@ const Negotiation = ({ mode }) => {
                                   </div>
                                 </div>
                               )}
-                              {/* Warning for out of range */}
-                              {isOutOfRange && item.selectedOfferId === 'manual' && (
-                                <div className="absolute right-1 top-1/2 -translate-y-1/2">
-                                  <span className="material-symbols-outlined text-red-600 text-xs" title="Manual offer is significantly outside the suggested range">
-                                    warning
-                                  </span>
-                                </div>
-                              )}
-                            </>
+                            </div>
                           );
                         })()}
                       </td>

@@ -10,15 +10,10 @@ const BASIC_FILTER_OPTIONS = [
   "Completed items",
 ];
 
-// For now, using eBay category mapping - can be replaced with Cash Converters specific mapping later
-const CASH_CONVERTERS_CATEGORY_MAP = {
-  "phones": "9355",
-  "games": "139973",
-  "tablets": "58058",
-  "laptops": "175672",
-  "gaming consoles": "139971",
-  "guitars & basses": "3858",
-};
+// Cash Converters category path to URL mapping
+// Maps category path segments (e.g., "phones", "games") to Cash Converters category identifiers
+// For now, empty - will be populated with Cash Converters specific mappings later
+const CASH_CONVERTERS_CATEGORY_MAP = {};
 
 function parseSoldDate(soldStr) {
   if (!soldStr) return null;
@@ -43,8 +38,8 @@ function calculateBuyOffers(sellPrice) {
 }
 
 /**
- * Finds the most specific category ID by checking path items from right-to-left
- * For now, uses eBay mapping - can be replaced with Cash Converters specific mapping
+ * Finds the most specific Cash Converters category by checking path items from right-to-left
+ * @param {Array} path - e.g., ["Electronics", "Mobile Phones", "Smartphones"]
  */
 function resolveCashConvertersCategory(path) {
   if (!path || !Array.isArray(path)) return null;
@@ -72,6 +67,9 @@ function resolveCashConvertersCategory(path) {
  * @param {boolean} behaveAsGeneric - Whether to ignore category mapping
  */
 function buildCashConvertersScrapeUrl(searchTerm, apiFilters, categoryPath, behaveAsGeneric = false) {
+  // If behaveAsGeneric is true, ignore category mapping
+  const categoryId = behaveAsGeneric ? null : resolveCashConvertersCategory(categoryPath);
+  
   // Build public-facing search results page URL (for scraping)
   const baseUrl = "https://www.cashconverters.co.uk/search-results";
   
@@ -81,8 +79,8 @@ function buildCashConvertersScrapeUrl(searchTerm, apiFilters, categoryPath, beha
     query: searchTerm // Will be URL encoded when building query string
   };
   
-  // Add default filter parameters
-  params["f[category][0]"] = "all";
+  // Add category filter: use specific category ID if found, otherwise use "all"
+  params["f[category][0]"] = categoryId || "all";
   params["f[locations][0]"] = "all";
   
   // Add selected API filters
@@ -247,8 +245,13 @@ export function useCashConvertersResearch(category, savedState = null) {
   // --- Fetch Cash Converters filters ---
   const fetchFilters = useCallback(async (term) => {
     try {
-      // Build URL without category path
-      const url = `/api/cashconverters/filters/?q=${encodeURIComponent(term)}`;
+      // Build URL with category path if available
+      let url = `/api/cashconverters/filters/?q=${encodeURIComponent(term)}`;
+      if (category?.path && Array.isArray(category.path)) {
+        category.path.forEach(pathSegment => {
+          url += `&category_path=${encodeURIComponent(pathSegment)}`;
+        });
+      }
       
       const res = await fetch(url);
       if (!res.ok) throw new Error('Failed to fetch filters');
@@ -286,7 +289,7 @@ export function useCashConvertersResearch(category, savedState = null) {
       console.error('Error fetching Cash Converters filters:', err);
       setFilterOptions([]);
     }
-  }, []);
+  }, [category?.path]);
 
   const handleSearch = useCallback(async () => {
     if (!searchTerm.trim()) return;
