@@ -735,6 +735,7 @@ const MainContent = ({
               mode="modal"
               category={selectedCategory}
               savedState={savedEbayState}
+              initialHistogramState={false}
               onComplete={(data) => {
                 handleEbayResearchComplete(data);
                 setEbayModalOpen(false);
@@ -747,6 +748,7 @@ const MainContent = ({
               mode="modal"
               category={selectedCategory}
               savedState={savedCashConvertersState}
+              initialHistogramState={false}
               onComplete={(data) => {
                 handleCashConvertersResearchComplete(data);
                 setCashConvertersModalOpen(false);

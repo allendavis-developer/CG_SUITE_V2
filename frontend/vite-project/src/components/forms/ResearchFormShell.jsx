@@ -268,6 +268,7 @@ const PriceHistogram = React.memo(function PriceHistogram({ listings, onBucketSe
  * @param {string} props.headerIcon - Icon name for modal header
  * @param {Array} props.buyOffers - Calculated buy offers [{price, margin}, ...]
  * @param {React.ReactNode} props.customControls - Custom controls to render in search area (e.g., "Behave like eBay" checkbox)
+ * @param {boolean} props.allowHistogramToggle - Whether to show the histogram toggle checkbox (default: true)
  */
 export default function ResearchFormShell({
   searchTerm,
@@ -297,7 +298,11 @@ export default function ResearchFormShell({
   headerSubtitle = "Real-time valuation lookup",
   headerIcon = "search_insights",
   buyOffers = [],
-  customControls = null
+  customControls = null,
+  allowHistogramToggle = true,
+  manualOffer = "",
+  onManualOfferChange = null,
+  showManualOffer = false
 }) {
   // Get current price range (latest in history, or null for full view)
   const currentPriceRange = drillHistory.length > 0 ? drillHistory[drillHistory.length - 1] : null;
@@ -346,7 +351,7 @@ export default function ResearchFormShell({
     </div>
   ), [displayedStats]);
 
-  // MEMOIZED BUY OFFERS DISPLAY
+  // MEMOIZED BUY OFFERS DISPLAY (without manual offer to prevent re-creation)
   const BuyOffersDisplay = useMemo(() => {
     if (!buyOffers.length) return null;
 
@@ -366,12 +371,10 @@ export default function ResearchFormShell({
     );
   }, [buyOffers]);
 
-  const StatsAndBuyOffers = useMemo(() => () => (
-    <div className="flex items-center gap-6 flex-wrap">
-      <StatsDisplay />
-      {BuyOffersDisplay && <BuyOffersDisplay />}
-    </div>
-  ), [StatsDisplay, BuyOffersDisplay]);
+  // Manual offer change handler - memoized to prevent input re-creation
+  const handleManualOfferChange = useCallback((e) => {
+    onManualOfferChange?.(e.target.value);
+  }, [onManualOfferChange]);
 
   const content = (
     <>
@@ -398,7 +401,27 @@ export default function ResearchFormShell({
       {/* Stats at top - Only show in page mode when we have results */}
       {mode === "page" && listings && (
         <div className="px-6 py-4 border-b border-gray-200 bg-white flex items-center justify-between gap-6 flex-wrap">
-          <StatsAndBuyOffers />
+          <div className="flex items-center gap-6 flex-wrap">
+            <StatsDisplay />
+            {BuyOffersDisplay && <BuyOffersDisplay />}
+            {/* Manual Offer Field - rendered directly to prevent focus loss - only show when opened from negotiation page */}
+            {showManualOffer && onManualOfferChange && (
+              <div className="flex flex-col gap-1 bg-orange-50 border-2 border-orange-200 rounded-lg px-4 py-2 min-w-[140px]">
+                <label className="text-[10px] font-bold text-orange-900 uppercase tracking-wider">
+                  Manual Offer
+                </label>
+                <input
+                  type="text"
+                  className="text-sm font-bold text-orange-900 bg-transparent border-none outline-none p-0"
+                  placeholder="£0.00"
+                  value={manualOffer}
+                  onChange={handleManualOfferChange}
+                  disabled={readOnly}
+                  readOnly={readOnly}
+                />
+              </div>
+            )}
+          </div>
           <Button
             variant="primary"
             size="md"
@@ -440,7 +463,7 @@ export default function ResearchFormShell({
           {customControls}
           
           {/* Show Histogram toggle */}
-          {listings && (
+          {listings && allowHistogramToggle && (
             <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-gray-700">
               <input
                 type="checkbox"
@@ -661,7 +684,27 @@ export default function ResearchFormShell({
       {/* Footer - Only show in modal mode */}
       {mode === "modal" && (
         <footer className="px-6 py-4 border-t border-gray-200 bg-white flex justify-between items-center shrink-0">
-          <StatsAndBuyOffers />
+          <div className="flex items-center gap-6 flex-wrap">
+            <StatsDisplay />
+            {BuyOffersDisplay && <BuyOffersDisplay />}
+            {/* Manual Offer Field - rendered directly to prevent focus loss - only show when opened from negotiation page */}
+            {showManualOffer && onManualOfferChange && (
+              <div className="flex flex-col gap-1 bg-orange-50 border-2 border-orange-200 rounded-lg px-4 py-2 min-w-[140px]">
+                <label className="text-[10px] font-bold text-orange-900 uppercase tracking-wider">
+                  Manual Offer
+                </label>
+                <input
+                  type="text"
+                  className="text-sm font-bold text-orange-900 bg-transparent border-none outline-none p-0"
+                  placeholder="£0.00"
+                  value={manualOffer}
+                  onChange={handleManualOfferChange}
+                  disabled={readOnly}
+                  readOnly={readOnly}
+                />
+              </div>
+            )}
+          </div>
           <div className="flex gap-3">
             <Button variant="outline" size="md" onClick={readOnly ? undefined : onComplete} disabled={readOnly}>Cancel</Button>
             {listings && (

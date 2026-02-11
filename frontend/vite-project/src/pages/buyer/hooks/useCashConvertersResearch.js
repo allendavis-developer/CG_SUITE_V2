@@ -236,6 +236,9 @@ export function useCashConvertersResearch(category, savedState = null) {
   
   // Histogram visibility
   const [showHistogram, setShowHistogram] = useState(savedState?.showHistogram ?? false);
+  
+  // Manual offer from negotiation page
+  const [manualOffer, setManualOffer] = useState(savedState?.manualOffer || "");
 
   const [selectedFilters, setSelectedFilters] = useState(savedState?.selectedFilters || {
     basic: ["Completed & Sold", "Used", "UK Only"],
@@ -426,9 +429,10 @@ export function useCashConvertersResearch(category, savedState = null) {
       drillHistory,
       behaveAsGeneric,
       selectedFilters,
-      showHistogram
+      showHistogram,
+      manualOffer
     };
-  }, [searchTerm, filterOptions, listings, displayedStats, buyOffers, lastSearchedTerm, drillHistory, behaveAsGeneric, selectedFilters, showHistogram]);
+  }, [searchTerm, filterOptions, listings, displayedStats, buyOffers, lastSearchedTerm, drillHistory, behaveAsGeneric, selectedFilters, showHistogram, manualOffer]);
 
   return {
     // State
@@ -444,6 +448,7 @@ export function useCashConvertersResearch(category, savedState = null) {
     drillHistory,
     behaveAsGeneric,
     buyOffers,
+    manualOffer,
     
     // Handlers
     setSearchTerm,
@@ -454,6 +459,7 @@ export function useCashConvertersResearch(category, savedState = null) {
     handleDrillDown,
     handleZoomOut,
     setBehaveAsGeneric,
+    setManualOffer,
     
     // Utilities
     getCurrentState,

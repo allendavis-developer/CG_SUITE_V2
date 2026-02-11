@@ -859,6 +859,14 @@ class RequestItem(models.Model):
         validators=[MinValueValidator(Decimal('0.01'))],
         help_text="CeX Sell price at negotiation time"
     )
+    our_sale_price_at_negotiation = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal('0.01'))],
+        help_text="Our calculated sale price at the time of negotiation"
+    )
 
     class Meta:
         db_table = "buying_request_item"

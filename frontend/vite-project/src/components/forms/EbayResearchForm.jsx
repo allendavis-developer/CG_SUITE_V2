@@ -15,7 +15,8 @@ export default function EbayResearchForm({
   mode = "modal", 
   savedState = null, 
   initialHistogramState = null, 
-  readOnly = false 
+  readOnly = false,
+  showManualOffer = false 
 }) {
   const research = useEbayResearch(category, savedState);
 
@@ -64,6 +65,7 @@ export default function EbayResearchForm({
       showHistogram={research.showHistogram}
       drillHistory={research.drillHistory}
       buyOffers={research.buyOffers}
+      manualOffer={research.manualOffer}
       
       // Handlers
       onSearchTermChange={research.setSearchTerm}
@@ -75,6 +77,7 @@ export default function EbayResearchForm({
       onZoomOut={research.handleZoomOut}
       onNavigateToDrillLevel={research.handleNavigateToDrillLevel}
       onComplete={handleComplete}
+      onManualOfferChange={showManualOffer ? research.setManualOffer : null}
       
       // Configuration
       mode={mode}
@@ -85,6 +88,8 @@ export default function EbayResearchForm({
       headerSubtitle="Real-time valuation lookup"
       headerIcon="search_insights"
       customControls={customControls}
+      allowHistogramToggle={initialHistogramState !== false}
+      showManualOffer={showManualOffer}
     />
   );
 }

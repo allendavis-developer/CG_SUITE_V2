@@ -449,6 +449,16 @@ def finish_request(request, request_id):
             request_item.cash_converters_data = item_data['cash_converters_data']
             update_fields.append('cash_converters_data')
         
+        if 'our_sale_price_at_negotiation' in item_data:
+            try:
+                request_item.our_sale_price_at_negotiation = Decimal(str(item_data['our_sale_price_at_negotiation'])) if item_data['our_sale_price_at_negotiation'] is not None else None
+                update_fields.append('our_sale_price_at_negotiation')
+            except InvalidOperation:
+                return Response(
+                    {"error": f"Invalid format for our_sale_price_at_negotiation for item {request_item_id}"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
         if update_fields:
             request_item.save(update_fields=update_fields)
 

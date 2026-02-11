@@ -171,6 +171,9 @@ export function useEbayResearch(category, savedState = null) {
   
   // Histogram visibility
   const [showHistogram, setShowHistogram] = useState(savedState?.showHistogram ?? false);
+  
+  // Manual offer from negotiation page
+  const [manualOffer, setManualOffer] = useState(savedState?.manualOffer || "");
 
   const [selectedFilters, setSelectedFilters] = useState(savedState?.selectedFilters || {
     basic: ["Completed & Sold", "Used", "UK Only"],
@@ -365,9 +368,10 @@ export function useEbayResearch(category, savedState = null) {
       drillHistory,
       behaveAsEbay,
       selectedFilters,
-      showHistogram
+      showHistogram,
+      manualOffer
     };
-  }, [searchTerm, filterOptions, listings, displayedStats, buyOffers, lastSearchedTerm, drillHistory, behaveAsEbay, selectedFilters, showHistogram]);
+  }, [searchTerm, filterOptions, listings, displayedStats, buyOffers, lastSearchedTerm, drillHistory, behaveAsEbay, selectedFilters, showHistogram, manualOffer]);
 
   return {
     // State
@@ -383,6 +387,7 @@ export function useEbayResearch(category, savedState = null) {
     drillHistory,
     behaveAsEbay,
     buyOffers,
+    manualOffer,
     
     // Handlers
     setSearchTerm,
@@ -393,6 +398,7 @@ export function useEbayResearch(category, savedState = null) {
     handleDrillDown,
     handleZoomOut,
     setBehaveAsEbay,
+    setManualOffer,
     
     // Utilities
     getCurrentState,

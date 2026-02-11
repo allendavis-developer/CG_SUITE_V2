@@ -36,7 +36,7 @@ const MarketComparisonsTable = ({
             <th className="p-4">Market Sale Price</th>
             <th className="p-4 bg-yellow-500/10 border-x border-yellow-500/20">OUR SALE PRICE</th>
             <th className="p-4 text-xs font-semibold text-gray-700">Method</th>
-            <th className="p-4">Buy-in Price</th>
+            <th className="p-4">Buy-in Price (Cash) </th>
             <th className="p-4 text-right">Action</th>
           </tr>
         </thead>

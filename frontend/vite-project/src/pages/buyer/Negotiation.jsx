@@ -49,6 +49,8 @@ const Negotiation = ({ mode }) => {
   const handleFinalizeTransaction = async () => {
     if (!actualRequestId) { // Use actualRequestId here
       console.error("No current request ID available to finalize.");
+      showNotification("Cannot finalize: Request ID is missing. Please return to the buyer page and start a new negotiation.", "error");
+      navigate("/buyer", { replace: true });
       return;
     }
 
@@ -83,6 +85,13 @@ const Negotiation = ({ mode }) => {
         negotiatedPrice = selected ? selected.price : 0;
       }
 
+      // Calculate ourSalePrice for this item
+      const ourSalePrice = item.ourSalePrice !== undefined && item.ourSalePrice !== null && item.ourSalePrice !== ''
+        ? Number(item.ourSalePrice)
+        : (item.ebayResearchData?.stats?.suggestedPrice != null
+            ? Number(item.ebayResearchData.stats.suggestedPrice)
+            : null);
+
       return {
         request_item_id: item.request_item_id, // Use the backend-assigned request_item_id
         quantity: quantity,
@@ -90,6 +99,7 @@ const Negotiation = ({ mode }) => {
         manual_offer_gbp: item.manualOffer ? (parseFloat(item.manualOffer.replace(/[£,]/g, '')) || 0) : null,
         customer_expectation_gbp: item.customerExpectation ? (parseFloat(item.customerExpectation.replace(/[£,]/g, '')) || 0) : null,
         negotiated_price_gbp: negotiatedPrice * quantity,
+        our_sale_price_at_negotiation: ourSalePrice, // Save our sale price
         cash_offers_json: item.cashOffers || [],       // New dedicated field
         voucher_offers_json: item.voucherOffers || [], // New dedicated field
         raw_data: item.ebayResearchData || {},          // Only ebayResearchData
@@ -185,6 +195,12 @@ const Negotiation = ({ mode }) => {
                     cexSellPrice: (mode === 'view' && item.cex_sell_at_negotiation !== null)
                                 ? parseFloat(item.cex_sell_at_negotiation)
                                 : (item.variant_details?.current_price_gbp ? parseFloat(item.variant_details.current_price_gbp) : null),
+                    // Load our sale price from database, fallback to eBay research suggestedPrice
+                    ourSalePrice: (mode === 'view' && item.our_sale_price_at_negotiation !== null)
+                                ? parseFloat(item.our_sale_price_at_negotiation)
+                                : (ebayResearchData?.stats?.suggestedPrice != null
+                                    ? parseFloat(ebayResearchData.stats.suggestedPrice)
+                                    : null),
                     
                     offers: displayOffers, 
                     cashOffers: savedCashOffers, 
@@ -218,11 +234,24 @@ const Negotiation = ({ mode }) => {
         }
 
         // If data is still missing, redirect
-        if ((!cartItems || cartItems.length === 0 || !initialCustomerData?.id) && !isLoading) { // Add !isLoading check
+        if ((!cartItems || cartItems.length === 0 || !initialCustomerData?.id) && !isLoading) {
             navigate("/buyer", { replace: true });
-        } else {
-            setIsLoading(false); // Finished initial setup for negotiate mode
+            return;
         }
+        
+        // In negotiate mode, we need a requestId to finalize. If it's missing, redirect back to buyer.
+        // This can happen if:
+        // 1. Browser back/forward navigation loses location state
+        // 2. Direct URL navigation to /negotiation
+        // 3. Navigation without properly passing currentRequestId in state
+        if (!actualRequestId && !isLoading) {
+            console.warn("Negotiation page loaded without requestId. Redirecting to buyer page.");
+            showNotification("Session expired. Please start a new negotiation from the buyer page.", "error");
+            navigate("/buyer", { replace: true });
+            return;
+        }
+        
+        setIsLoading(false); // Finished initial setup for negotiate mode
     }
   }, [mode, actualRequestId, navigate, initialCustomerData, cartItems, showNotification]);
 
@@ -314,7 +343,14 @@ const Negotiation = ({ mode }) => {
     if (updatedState && researchItem && mode !== 'view') {
       setItems(prevItems => prevItems.map(i => 
         i.id === researchItem.id 
-          ? { ...i, ebayResearchData: updatedState } 
+          ? { 
+              ...i, 
+              ebayResearchData: updatedState,
+              // Update manual offer if provided from research form
+              manualOffer: updatedState.manualOffer || i.manualOffer,
+              // Auto-select manual offer if a value was provided
+              selectedOfferId: updatedState.manualOffer ? 'manual' : i.selectedOfferId
+            } 
           : i
       ));
     }
@@ -330,7 +366,14 @@ const Negotiation = ({ mode }) => {
     if (updatedState && cashConvertersResearchItem && mode !== 'view') {
       setItems(prevItems => prevItems.map(i => 
         i.id === cashConvertersResearchItem.id 
-          ? { ...i, cashConvertersResearchData: updatedState } 
+          ? { 
+              ...i, 
+              cashConvertersResearchData: updatedState,
+              // Update manual offer if provided from research form
+              manualOffer: updatedState.manualOffer || i.manualOffer,
+              // Auto-select manual offer if a value was provided
+              selectedOfferId: updatedState.manualOffer ? 'manual' : i.selectedOfferId
+            } 
           : i
       ));
     }
@@ -1116,6 +1159,7 @@ const Negotiation = ({ mode }) => {
           onComplete={handleResearchComplete}
           initialHistogramState={true}
           readOnly={mode === 'view'}
+          showManualOffer={true}
         />
       )}
 
@@ -1128,6 +1172,7 @@ const Negotiation = ({ mode }) => {
           onComplete={handleCashConvertersResearchComplete}
           initialHistogramState={true}
           readOnly={mode === 'view'}
+          showManualOffer={true}
         />
       )}
     </div>

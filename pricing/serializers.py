@@ -138,12 +138,14 @@ class RequestItemSerializer(serializers.ModelSerializer):
             'cex_buy_cash_at_negotiation',
             'cex_buy_voucher_at_negotiation',
             'cex_sell_at_negotiation',
+            'our_sale_price_at_negotiation',
         ]
         read_only_fields = [
             'request_item_id',
             'cex_buy_cash_at_negotiation',
             'cex_buy_voucher_at_negotiation',
             'cex_sell_at_negotiation',
+            'our_sale_price_at_negotiation',
         ]
     
     def validate_customer_expectation_gbp(self, value):

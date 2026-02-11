@@ -6,7 +6,7 @@ import CartSidebar from '@/pages/buyer/components/CartSidebar';
 import { useLocation } from 'react-router-dom';
 import { useNotification } from '@/contexts/NotificationContext';
 
-import { fetchProductModels, updateRequestItemRawData } from '@/services/api';
+import { fetchProductModels, updateRequestItemRawData, fetchRequestDetail } from '@/services/api';
 
 export default function Buyer() {
   const location = useLocation();
@@ -41,6 +41,24 @@ export default function Buyer() {
       if (location.state.customerData) {
         setCustomerData(location.state.customerData);
         setCustomerModalOpen(false);
+        // Restore intent based on transaction type
+        if (location.state.customerData.transactionType) {
+          const mappedIntent = mapTransactionTypeToIntent(location.state.customerData.transactionType);
+          setIntent(mappedIntent);
+        }
+      }
+      // Restore request if provided (optional, but helpful if available)
+      if (location.state.request) {
+        setRequest(location.state.request);
+      } else if (location.state.currentRequestId && !request) {
+        // If we have a requestId but no request object, fetch it
+        fetchRequestDetail(location.state.currentRequestId).then(requestData => {
+          if (requestData) {
+            setRequest(requestData);
+          }
+        }).catch(err => {
+          console.error('Failed to fetch request when restoring state:', err);
+        });
       }
       window.history.replaceState({}, document.title);
     }
