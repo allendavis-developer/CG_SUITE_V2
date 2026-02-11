@@ -22,6 +22,7 @@ const EbayCategoryContent = ({
           onComplete={handleEbayResearchComplete}
           savedState={savedEbayState}
           initialHistogramState={false}
+          showManualOffer={false}
         />
       </div>
     </>

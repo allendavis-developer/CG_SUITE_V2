@@ -31,10 +31,21 @@ export default function EbayResearchForm({
     }
   }, [initialHistogramState, savedState?.showHistogram, mode, research]);
 
-  // Handle completion
+  // Handle completion - include selectedOfferIndex when showManualOffer is true
   const handleComplete = useCallback(() => {
-    onComplete?.(research.getCurrentState());
+    const state = research.getCurrentState();
+    onComplete?.(state);
   }, [onComplete, research]);
+
+  // Handle completion with selection info (for negotiation page)
+  const handleCompleteWithSelection = useCallback((selectedOfferIndex) => {
+    const state = research.getCurrentState();
+    // Add selectedOfferIndex to state when showManualOffer is enabled
+    if (showManualOffer) {
+      state.selectedOfferIndex = selectedOfferIndex;
+    }
+    onComplete?.(state);
+  }, [onComplete, research, showManualOffer]);
 
   // Custom controls for eBay (e.g., "Behave like eBay" checkbox)
   const customControls = (
@@ -76,7 +87,8 @@ export default function EbayResearchForm({
       onDrillDown={research.handleDrillDown}
       onZoomOut={research.handleZoomOut}
       onNavigateToDrillLevel={research.handleNavigateToDrillLevel}
-      onComplete={handleComplete}
+      onComplete={showManualOffer ? undefined : handleComplete}
+      onCompleteWithSelection={showManualOffer ? handleCompleteWithSelection : undefined}
       onManualOfferChange={showManualOffer ? research.setManualOffer : null}
       
       // Configuration

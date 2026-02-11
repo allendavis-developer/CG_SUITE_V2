@@ -341,18 +341,68 @@ const Negotiation = ({ mode }) => {
   const handleResearchComplete = (updatedState) => {
     // Only update items if not in view mode (read-only)
     if (updatedState && researchItem && mode !== 'view') {
-      setItems(prevItems => prevItems.map(i => 
-        i.id === researchItem.id 
-          ? { 
-              ...i, 
-              ebayResearchData: updatedState,
-              // Update manual offer if provided from research form
-              manualOffer: updatedState.manualOffer || i.manualOffer,
-              // Auto-select manual offer if a value was provided
-              selectedOfferId: updatedState.manualOffer ? 'manual' : i.selectedOfferId
-            } 
-          : i
-      ));
+      setItems(prevItems => prevItems.map(i => {
+        if (i.id !== researchItem.id) return i;
+        
+        // Regenerate offers from new buyOffers if they exist
+        let newCashOffers = i.cashOffers || [];
+        let newVoucherOffers = i.voucherOffers || [];
+        
+        if (updatedState.buyOffers && updatedState.buyOffers.length > 0) {
+          // Regenerate cash offers from new buyOffers
+          newCashOffers = updatedState.buyOffers.map((o, idx) => ({
+            id: `ebay-cash-${Date.now()}-${idx}`,
+            title: ["1st Offer", "2nd Offer", "3rd Offer"][idx] || "Offer",
+            price: Number(o.price)
+          }));
+          
+          // Regenerate voucher offers (10% more)
+          newVoucherOffers = newCashOffers.map(offer => ({
+            id: `ebay-voucher-${offer.id}`,
+            title: offer.title,
+            price: Number((offer.price * 1.10).toFixed(2))
+          }));
+        }
+        
+        // Determine which offers to use based on transaction type
+        const displayOffers = useVoucherOffers ? newVoucherOffers : newCashOffers;
+        
+        // Handle selected offer based on selectedOfferIndex
+        let newSelectedOfferId = i.selectedOfferId;
+        let newManualOffer = i.manualOffer; // Preserve existing manual offer by default
+        
+        if (updatedState.selectedOfferIndex !== undefined && updatedState.selectedOfferIndex !== null) {
+          if (updatedState.selectedOfferIndex === 'manual') {
+            // Manual offer selected - update both selectedOfferId and manualOffer
+            newSelectedOfferId = 'manual';
+            newManualOffer = updatedState.manualOffer || i.manualOffer;
+          } else if (typeof updatedState.selectedOfferIndex === 'number') {
+            // Calculated offer selected - find the corresponding offer ID from new offers
+            const selectedOffer = displayOffers[updatedState.selectedOfferIndex];
+            if (selectedOffer) {
+              newSelectedOfferId = selectedOffer.id;
+              // Don't update manual offer when a calculated offer is selected
+              newManualOffer = i.manualOffer; // Keep existing manual offer value
+            }
+          }
+        } else {
+          // No selection made in modal - preserve existing selection
+          // But update manualOffer if it was changed in the input
+          if (updatedState.manualOffer !== undefined) {
+            newManualOffer = updatedState.manualOffer;
+          }
+        }
+        
+        return {
+          ...i,
+          ebayResearchData: updatedState,
+          cashOffers: newCashOffers,
+          voucherOffers: newVoucherOffers,
+          offers: displayOffers, // Update displayed offers
+          manualOffer: newManualOffer,
+          selectedOfferId: newSelectedOfferId
+        };
+      }));
     }
     setResearchItem(null);
   };

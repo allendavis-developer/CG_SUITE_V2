@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { Button, Icon, HorizontalOfferCard } from '../ui/components';
 
 // Add animation styles - MOVED OUTSIDE COMPONENT, RUNS ONCE
@@ -290,6 +290,7 @@ export default function ResearchFormShell({
   onZoomOut,
   onNavigateToDrillLevel,
   onComplete,
+  onCompleteWithSelection = null, // Optional callback that receives (getState, selectedOfferIndex)
   mode = "modal",
   readOnly = false,
   basicFilterOptions = ["Completed & Sold", "Used", "UK Only"],
@@ -306,6 +307,22 @@ export default function ResearchFormShell({
 }) {
   // Get current price range (latest in history, or null for full view)
   const currentPriceRange = drillHistory.length > 0 ? drillHistory[drillHistory.length - 1] : null;
+  
+  // State for selected offer when opened from negotiation page
+  const [selectedOfferIndex, setSelectedOfferIndex] = useState(null); // null, 0, 1, 2, or 'manual'
+  
+  // Ref to maintain input focus
+  const manualInputRef = useRef(null);
+  
+  // Maintain focus when manual offer is selected
+  useEffect(() => {
+    if (selectedOfferIndex === 'manual' && manualInputRef.current && document.activeElement !== manualInputRef.current) {
+      // Small delay to ensure DOM is ready
+      setTimeout(() => {
+        manualInputRef.current?.focus();
+      }, 0);
+    }
+  }, [selectedOfferIndex]);
 
   // MEMOIZED STATS DISPLAY COMPONENT
   const StatsDisplay = useMemo(() => () => (
@@ -351,13 +368,62 @@ export default function ResearchFormShell({
     </div>
   ), [displayedStats]);
 
-  // MEMOIZED BUY OFFERS DISPLAY (without manual offer to prevent re-creation)
+  // Manual offer change handler - memoized to prevent input re-creation
+  const handleManualOfferChange = useCallback((e) => {
+    const value = e.target.value;
+    onManualOfferChange?.(value);
+  }, [onManualOfferChange]);
+
+  // Handler for clicking on an offer card (when opened from negotiation page)
+  const handleOfferClick = useCallback((price, index) => {
+    if (showManualOffer) {
+      setSelectedOfferIndex(index);
+      // Don't update manual offer input - only select the offer visually
+    }
+  }, [showManualOffer]);
+
+  // Handler for clicking on manual offer card
+  const handleManualOfferCardClick = useCallback(() => {
+    if (showManualOffer && !readOnly) {
+      setSelectedOfferIndex('manual');
+    }
+  }, [showManualOffer, readOnly]);
+
+  // Handler for completing/closing modal - pass selected offer
+  const handleComplete = useCallback(() => {
+    // Only update manual offer if manual offer card was selected
+    if (showManualOffer && selectedOfferIndex === 'manual' && manualOffer) {
+      if (onManualOfferChange) {
+        onManualOfferChange(manualOffer);
+      }
+    }
+    
+    // If onCompleteWithSelection is provided, use it to pass selectedOfferIndex
+    if (onCompleteWithSelection) {
+      onCompleteWithSelection(selectedOfferIndex);
+    } else {
+      // Fallback to regular onComplete
+      onComplete?.();
+    }
+  }, [showManualOffer, selectedOfferIndex, manualOffer, onManualOfferChange, onComplete, onCompleteWithSelection]);
+
+  // Calculate margin for manual offer
+  const manualOfferMargin = useMemo(() => {
+    if (!displayedStats?.suggestedPrice || !manualOffer) return null;
+    const cleanManual = parseFloat(manualOffer.replace(/[£,]/g, ''));
+    if (isNaN(cleanManual) || cleanManual <= 0) return null;
+    const salePrice = displayedStats.suggestedPrice;
+    if (salePrice <= 0) return null;
+    return Math.round(((salePrice - cleanManual) / salePrice) * 100);
+  }, [displayedStats, manualOffer]);
+
+  // MEMOIZED BUY OFFERS DISPLAY with manual offer card
   const BuyOffersDisplay = useMemo(() => {
-    if (!buyOffers.length) return null;
+    if (!buyOffers.length && !showManualOffer) return null;
 
     const offerLabels = ["1st Cash Offer", "2nd Cash Offer", "3rd Cash Offer"];
 
-    return () => (
+    return (
       <div className="flex flex-wrap items-center gap-4">
         {buyOffers.map(({ price }, idx) => (
           <HorizontalOfferCard
@@ -365,16 +431,82 @@ export default function ResearchFormShell({
             title={offerLabels[idx] || `${idx + 1}th Offer`}
             price={`£${price}`}
             margin={Math.round([0.6, 0.5, 0.4][idx] * 100)}
+            isHighlighted={showManualOffer && selectedOfferIndex === idx}
+            onClick={showManualOffer && !readOnly ? () => handleOfferClick(price, idx) : undefined}
           />
         ))}
+        
+        {/* Manual Offer Card - styled like the other offers, with inline input */}
+        {showManualOffer && onManualOfferChange && (
+          <div
+            onClick={handleManualOfferCardClick}
+            className={`
+              flex items-center justify-between px-3 py-2 rounded-lg bg-white cursor-text relative
+              border transition-all duration-150 ease-out
+              ${
+                selectedOfferIndex === 'manual'
+                  ? `
+                    border-blue-900
+                    ring-1 ring-blue-900
+                    shadow-md
+                    scale-[1.02]
+                  `
+                  : `
+                    border-blue-900/30
+                    hover:border-blue-900
+                    hover:shadow-sm
+                  `
+              }
+            `}
+          >
+            {/* Left accent bar */}
+            <div
+              className={`absolute top-0 left-0 h-full w-1 rounded-l ${
+                selectedOfferIndex === 'manual' ? 'bg-yellow-500' : 'bg-yellow-500/60'
+              }`}
+            />
+
+            {/* Content row with inline input */}
+            <div className="flex items-center gap-2 flex-1 ml-2 text-blue-900 font-extrabold text-sm uppercase">
+              <span className="truncate">Manual Offer</span>
+              <span className="text-gray-400">/</span>
+              <input
+                ref={manualInputRef}
+                type="text"
+                key="manual-offer-input"
+                className="bg-transparent border-none outline-none text-blue-900 font-extrabold text-sm w-24"
+                placeholder="£0.00"
+                value={manualOffer}
+                onChange={(e) => {
+                  // Prevent the card click handler from immediately re-firing
+                  e.stopPropagation();
+                  handleManualOfferChange(e);
+                  // Ensure it stays selected when typing
+                  if (!readOnly && showManualOffer && selectedOfferIndex !== 'manual') {
+                    setSelectedOfferIndex('manual');
+                  }
+                }}
+                onFocus={() => {
+                  if (!readOnly && showManualOffer) {
+                    setSelectedOfferIndex('manual');
+                  }
+                }}
+                disabled={readOnly}
+                readOnly={readOnly}
+              />
+            </div>
+
+            {/* Right Side: Margin Badge */}
+            {manualOfferMargin !== null && (
+              <div className="flex items-center justify-center bg-gradient-to-br from-yellow-400 to-yellow-500 text-blue-900 text-[10px] font-black uppercase px-2.5 py-1 rounded-full">
+                {manualOfferMargin}%
+              </div>
+            )}
+          </div>
+        )}
       </div>
     );
-  }, [buyOffers]);
-
-  // Manual offer change handler - memoized to prevent input re-creation
-  const handleManualOfferChange = useCallback((e) => {
-    onManualOfferChange?.(e.target.value);
-  }, [onManualOfferChange]);
+  }, [buyOffers, showManualOffer, selectedOfferIndex, manualOffer, manualOfferMargin, onManualOfferChange, readOnly, handleOfferClick, handleManualOfferCardClick, handleManualOfferChange]);
 
   const content = (
     <>
@@ -392,7 +524,7 @@ export default function ResearchFormShell({
               </p>
             </div>
           </div>
-          <button className="text-white/60 hover:text-white transition-colors p-1" onClick={onComplete}>
+          <button className="text-white/60 hover:text-white transition-colors p-1" onClick={handleComplete}>
             <Icon name="close" />
           </button>
         </header>
@@ -403,29 +535,12 @@ export default function ResearchFormShell({
         <div className="px-6 py-4 border-b border-gray-200 bg-white flex items-center justify-between gap-6 flex-wrap">
           <div className="flex items-center gap-6 flex-wrap">
             <StatsDisplay />
-            {BuyOffersDisplay && <BuyOffersDisplay />}
-            {/* Manual Offer Field - rendered directly to prevent focus loss - only show when opened from negotiation page */}
-            {showManualOffer && onManualOfferChange && (
-              <div className="flex flex-col gap-1 bg-orange-50 border-2 border-orange-200 rounded-lg px-4 py-2 min-w-[140px]">
-                <label className="text-[10px] font-bold text-orange-900 uppercase tracking-wider">
-                  Manual Offer
-                </label>
-                <input
-                  type="text"
-                  className="text-sm font-bold text-orange-900 bg-transparent border-none outline-none p-0"
-                  placeholder="£0.00"
-                  value={manualOffer}
-                  onChange={handleManualOfferChange}
-                  disabled={readOnly}
-                  readOnly={readOnly}
-                />
-              </div>
-            )}
+            {BuyOffersDisplay}
           </div>
           <Button
             variant="primary"
             size="md"
-            onClick={readOnly ? undefined : onComplete}
+            onClick={readOnly ? undefined : handleComplete}
             className="shrink-0 mt-2 md:mt-0"
             disabled={readOnly}
           >
@@ -686,32 +801,15 @@ export default function ResearchFormShell({
         <footer className="px-6 py-4 border-t border-gray-200 bg-white flex justify-between items-center shrink-0">
           <div className="flex items-center gap-6 flex-wrap">
             <StatsDisplay />
-            {BuyOffersDisplay && <BuyOffersDisplay />}
-            {/* Manual Offer Field - rendered directly to prevent focus loss - only show when opened from negotiation page */}
-            {showManualOffer && onManualOfferChange && (
-              <div className="flex flex-col gap-1 bg-orange-50 border-2 border-orange-200 rounded-lg px-4 py-2 min-w-[140px]">
-                <label className="text-[10px] font-bold text-orange-900 uppercase tracking-wider">
-                  Manual Offer
-                </label>
-                <input
-                  type="text"
-                  className="text-sm font-bold text-orange-900 bg-transparent border-none outline-none p-0"
-                  placeholder="£0.00"
-                  value={manualOffer}
-                  onChange={handleManualOfferChange}
-                  disabled={readOnly}
-                  readOnly={readOnly}
-                />
-              </div>
-            )}
+            {BuyOffersDisplay}
           </div>
           <div className="flex gap-3">
-            <Button variant="outline" size="md" onClick={readOnly ? undefined : onComplete} disabled={readOnly}>Cancel</Button>
+            <Button variant="outline" size="md" onClick={readOnly ? undefined : handleComplete} disabled={readOnly}>Cancel</Button>
             {listings && (
               <Button 
                 variant="primary" 
                 size="md" 
-                onClick={onComplete} 
+                onClick={handleComplete} 
                 disabled={loading && !readOnly}
               >
                 {readOnly ? "OK" : <><Icon name="save" className="text-sm" /> Apply Research Data</>}

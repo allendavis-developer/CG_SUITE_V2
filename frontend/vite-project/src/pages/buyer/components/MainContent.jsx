@@ -651,6 +651,7 @@ const MainContent = ({
             onComplete={handleEbayResearchComplete}
             savedState={savedEbayState}
             initialHistogramState={false}
+            showManualOffer={false}
           />
         </div>
       )}
@@ -736,6 +737,7 @@ const MainContent = ({
               category={selectedCategory}
               savedState={savedEbayState}
               initialHistogramState={false}
+              showManualOffer={false}
               onComplete={(data) => {
                 handleEbayResearchComplete(data);
                 setEbayModalOpen(false);
