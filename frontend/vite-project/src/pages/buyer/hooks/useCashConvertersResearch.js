@@ -167,7 +167,19 @@ function calculateStats(listingsData) {
     return { average: 0, median: 0, suggestedPrice: 0 };
   }
 
-  const prices = listingsData.map(item => item.price).filter(p => p != null);
+  // Normalise prices to numeric values and drop anything invalid to avoid NaN stats
+  const prices = listingsData
+    .map(item => {
+      if (!item) return null;
+      const raw = item.price;
+      if (raw == null) return null;
+      const numeric = typeof raw === 'string'
+        ? parseFloat(raw.replace(/[^0-9.]/g, ''))
+        : raw;
+      return Number.isFinite(numeric) ? numeric : null;
+    })
+    .filter(p => p != null);
+
   if (prices.length === 0) {
     return { average: 0, median: 0, suggestedPrice: 0 };
   }

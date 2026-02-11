@@ -126,6 +126,7 @@ class RequestItemSerializer(serializers.ModelSerializer):
             'variant',
             'variant_details',
             'raw_data',
+            'cash_converters_data',  # Cash Converters research data
             'notes',
             'quantity',
             'selected_offer_id',

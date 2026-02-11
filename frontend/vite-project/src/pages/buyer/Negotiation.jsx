@@ -92,7 +92,8 @@ const Negotiation = ({ mode }) => {
         negotiated_price_gbp: negotiatedPrice * quantity,
         cash_offers_json: item.cashOffers || [],       // New dedicated field
         voucher_offers_json: item.voucherOffers || [], // New dedicated field
-        raw_data: item.ebayResearchData || {}          // Only ebayResearchData
+        raw_data: item.ebayResearchData || {},          // Only ebayResearchData
+        cash_converters_data: item.cashConvertersResearchData || {} // Cash Converters research data
       };
     });
 
@@ -131,6 +132,7 @@ const Negotiation = ({ mode }) => {
 
             const mappedItems = data.items.map(item => {
                 const ebayResearchData = item.raw_data || null; // raw_data now contains only ebayResearchData
+                const cashConvertersResearchData = item.cash_converters_data || null; // Cash Converters research data
 
                 // Extract saved offers from dedicated fields
                 let savedCashOffers = item.cash_offers_json || [];
@@ -166,13 +168,14 @@ const Negotiation = ({ mode }) => {
                 return {
                     id: item.request_item_id,
                     request_item_id: item.request_item_id,
-                    title: cexTitle || ebayResearchData?.searchTerm || 'N/A',
+                    title: cexTitle || ebayResearchData?.searchTerm || cashConvertersResearchData?.searchTerm || 'N/A',
                     subtitle: cexSubtitle || ebaySubtitleFromFilters || 'No details',
                     quantity: item.quantity,
                     selectedOfferId: item.selected_offer_id,
                     manualOffer: item.manual_offer_gbp?.toString() || '',
                     customerExpectation: item.customer_expectation_gbp?.toString() || '',
-                    ebayResearchData: ebayResearchData, 
+                    ebayResearchData: ebayResearchData,
+                    cashConvertersResearchData: cashConvertersResearchData, // Load Cash Converters data
                     cexBuyPrice: (mode === 'view' && item.cex_buy_cash_at_negotiation !== null)
                                 ? parseFloat(item.cex_buy_cash_at_negotiation)
                                 : (item.variant_details?.tradein_cash ? parseFloat(item.variant_details.tradein_cash) : null),

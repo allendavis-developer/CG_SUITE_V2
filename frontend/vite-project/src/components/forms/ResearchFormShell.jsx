@@ -350,7 +350,7 @@ export default function ResearchFormShell({
   const BuyOffersDisplay = useMemo(() => {
     if (!buyOffers.length) return null;
 
-    const offerLabels = ["1st Offer", "2nd Offer", "3rd Offer"];
+    const offerLabels = ["1st Cash Offer", "2nd Cash Offer", "3rd Cash Offer"];
 
     return () => (
       <div className="flex flex-wrap items-center gap-4">

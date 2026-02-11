@@ -8,6 +8,7 @@ import {
 } from '@/components/ui/components';
 
 import EbayResearchForm from "@/components/forms/EbayResearchForm.jsx";
+import CashConvertersResearchForm from "@/components/forms/CashConvertersResearchForm.jsx";
 import EmptyState from './EmptyState';
 import ProductSelection from './ProductSelection';
 import AttributeConfiguration from './AttributeConfiguration';
@@ -30,6 +31,7 @@ const MainContent = ({
   setSelectedModel, 
   addToCart,
   updateCartItemEbayData,
+  updateCartItemCashConvertersData,
   customerData,
   intent,
   request,
@@ -45,6 +47,7 @@ const MainContent = ({
   const [competitorStats, setCompetitorStats] = useState([]);
   const [isLoadingStats, setIsLoadingStats] = useState(false);
   const [isEbayModalOpen, setEbayModalOpen] = useState(false);
+  const [isCashConvertersModalOpen, setCashConvertersModalOpen] = useState(false);
   const [offers, setOffers] = useState([]);
   const [isLoadingOffers, setIsLoadingOffers] = useState(false);
   const [selectedOfferId, setSelectedOfferId] = useState(null);
@@ -52,6 +55,8 @@ const MainContent = ({
   const [ourSalePrice, setOurSalePrice] = useState('');
   const [ebayData, setEbayData] = useState(null);
   const [savedEbayState, setSavedEbayState] = useState(null);
+  const [cashConvertersData, setCashConvertersData] = useState(null);
+  const [savedCashConvertersState, setSavedCashConvertersState] = useState(null);
 
   const {
     attributes,
@@ -127,6 +132,8 @@ const MainContent = ({
       setOurSalePrice('');
       setEbayData(null);
       setSavedEbayState(null);
+      setCashConvertersData(null);
+      setSavedCashConvertersState(null);
       return;
     }
 
@@ -185,6 +192,16 @@ const MainContent = ({
       return;
     }
 
+    // Skip Cash Converters-only items (they have no variant)
+    if (selectedCartItem.isCustomCashConvertersItem) {
+      if (selectedCartItem.cashConvertersResearchData) {
+        setSavedCashConvertersState(selectedCartItem.cashConvertersResearchData);
+        setCashConvertersData(selectedCartItem.cashConvertersResearchData);
+        setActiveTab('research');
+      }
+      return;
+    }
+
     // Find and set the model (this will trigger variants to load)
     const modelToSet = availableModels.find(m => m.name === selectedCartItem.model);
     if (modelToSet) {
@@ -201,6 +218,11 @@ const MainContent = ({
 
     // Skip eBay-only items
     if (selectedCartItem.isCustomEbayItem) {
+      return;
+    }
+
+    // Skip Cash Converters-only items
+    if (selectedCartItem.isCustomCashConvertersItem) {
       return;
     }
 
@@ -221,6 +243,12 @@ const MainContent = ({
     if (selectedCartItem.ebayResearchData) {
       setSavedEbayState(selectedCartItem.ebayResearchData);
       setEbayData(selectedCartItem.ebayResearchData);
+    }
+
+    // Restore Cash Converters research data if available
+    if (selectedCartItem.cashConvertersResearchData) {
+      setSavedCashConvertersState(selectedCartItem.cashConvertersResearchData);
+      setCashConvertersData(selectedCartItem.cashConvertersResearchData);
     }
 
     // Restore reference data and offers if available (don't wait for variant to load)
@@ -340,6 +368,7 @@ const MainContent = ({
       cexBuyPrice: referenceData?.cex_tradein_cash ? Number(referenceData.cex_tradein_cash) : null,
       cexVoucherPrice: referenceData?.cex_tradein_voucher ? Number(referenceData.cex_tradein_voucher) : null,
       ebayResearchData: savedEbayState || null,
+      cashConvertersResearchData: savedCashConvertersState || null,
       referenceData: referenceData,
       request_item_id: null,
       offerType: useVoucherOffers ? 'voucher' : 'cash' // Track which type of offers were used
@@ -434,6 +463,76 @@ const MainContent = ({
     }
   };
 
+  const handleCashConvertersResearchComplete = async (data) => {
+    setCashConvertersData(data);
+    setSavedCashConvertersState(data);
+
+    // Check if this is a Cash Converters-only category
+    const isCashConvertersCategory = selectedCategory?.path?.some(p => p.toLowerCase() === 'cash converters') || 
+                                     selectedCategory?.name.toLowerCase() === 'cash converters';
+
+    if (isCashConvertersCategory) {
+      // Cash Converters-only items: variant is null, add to cart
+      const apiFilterValues = Object.values(data.selectedFilters?.apiFilters || {}).flat();
+      const basicFilterValues = data.selectedFilters?.basic || [];
+      const allFilters = [...basicFilterValues, ...apiFilterValues].filter(Boolean);
+      const filterSubtitle = allFilters.length > 0 
+        ? allFilters.join(' / ') 
+        : 'No filters applied';
+
+      const cashOffers = data.buyOffers.map((o, idx) => ({
+          id: `cc-cash-${Date.now()}-${idx}`, // Make IDs unique for cash
+          title: ["1st Offer", "2nd Offer", "3rd Offer"][idx] || "Offer",
+          price: Number(o.price)
+      }));
+
+      const voucherOffers = cashOffers.map(offer => ({
+          id: `cc-voucher-${offer.id}`, // Make IDs unique for voucher
+          title: offer.title,
+          price: Number((offer.price * 1.10).toFixed(2)) // 10% more, rounded to 2 decimal places
+      }));
+
+      const customCartItem = {
+        id: Date.now(),
+        title: data.searchTerm || "Cash Converters Research Item",
+        subtitle: filterSubtitle,
+        quantity: 1,
+        category: selectedCategory?.name,
+        categoryObject: selectedCategory,
+        offers: useVoucherOffers ? voucherOffers : cashOffers, // Default to appropriate offer type
+        cashOffers: cashOffers, // Store cash offers
+        voucherOffers: voucherOffers, // Store voucher offers
+        cashConvertersResearchData: data,
+        isCustomCashConvertersItem: true,
+        variantId: null,
+        request_item_id: null,
+        ourSalePrice: data.stats?.suggestedPrice ? Number(data.stats.suggestedPrice) : null
+      };
+
+      try {
+        const requestItemId = await createOrAppendRequestItem({
+          variantId: null,
+          rawData: data
+        });
+
+        customCartItem.request_item_id = requestItemId;
+        addToCart(customCartItem);
+
+      } catch (err) {
+        console.error('Failed to add Cash Converters item to request:', err);
+        alert('Failed to add Cash Converters item to request. Check console for details.');
+      }
+    } else {
+      // Non-CC items with Cash Converters research: update existing cart item
+      const selectedVariant = variants.find(v => v.cex_sku === variant);
+      const targetId = selectedVariant?.variant_id;
+      
+      if (targetId && typeof updateCartItemCashConvertersData === 'function') {
+        updateCartItemCashConvertersData(targetId, data);
+      }
+    }
+  };
+
   // Special handling for selected eBay cart items
   if (selectedCartItem?.isCustomEbayItem) {
     return (
@@ -457,6 +556,43 @@ const MainContent = ({
               category={selectedCartItem.categoryObject || { name: 'eBay', path: ['eBay'] }}
               onComplete={() => {}} // Read-only mode
               savedState={savedEbayState}
+              initialHistogramState={false}
+              readOnly={true}
+            />
+          ) : (
+            <div className="text-center py-12">
+              <span className="material-symbols-outlined text-4xl text-gray-300 mb-2">search_off</span>
+              <p className="text-sm text-gray-500">No research data available</p>
+            </div>
+          )}
+        </div>
+      </section>
+    );
+  }
+
+  // Special handling for selected Cash Converters cart items
+  if (selectedCartItem?.isCustomCashConvertersItem) {
+    return (
+      <section className="w-3/5 bg-white flex flex-col overflow-y-auto">
+        <div className="flex items-center px-8 bg-gray-50 border-b border-gray-200 sticky top-0 z-40">
+          <div className="flex items-center gap-3 py-4">
+            <div className="bg-blue-900 p-1.5 rounded">
+              <span className="material-symbols-outlined text-yellow-400 text-sm">store</span>
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-blue-900">Cash Converters Research Item</h2>
+              <p className="text-[10px] text-gray-500 uppercase tracking-wider">Viewing saved research</p>
+            </div>
+          </div>
+        </div>
+        
+        <div className="p-8">
+          {savedCashConvertersState ? (
+            <CashConvertersResearchForm
+              mode="page"
+              category={selectedCartItem.categoryObject || { name: 'Cash Converters', path: ['Cash Converters'] }}
+              onComplete={() => {}} // Read-only mode
+              savedState={savedCashConvertersState}
               initialHistogramState={false}
               readOnly={true}
             />
@@ -573,6 +709,8 @@ const MainContent = ({
               referenceData={referenceData}
               ebayData={ebayData}
               setEbayModalOpen={setEbayModalOpen}
+              cashConvertersData={cashConvertersData}
+              setCashConvertersModalOpen={setCashConvertersModalOpen}
             />
 
             {isLoadingOffers ? (
@@ -600,6 +738,18 @@ const MainContent = ({
               onComplete={(data) => {
                 handleEbayResearchComplete(data);
                 setEbayModalOpen(false);
+              }}
+            />
+          )}
+
+          {isCashConvertersModalOpen && (
+            <CashConvertersResearchForm
+              mode="modal"
+              category={selectedCategory}
+              savedState={savedCashConvertersState}
+              onComplete={(data) => {
+                handleCashConvertersResearchComplete(data);
+                setCashConvertersModalOpen(false);
               }}
             />
           )}

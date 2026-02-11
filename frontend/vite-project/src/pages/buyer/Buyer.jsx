@@ -158,12 +158,11 @@ export default function Buyer() {
   };
 
   const addToCart = (item) => {
-    // Check current state first to determine notification message
-    setCartItems((prev) => {
-      // Check if item already exists in cart
-      const existingItemIndex = prev.findIndex(cartItem => {
+    // Helper function to find existing item index
+    const findExistingItemIndex = (items) => {
+      return items.findIndex(cartItem => {
         // For CeX items, match by variantId
-        if (!item.isCustomEbayItem && item.variantId) {
+        if (!item.isCustomEbayItem && !item.isCustomCashConvertersItem && item.variantId) {
           return cartItem.variantId === item.variantId;
         }
         
@@ -175,35 +174,55 @@ export default function Buyer() {
             cartItem.category === item.category
           );
         }
+
+        // For Cash Converters items, match by search term and category
+        if (item.isCustomCashConvertersItem) {
+          return (
+            cartItem.isCustomCashConvertersItem &&
+            cartItem.title === item.title &&
+            cartItem.category === item.category
+          );
+        }
         
         return false;
       });
+    };
 
+    // Check current state synchronously to determine notification message
+    const existingItemIndex = findExistingItemIndex(cartItems);
+    const isExistingItem = existingItemIndex !== -1;
+    let notificationMessage = null;
+    
+    if (isExistingItem) {
+      const newQuantity = (cartItems[existingItemIndex].quantity || 1) + 1;
+      notificationMessage = `Quantity increased to ${newQuantity} for ${item.title}`;
+    } else {
+      notificationMessage = `${item.title} added to cart`;
+    }
+    
+    // Update cart state
+    setCartItems((prev) => {
+      const existingIndex = findExistingItemIndex(prev);
+      
       // If item exists, increment quantity
-      if (existingItemIndex !== -1) {
+      if (existingIndex !== -1) {
         const updatedItems = [...prev];
-        const newQuantity = (updatedItems[existingItemIndex].quantity || 1) + 1;
-        updatedItems[existingItemIndex] = {
-          ...updatedItems[existingItemIndex],
+        const newQuantity = (updatedItems[existingIndex].quantity || 1) + 1;
+        updatedItems[existingIndex] = {
+          ...updatedItems[existingIndex],
           quantity: newQuantity
         };
-        
-        // Show notification after state update (defer to avoid render-time state update)
-        setTimeout(() => {
-          showNotification(`Quantity increased to ${newQuantity} for ${item.title}`, 'success');
-        }, 0);
-        
         return updatedItems;
       }
 
       // Otherwise, add as new item
-      // Show notification after state update (defer to avoid render-time state update)
-      setTimeout(() => {
-        showNotification(`${item.title} added to cart`, 'success');
-      }, 0);
-      
       return [...prev, item];
     });
+    
+    // Show notification once after state update
+    setTimeout(() => {
+      showNotification(notificationMessage, 'success');
+    }, 0);
   };
 
   const handleCartItemSelect = async (item) => {
@@ -259,6 +278,24 @@ export default function Buyer() {
     });
   };
 
+  /**
+   * Update cart item with Cash Converters research data
+   * Mirrors updateCartItemEbayData - updates local state for the matching cart item
+   */
+  const updateCartItemCashConvertersData = (variantId, ccData) => {
+    setCartItems(prevItems => {
+      return prevItems.map(item => {
+        if (item.variantId === variantId) {
+          return {
+            ...item,
+            cashConvertersResearchData: ccData
+          };
+        }
+        return item;
+      });
+    });
+  };
+
   return (
     <div className="bg-gray-50 text-gray-900 min-h-screen flex flex-col text-sm">
       <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -283,6 +320,7 @@ export default function Buyer() {
           setSelectedModel={setSelectedModel}
           addToCart={addToCart}
           updateCartItemEbayData={updateCartItemEbayData}
+          updateCartItemCashConvertersData={updateCartItemCashConvertersData}
           customerData={customerData}
           intent={intent}
           setIntent={setIntent}

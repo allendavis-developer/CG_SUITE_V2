@@ -445,6 +445,10 @@ def finish_request(request, request_id):
             request_item.voucher_offers_json = item_data['voucher_offers_json']
             update_fields.append('voucher_offers_json')
         
+        if 'cash_converters_data' in item_data:
+            request_item.cash_converters_data = item_data['cash_converters_data']
+            update_fields.append('cash_converters_data')
+        
         if update_fields:
             request_item.save(update_fields=update_fields)
 
@@ -845,6 +849,9 @@ def get_cashconverters_filters(request):
         # Use category_path if provided (even though it may not be in URL yet)
         api_url = build_cashconverters_url(search_term, category_path if category_path else None)
 
+    # Log the exact Cash Converters API URL used for filters
+    print(f"CashConverters FILTERS API URL: {api_url}")
+
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -915,6 +922,9 @@ def get_cashconverters_results(request):
         page: Page number (default: 1)
         fetch_only_first_page: Boolean flag (default: false) - for logging/info purposes
     """
+    from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+    import re
+    
     search_url = request.GET.get("url", "").strip()
     page = request.GET.get("page", "1")
     fetch_only_first_page = request.GET.get("fetch_only_first_page", "false").lower() == "true"
@@ -927,17 +937,59 @@ def get_cashconverters_results(request):
 
     # Transform search-results URL to API URL
     try:
-        # Parse the URL and modify it
-        if "search-results" in search_url:
-            api_url = search_url.replace("search-results", "c3api/search/results")
-        else:
-            api_url = search_url
+        parsed = urlparse(search_url)
+        params = parse_qs(parsed.query, keep_blank_values=True)
         
-        # Add or update page parameter
-        if "?" in api_url:
-            api_url = f"{api_url}&page={page}"
+        # Convert f[FilterName][0]=value format to FilterName=value for API
+        api_params = {}
+        for key, values in params.items():
+            # Check if key is in f[...][0] format
+            match = re.match(r'f\[([^\]]+)\]\[(\d+)\]', key)
+            if match:
+                filter_name = match.group(1)
+                # Skip category and locations filters (not needed for API)
+                if filter_name not in ['category', 'locations']:
+                    # Add to API params with simple key format
+                    if filter_name not in api_params:
+                        api_params[filter_name] = []
+                    api_params[filter_name].extend(values)
+            else:
+                # Keep other params as-is
+                api_params[key] = values
+        
+        # Flatten single-value lists
+        for key in api_params:
+            if isinstance(api_params[key], list) and len(api_params[key]) == 1:
+                api_params[key] = api_params[key][0]
+        
+        # Ensure we have required params
+        if 'Sort' not in api_params:
+            api_params['Sort'] = 'default'
+        
+        # Set page
+        api_params['page'] = page
+        
+        # Build API URL
+        if "search-results" in search_url:
+            api_path = parsed.path.replace("search-results", "c3api/search/results")
         else:
-            api_url = f"{api_url}?page={page}"
+            api_path = parsed.path
+        
+        # Construct query string
+        query_string = urlencode(api_params, doseq=True)
+        
+        # Build final API URL
+        api_url = urlunparse((
+            parsed.scheme or 'https',
+            parsed.netloc or 'www.cashconverters.co.uk',
+            api_path,
+            '',
+            query_string,
+            ''
+        ))
+
+        # Log the exact Cash Converters API URL used for results
+        print(f"CashConverters RESULTS API URL: {api_url} (page={page})")
 
     except Exception as e:
         return Response(

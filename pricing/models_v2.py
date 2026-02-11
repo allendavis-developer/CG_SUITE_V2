@@ -826,6 +826,12 @@ class RequestItem(models.Model):
         help_text="Snapshot of voucher offers presented during negotiation"
     )
 
+    cash_converters_data = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Cash Converters research data used for pricing decisions"
+    )
+
     notes = models.TextField(blank=True)
 
     # Historical prices at the time of negotiation, denormalized from Variant
