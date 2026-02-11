@@ -169,6 +169,7 @@ export default function Buyer() {
 
 
   const handleCategorySelect = async (category) => {
+    setSelectedCartItem(null)
     setSelectedCategory(category);
     setSelectedModel(null);
     const models = await fetchProductModels(category);

@@ -550,14 +550,15 @@ const MainContent = ({
         </div>
         
         <div className="p-8">
-          {savedEbayState ? (
+          {selectedCartItem.ebayResearchData ? (
             <EbayResearchForm
+              key={selectedCartItem.id}
               mode="page"
-              category={selectedCartItem.categoryObject || { name: 'eBay', path: ['eBay'] }}
-              onComplete={() => {}} // Read-only mode
-              savedState={savedEbayState}
+              category={selectedCategory}
+              onComplete={handleEbayResearchComplete}
+              savedState={selectedCartItem.ebayResearchData}
               initialHistogramState={false}
-              readOnly={true}
+              showManualOffer={false}
             />
           ) : (
             <div className="text-center py-12">
