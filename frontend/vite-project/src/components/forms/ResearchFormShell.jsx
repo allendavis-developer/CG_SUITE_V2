@@ -816,6 +816,9 @@ export default function ResearchFormShell({
                     <div className="flex flex-col justify-between flex-1">
                       <div>
                         <h4 className="text-sm font-bold text-blue-900 line-clamp-2 leading-tight cursor-pointer hover:underline">{item.title}</h4>
+                        {item.shop && (
+                          <p className="text-[11px] text-gray-500 mt-0.5">Shop: {item.shop}</p>
+                        )}
                         {item.sold && (
                           <p className="text-[11px] text-green-600 font-bold mt-1">{item.sold}</p>
                         )}
