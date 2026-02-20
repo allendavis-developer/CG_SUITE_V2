@@ -149,6 +149,20 @@ const AttributeConfiguration = ({
 
   return (
     <div className="bg-gray-50 p-6 rounded-xl border border-gray-200">
+      {/* Quick find — separate section so it’s not confused with config dropdowns */}
+      {variants.length > 0 && (
+        <div className="mb-6 pb-5 border-b border-gray-200">
+          <SearchableDropdown
+            label="Quick find variant"
+            value={quickFindVariantTitle}
+            options={filteredVariants.map((v) => v.title)}
+            onChange={handleQuickFindSelect}
+            placeholder={`Search ${filteredVariants.length} variant${filteredVariants.length !== 1 ? 's' : ''}...`}
+          />
+          <p className="mt-1.5 text-xs text-gray-500">Search by name if you know your variant</p>
+        </div>
+      )}
+
       {/* Configuration & Condition */}
       <div className="flex items-center justify-between mb-4 gap-6">
         <div className="flex items-center gap-3">
@@ -167,9 +181,8 @@ const AttributeConfiguration = ({
         </div>
       </div>
 
-      {/* First dropdown + Quick find on same row (no gap); fill full width */}
-      <div className="flex items-start gap-0 w-full">
-        <div className="flex flex-col gap-4 flex-1 min-w-0">
+      {/* Attribute dropdowns — full width */}
+      <div className="flex flex-col gap-4">
         {attributes.map((attr, index) => {
           const previousSelections = Object.entries(attributeValues)
             .filter(([code]) => {
@@ -230,7 +243,7 @@ const AttributeConfiguration = ({
           }
 
           return (
-            <div key={attr.code} className="w-full">
+            <div key={attr.code} className="w-full max-w-md">
               <CustomDropdown
                 label={attr.name}
                 value={attributeValues[attr.code] || ''}
@@ -241,18 +254,6 @@ const AttributeConfiguration = ({
             </div>
           );
         })}
-        </div>
-        {variants.length > 0 && (
-          <div className="flex-1 min-w-0 w-full">
-            <SearchableDropdown
-              label="Quick find variant"
-              value={quickFindVariantTitle}
-              options={filteredVariants.map((v) => v.title)}
-              onChange={handleQuickFindSelect}
-              placeholder={`Search ${filteredVariants.length} variant${filteredVariants.length !== 1 ? 's' : ''}...`}
-            />
-          </div>
-        )}
       </div>
 
       {/* Variant selection at end — only after every config/condition dropdown is selected */}
