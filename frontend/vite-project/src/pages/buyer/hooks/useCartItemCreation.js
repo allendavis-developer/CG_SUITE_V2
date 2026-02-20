@@ -141,7 +141,7 @@ export const useCartItemCreation = ({
       const allFilters = [...basicFilterValues, ...apiFilterValues].filter(Boolean);
       const filterSubtitle = allFilters.length > 0
         ? allFilters.join(' / ')
-        : 'No filters applied';
+        : (data.searchTerm || 'No filters applied');
 
       const customCartItem = {
         id: Date.now(),

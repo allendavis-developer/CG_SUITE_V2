@@ -31,13 +31,14 @@ function parseSoldDate(soldStr) {
  * @returns {number} The rounding increment (e.g., 0.5, 1, 2, 5, 10, 50, 100)
  */
 function getRoundingIncrement(value) {
-  if (value < 5) return 0.5;      // For very cheap items (< £5): round to 50p
-  if (value < 20) return 1;       // For cheap items (< £20): round to £1
-  if (value < 50) return 2;       // For low items (< £50): round to £2
-  if (value < 200) return 5;      // For medium items (< £200): round to £5
-  if (value < 500) return 10;     // For higher items (< £500): round to £10
-  if (value < 2000) return 50;    // For expensive items (< £2000): round to £50
-  return 100;                     // For very expensive items (>= £2000): round to £100
+  if (value < 5) return 0.5;
+  if (value < 20) return 1;
+  if (value < 50) return 2;
+  if (value < 500) return 5;
+  if (value < 1000) return 10;
+  if (value < 2500) return 25;
+  if (value < 5000) return 50;
+  return 100;
 }
 
 /**

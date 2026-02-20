@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "CG Suite Research",
+  "version": "1.0.0",
+  "description": "Capture listing data from eBay and Cash Converters for CG Suite research forms.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://www.ebay.co.uk/*",
+    "https://ebay.co.uk/*",
+    "https://www.cashconverters.co.uk/*",
+    "https://cashconverters.co.uk/*",
+    "http://localhost/*",
+    "https://localhost/*",
+    "http://127.0.0.1/*",
+    "https://127.0.0.1/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://localhost/*", "https://localhost/*", "http://127.0.0.1/*", "https://127.0.0.1/*"],
+      "js": ["content-bridge.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://www.ebay.co.uk/*", "https://ebay.co.uk/*"],
+      "js": ["content-listings.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.cashconverters.co.uk/*", "https://cashconverters.co.uk/*"],
+      "js": ["content-listings.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

@@ -232,8 +232,12 @@ export const SearchableDropdown = ({ label, value, options, onChange, placeholde
   }, [value]);
 
   return (
-    <div className="space-y-1.5">
-      {label && <label className="text-xs font-bold text-gray-500 uppercase">{label}</label>}
+    <div className="searchable-dropdown-match flex flex-col gap-1.5">
+      {label && (
+        <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">
+          {label}
+        </label>
+      )}
       <select ref={selectRef} className="w-full">
         <option value="">{placeholder}</option>
       </select>

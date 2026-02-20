@@ -393,6 +393,11 @@ const Negotiation = ({ mode }) => {
           }
         }
         
+        // When refining eBay search, update Our Sale Price from new suggested price if present
+        const newOurSalePrice = updatedState?.stats?.suggestedPrice != null
+          ? Number(updatedState.stats.suggestedPrice)
+          : i.ourSalePrice;
+
         return {
           ...i,
           ebayResearchData: updatedState,
@@ -400,7 +405,8 @@ const Negotiation = ({ mode }) => {
           voucherOffers: newVoucherOffers,
           offers: displayOffers, // Update displayed offers
           manualOffer: newManualOffer,
-          selectedOfferId: newSelectedOfferId
+          selectedOfferId: newSelectedOfferId,
+          ourSalePrice: newOurSalePrice
         };
       }));
     }

@@ -15,8 +15,8 @@ const MarketComparisonsTable = ({
   cashConvertersData,
   setCashConvertersModalOpen 
 }) => {
-  const hasEbayResearch = Boolean(ebayData?.lastSearchedTerm);
-  const hasCashConvertersResearch = Boolean(cashConvertersData?.lastSearchedTerm);
+  const hasEbayResearch = Boolean(ebayData?.searchTerm || ebayData?.lastSearchedTerm);
+  const hasCashConvertersResearch = Boolean(cashConvertersData?.searchTerm || cashConvertersData?.lastSearchedTerm);
 
   return (
     <Card noPadding>

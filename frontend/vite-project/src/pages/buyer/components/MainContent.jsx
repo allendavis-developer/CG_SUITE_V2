@@ -21,6 +21,9 @@ import { createRequest, addRequestItem, updateRequestItemRawData } from '@/servi
 
 import { formatGBP } from '@/utils/helpers';
 
+/** Single top-level "eBay" category – selecting eBay goes straight to search, not eBay subcategories */
+const EBAY_TOP_LEVEL_CATEGORY = { name: 'eBay', path: ['eBay'] };
+
 /**
  * Main content area component
  */
@@ -68,16 +71,18 @@ const MainContent = ({
     setAllAttributeValues
   } = useProductAttributes(selectedModel?.product_id, variants);
 
+  const isEbayCategory = selectedCategory?.path?.some(p => p.toLowerCase() === 'ebay') ||
+                        selectedCategory?.name?.toLowerCase() === 'ebay';
+
   // Reset state when category changes
   useEffect(() => {
     setVariants([]);
-    
-    if (selectedCategory?.name.toLowerCase() === 'ebay') {
+    if (isEbayCategory) {
       setActiveTab('research');
     } else {
       setActiveTab('info');
     }
-  }, [selectedCategory]);
+  }, [selectedCategory, isEbayCategory]);
 
   // Load variants when attributes are loaded
   useEffect(() => {
@@ -399,9 +404,9 @@ const MainContent = ({
       const apiFilterValues = Object.values(data.selectedFilters.apiFilters).flat();
       const basicFilterValues = data.selectedFilters.basic;
       const allFilters = [...basicFilterValues, ...apiFilterValues].filter(Boolean);
-      const filterSubtitle = allFilters.length > 0 
-        ? allFilters.join(' / ') 
-        : 'No filters applied';
+      const filterSubtitle = allFilters.length > 0
+        ? allFilters.join(' / ')
+        : (data.searchTerm || 'No filters applied');
 
       const cashOffers = data.buyOffers.map((o, idx) => ({
           id: `ebay-cash-${Date.now()}-${idx}`, // Make IDs unique for cash
@@ -420,8 +425,8 @@ const MainContent = ({
         title: data.searchTerm || "eBay Research Item",
         subtitle: filterSubtitle,
         quantity: 1,
-        category: selectedCategory?.name,
-        categoryObject: selectedCategory,
+        category: EBAY_TOP_LEVEL_CATEGORY.name,
+        categoryObject: EBAY_TOP_LEVEL_CATEGORY,
         offers: useVoucherOffers ? voucherOffers : cashOffers, // Default to appropriate offer type
         cashOffers: cashOffers, // Store cash offers
         voucherOffers: voucherOffers, // Store voucher offers
@@ -476,9 +481,9 @@ const MainContent = ({
       const apiFilterValues = Object.values(data.selectedFilters?.apiFilters || {}).flat();
       const basicFilterValues = data.selectedFilters?.basic || [];
       const allFilters = [...basicFilterValues, ...apiFilterValues].filter(Boolean);
-      const filterSubtitle = allFilters.length > 0 
-        ? allFilters.join(' / ') 
-        : 'No filters applied';
+      const filterSubtitle = allFilters.length > 0
+        ? allFilters.join(' / ')
+        : (data.searchTerm || 'No filters applied');
 
       const cashOffers = data.buyOffers.map((o, idx) => ({
           id: `cc-cash-${Date.now()}-${idx}`, // Make IDs unique for cash
@@ -554,7 +559,7 @@ const MainContent = ({
             <EbayResearchForm
               key={selectedCartItem.id}
               mode="page"
-              category={selectedCategory}
+              category={EBAY_TOP_LEVEL_CATEGORY}
               onComplete={handleEbayResearchComplete}
               savedState={selectedCartItem.ebayResearchData}
               initialHistogramState={false}
@@ -616,9 +621,6 @@ const MainContent = ({
     );
   }
 
-  const isEbayCategory = selectedCategory?.path?.some(p => p.toLowerCase() === 'ebay') || 
-                        selectedCategory?.name.toLowerCase() === 'ebay';
-  
   if (!selectedModel && !isEbayCategory) {
     return (
       <section className="w-3/5 bg-white flex flex-col overflow-y-auto">
@@ -648,7 +650,7 @@ const MainContent = ({
         <div className="p-8">
           <EbayResearchForm
             mode="page"
-            category={selectedCategory}
+            category={EBAY_TOP_LEVEL_CATEGORY}
             onComplete={handleEbayResearchComplete}
             savedState={savedEbayState}
             initialHistogramState={false}
@@ -740,6 +742,10 @@ const MainContent = ({
               initialHistogramState={false}
               showManualOffer={false}
               onComplete={(data) => {
+                if (data?.cancel) {
+                  setEbayModalOpen(false);
+                  return;
+                }
                 handleEbayResearchComplete(data);
                 setEbayModalOpen(false);
               }}
@@ -753,6 +759,10 @@ const MainContent = ({
               savedState={savedCashConvertersState}
               initialHistogramState={false}
               onComplete={(data) => {
+                if (data?.cancel) {
+                  setCashConvertersModalOpen(false);
+                  return;
+                }
                 handleCashConvertersResearchComplete(data);
                 setCashConvertersModalOpen(false);
               }}

@@ -1,35 +1,32 @@
-import React, { useMemo, useEffect, useState, startTransition } from 'react';
-import { CustomDropdown, SearchableDropdown, Icon } from '@/components/ui/components';
+import React, { useMemo, useEffect, useState } from 'react';
+import { CustomDropdown, SearchableDropdown } from '@/components/ui/components';
 
 /**
- * Product attribute configuration component with integrated variant search
+ * Product attribute configuration component:
+ * - Top: Quick-find variant search (alternative to manual config)
+ * - Middle: Configuration & Condition dropdowns (manual path)
+ * - Bottom: Variant option buttons (only after config narrows results)
  */
 const AttributeConfiguration = ({ 
   attributes, 
   attributeValues, 
   variants, 
   handleAttributeChange,
-  setAllAttributeValues, // NEW: batch update function
+  setAllAttributeValues,
   variant,
   setVariant
 }) => {
-  // Track if user selected via dropdown (to show all attributes)
   const [selectedViaDropdown, setSelectedViaDropdown] = useState(false);
 
   const handleReset = () => {
-    // 1. Tell the UI to hide the extra attribute rows again
     setSelectedViaDropdown(false);
-    
-    // 2. Clear the specific selected variant
     setVariant(null);
-    
-    // 3. Create a "blank slate" for all attributes
     const clearedValues = attributes.reduce((acc, attr) => {
       acc[attr.code] = ''; 
       return acc;
     }, {});
 
-    // 4. Send that blank slate back to your main state
+    // Send that blank slate back to your main state
     if (setAllAttributeValues) {
       setAllAttributeValues(clearedValues);
     } else {
@@ -73,40 +70,34 @@ const AttributeConfiguration = ({
   }, [variant]);
 
   const selectedVariant = variants.find(v => v.cex_sku === variant);
-  const variantOptions = filteredVariants.map(v => v.title);
-  
-  // Handle when variant is cleared or not in filtered list
-  const selectedVariantTitle = useMemo(() => {
-    if (!variant) return '';
-    const foundVariant = filteredVariants.find(v => v.cex_sku === variant);
-    return foundVariant ? foundVariant.title : '';
-  }, [variant, filteredVariants]);
+  const quickFindVariantTitle = selectedVariant?.title ?? '';
+
+  const selectVariant = (v) => {
+    if (!v) return;
+    setSelectedViaDropdown(true);
+    setVariant(v.cex_sku);
+    if (setAllAttributeValues) {
+      setAllAttributeValues(v.attribute_values);
+    } else {
+      requestAnimationFrame(() => {
+        const attrCodes = attributes.map(a => a.code);
+        for (let i = attrCodes.length - 1; i >= 0; i--) {
+          const attrCode = attrCodes[i];
+          const attrValue = v.attribute_values[attrCode];
+          handleAttributeChange(attrCode, attrValue);
+        }
+      });
+    }
+  };
 
   const handleVariantChange = (title) => {
     const v = filteredVariants.find(variant => variant.title === title);
-    if (v) {
-      // Mark that user selected via dropdown
-      setSelectedViaDropdown(true);
-      
-      // Set the variant
-      setVariant(v.cex_sku);
-      
-      // Use the batch update function to set ALL attributes at once
-      // This avoids the "clear subsequent attributes" behavior
-      if (setAllAttributeValues) {
-        setAllAttributeValues(v.attribute_values);
-      } else {
-        // Fallback to individual updates in reverse order
-        requestAnimationFrame(() => {
-          const attrCodes = attributes.map(a => a.code);
-          for (let i = attrCodes.length - 1; i >= 0; i--) {
-            const attrCode = attrCodes[i];
-            const attrValue = v.attribute_values[attrCode];
-            handleAttributeChange(attrCode, attrValue);
-          }
-        });
-      }
-    }
+    if (v) selectVariant(v);
+  };
+
+  const handleQuickFindSelect = (title) => {
+    const v = variants.find(vr => vr.title === title);
+    if (v) selectVariant(v);
   };
 
   const handleAttributeChangeWrapper = (code, value) => {
@@ -158,7 +149,7 @@ const AttributeConfiguration = ({
 
   return (
     <div className="bg-gray-50 p-6 rounded-xl border border-gray-200">
-      {/* Header */}
+      {/* Configuration & Condition */}
       <div className="flex items-center justify-between mb-4 gap-6">
         <div className="flex items-center gap-3">
           <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest">
@@ -176,8 +167,9 @@ const AttributeConfiguration = ({
         </div>
       </div>
 
-      {/* Attribute Dropdowns - Horizontal Layout */}
-      <div className="flex flex-wrap gap-4">
+      {/* First dropdown + Quick find on same row (no gap); fill full width */}
+      <div className="flex items-start gap-0 w-full">
+        <div className="flex flex-col gap-4 flex-1 min-w-0">
         {attributes.map((attr, index) => {
           const previousSelections = Object.entries(attributeValues)
             .filter(([code]) => {
@@ -238,7 +230,7 @@ const AttributeConfiguration = ({
           }
 
           return (
-            <div key={attr.code} className="flex-1 min-w-[200px]">
+            <div key={attr.code} className="w-full">
               <CustomDropdown
                 label={attr.name}
                 value={attributeValues[attr.code] || ''}
@@ -249,20 +241,49 @@ const AttributeConfiguration = ({
             </div>
           );
         })}
+        </div>
+        {variants.length > 0 && (
+          <div className="flex-1 min-w-0 w-full">
+            <SearchableDropdown
+              label="Quick find variant"
+              value={quickFindVariantTitle}
+              options={filteredVariants.map((v) => v.title)}
+              onChange={handleQuickFindSelect}
+              placeholder={`Search ${filteredVariants.length} variant${filteredVariants.length !== 1 ? 's' : ''}...`}
+            />
+          </div>
+        )}
       </div>
 
-    {/* Move Variant Search Dropdown here — always visible if variants exist */}
-    {variants.length > 0 && (
-      <div className="mt-6 max-w-md">
-        <SearchableDropdown
-          label=""
-          value={selectedVariantTitle}
-          options={variantOptions}
-          onChange={handleVariantChange}
-          placeholder={`Search ${filteredVariants.length} variant${filteredVariants.length !== 1 ? 's' : ''}...`}
-        />
-      </div>
-    )}
+      {/* Variant selection at end — only after every config/condition dropdown is selected */}
+      {variants.length > 0 &&
+        filteredVariants.length > 0 &&
+        attributes.every((attr) => !!attributeValues[attr.code]) && (
+        <div className="mt-6 pt-6 border-t border-gray-200">
+          <span className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">
+            {filteredVariants.length === 1 ? 'Variant' : 'Select variant'}
+          </span>
+          <div className="flex flex-wrap gap-2">
+            {filteredVariants.map((v) => {
+              const isSelected = v.cex_sku === variant;
+              return (
+                <button
+                  key={v.cex_sku}
+                  type="button"
+                  onClick={() => handleVariantChange(v.title)}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg border transition-all ${
+                    isSelected
+                      ? 'bg-yellow-500 border-yellow-500 text-blue-900'
+                      : 'bg-white border-gray-200 text-gray-800 hover:border-yellow-500 hover:bg-yellow-50'
+                  }`}
+                >
+                  {v.title}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
     </div>
   );

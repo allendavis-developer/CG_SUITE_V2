@@ -269,6 +269,10 @@ const PriceHistogram = React.memo(function PriceHistogram({ listings, onBucketSe
  * @param {Array} props.buyOffers - Calculated buy offers [{price, margin}, ...]
  * @param {React.ReactNode} props.customControls - Custom controls to render in search area (e.g., "Behave like eBay" checkbox)
  * @param {boolean} props.allowHistogramToggle - Whether to show the histogram toggle checkbox (default: true)
+ * @param {boolean} props.hideSearchAndFilters - When true, hide search input and filters sidebar (e.g. extension-sourced data); only histogram toggle bar is shown
+ * @param {Function} props.onRefineSearch - When set (e.g. extension flow), shows "Refine search" button; called when user wants to go back to the listing site to refine
+ * @param {string} props.refineError - Optional error message to show after a failed refine (e.g. extension timeout)
+ * @param {boolean} props.refineLoading - When true, Refine search button is disabled (refine in progress)
  */
 export default function ResearchFormShell({
   searchTerm,
@@ -303,7 +307,11 @@ export default function ResearchFormShell({
   allowHistogramToggle = true,
   manualOffer = "",
   onManualOfferChange = null,
-  showManualOffer = false
+  showManualOffer = false,
+  hideSearchAndFilters = false,
+  onRefineSearch = null,
+  refineError = null,
+  refineLoading = false
 }) {
   // Get current price range (latest in history, or null for full view)
   const currentPriceRange = drillHistory.length > 0 ? drillHistory[drillHistory.length - 1] : null;
@@ -564,35 +572,61 @@ export default function ResearchFormShell({
         </div>
       )}
 
-      {/* Search Input */}
-      <div className="px-6 py-4 border-b border-gray-200 bg-gray-100/50">
-        <div className="relative w-full">
-          <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">search</span>
-          <input
-            type="text"
-            className="w-full border border-gray-300 rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-blue-200 focus:border-blue-900 outline-none shadow-sm"
-            placeholder={searchPlaceholder}
-            value={searchTerm}
-            onChange={readOnly ? undefined : (e) => onSearchTermChange(e.target.value)}
-            onKeyDown={readOnly ? undefined : (e) => e.key === 'Enter' && onSearch()}
-            readOnly={readOnly}
-            disabled={readOnly}
-          />
-          <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
-            {!readOnly && (
-              <Button variant="primary" size="sm" onClick={onSearch} disabled={loading}>
-                {loading ? "Searching..." : "Search"}
-              </Button>
+      {/* Search Input - hidden when hideSearchAndFilters (e.g. extension-sourced data) */}
+      {!hideSearchAndFilters && (
+        <div className="px-6 py-4 border-b border-gray-200 bg-gray-100/50">
+          <div className="relative w-full">
+            <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">search</span>
+            <input
+              type="text"
+              className="w-full border border-gray-300 rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-blue-200 focus:border-blue-900 outline-none shadow-sm"
+              placeholder={searchPlaceholder}
+              value={searchTerm}
+              onChange={readOnly ? undefined : (e) => onSearchTermChange(e.target.value)}
+              onKeyDown={readOnly ? undefined : (e) => e.key === 'Enter' && onSearch()}
+              readOnly={readOnly}
+              disabled={readOnly}
+            />
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+              {!readOnly && (
+                <Button variant="primary" size="sm" onClick={onSearch} disabled={loading}>
+                  {loading ? "Searching..." : "Search"}
+                </Button>
+              )}
+            </div>
+          </div>
+          <div className="mt-3 flex items-center gap-4">
+            {customControls}
+            {listings && allowHistogramToggle && (
+              <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-gray-700">
+                <input
+                  type="checkbox"
+                  className="rounded border-gray-300 text-blue-900 focus:ring-blue-900"
+                  checked={showHistogram}
+                  onChange={readOnly ? undefined : (e) => onShowHistogramChange(e.target.checked)}
+                  disabled={readOnly}
+                />
+                <span className="flex items-center gap-1">
+                  <span className="material-symbols-outlined text-sm">bar_chart</span>
+                  Show Price Distribution
+                </span>
+              </label>
             )}
           </div>
         </div>
-        
-        <div className="mt-3 flex items-center gap-4">
-          {/* Custom controls (e.g., "Behave like eBay" checkbox) */}
-          {customControls}
-          
-          {/* Show Histogram toggle */}
-          {listings && allowHistogramToggle && (
+      )}
+
+      {/* When hideSearchAndFilters: only histogram toggle bar + optional Refine search (no search, no left filters) */}
+      {hideSearchAndFilters && listings && (
+        <div className="px-6 py-3 border-b border-gray-200 bg-gray-100/50 flex flex-col gap-2">
+          <div className="flex items-center gap-4 flex-wrap">
+            {customControls}
+            {onRefineSearch && !readOnly && (
+              <Button variant="outline" size="sm" onClick={onRefineSearch} disabled={refineLoading}>
+                {refineLoading ? 'Refining…' : 'Refine search'}
+              </Button>
+            )}
+            {allowHistogramToggle && (
             <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-gray-700">
               <input
                 type="checkbox"
@@ -606,9 +640,13 @@ export default function ResearchFormShell({
                 Show Price Distribution
               </span>
             </label>
+            )}
+          </div>
+          {refineError && (
+            <p className="text-sm text-red-600 bg-red-50 px-3 py-1.5 rounded">{refineError}</p>
           )}
         </div>
-      </div>
+      )}
 
       {/* Main content */}
       <div className={`flex ${mode === "page" ? "h-[calc(100vh-200px)]" : "flex-1"} overflow-hidden`}>
