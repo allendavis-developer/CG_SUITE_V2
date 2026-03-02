@@ -674,6 +674,7 @@ class Customer(models.Model):
     phone_number = models.CharField(max_length=50, db_index=True, unique=True)
     email = models.EmailField(max_length=255, unique=True, blank=True, null=True)
     address = models.TextField(blank=True)
+    is_temp_staging = models.BooleanField(default=False)
 
     created_at = models.DateTimeField(auto_now_add=True)
 

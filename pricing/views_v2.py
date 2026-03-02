@@ -48,16 +48,66 @@ def customers_view(request):
         serializer = CustomerSerializer(data=request.data)
         if serializer.is_valid():
             customer = serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
+            data = {
+                "id": customer.customer_id,
+                "name": customer.name,
+                "phone": customer.phone_number,
+                "email": customer.email,
+                "address": customer.address or "",
+                "cancel_rate": customer.cancel_rate,
+            }
+            return Response(data, status=status.HTTP_201_CREATED)
         print("❌ CustomerSerializer errors:", serializer.errors)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+
+@api_view(['GET', 'PATCH', 'PUT'])
+def customer_detail(request, customer_id):
+    """Get or update a single customer."""
+    try:
+        customer = Customer.objects.get(customer_id=customer_id)
+    except Customer.DoesNotExist:
+        return Response(
+            {"error": "Customer not found"},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    if request.method == 'GET':
+        data = {
+            "id": customer.customer_id,
+            "name": customer.name,
+            "phone": customer.phone_number,
+            "email": customer.email,
+            "address": customer.address or "",
+            "cancel_rate": customer.cancel_rate,
+        }
+        return Response(data)
+
+    elif request.method in ('PATCH', 'PUT'):
+        data = request.data.copy()
+        # Map frontend 'phone' to backend 'phone_number' if needed
+        if 'phone' in data and 'phone_number' not in data:
+            data['phone_number'] = data.pop('phone')
+        serializer = CustomerSerializer(customer, data=data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+def _get_category_and_descendant_ids(category):
+    """Return list of category_id for this category and all its descendants."""
+    ids = [category.category_id]
+    for child in category.children.all():
+        ids.extend(_get_category_and_descendant_ids(child))
+    return ids
 
 
 @api_view(['GET'])
 def products_list(request):
     """
     Return all products (model names) for a given category.
+    Includes products in the category AND all descendant categories.
     Query param: ?category_id=14
     """
     category_id = request.query_params.get('category_id')
@@ -69,7 +119,8 @@ def products_list(request):
     except ProductCategory.DoesNotExist:
         return Response({"error": "Category not found"}, status=404)
 
-    products = Product.objects.filter(category=category)
+    category_ids = _get_category_and_descendant_ids(category)
+    products = Product.objects.filter(category_id__in=category_ids)
     serializer = ProductSerializer(products, many=True)
     return Response(serializer.data)
 

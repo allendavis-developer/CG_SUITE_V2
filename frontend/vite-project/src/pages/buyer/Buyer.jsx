@@ -124,17 +124,11 @@ export default function Buyer() {
       id: customerInfo.id,
       name: customerInfo.customerName,
       cancelRate: customerInfo.cancelRate || 0,
-      transactionType: customerInfo.transactionType || 'sale'
+      transactionType: customerInfo.transactionType || 'sale',
+      isNewCustomer: customerInfo.isNewCustomer ?? false,
     });
 
-    
-
-
-    // Set the intent based on transaction type
     setIntent(mappedIntent);
-
-    console.log("Selected customer:", customerInfo);
-    console.log("Mapped intent:", mappedIntent);
   };
 
   const handleTransactionTypeChange = (newType) => {
@@ -316,7 +310,7 @@ export default function Buyer() {
   };
 
   return (
-    <div className="bg-gray-50 text-gray-900 min-h-screen flex flex-col text-sm">
+    <div className="bg-gray-50 text-gray-900 h-screen flex flex-col overflow-hidden text-sm">
       <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
       <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
       <style>{`
@@ -330,7 +324,7 @@ export default function Buyer() {
       />
 
       <Header onSearch={(val) => console.log('Search:', val)} />
-      <main className="flex flex-1 overflow-hidden h-[calc(100vh-61px)]">
+      <main className="flex flex-1 min-h-0 overflow-hidden">
         <Sidebar onCategorySelect={handleCategorySelect} />
         <MainContent 
           selectedCategory={selectedCategory} 
@@ -346,6 +340,7 @@ export default function Buyer() {
           request={request}
           setRequest={setRequest}
           selectedCartItem={selectedCartItem}
+          cartItems={cartItems}
         />
       <CartSidebar 
         cartItems={cartItems} 

@@ -291,6 +291,65 @@ export const updateRequestIntent = async (requestId, intent) => {
 };
 
 /**
+ * Create a new customer
+ * @param {object} customerData - { name, phone_number?, email?, address? }
+ */
+export const createCustomer = async (customerData) => {
+  if (!customerData || !customerData.name) return null;
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/customers/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': getCSRFToken()
+      },
+      body: JSON.stringify(customerData)
+    });
+
+    if (!res.ok) {
+      const errData = await res.json();
+      throw new Error(errData.phone_number?.[0] || errData.name?.[0] || 'Failed to create customer');
+    }
+
+    return await res.json();
+  } catch (err) {
+    console.error('Error creating customer:', err);
+    throw err;
+  }
+};
+
+/**
+ * Update an existing customer
+ * @param {number} customerId
+ * @param {object} updates - { name?, phone?, email?, address? }
+ */
+export const updateCustomer = async (customerId, updates) => {
+  if (!customerId || !updates) return null;
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/customers/${customerId}/`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': getCSRFToken()
+      },
+      body: JSON.stringify(updates)
+    });
+
+    if (!res.ok) {
+      const errData = await res.json();
+      throw new Error(errData.phone_number?.[0] || errData.email?.[0] || 'Failed to update customer');
+    }
+
+    return await res.json();
+  } catch (err) {
+    console.error('Error updating customer:', err);
+    throw err;
+  }
+};
+
+/**
  * Update raw_data field for a request item
  * @param {number} requestItemId
  * @param {object} rawData - JSON object with new raw data

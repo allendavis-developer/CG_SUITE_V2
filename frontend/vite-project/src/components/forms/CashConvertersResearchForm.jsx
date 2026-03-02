@@ -18,6 +18,8 @@ export default function CashConvertersResearchForm({
   initialHistogramState = null,
   readOnly = false,
   showManualOffer = false,
+  referenceData = null,
+  ourSalePrice = null,
 }) {
   const [step, setStep] = useState(savedState?.listings?.length ? 'cards' : 'get-data');
   const [listings, setListings] = useState(savedState?.listings ?? []);
@@ -249,6 +251,8 @@ export default function CashConvertersResearchForm({
       onRefineSearch={handleRefineSearch}
       refineError={error}
       refineLoading={loading}
+      referenceData={referenceData}
+      ourSalePrice={ourSalePrice}
     />
   );
 }

@@ -39,8 +39,8 @@ const MainContent = ({
   intent,
   request,
   setRequest,
-  selectedCartItem = null  // <--- new: cart item to populate details from
-
+  selectedCartItem = null,
+  cartItems = []  // Used to detect duplicates and avoid creating extra request items
 }) => {
   // Determine if we should use voucher offers based on transaction type
   const useVoucherOffers = customerData?.transactionType === 'store_credit';
@@ -347,6 +347,11 @@ const MainContent = ({
       price: Number(o.price)
     })) || [];
 
+    const variantId = selectedVariant?.variant_id;
+    const isDuplicateCeXItem = cartItems.some(
+      (ci) => !ci.isCustomEbayItem && !ci.isCustomCashConvertersItem && ci.variantId === variantId
+    );
+
     const cartItem = {
       id: Date.now(),
       title: selectedModel.name,
@@ -358,7 +363,7 @@ const MainContent = ({
       cashOffers: cashOffers, // Store cash offers separately
       voucherOffers: voucherOffers, // Store voucher offers separately
       quantity: 1,
-      variantId: selectedVariant?.variant_id,
+      variantId,
       category: selectedCategory?.name,
       categoryObject: selectedCategory,
       model: selectedModel?.name,
@@ -380,14 +385,17 @@ const MainContent = ({
     };
 
     try {
-      const requestItemId = await createOrAppendRequestItem({
-        variantId: cartItem.variantId,
-        rawData: cartItem.ebayResearchData
-      });
+      if (isDuplicateCeXItem) {
+        addToCart(cartItem);
+      } else {
+        const requestItemId = await createOrAppendRequestItem({
+          variantId: cartItem.variantId,
+          rawData: cartItem.ebayResearchData
+        });
 
-      cartItem.request_item_id = requestItemId;
-      addToCart(cartItem);
-
+        cartItem.request_item_id = requestItemId;
+        addToCart(cartItem);
+      }
     } catch (err) {
       console.error('Failed to add item to request:', err);
       alert('Failed to add item to request. Check console for details.');
@@ -437,15 +445,25 @@ const MainContent = ({
         ourSalePrice: data.stats?.suggestedPrice ? Number(data.stats.suggestedPrice) : null
       };
 
+      const isDuplicateEbayItem = cartItems.some(
+        (ci) => ci.isCustomEbayItem && ci.title === customCartItem.title && ci.category === customCartItem.category
+      );
+
       try {
-        const requestItemId = await createOrAppendRequestItem({
-          variantId: null,   // 👈 this is the ONLY difference for eBay
-          rawData: data
-        });
+        if (isDuplicateEbayItem) {
+          addToCart(customCartItem);
+        } else {
+          const requestItemId = await createOrAppendRequestItem({
+            variantId: null,   // 👈 this is the ONLY difference for eBay
+            rawData: data
+          });
 
-        customCartItem.request_item_id = requestItemId;
-        addToCart(customCartItem);
-
+          customCartItem.request_item_id = requestItemId;
+          addToCart(customCartItem);
+        }
+        // Clear the research form after successful add so user can run new research
+        setSavedEbayState(null);
+        setEbayData(null);
       } catch (err) {
         console.error('Failed to add eBay item to request:', err);
         alert('Failed to add eBay item to request. Check console for details.');
@@ -514,15 +532,22 @@ const MainContent = ({
         ourSalePrice: data.stats?.suggestedPrice ? Number(data.stats.suggestedPrice) : null
       };
 
+      const isDuplicateCCItem = cartItems.some(
+        (ci) => ci.isCustomCashConvertersItem && ci.title === customCartItem.title && ci.category === customCartItem.category
+      );
+
       try {
-        const requestItemId = await createOrAppendRequestItem({
-          variantId: null,
-          rawData: data
-        });
+        if (isDuplicateCCItem) {
+          addToCart(customCartItem);
+        } else {
+          const requestItemId = await createOrAppendRequestItem({
+            variantId: null,
+            rawData: data
+          });
 
-        customCartItem.request_item_id = requestItemId;
-        addToCart(customCartItem);
-
+          customCartItem.request_item_id = requestItemId;
+          addToCart(customCartItem);
+        }
       } catch (err) {
         console.error('Failed to add Cash Converters item to request:', err);
         alert('Failed to add Cash Converters item to request. Check console for details.');
@@ -541,7 +566,7 @@ const MainContent = ({
   // Special handling for selected eBay cart items
   if (selectedCartItem?.isCustomEbayItem) {
     return (
-      <section className="w-3/5 bg-white flex flex-col overflow-y-auto">
+      <section className="buyer-main-content w-3/5 min-w-0 min-h-0 flex-1 bg-white flex flex-col overflow-y-auto buyer-panel-scroll">
         <div className="flex items-center px-8 bg-gray-50 border-b border-gray-200 sticky top-0 z-40">
           <div className="flex items-center gap-3 py-4">
             <div className="bg-blue-900 p-1.5 rounded">
@@ -579,7 +604,7 @@ const MainContent = ({
   // Special handling for selected Cash Converters cart items
   if (selectedCartItem?.isCustomCashConvertersItem) {
     return (
-      <section className="w-3/5 bg-white flex flex-col overflow-y-auto">
+      <section className="buyer-main-content w-3/5 min-w-0 min-h-0 flex-1 bg-white flex flex-col overflow-y-auto buyer-panel-scroll">
         <div className="flex items-center px-8 bg-gray-50 border-b border-gray-200 sticky top-0 z-40">
           <div className="flex items-center gap-3 py-4">
             <div className="bg-blue-900 p-1.5 rounded">
@@ -615,7 +640,7 @@ const MainContent = ({
   
   if (!selectedCategory) {
     return (
-      <section className="w-3/5 bg-white flex flex-col overflow-y-auto">
+      <section className="buyer-main-content w-3/5 min-w-0 min-h-0 flex-1 bg-white flex flex-col overflow-y-auto buyer-panel-scroll">
         <EmptyState />
       </section>
     );
@@ -623,7 +648,7 @@ const MainContent = ({
 
   if (!selectedModel && !isEbayCategory) {
     return (
-      <section className="w-3/5 bg-white flex flex-col overflow-y-auto">
+      <section className="buyer-main-content w-3/5 min-w-0 min-h-0 flex-1 bg-white flex flex-col overflow-y-auto buyer-panel-scroll">
         <ProductSelection 
           availableModels={availableModels} 
           setSelectedModel={setSelectedModel} 
@@ -633,7 +658,7 @@ const MainContent = ({
   }
 
   return (
-    <section className="w-3/5 bg-white flex flex-col overflow-y-auto">
+    <section className="buyer-main-content w-3/5 min-w-0 min-h-0 flex-1 bg-white flex flex-col overflow-y-auto buyer-panel-scroll">
       {!isEbayCategory && (
         <div className="flex items-center px-8 bg-gray-50 border-b border-gray-200 sticky top-0 z-40">
           <Tab icon="info" label="Product Info" isActive={activeTab === 'info'} onClick={() => setActiveTab('info')} />
@@ -648,7 +673,16 @@ const MainContent = ({
 
       {isEbayCategory && (
         <div className="p-8">
+          {!savedEbayState && cartItems.some((ci) => ci.isCustomEbayItem) && (
+            <div className="mb-6 px-4 py-3 rounded-lg bg-blue-50 border border-blue-200 flex items-center gap-3">
+              <span className="material-symbols-outlined text-blue-600 text-xl">info</span>
+              <p className="text-sm text-blue-900">
+                Click on an item on the right to view its per-item research data.
+              </p>
+            </div>
+          )}
           <EbayResearchForm
+            key={savedEbayState ? 'ebay-with-data' : 'ebay-empty'}
             mode="page"
             category={EBAY_TOP_LEVEL_CATEGORY}
             onComplete={handleEbayResearchComplete}
@@ -741,6 +775,8 @@ const MainContent = ({
               savedState={savedEbayState}
               initialHistogramState={false}
               showManualOffer={false}
+              referenceData={referenceData}
+              ourSalePrice={ourSalePrice}
               onComplete={(data) => {
                 if (data?.cancel) {
                   setEbayModalOpen(false);
@@ -758,6 +794,8 @@ const MainContent = ({
               category={selectedCategory}
               savedState={savedCashConvertersState}
               initialHistogramState={false}
+              referenceData={referenceData}
+              ourSalePrice={ourSalePrice}
               onComplete={(data) => {
                 if (data?.cancel) {
                   setCashConvertersModalOpen(false);

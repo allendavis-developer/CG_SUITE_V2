@@ -299,7 +299,7 @@ export const Breadcrumb = ({ items }) => (
 
 // Header Component
 export const Header = ({ onSearch, userName = "JD" }) => (
-  <header className="flex items-center justify-between whitespace-nowrap border-b border-gray-200 bg-blue-900 px-6 py-3 sticky top-0 z-50">
+  <header className="flex shrink-0 items-center justify-between whitespace-nowrap border-b border-gray-200 bg-blue-900 px-6 py-3 sticky top-0 z-50">
     <div className="flex items-center gap-8">
       <div className="flex items-center gap-4 text-yellow-500">
         <div className="size-6 flex items-center justify-center bg-yellow-500 text-blue-900 rounded">
@@ -321,28 +321,30 @@ export const Header = ({ onSearch, userName = "JD" }) => (
 // ==================== SIDEBAR COMPONENTS ====================
 
 // Sidebar Category Item
-export const CategoryItem = ({ icon, label, isActive, hasChildren, children, onToggle, isBottomLevel, onSelect }) => {
+// Clicking ANY category loads its products (including descendants). Parent categories also toggle expand.
+export const CategoryItem = ({ icon, label, isActive, hasChildren, children, onToggle, onSelect }) => {
   const handleClick = () => {
-    if (isBottomLevel && onSelect) {
-      onSelect();
-    } else if (hasChildren && onToggle) {
-      onToggle();
-    }
+    if (onSelect) onSelect();
+    if (hasChildren && onToggle) onToggle();
   };
 
   return (
     <div className="space-y-1">
       <div 
-        className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer text-sm ${
+        className={`flex items-center p-2 rounded-lg cursor-pointer text-sm ${
           isActive 
             ? 'bg-yellow-500/10 text-yellow-500 font-semibold border-l-2 border-yellow-500' 
             : 'text-white/70 hover:bg-white/10'
         }`}
         onClick={handleClick}
       >
-        {hasChildren && <Icon name="chevron_right" className={`transition-transform text-sm ${isActive ? 'rotate-90' : ''}`} />}
-        <Icon name={icon} className="text-sm" />
-        <span>{label}</span>
+        <div className="w-5 flex-shrink-0 flex items-center justify-start">
+          {hasChildren && <Icon name="chevron_right" className={`transition-transform text-sm ${isActive ? 'rotate-90' : ''}`} />}
+        </div>
+        <div className="flex items-center gap-2 min-w-0">
+          <Icon name={icon} className="text-sm flex-shrink-0" />
+          <span>{label}</span>
+        </div>
       </div>
       {isActive && children && (
         <div className="ml-4 space-y-1 border-l border-white/10">
@@ -387,6 +389,27 @@ export const Sidebar = ({ onCategorySelect }) => {
       .catch((err) => console.error('Error fetching categories:', err));
   }, []);
 
+  // Recursively filter categories: include if name matches OR any descendant matches
+  const filterCategoryTree = (cats, f) => {
+    if (!f) return cats;
+    const lower = f.toLowerCase();
+    return cats.reduce((acc, cat) => {
+      const filteredChildren = cat.children?.length ? filterCategoryTree(cat.children, f) : [];
+      const matchesSelf = cat.name.toLowerCase().includes(lower);
+      const matchesDescendant = filteredChildren.length > 0;
+      if (matchesSelf || matchesDescendant) {
+        acc.push({
+          ...cat,
+          children: matchesSelf ? (cat.children || []) : filteredChildren
+        });
+      }
+      return acc;
+    }, []);
+  };
+
+  const filteredCategories = filterCategoryTree(categories, filterText.trim());
+  const isFiltering = !!filterText.trim();
+
   // Get breadcrumb path for a category
   const getCategoryPath = (categoryId, categories, path = []) => {
     for (const cat of categories) {
@@ -414,9 +437,8 @@ export const Sidebar = ({ onCategorySelect }) => {
 
   const renderCategory = (category) => {
     const hasChildren = category.children && category.children.length > 0;
-    const isBottomLevel = !hasChildren;
     const isSelected = selectedCategory === category.category_id;
-    const isExpanded = expandedCategories.includes(category.category_id);
+    const isExpanded = isFiltering ? hasChildren : expandedCategories.includes(category.category_id);
 
     return (
       <CategoryItem
@@ -425,7 +447,6 @@ export const Sidebar = ({ onCategorySelect }) => {
         label={category.name}
         isActive={isSelected || isExpanded}
         hasChildren={hasChildren}
-        isBottomLevel={isBottomLevel}
         onToggle={() => {
           setExpandedCategories((prev) =>
             prev.includes(category.category_id)
@@ -444,31 +465,25 @@ export const Sidebar = ({ onCategorySelect }) => {
   };
 
   return (
-    <aside className="w-1/5 border-r border-blue-900/10 flex flex-col bg-blue-900 overflow-y-auto">
-      <div className="p-4">
-        <div>
-          <h3 className="text-xs font-bold uppercase tracking-wider text-white/50 mb-3 px-2">
-            Device Categories
-          </h3>
-
-          <div className="relative mb-3">
-            <Icon name="filter_list" className="absolute left-3 top-2.5 text-white/40 text-sm" />
-            <input
-              className="w-full bg-white/10 border-white/10 border rounded-lg pl-9 py-2 text-sm text-white focus:ring-1 focus:ring-yellow-500 placeholder:text-white/30"
-              placeholder="Filter categories..."
-              type="text"
-              value={filterText}
-              onChange={(e) => setFilterText(e.target.value)}
-            />
-          </div>
-
-          <div className="space-y-1">
-            {categories
-              .filter((cat) =>
-                cat.name.toLowerCase().includes(filterText.toLowerCase())
-              )
-              .map((cat) => renderCategory(cat))}
-          </div>
+    <aside className="buyer-sidebar w-1/5 min-w-0 min-h-0 shrink-0 border-r border-blue-900/10 flex flex-col bg-blue-900 overflow-hidden">
+      <div className="p-4 shrink-0">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-white/50 mb-3 px-2">
+          Device Categories
+        </h3>
+        <div className="relative">
+          <Icon name="filter_list" className="absolute left-3 top-2.5 text-white/40 text-sm" />
+          <input
+            className="w-full bg-white/10 border-white/10 border rounded-lg pl-9 py-2 text-sm text-white focus:ring-1 focus:ring-yellow-500 placeholder:text-white/30"
+            placeholder="Filter categories..."
+            type="text"
+            value={filterText}
+            onChange={(e) => setFilterText(e.target.value)}
+          />
+        </div>
+      </div>
+      <div className="flex-1 min-h-0 overflow-y-auto buyer-panel-scroll p-4 pt-0">
+        <div className="space-y-1">
+          {filteredCategories.map((cat) => renderCategory(cat))}
         </div>
       </div>
     </aside>

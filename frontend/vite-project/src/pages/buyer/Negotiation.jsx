@@ -5,8 +5,9 @@ import EbayResearchForm from "@/components/forms/EbayResearchForm";
 import CashConvertersResearchForm from "@/components/forms/CashConvertersResearchForm";
 import { CustomDropdown } from "@/components/ui/components";
 import CustomerTransactionHeader from './components/CustomerTransactionHeader'
-import { finishRequest, fetchRequestDetail } from '@/services/api';
+import { finishRequest, fetchRequestDetail, updateCustomer } from '@/services/api';
 import { useNotification } from '@/contexts/NotificationContext';
+import NewCustomerDetailsModal from '@/components/modals/NewCustomerDetailsModal';
 
 
 const TRANSACTION_OPTIONS = [
@@ -39,38 +40,15 @@ const Negotiation = ({ mode }) => {
   const [totalExpectation, setTotalExpectation] = useState("");
   const [transactionType, setTransactionType] = useState('sale'); // Default to 'sale'
   const [isLoading, setIsLoading] = useState(true); // Always start loading, then set to false once initialized for any mode
+  const [showNewCustomerDetailsModal, setShowNewCustomerDetailsModal] = useState(false);
+  const [pendingFinishPayload, setPendingFinishPayload] = useState(null);
 
   const { showNotification } = useNotification();
 
   // Determine if we should show voucher offers
   const useVoucherOffers = transactionType === 'store_credit';
 
-  // Function to handle finalizing the transaction
-  const handleFinalizeTransaction = async () => {
-    if (!actualRequestId) { // Use actualRequestId here
-      console.error("No current request ID available to finalize.");
-      showNotification("Cannot finalize: Request ID is missing. Please return to the buyer page and start a new negotiation.", "error");
-      navigate("/buyer", { replace: true });
-      return;
-    }
-
-    // --- Validation ---
-    for (const item of items) {
-      if (!item.selectedOfferId) {
-        showNotification(`Please select an offer for item: ${item.title || 'Unknown Item'}`, 'error');
-        return; // Stop if validation fails
-      }
-
-      if (item.selectedOfferId === 'manual') {
-        const manualValue = parseFloat(item.manualOffer?.replace(/[£,]/g, '')) || 0;
-        if (manualValue <= 0) {
-          showNotification(`Please enter a valid manual offer for item: ${item.title || 'Unknown Item'}`, 'error');
-          return; // Stop if validation fails
-        }
-      }
-    }
-
-    // Calculate negotiated_price_gbp for each item
+  const buildFinishPayload = (offerPrice) => {
     const itemsData = items.map(item => {
       const quantity = item.quantity || 1;
       let negotiatedPrice = 0;
@@ -85,7 +63,6 @@ const Negotiation = ({ mode }) => {
         negotiatedPrice = selected ? selected.price : 0;
       }
 
-      // Calculate ourSalePrice for this item
       const ourSalePrice = item.ourSalePrice !== undefined && item.ourSalePrice !== null && item.ourSalePrice !== ''
         ? Number(item.ourSalePrice)
         : (item.ebayResearchData?.stats?.suggestedPrice != null
@@ -93,34 +70,90 @@ const Negotiation = ({ mode }) => {
             : null);
 
       return {
-        request_item_id: item.request_item_id, // Use the backend-assigned request_item_id
+        request_item_id: item.request_item_id,
         quantity: quantity,
         selected_offer_id: item.selectedOfferId,
         manual_offer_gbp: item.manualOffer ? (parseFloat(item.manualOffer.replace(/[£,]/g, '')) || 0) : null,
         customer_expectation_gbp: item.customerExpectation ? (parseFloat(item.customerExpectation.replace(/[£,]/g, '')) || 0) : null,
         negotiated_price_gbp: negotiatedPrice * quantity,
-        our_sale_price_at_negotiation: ourSalePrice, // Save our sale price
-        cash_offers_json: item.cashOffers || [],       // New dedicated field
-        voucher_offers_json: item.voucherOffers || [], // New dedicated field
-        raw_data: item.ebayResearchData || {},          // Only ebayResearchData
-        cash_converters_data: item.cashConvertersResearchData || {} // Cash Converters research data
+        our_sale_price_at_negotiation: ourSalePrice,
+        cash_offers_json: item.cashOffers || [],
+        voucher_offers_json: item.voucherOffers || [],
+        raw_data: item.ebayResearchData || {},
+        cash_converters_data: item.cashConvertersResearchData || {}
       };
     });
 
-    const payload = {
+    return {
       items_data: itemsData,
       overall_expectation_gbp: parseFloat(totalExpectation.replace(/[£,]/g, '')) || 0,
-      negotiated_grand_total_gbp: totalOfferPrice // totalOfferPrice is already a number
+      negotiated_grand_total_gbp: offerPrice
     };
+  };
 
+  const doFinishRequest = async (payload) => {
     try {
-      await finishRequest(actualRequestId, payload); // Use actualRequestId here
+      await finishRequest(actualRequestId, payload);
       showNotification("Transaction finalized successfully and booked for testing!", 'success');
-      navigate("/transaction-complete"); // Navigate to the new transaction complete page
+      navigate("/transaction-complete");
     } catch (error) {
       console.error("Error finalizing transaction:", error);
       showNotification(`Failed to finalize transaction: ${error.message}`, 'error');
     }
+  };
+
+  const handleFinalizeTransaction = async () => {
+    if (!actualRequestId) {
+      showNotification("Cannot finalize: Request ID is missing. Please return to the buyer page and start a new negotiation.", "error");
+      navigate("/buyer", { replace: true });
+      return;
+    }
+
+    for (const item of items) {
+      if (!item.selectedOfferId) {
+        showNotification(`Please select an offer for item: ${item.title || 'Unknown Item'}`, 'error');
+        return;
+      }
+      if (item.selectedOfferId === 'manual') {
+        const manualValue = parseFloat(item.manualOffer?.replace(/[£,]/g, '')) || 0;
+        if (manualValue <= 0) {
+          showNotification(`Please enter a valid manual offer for item: ${item.title || 'Unknown Item'}`, 'error');
+          return;
+        }
+      }
+    }
+
+    const totalOfferPrice = items.reduce((sum, item) => {
+      const qty = item.quantity || 1;
+      if (item.selectedOfferId === 'manual' && item.manualOffer) {
+        return sum + (parseFloat(item.manualOffer.replace(/[£,]/g, '')) || 0) * qty;
+      }
+      const displayOffers = useVoucherOffers ? (item.voucherOffers || item.offers) : (item.cashOffers || item.offers);
+      const selected = displayOffers?.find(o => o.id === item.selectedOfferId);
+      return sum + (selected ? selected.price * qty : 0);
+    }, 0);
+
+    const payload = buildFinishPayload(totalOfferPrice);
+
+    if (customerData?.isNewCustomer) {
+      setPendingFinishPayload(payload);
+      setShowNewCustomerDetailsModal(true);
+    } else {
+      await doFinishRequest(payload);
+    }
+  };
+
+  const handleNewCustomerDetailsSubmit = async (formData) => {
+    await updateCustomer(customerData.id, {
+      name: formData.name,
+      phone_number: formData.phone,
+      email: formData.email || null,
+      address: formData.address || '',
+      is_temp_staging: false,
+    });
+    await doFinishRequest(pendingFinishPayload);
+    setPendingFinishPayload(null);
+    setShowNewCustomerDetailsModal(false);
   };
 
   useEffect(() => {
@@ -1216,6 +1249,17 @@ const Negotiation = ({ mode }) => {
           showManualOffer={true}
         />
       )}
+
+      {/* New Customer Details Modal - shown at finalisation when customer was placeholder */}
+      <NewCustomerDetailsModal
+        open={showNewCustomerDetailsModal}
+        onClose={() => {
+          setShowNewCustomerDetailsModal(false);
+          setPendingFinishPayload(null);
+        }}
+        onSubmit={handleNewCustomerDetailsSubmit}
+        initialName={customerData?.name || ""}
+      />
 
       {/* Cash Converters Research Modal Overlay */}
       {cashConvertersResearchItem && (

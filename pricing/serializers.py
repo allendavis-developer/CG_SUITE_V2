@@ -95,13 +95,14 @@ class VariantMarketStatsSerializer(serializers.ModelSerializer):
         return "CEX"
 
 class CustomerSerializer(serializers.ModelSerializer):
-    cancel_rate = serializers.FloatField(read_only=True)  # Add this line
+    cancel_rate = serializers.FloatField(read_only=True)
 
     class Meta:
         model = Customer
-        fields = ['customer_id', 'name', 'phone_number', 'email', 'address', 'cancel_rate']
+        fields = ['customer_id', 'name', 'phone_number', 'email', 'address', 'is_temp_staging', 'cancel_rate']
         extra_kwargs = {
             'name': {'required': True},
+            'is_temp_staging': {'required': False, 'default': False},
         }
 
     def to_representation(self, instance):

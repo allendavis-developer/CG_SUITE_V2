@@ -16,6 +16,7 @@ urlpatterns = [
     path('api/market-stats/', v2.variant_market_stats),
     path('api/variant-prices/', v2.variant_prices),
     path('api/customers/', v2.customers_view),
+    path('api/customers/<int:customer_id>/', v2.customer_detail),
     path('api/requests/', v2.requests_view, name='requests'),
     path('api/requests/<int:request_id>/items/', v2.add_request_item, name='add_request_`item'),
     path('api/requests/<int:request_id>/', v2.request_detail, name='request_detail'),

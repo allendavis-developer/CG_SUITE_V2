@@ -139,6 +139,38 @@
   .material-symbols-outlined { font-size: 20px; }
 }
 
+/* Buyer page: independent scrollable panels with styled scrollbars */
+.buyer-panel-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #94a3b8 #f1f5f9;
+}
+.buyer-panel-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.buyer-panel-scroll::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 4px;
+}
+.buyer-panel-scroll::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border-radius: 4px;
+}
+.buyer-panel-scroll::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+/* Left sidebar (blue-900): blue-tinted scrollbar to match */
+.buyer-sidebar .buyer-panel-scroll {
+  scrollbar-color: rgba(59, 130, 246, 0.5) rgba(30, 58, 138, 0.5);
+}
+.buyer-sidebar .buyer-panel-scroll::-webkit-scrollbar-track {
+  background: rgba(30, 58, 138, 0.3);
+}
+.buyer-sidebar .buyer-panel-scroll::-webkit-scrollbar-thumb {
+  background: rgba(96, 165, 250, 0.5);
+  border-radius: 4px;
+}
+.buyer-sidebar .buyer-panel-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(147, 197, 253, 0.7);
+}
+
 @layer components {
   .data-table th {
     @apply bg-slate-50 text-brand-blue font-bold text-[11px] uppercase tracking-wider px-6 py-4 border-b border-ui-border sticky top-0 z-10;

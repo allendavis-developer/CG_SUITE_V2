@@ -1,10 +1,9 @@
 import React, { useState, useRef, useEffect } from "react";
-import { SearchableDropdown } from "../ui/components"; // import your component
-
-
-
+import { SearchableDropdown } from "../ui/components";
+import { createCustomer } from "@/services/api";
 
 export default function CustomerIntakeModal({ open = true, onClose }) {
+  const [customerType, setCustomerType] = useState("existing"); // "existing" | "new"
   const [selectedCustomer, setSelectedCustomer] = useState("");
   const [transactionType, setTransactionType] = useState("sale"); // "sale", "buyback", or "store_credit"
   const [customers, setCustomers] = useState([]);
@@ -109,24 +108,49 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
 
   if (!open) return null;
 
-const handleConfirm = async () => {
-  const customerData = {
-    name: nameRef.current?.value || "",
-    phone_number: phoneRef.current?.value || "",
-    email: emailRef.current?.value || "",
-    address: addressRef.current?.value || "",
+  const handleNewCustomerStart = async () => {
+    setError(null);
+    try {
+      const timestamp = Date.now();
+      const placeholder = await createCustomer({
+        name: `New Customer ${new Date(timestamp).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })}`,
+        phone_number: `NEW-${timestamp}`,
+        email: null,
+        address: "",
+        is_temp_staging: true,
+      });
+      onClose({
+        isNewCustomer: true,
+        isExisting: false,
+        transactionType,
+        id: placeholder.id,
+        customerName: placeholder.name,
+        cancelRate: 0,
+      });
+    } catch (err) {
+      setError(err.message || "Failed to create new customer");
+    }
   };
 
-  // Validate required fields
-  if (!customerData.name.trim()) {
-    setError("Customer name is required");
-    return;
-  }
+  const handleConfirm = async () => {
+    const customerData = {
+      name: nameRef.current?.value || "",
+      phone_number: phoneRef.current?.value || "",
+      email: emailRef.current?.value || "",
+      address: addressRef.current?.value || "",
+    };
 
-  // Existing customer - just return the data
-  const selectedCustomerData = customers.find(c => c.name === selectedCustomer);
-  onClose({
+    // Validate required fields
+    if (!customerData.name.trim()) {
+      setError("Customer name is required");
+      return;
+    }
+
+    // Existing customer - just return the data
+    const selectedCustomerData = customers.find(c => c.name === selectedCustomer);
+    onClose({
       isExisting: true,
+      isNewCustomer: false,
       transactionType,
       customer: selectedCustomerData,
       id: selectedCustomerData?.id,
@@ -134,12 +158,8 @@ const handleConfirm = async () => {
       phone: phoneRef.current?.value || "",
       email: emailRef.current?.value || "",
       address: addressRef.current?.value || "",
-      cancelRate: tempCR || selectedCustomerData?.cancel_rate || 0, // use tempCR if set
-  });
-};
-
-  const handleCancel = () => {
-    onClose(null);
+      cancelRate: tempCR || selectedCustomerData?.cancel_rate || 0,
+    });
   };
 
   // Get customer names for dropdown
@@ -147,11 +167,8 @@ const handleConfirm = async () => {
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={handleCancel}
-      />
+      {/* Backdrop - non-dismissible, must select new or existing customer */}
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
 
       {/* Modal */}
       <div className="relative bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col">
@@ -164,20 +181,46 @@ const handleConfirm = async () => {
             <div>
               <h3 className="text-xl font-bold leading-none">Customer Intake</h3>
               <p className="text-white/70 text-sm mt-1">
-                Find and select an existing customer to proceed
+                {customerType === "new" ? "Browse first, add customer details when you book" : "Find and select an existing customer to proceed"}
               </p>
             </div>
           </div>
-          <button
-            onClick={handleCancel}
-            className="size-10 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors"
-          >
-            <span className="material-symbols-outlined">close</span>
-          </button>
         </header>
 
+        {/* New vs Existing Customer Toggle */}
+        <div className="px-8 pt-6">
+          <div className="bg-gray-100 p-1 rounded-xl grid grid-cols-2 gap-1 border border-gray-200 mb-6">
+            <label className="cursor-pointer">
+              <input
+                type="radio"
+                name="customer-type"
+                className="hidden peer"
+                checked={customerType === "existing"}
+                onChange={() => { setCustomerType("existing"); setError(null); }}
+              />
+              <div className="flex items-center justify-center gap-2 py-3 rounded-lg text-sm font-bold transition-all peer-checked:bg-white peer-checked:shadow-sm text-gray-500 peer-checked:text-blue-900 peer-checked:text-blue-900">
+                <span className="material-symbols-outlined text-lg">person</span>
+                Existing Customer
+              </div>
+            </label>
+            <label className="cursor-pointer">
+              <input
+                type="radio"
+                name="customer-type"
+                className="hidden peer"
+                checked={customerType === "new"}
+                onChange={() => { setCustomerType("new"); setError(null); }}
+              />
+              <div className="flex items-center justify-center gap-2 py-3 rounded-lg text-sm font-bold transition-all peer-checked:bg-white peer-checked:shadow-sm text-gray-500 peer-checked:text-emerald-600 peer-checked:text-emerald-600">
+                <span className="material-symbols-outlined text-lg">person_add</span>
+                New Customer
+              </div>
+            </label>
+          </div>
+        </div>
+
         {/* Toggle - Transaction Type */}
-        <div className="px-8 pt-8 pb-6">
+        <div className="px-8 pb-6">
           <div className="bg-gray-100 p-1 rounded-xl grid grid-cols-3 gap-1 border border-gray-200">
             <label className="cursor-pointer">
               <input
@@ -229,6 +272,22 @@ const handleConfirm = async () => {
 
         {/* Body */}
         <div className="px-8 pb-8 flex-1 overflow-y-auto">
+          {/* New Customer - show simple CTA */}
+          {customerType === "new" && !loading && (
+            <div className="mb-6 p-6 bg-emerald-50 border border-emerald-200 rounded-xl">
+              <p className="text-sm text-emerald-800 mb-4">
+                Start browsing and add items to cart. You&apos;ll enter customer details when you book for testing.
+              </p>
+              <button
+                onClick={handleNewCustomerStart}
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 px-6 rounded-xl flex items-center justify-center gap-2 transition-all"
+              >
+                Start Browsing
+                <span className="material-symbols-outlined">arrow_forward</span>
+              </button>
+            </div>
+          )}
+
           {/* Loading State */}
           {loading && (
             <div className="mb-6 bg-gray-50 border border-gray-200 rounded-xl p-4 flex items-center gap-3">
@@ -255,7 +314,7 @@ const handleConfirm = async () => {
           )}
 
           {/* SearchableDropdown for Existing Customer */}
-          {!loading && (
+          {!loading && customerType === "existing" && (
           <div className="mb-6 space-y-4">
             {/* Local Customer Dropdown */}
             <SearchableDropdown
@@ -312,7 +371,7 @@ const handleConfirm = async () => {
         )}
 
           {/* Info Banner */}
-          {selectedCustomer && (
+          {customerType === "existing" && selectedCustomer && (
             <div className="mb-6 bg-blue-900/5 border border-blue-900/20 rounded-xl p-4 flex items-start gap-3">
               <span className="material-symbols-outlined text-blue-900 mt-0.5">
                 info
@@ -328,7 +387,8 @@ const handleConfirm = async () => {
             </div>
           )}
 
-        {/* Form */}
+        {/* Form - only for existing customer */}
+        {customerType === "existing" && (
         <div className="grid grid-cols-1 gap-5">
             <div className="flex flex-col gap-1.5">
             <label className="text-xs font-bold uppercase tracking-wider text-gray-500">
@@ -399,17 +459,13 @@ const handleConfirm = async () => {
             </div>
             )}
         </div>
+        )}
         
         </div>
 
-        {/* Footer */}
-        <footer className="p-8 border-t border-gray-100 flex items-center justify-between bg-white/50">
-          <button
-            onClick={handleCancel}
-            className="px-6 py-3 text-sm font-bold text-gray-600 hover:text-gray-900 transition-colors"
-          >
-            Cancel
-          </button>
+        {/* Footer - only for existing customer flow */}
+        {customerType === "existing" && (
+        <footer className="p-8 border-t border-gray-100 flex items-center justify-end bg-white/50">
           <button
             onClick={handleConfirm}
             className="bg-yellow-500 hover:brightness-105 active:scale-[0.98] text-blue-900 font-black py-4 px-10 rounded-xl shadow-lg shadow-yellow-500/20 flex items-center gap-2 transition-all"
@@ -420,6 +476,7 @@ const handleConfirm = async () => {
             </span>
           </button>
         </footer>
+        )}
       </div>
     </div>
   );
