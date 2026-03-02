@@ -387,7 +387,7 @@ export const RecentItem = ({ image, title, sku, onClick }) => (
 
 
 // Sidebar Component
-export const Sidebar = ({ onCategorySelect }) => {
+export const Sidebar = ({ onCategorySelect, onAddFromCeX, isCeXLoading }) => {
   const [categories, setCategories] = useState([]);
   const [expandedCategories, setExpandedCategories] = useState([]);
   const [filterText, setFilterText] = useState('');
@@ -540,6 +540,19 @@ export const Sidebar = ({ onCategorySelect }) => {
         <div className="space-y-1">
           {filteredCategories.map((cat) => renderCategory(cat))}
         </div>
+        {onAddFromCeX && (
+          <div className="mt-4 pt-4 border-t border-white/10">
+            <button
+              type="button"
+              onClick={onAddFromCeX}
+              disabled={isCeXLoading}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-400 font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed border border-yellow-500/30"
+            >
+              <Icon name="add_link" className="text-sm" />
+              {isCeXLoading ? 'Waiting for CeX listing…' : 'Add from CeX'}
+            </button>
+          </div>
+        )}
       </div>
     </aside>
   );

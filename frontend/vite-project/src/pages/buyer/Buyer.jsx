@@ -6,7 +6,8 @@ import CartSidebar from '@/pages/buyer/components/CartSidebar';
 import { useLocation } from 'react-router-dom';
 import { useNotification } from '@/contexts/NotificationContext';
 
-import { fetchProductModels, updateRequestItemRawData, fetchRequestDetail } from '@/services/api';
+import { fetchProductModels, updateRequestItemRawData, fetchRequestDetail, fetchCeXProductPrices } from '@/services/api';
+import { getDataFromListingPage } from '@/services/extensionClient';
 
 export default function Buyer() {
   const location = useLocation();
@@ -33,6 +34,10 @@ export default function Buyer() {
   // Confirmation dialog state
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [pendingTransactionType, setPendingTransactionType] = useState(null);
+
+  // CeX Add from listing flow (waits for user to go to product-detail page)
+  const [cexLoading, setCexLoading] = useState(false);
+  const [cexProductData, setCexProductData] = useState(null);
 
   // Restore cart state on navigation
   useEffect(() => {
@@ -76,12 +81,13 @@ export default function Buyer() {
           const nextOffers = useVoucher
             ? item.voucherOffers ?? []
             : item.cashOffers ?? [];
-          
-          return {
-            ...item,
-            offers: nextOffers,
-            offerType: useVoucher ? 'voucher' : 'cash'
-          };
+          return { ...item, offers: nextOffers, offerType: useVoucher ? 'voucher' : 'cash' };
+        }
+
+        // CeX Add-from-CeX items
+        if (item.isCustomCeXItem) {
+          const nextOffers = useVoucher ? item.voucherOffers ?? [] : item.cashOffers ?? [];
+          return { ...item, offers: nextOffers, offerType: useVoucher ? 'voucher' : 'cash' };
         }
 
         const nextOffers = useVoucher
@@ -161,9 +167,53 @@ export default function Buyer() {
       setPendingTransactionType(null);
   };
 
+  const handleAddFromCeX = async () => {
+    setCexLoading(true);
+    setCexProductData(null);
+    try {
+      console.log('[CG Suite] handleAddFromCeX: calling getDataFromListingPage("CeX")');
+      const data = await getDataFromListingPage('CeX');
+      console.log('[CG Suite] handleAddFromCeX: extension returned', data);
+
+      if (data?.success && Array.isArray(data.results) && data.results.length > 0) {
+        const product = data.results[0];
+        const payload = {
+          sellPrice: product.sellPrice ?? product.price,
+          tradeInCash: product.tradeInCash ?? 0,
+          tradeInVoucher: product.tradeInVoucher ?? 0,
+          title: product.title,
+          category: product.category,
+          image: product.image,
+          id: product.id
+        };
+        console.log('[CG Suite] handleAddFromCeX: scraped product', product, '-> payload for API', payload);
+
+        const priceData = await fetchCeXProductPrices(payload);
+        console.log('[CG Suite] handleAddFromCeX: fetchCeXProductPrices returned', priceData);
+
+        const merged = { ...product, ...priceData, listingPageUrl: data.listingPageUrl };
+        setCexProductData(merged);
+        console.log('[CG Suite] handleAddFromCeX: set cexProductData', merged);
+        showNotification('CeX product loaded', 'success');
+      } else {
+        console.warn('[CG Suite] handleAddFromCeX: no results', data);
+        showNotification(data?.error || 'No data returned', 'error');
+      }
+    } catch (err) {
+      console.error('[CG Suite] handleAddFromCeX error:', err);
+      showNotification(err?.message || 'Extension communication failed. Is the Chrome extension installed?', 'error');
+    } finally {
+      setCexLoading(false);
+    }
+  };
+
+  const handleClearCeXProduct = () => {
+    setCexProductData(null);
+  };
 
   const handleCategorySelect = async (category) => {
-    setSelectedCartItem(null)
+    setSelectedCartItem(null);
+    setCexProductData(null);
     setSelectedCategory(category);
     setSelectedModel(null);
     const models = await fetchProductModels(category);
@@ -194,6 +244,15 @@ export default function Buyer() {
             cartItem.isCustomCashConvertersItem &&
             cartItem.title === item.title &&
             cartItem.category === item.category
+          );
+        }
+
+        // For CeX items from Add from CeX, match by title and subtitle
+        if (item.isCustomCeXItem) {
+          return (
+            cartItem.isCustomCeXItem &&
+            cartItem.title === item.title &&
+            cartItem.subtitle === item.subtitle
           );
         }
         
@@ -325,7 +384,11 @@ export default function Buyer() {
 
       <Header onSearch={(val) => console.log('Search:', val)} />
       <main className="flex flex-1 min-h-0 overflow-hidden">
-        <Sidebar onCategorySelect={handleCategorySelect} />
+        <Sidebar
+          onCategorySelect={handleCategorySelect}
+          onAddFromCeX={handleAddFromCeX}
+          isCeXLoading={cexLoading}
+        />
         <MainContent 
           selectedCategory={selectedCategory} 
           availableModels={availableModels}
@@ -341,6 +404,9 @@ export default function Buyer() {
           setRequest={setRequest}
           selectedCartItem={selectedCartItem}
           cartItems={cartItems}
+          cexProductData={cexProductData}
+          setCexProductData={setCexProductData}
+          onClearCeXProduct={handleClearCeXProduct}
         />
       <CartSidebar 
         cartItems={cartItems} 

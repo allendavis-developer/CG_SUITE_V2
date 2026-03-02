@@ -65,6 +65,111 @@
         return results;
       }
     },
+    cex: {
+      competitor: 'CeX',
+      isListingsPage(url) {
+        return (url.includes('webuy.com') && /\/product-detail\?.*id=/.test(url));
+      },
+      getSearchTerm() {
+        const titleEl = document.querySelector('.product-detail h1, h1.heading-s-semibold, h1');
+        return (titleEl && (titleEl.textContent || '').trim()) || '';
+      },
+      getListContainer() {
+        return document.body;
+      },
+      scrapeCards(container) {
+        const doc = container || document;
+        const results = [];
+
+        const titleEl = doc.querySelector('.product-detail h1, h1.heading-s-semibold, h1');
+        const title = (titleEl && (titleEl.textContent || '').trim()) || 'CeX Product';
+
+        const categoryEl = doc.querySelector('.product-category');
+        let category = (categoryEl && (categoryEl.textContent || '').trim()) || '';
+        if (!category) {
+          const m = window.location.href.match(/categoryName=([^&]+)/);
+          if (m) category = (m[1] || '').replace(/-/g, ' ');
+        }
+
+        // Prices from: <span class="sell-price">£135.00</span> and nuxtlink with two <span class="body-s-medium"> (voucher, cash)
+        const sellPriceEl = doc.querySelector('span.sell-price');
+        const sellPriceRaw = (sellPriceEl && (sellPriceEl.textContent || '').trim()) || '0';
+        const sellPrice = parseFloat(sellPriceRaw.replace(/[^0-9.]/g, '')) || 0;
+
+        let tradeInVoucher = 0;
+        let tradeInCash = 0;
+        const priceWrap = sellPriceEl && sellPriceEl.parentElement;
+        if (priceWrap) {
+          const priceSpans = priceWrap.querySelectorAll('span.body-s-medium');
+          if (priceSpans.length >= 2) {
+            tradeInVoucher = parseFloat((priceSpans[0].textContent || '').replace(/[^0-9.]/g, '')) || 0;
+            tradeInCash = parseFloat((priceSpans[1].textContent || '').replace(/[^0-9.]/g, '')) || 0;
+          }
+        }
+        if (tradeInVoucher === 0 && tradeInCash === 0) {
+          const sellToCexText = doc.querySelector('.sell-to-cex-text');
+          if (sellToCexText) {
+            const m = (sellToCexText.textContent || '').match(/Get\s+£([\d.]+)\s+cash\s+or\s+a\s+£([\d.]+)\s+voucher/);
+            if (m) {
+              tradeInCash = parseFloat(m[1]) || 0;
+              tradeInVoucher = parseFloat(m[2]) || 0;
+            }
+          }
+        }
+
+        // Product image: prefer .ximagezoom-image or product_images URL (exclude uk_badge)
+        const imgEl = doc.querySelector('.ximagezoom-image') ||
+          doc.querySelector('img[src*="product_images"]') ||
+          (function () {
+            const imgs = doc.querySelectorAll('img[src*="webuy"]');
+            for (let i = 0; i < imgs.length; i++) {
+              if (!imgs[i].src.includes('uk_badge')) return imgs[i];
+            }
+            return null;
+          })();
+        const image = (imgEl && imgEl.src) || null;
+        const pageUrl = window.location.href;
+        const sku = (pageUrl.match(/id=([^&]+)/) || [])[1] || null;
+
+        // Specifications from ul.specifications-2-cols: <li><div><span class="font-semibold">Label:</span> <span class="text-sm">Value</span></div></li>
+        const specs = {};
+        let modelName = '';
+        const specUl = doc.querySelector('ul.specifications-2-cols');
+        if (specUl) {
+          specUl.querySelectorAll('li').forEach(function (li) {
+            const labelSpan = li.querySelector('span.font-semibold');
+            const valueSpan = li.querySelector('span.text-sm');
+            if (labelSpan && valueSpan) {
+              const label = (labelSpan.textContent || '').replace(/:$/, '').trim();
+              const value = (valueSpan.textContent || '').trim();
+              if (label && value) {
+                specs[label] = value;
+                if (label === 'Model Name') modelName = value;
+              }
+            }
+          });
+        }
+
+        const scraped = {
+          title: title.slice(0, 200),
+          price: sellPrice,
+          url: pageUrl,
+          image: image,
+          id: sku,
+          sellPrice: sellPrice,
+          tradeInVoucher: tradeInVoucher,
+          tradeInCash: tradeInCash,
+          category: category,
+          specifications: specs,
+          modelName: modelName || title
+        };
+        if (typeof console !== 'undefined') {
+          console.log('[CG Suite CeX] scrapeCards result:', JSON.stringify(scraped));
+        }
+        results.push(scraped);
+        return results;
+      }
+    },
     cashconverters: {
       competitor: 'CashConverters',
       isListingsPage(url) {
@@ -124,6 +229,7 @@
     const host = window.location.hostname || '';
     if (host.includes('ebay')) return SITE_CONFIGS.ebay;
     if (host.includes('cashconverters')) return SITE_CONFIGS.cashconverters;
+    if (host.includes('webuy.com')) return SITE_CONFIGS.cex;
     return null;
   }
 
@@ -147,8 +253,17 @@
     }
   }
 
+  function removePanelIfNotListingsPage() {
+    if (!document.getElementById('cg-suite-research-panel')) return;
+    if (!isListingsPage()) {
+      const panel = document.getElementById('cg-suite-research-panel');
+      if (panel) panel.remove();
+    }
+  }
+
   function showPanel(isRefine) {
     if (document.getElementById('cg-suite-research-panel')) return;
+    if (!isListingsPage()) return;
 
     const heading = isRefine ? 'Are you done?' : 'Have you got the data yet?';
     const buttonLabel = isRefine ? 'Yes, bring me back' : 'Yes';
@@ -172,6 +287,10 @@
     document.body.appendChild(panel);
 
     document.getElementById('cg-suite-research-yes').addEventListener('click', function () {
+      if (!isListingsPage()) {
+        panel.remove();
+        return;
+      }
       const data = scrapeListings();
       if (currentRequestId) {
         chrome.runtime.sendMessage({
@@ -191,14 +310,17 @@
     const searchTerm = config ? config.getSearchTerm() : '';
     const container = config ? config.getListContainer() : null;
     const results = config ? config.scrapeCards(container) : [];
-
-    return {
+    const out = {
       success: true,
       results: results,
       competitor: competitor,
       searchTerm: searchTerm,
       listingPageUrl: window.location.href
     };
+    if (typeof console !== 'undefined') {
+      console.log('[CG Suite] scrapeListings returning:', JSON.stringify(out, null, 2));
+    }
+    return out;
   }
 
   if (document.readyState === 'loading') {
@@ -206,4 +328,12 @@
   } else {
     maybeNotifyReady();
   }
+
+  // Poll: show panel when on listing page (CeX SPA), remove when user navigates away (all sites).
+  setInterval(function () {
+    if (getSiteConfig() === SITE_CONFIGS.cex) {
+      maybeNotifyReady();
+    }
+    removePanelIfNotListingsPage();
+  }, 1500);
 })();

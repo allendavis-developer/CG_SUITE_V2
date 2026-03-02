@@ -20,6 +20,23 @@ from .serializers import ( RequestSerializer, RequestItemSerializer, CustomerSer
 ProductCategorySerializer, ProductSerializer, CustomerSerializer, VariantMarketStatsSerializer
 )
 
+
+def _resolve_cex_sku_to_variant(item_payload):
+    """When variant is null and cex_sku (CeX product ID from URL) is provided, look up variant and use it."""
+    if item_payload.get('variant') is not None:
+        return
+    cex_sku = item_payload.pop('cex_sku', None)
+    if not cex_sku and item_payload.get('raw_data'):
+        cex_sku = item_payload.get('raw_data', {}).get('id')
+    if not cex_sku:
+        return
+    try:
+        v = Variant.objects.get(cex_sku=str(cex_sku))
+        item_payload['variant'] = v.variant_id
+    except Variant.DoesNotExist:
+        pass
+
+
 @api_view(['GET'])
 def categories_list(request):
     # Fetch top-level categories only (parent_category is None)
@@ -194,6 +211,7 @@ def requests_view(request):
             # Create the first item
             item_payload = item_data.copy()  # ✅ Create a copy
             item_payload['request'] = new_request.request_id
+            _resolve_cex_sku_to_variant(item_payload)
             item_serializer = RequestItemSerializer(data=item_payload)
 
             if item_serializer.is_valid():
@@ -227,7 +245,8 @@ def add_request_item(request, request_id):
     # Add request to the data
     item_data = request.data.copy()
     item_data['request'] = request_id
-    
+    _resolve_cex_sku_to_variant(item_data)
+
     serializer = RequestItemSerializer(data=item_data)
     
     if serializer.is_valid():
@@ -708,7 +727,78 @@ def variant_prices(request):
         "voucher_offers": voucher_offers,
         "reference_data": reference_data
     })
-    
+
+
+@api_view(['POST'])
+def cex_product_prices(request):
+    """
+    Calculate offers from scraped CeX product-detail page data (no variant).
+    Used when adding a product via "Add from CeX" - we have sell/trade-in prices
+    from the page but no variant in our DB.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    data = request.data or {}
+    logger.info("[CG Suite] cex_product_prices received: %s", data)
+
+    sell_price = data.get('sell_price') or data.get('sellPrice')
+    tradein_cash = data.get('tradein_cash') or data.get('tradeInCash')
+    tradein_voucher = data.get('tradein_voucher') or data.get('tradeInVoucher')
+
+    if sell_price is None and tradein_cash is None and tradein_voucher is None:
+        return Response(
+            {"detail": "At least one of sell_price, tradein_cash, tradein_voucher is required"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    cex_sale_price = float(sell_price or 0)
+    cex_tradein_cash = float(tradein_cash or 0)
+    cex_tradein_voucher = float(tradein_voucher or 0)
+
+    percentage_used = 85.0
+    our_sale_price = cex_sale_price * 0.85
+
+    def calculate_margin_percentage(offer_price, sale_price):
+        if sale_price <= 0:
+            return 0
+        margin_amount = sale_price - offer_price
+        return round((margin_amount / sale_price) * 100, 1)
+
+    def generate_offer_set(cex_reference_buy_price, prefix):
+        cex_abs_margin = cex_sale_price - cex_reference_buy_price
+        offer_1 = max(our_sale_price - cex_abs_margin, 0)
+        offer_3 = cex_reference_buy_price
+        offer_2 = (offer_1 + offer_3) / 2
+        return [
+            {"id": f"{prefix}_1", "title": "First Offer", "price": round(offer_1, 2), "margin": calculate_margin_percentage(offer_1, our_sale_price)},
+            {"id": f"{prefix}_2", "title": "Second Offer", "price": round(offer_2, 2), "margin": calculate_margin_percentage(offer_2, our_sale_price)},
+            {"id": f"{prefix}_3", "title": "Third Offer", "price": round(offer_3, 2), "margin": calculate_margin_percentage(offer_3, our_sale_price), "isHighlighted": True},
+        ]
+
+    cash_offers = generate_offer_set(cex_tradein_cash, "cash")
+    voucher_offers = generate_offer_set(cex_tradein_voucher, "voucher")
+
+    reference_data = {
+        "cex_sale_price": cex_sale_price,
+        "cex_tradein_cash": cex_tradein_cash,
+        "cex_tradein_voucher": cex_tradein_voucher,
+        "cex_based_sale_price": round(our_sale_price, 2),
+        "percentage_used": percentage_used
+    }
+    image_url = data.get('image_url') or data.get('image')
+    if image_url:
+        reference_data["cex_image_urls"] = {"large": image_url, "medium": image_url, "small": image_url}
+
+    response_data = {
+        "sku": data.get('sku') or data.get('id'),
+        "cash_offers": cash_offers,
+        "voucher_offers": voucher_offers,
+        "reference_data": reference_data
+    }
+    logger.info("[CG Suite] cex_product_prices response: %s", response_data)
+    return Response(response_data)
+
+
 # react app
 def react_app(request):
     return render(request, "react.html")

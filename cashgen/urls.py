@@ -15,6 +15,7 @@ urlpatterns = [
     path('api/product-variants/', v2.product_variants),  
     path('api/market-stats/', v2.variant_market_stats),
     path('api/variant-prices/', v2.variant_prices),
+    path('api/cex-product-prices/', v2.cex_product_prices),
     path('api/customers/', v2.customers_view),
     path('api/customers/<int:customer_id>/', v2.customer_detail),
     path('api/requests/', v2.requests_view, name='requests'),

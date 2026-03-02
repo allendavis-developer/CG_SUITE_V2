@@ -22,16 +22,21 @@ export async function scrapeCashConverters(params) {
 }
 
 /**
- * Open eBay or Cash Converters in a new tab and wait for the user to confirm
- * they're on a listings page and click "Yes" in the extension panel.
+ * Open eBay, Cash Converters, or CeX in a new tab and wait for the user to confirm
+ * they're on a listings page (or CeX product-detail page) and click "Yes" in the extension panel.
  * Returns scraped listing data when the user confirms.
- * @param {string} competitor - 'eBay' or 'CashConverters'
+ * @param {string} competitor - 'eBay', 'CashConverters', or 'CeX'
  * @param {string} [searchQuery] - Optional search term to pre-populate the URL (e.g. product name)
  */
 export async function getDataFromListingPage(competitor, searchQuery) {
-  const payload = competitor === 'CashConverters'
-    ? { action: 'startWaitingForData', competitor: 'CashConverters', searchQuery: searchQuery || null }
-    : { action: 'startWaitingForData', competitor: 'eBay', searchQuery: searchQuery || null };
+  let payload;
+  if (competitor === 'CashConverters') {
+    payload = { action: 'startWaitingForData', competitor: 'CashConverters', searchQuery: searchQuery || null };
+  } else if (competitor === 'CeX') {
+    payload = { action: 'startWaitingForData', competitor: 'CeX', searchQuery: searchQuery || null };
+  } else {
+    payload = { action: 'startWaitingForData', competitor: 'eBay', searchQuery: searchQuery || null };
+  }
   return sendMessage(payload);
 }
 

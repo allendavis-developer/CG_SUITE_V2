@@ -40,7 +40,10 @@ const MainContent = ({
   request,
   setRequest,
   selectedCartItem = null,
-  cartItems = []  // Used to detect duplicates and avoid creating extra request items
+  cartItems = [],  // Used to detect duplicates and avoid creating extra request items
+  cexProductData = null,
+  setCexProductData = null,
+  onClearCeXProduct = null
 }) => {
   // Determine if we should use voucher offers based on transaction type
   const useVoucherOffers = customerData?.transactionType === 'store_credit';
@@ -60,6 +63,8 @@ const MainContent = ({
   const [savedEbayState, setSavedEbayState] = useState(null);
   const [cashConvertersData, setCashConvertersData] = useState(null);
   const [savedCashConvertersState, setSavedCashConvertersState] = useState(null);
+  const [isCeXEbayModalOpen, setCeXEbayModalOpen] = useState(false);
+  const [isCeXCashConvertersModalOpen, setCeXCashConvertersModalOpen] = useState(false);
 
   const {
     attributes,
@@ -276,13 +281,16 @@ const MainContent = ({
     }
   }, [selectedCartItem, variants, useVoucherOffers]);
 
-  const createOrAppendRequestItem = async ({ variantId, rawData }) => {
+  const createOrAppendRequestItem = async ({ variantId, rawData, cexSku }) => {
     const itemPayload = {
-      variant: variantId ?? null,   // 👈 key line
+      variant: variantId ?? null,
       expectation_gbp: null,
       raw_data: rawData,
       notes: ''
     };
+    if (cexSku != null) {
+      itemPayload.cex_sku = cexSku;
+    }
 
     if (!request) {
       // Validate required fields before creating request
@@ -301,7 +309,11 @@ const MainContent = ({
 
       const newRequest = await createRequest(payload);
       setRequest(newRequest);
-      return newRequest.items[0].request_item_id;
+      const firstItem = newRequest?.items?.[0];
+      if (!firstItem?.request_item_id) {
+        throw new Error('Invalid response: request created but no request_item_id returned');
+      }
+      return firstItem.request_item_id;
     } else {
       const created = await addRequestItem(request.request_id, itemPayload);
       return created.request_item_id;
@@ -353,7 +365,7 @@ const MainContent = ({
     );
 
     const cartItem = {
-      id: Date.now(),
+      id: crypto.randomUUID?.() ?? `cart-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       title: selectedModel.name,
       subtitle:
         selectedVariant?.title ||
@@ -429,7 +441,7 @@ const MainContent = ({
       }));
 
       const customCartItem = {
-        id: Date.now(),
+        id: crypto.randomUUID?.() ?? `cart-${Date.now()}-${Math.random().toString(36).slice(2)}`,
         title: data.searchTerm || "eBay Research Item",
         subtitle: filterSubtitle,
         quantity: 1,
@@ -516,7 +528,7 @@ const MainContent = ({
       }));
 
       const customCartItem = {
-        id: Date.now(),
+        id: crypto.randomUUID?.() ?? `cart-${Date.now()}-${Math.random().toString(36).slice(2)}`,
         title: data.searchTerm || "Cash Converters Research Item",
         subtitle: filterSubtitle,
         quantity: 1,
@@ -562,6 +574,255 @@ const MainContent = ({
       }
     }
   };
+
+  // CeX product from "Add from CeX" flow – use normal MainContent layout (no config/condition)
+  if (cexProductData) {
+    console.log('[CG Suite MainContent] rendering CeX product', cexProductData);
+
+    const useVoucherOffers = customerData?.transactionType === 'store_credit';
+    const offers = useVoucherOffers ? (cexProductData.voucher_offers || []) : (cexProductData.cash_offers || []);
+    const refData = cexProductData.referenceData || {};
+    const refWithOurSale = { ...refData, our_sale_price: refData.cex_based_sale_price };
+    const imageUrl = refData.cex_image_urls?.large || refData.cex_image_urls?.medium || cexProductData.image;
+    const breadcrumbItems = ['CeX', cexProductData.category || 'Product'].filter(Boolean);
+
+    const handleAddCeXToCart = async () => {
+      const cashOffers = (cexProductData.cash_offers || []).map((o, idx) => ({
+        id: o.id || `cex-cash-${Date.now()}-${idx}`,
+        title: o.title || ['First Offer', 'Second Offer', 'Third Offer'][idx],
+        price: Number(o.price)
+      }));
+      const voucherOffers = (cexProductData.voucher_offers || []).map((o, idx) => ({
+        id: o.id || `cex-voucher-${Date.now()}-${idx}`,
+        title: o.title || ['First Offer', 'Second Offer', 'Third Offer'][idx],
+        price: Number(o.price)
+      }));
+      const customCartItem = {
+        id: crypto.randomUUID?.() ?? `cart-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        title: cexProductData.title || 'CeX Product',
+        subtitle: cexProductData.category || '',
+        quantity: 1,
+        category: 'CeX',
+        categoryObject: { name: 'CeX', path: ['CeX'] },
+        offers: useVoucherOffers ? voucherOffers : cashOffers,
+        cashOffers,
+        voucherOffers,
+        isCustomCeXItem: true,
+        variantId: null,
+        request_item_id: null,
+        referenceData: refData,
+        ourSalePrice: refData.cex_based_sale_price ? Number(refData.cex_based_sale_price) : null,
+        cexSellPrice: refData.cex_sale_price ? Number(refData.cex_sale_price) : null,
+        cexBuyPrice: refData.cex_tradein_cash ? Number(refData.cex_tradein_cash) : null,
+        cexVoucherPrice: refData.cex_tradein_voucher ? Number(refData.cex_tradein_voucher) : null,
+        ebayResearchData: cexProductData.ebayResearchData || null,
+        cashConvertersResearchData: cexProductData.cashConvertersResearchData || null,
+        cexProductData
+      };
+      const isDuplicateCeX = cartItems.some(
+        (ci) => ci.isCustomCeXItem && ci.title === customCartItem.title && ci.subtitle === customCartItem.subtitle
+      );
+      try {
+        if (isDuplicateCeX) {
+          addToCart(customCartItem);
+        } else {
+          const requestItemId = await createOrAppendRequestItem({ variantId: null, rawData: cexProductData, cexSku: cexProductData.id });
+          customCartItem.request_item_id = requestItemId;
+          addToCart(customCartItem);
+        }
+        onClearCeXProduct?.();
+      } catch (err) {
+        console.error('[CG Suite] Failed to add CeX item to request:', err);
+        alert('Failed to add CeX item to request. Check console for details.');
+      }
+    };
+
+    return (
+      <section className="buyer-main-content w-3/5 min-w-0 min-h-0 flex-1 bg-white flex flex-col overflow-y-auto buyer-panel-scroll">
+        <div className="px-8 py-6 border-b border-gray-200 bg-gray-50/50">
+          <div className="flex items-center justify-between">
+            <div>
+              <Breadcrumb items={breadcrumbItems} />
+              <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight mt-2">
+                {cexProductData.title || 'CeX Product'}
+              </h1>
+            </div>
+            <div className="flex items-center gap-3">
+              {onClearCeXProduct && (
+                <button
+                  type="button"
+                  onClick={onClearCeXProduct}
+                  className="text-gray-500 hover:text-gray-700 p-2"
+                  aria-label="Close"
+                >
+                  <Icon name="close" />
+                </button>
+              )}
+              <Button variant="primary" icon="add_shopping_cart" className="px-8 py-4 text-base font-bold" onClick={handleAddCeXToCart}>
+                Add to Cart
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-8 space-y-8">
+          <div className="bg-gray-50 p-6 rounded-xl border border-gray-200">
+            <div className="flex gap-8 items-start">
+              {imageUrl && (
+                <div className="flex-shrink-0 w-80 h-80 rounded-lg overflow-hidden border border-gray-200 bg-white flex items-center justify-center">
+                  <img src={imageUrl} alt={cexProductData.title} className="w-full h-full object-contain" />
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3">Product details</h2>
+                <ul className="grid grid-cols-2 gap-x-8 gap-y-2">
+                  {cexProductData.specifications && Object.entries(cexProductData.specifications).map(([label, value]) => (
+                    <li key={label} className="flex">
+                      <div>
+                        <span className="font-semibold text-gray-700 mr-2">{label}:</span>
+                        <span className="text-sm text-gray-900">{value}</span>
+                      </div>
+                    </li>
+                  ))}
+                  {(!cexProductData.specifications || Object.keys(cexProductData.specifications).length === 0) && (
+                    <li className="col-span-2 text-sm text-gray-500">No specifications</li>
+                  )}
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <MarketComparisonsTable
+            variant="cex"
+            competitorStats={refData.cex_sale_price != null ? [{ salePrice: refData.cex_sale_price, buyPrice: refData.cex_tradein_cash }] : []}
+            ourSalePrice={refData.cex_based_sale_price || ''}
+            referenceData={refData}
+            ebayData={cexProductData.ebayResearchData || null}
+            setEbayModalOpen={setCexProductData ? () => setCeXEbayModalOpen(true) : () => {}}
+            cashConvertersData={cexProductData.cashConvertersResearchData || null}
+            setCashConvertersModalOpen={setCexProductData ? () => setCeXCashConvertersModalOpen(true) : () => {}}
+          />
+
+          {offers.length > 0 && (
+            <OfferSelection
+              variant="cex"
+              offers={offers}
+              referenceData={refWithOurSale}
+              offerType={useVoucherOffers ? 'voucher' : 'cash'}
+            />
+          )}
+
+          {isCeXEbayModalOpen && (
+            <EbayResearchForm
+              mode="modal"
+              category={{ name: 'CeX', path: ['CeX'] }}
+              savedState={cexProductData.ebayResearchData}
+              initialHistogramState={false}
+              showManualOffer={false}
+              referenceData={refData}
+              ourSalePrice={refData.cex_based_sale_price}
+              initialSearchQuery={cexProductData.modelName || cexProductData.title}
+              onComplete={(data) => {
+                if (data?.cancel) {
+                  setCeXEbayModalOpen(false);
+                  return;
+                }
+                setCexProductData && setCexProductData((prev) => ({ ...prev, ebayResearchData: data }));
+                setCeXEbayModalOpen(false);
+              }}
+            />
+          )}
+          {isCeXCashConvertersModalOpen && (
+            <CashConvertersResearchForm
+              mode="modal"
+              category={{ name: 'CeX', path: ['CeX'] }}
+              savedState={cexProductData.cashConvertersResearchData}
+              initialHistogramState={false}
+              referenceData={refData}
+              ourSalePrice={refData.cex_based_sale_price}
+              initialSearchQuery={cexProductData.modelName || cexProductData.title}
+              onComplete={(data) => {
+                if (data?.cancel) {
+                  setCeXCashConvertersModalOpen(false);
+                  return;
+                }
+                setCexProductData && setCexProductData((prev) => ({ ...prev, cashConvertersResearchData: data }));
+                setCeXCashConvertersModalOpen(false);
+              }}
+            />
+          )}
+        </div>
+      </section>
+    );
+  }
+
+  // Selected CeX cart item (from Add from CeX)
+  if (selectedCartItem?.isCustomCeXItem) {
+    const useVoucherOffers = customerData?.transactionType === 'store_credit';
+    const displayOffers = useVoucherOffers ? (selectedCartItem.voucherOffers || []) : (selectedCartItem.cashOffers || []);
+    const refData = selectedCartItem.referenceData || {};
+    const refWithOurSale = { ...refData, our_sale_price: refData.cex_based_sale_price };
+    const imageUrl = refData.cex_image_urls?.large || refData.cex_image_urls?.medium;
+    const cexCompetitorStats = refData.cex_sale_price != null ? [{ salePrice: refData.cex_sale_price, buyPrice: refData.cex_tradein_cash }] : [];
+    const specs = selectedCartItem.cexProductData?.specifications || {};
+
+    return (
+      <section className="buyer-main-content w-3/5 min-w-0 min-h-0 flex-1 bg-white flex flex-col overflow-y-auto buyer-panel-scroll">
+        <div className="flex items-center px-8 bg-gray-50 border-b border-gray-200 sticky top-0 z-40">
+          <div className="flex items-center gap-3 py-4">
+            <div className="bg-blue-900 p-1.5 rounded">
+              <span className="material-symbols-outlined text-yellow-400 text-sm">add_link</span>
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-blue-900">CeX Product</h2>
+              <p className="text-[10px] text-gray-500 uppercase tracking-wider">Viewing saved item</p>
+            </div>
+          </div>
+        </div>
+        <div className="p-8 space-y-8">
+          <div className="bg-gray-50 p-6 rounded-xl border border-gray-200">
+            <div className="flex gap-8 items-start">
+              {imageUrl && (
+                <div className="flex-shrink-0 w-80 h-80 rounded-lg overflow-hidden border border-gray-200 bg-white flex items-center justify-center">
+                  <img src={imageUrl} alt={selectedCartItem.title} className="w-full h-full object-contain" />
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3">Product details</h2>
+                <ul className="grid grid-cols-2 gap-x-8 gap-y-2">
+                  {Object.keys(specs).length > 0 ? (
+                    Object.entries(specs).map(([label, value]) => (
+                      <li key={label} className="flex">
+                        <div>
+                          <span className="font-semibold text-gray-700 mr-2">{label}:</span>
+                          <span className="text-sm text-gray-900">{value}</span>
+                        </div>
+                      </li>
+                    ))
+                  ) : (
+                    <li className="col-span-2 text-sm text-gray-500">No specifications</li>
+                  )}
+                </ul>
+              </div>
+            </div>
+          </div>
+          <MarketComparisonsTable
+            variant="cex"
+            competitorStats={cexCompetitorStats}
+            ourSalePrice={refData.cex_based_sale_price || ''}
+            referenceData={refData}
+            ebayData={selectedCartItem.ebayResearchData || null}
+            setEbayModalOpen={() => {}}
+            cashConvertersData={selectedCartItem.cashConvertersResearchData || null}
+            setCashConvertersModalOpen={() => {}}
+          />
+          {displayOffers.length > 0 && (
+            <OfferSelection variant="cex" offers={displayOffers} referenceData={refWithOurSale} offerType={useVoucherOffers ? 'voucher' : 'cash'} />
+          )}
+        </div>
+      </section>
+    );
+  }
 
   // Special handling for selected eBay cart items
   if (selectedCartItem?.isCustomEbayItem) {

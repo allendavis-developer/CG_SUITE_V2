@@ -103,6 +103,52 @@ export const fetchVariantPrices = async (sku) => {
     };
   }
 };
+
+/**
+ * Fetch offers for a CeX product from scraped page data (no variant).
+ * Sends sell_price, tradein_cash, tradein_voucher to backend for calculation.
+ */
+export const fetchCeXProductPrices = async (cexData) => {
+  if (!cexData) {
+    console.log('[CG Suite] fetchCeXProductPrices: no cexData');
+    return { cash_offers: [], voucher_offers: [], referenceData: null };
+  }
+
+  const body = {
+    sell_price: cexData.sellPrice,
+    tradein_cash: cexData.tradeInCash,
+    tradein_voucher: cexData.tradeInVoucher,
+    title: cexData.title,
+    category: cexData.category,
+    image: cexData.image,
+    image_url: cexData.image,
+    sku: cexData.id
+  };
+  console.log('[CG Suite] fetchCeXProductPrices: POST body', body);
+
+  try {
+    const res = await fetch('/api/cex-product-prices/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': getCSRFToken()
+      },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    console.log('[CG Suite] fetchCeXProductPrices: response status', res.status, 'data', data);
+
+    if (!res.ok) throw new Error(data?.detail || 'Failed to fetch CeX offers');
+    return {
+      cash_offers: data.cash_offers || [],
+      voucher_offers: data.voucher_offers || [],
+      referenceData: data.reference_data
+    };
+  } catch (err) {
+    console.error('[CG Suite] fetchCeXProductPrices error:', err);
+    return { cash_offers: [], voucher_offers: [], referenceData: null };
+  }
+};
 /* ------------------------- Request APIs ------------------------- */
 
 /**
@@ -148,30 +194,38 @@ export const createRequest = async (requestData) => {
  * Add an item to an existing request
  * @param {number} requestId
  * @param {object} itemData - { variant, expectation_gbp, notes, raw_data }
+ * @returns {Promise<{ request_item_id: number }>}
  */
 export const addRequestItem = async (requestId, itemData) => {
-  if (!requestId || !itemData) return null;
-
-  try {
-    const res = await fetch(`${API_BASE_URL}/requests/${requestId}/items/`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRFToken': getCSRFToken()
-      },
-      body: JSON.stringify(itemData)
-    });
-
-    if (!res.ok) {
-      const errData = await res.json();
-      throw new Error(errData.error || 'Failed to add request item');
-    }
-
-    return await res.json(); // { request_item_id, ... }
-  } catch (err) {
-    console.error('Error adding request item:', err);
-    return null;
+  if (!requestId || !itemData) {
+    throw new Error('Request ID and item data are required');
   }
+
+  const res = await fetch(`${API_BASE_URL}/requests/${requestId}/items/`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRFToken': getCSRFToken()
+    },
+    body: JSON.stringify(itemData)
+  });
+
+  if (!res.ok) {
+    let errorMessage = 'Failed to add request item';
+    try {
+      const errData = await res.json();
+      errorMessage = errData.error || errorMessage;
+    } catch {
+      errorMessage = `Server error (${res.status})`;
+    }
+    throw new Error(errorMessage);
+  }
+
+  const data = await res.json();
+  if (!data?.request_item_id) {
+    throw new Error('Invalid response: missing request_item_id');
+  }
+  return data;
 };
 
 /**

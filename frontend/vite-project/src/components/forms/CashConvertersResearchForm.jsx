@@ -24,6 +24,7 @@ export default function CashConvertersResearchForm({
 }) {
   const [step, setStep] = useState(savedState?.listings?.length ? 'cards' : 'get-data');
   const [listings, setListings] = useState(savedState?.listings ?? []);
+  const [searchTerm, setSearchTerm] = useState(savedState?.searchTerm ?? '');
   const [listingPageUrl, setListingPageUrl] = useState(savedState?.listingPageUrl ?? null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -46,6 +47,10 @@ export default function CashConvertersResearchForm({
       const result = await getDataFromListingPage('CashConverters', initialSearchQuery || undefined);
       if (result?.success && Array.isArray(result.results)) {
         setListings(result.results);
+        const term = (result.searchTerm != null && String(result.searchTerm).trim())
+          ? String(result.searchTerm).trim()
+          : (initialSearchQuery || '');
+        setSearchTerm(term);
         setListingPageUrl(result.listingPageUrl || null);
         setDrillHistory([]);
         setStep('cards');
@@ -66,6 +71,7 @@ export default function CashConvertersResearchForm({
       const result = await getDataFromRefine('CashConverters', listingPageUrl);
       if (result?.success && Array.isArray(result.results)) {
         setListings(result.results);
+        setSearchTerm((prev) => (result.searchTerm != null && String(result.searchTerm).trim()) ? String(result.searchTerm).trim() : prev);
         setListingPageUrl(result.listingPageUrl || null);
         setDrillHistory([]);
         setError(null);
@@ -122,13 +128,13 @@ export default function CashConvertersResearchForm({
       drillHistory,
       stats: displayedStats,
       buyOffers,
-      searchTerm: '',
+      searchTerm,
       listingPageUrl,
       selectedFilters: { basic: [], apiFilters: {} },
       filterOptions: [],
       manualOffer,
     });
-  }, [onComplete, listings, showHistogram, drillHistory, displayedStats, buyOffers, listingPageUrl, manualOffer]);
+  }, [onComplete, listings, showHistogram, drillHistory, displayedStats, buyOffers, searchTerm, listingPageUrl, manualOffer]);
 
   const handleCompleteWithSelection = useCallback((selectedOfferIndex) => {
     const state = {
@@ -137,7 +143,7 @@ export default function CashConvertersResearchForm({
       drillHistory,
       stats: displayedStats,
       buyOffers,
-      searchTerm: '',
+      searchTerm,
       listingPageUrl,
       selectedFilters: { basic: [], apiFilters: {} },
       filterOptions: [],
@@ -145,7 +151,7 @@ export default function CashConvertersResearchForm({
     };
     if (showManualOffer) state.selectedOfferIndex = selectedOfferIndex;
     onComplete?.(state);
-  }, [onComplete, listings, showHistogram, drillHistory, displayedStats, buyOffers, listingPageUrl, manualOffer, showManualOffer]);
+  }, [onComplete, listings, showHistogram, drillHistory, displayedStats, buyOffers, searchTerm, listingPageUrl, manualOffer, showManualOffer]);
 
   if (step === 'get-data') {
     const getDataBody = (

@@ -17,6 +17,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         url = searchQuery
           ? `https://www.cashconverters.co.uk/search-results?Sort=default&page=1&query=${encodeURIComponent(searchQuery)}`
           : 'https://www.cashconverters.co.uk/';
+      } else if (competitor === 'CeX') {
+        url = searchQuery
+          ? `https://uk.webuy.com/search?keyword=${encodeURIComponent(searchQuery)}`
+          : 'https://uk.webuy.com/';
       } else {
         url = searchQuery
           ? `https://www.ebay.co.uk/sch/i.html?_nkw=${encodeURIComponent(searchQuery)}`

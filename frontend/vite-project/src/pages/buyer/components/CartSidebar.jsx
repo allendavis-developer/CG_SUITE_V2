@@ -81,10 +81,13 @@ const CartSidebar = ({
     cartItems.forEach(item => {
       const qty = item.quantity || 1;
       if (item.offers && item.offers.length > 0) {
-        const itemMin = Math.min(...item.offers.map(o => o.price));
-        const itemMax = Math.max(...item.offers.map(o => o.price));
-        minTotal += itemMin * qty;
-        maxTotal += itemMax * qty;
+        const prices = item.offers.map(o => Number(o.price)).filter(p => !isNaN(p) && p >= 0);
+        if (prices.length > 0) {
+          const itemMin = Math.min(...prices);
+          const itemMax = Math.max(...prices);
+          minTotal += itemMin * qty;
+          maxTotal += itemMax * qty;
+        }
       }
     });
 
