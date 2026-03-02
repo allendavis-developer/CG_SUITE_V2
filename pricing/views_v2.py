@@ -567,6 +567,35 @@ def variant_market_stats(request):
     serializer = VariantMarketStatsSerializer(variant)
     return Response(serializer.data)
 
+CEX_BOX_DETAIL_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/118.0.5993.117 Safari/537.36"
+    ),
+    "Accept": "application/json, text/javascript, */*; q=0.01",
+    "Referer": "https://www.cex.uk/",
+}
+
+
+def _fetch_cex_box_detail(sku):
+    """Fetch live box details from CEX API. Returns dict or None on failure."""
+    url = f"https://wss2.cex.uk.webuy.io/v3/boxes/{sku}/detail"
+    try:
+        resp = requests.get(url, headers=CEX_BOX_DETAIL_HEADERS, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        response = data.get("response", {})
+        if response.get("ack") != "Success":
+            return None
+        box_details = response.get("data", {}).get("boxDetails", [])
+        if not box_details:
+            return None
+        return box_details[0]
+    except Exception:
+        return None
+
+
 @api_view(['GET'])
 def variant_prices(request):
     sku = request.GET.get('sku')
@@ -585,10 +614,18 @@ def variant_prices(request):
             status=status.HTTP_404_NOT_FOUND
         )
 
-    # --- Reference Data ---
-    cex_sale_price = float(variant.current_price_gbp)
-    cex_tradein_cash = float(variant.tradein_cash)
-    cex_tradein_voucher = float(variant.tradein_voucher)
+    # --- Reference Data (prefer live CEX API, fallback to DB) ---
+    cex_box = _fetch_cex_box_detail(sku)
+    if cex_box is not None:
+        cex_sale_price = float(cex_box.get("sellPrice", 0) or variant.current_price_gbp)
+        cex_tradein_cash = float(cex_box.get("cashPrice", 0) or variant.tradein_cash)
+        cex_tradein_voucher = float(cex_box.get("exchangePrice", 0) or variant.tradein_voucher)
+        image_urls = cex_box.get("imageUrls") or {}
+    else:
+        cex_sale_price = float(variant.current_price_gbp)
+        cex_tradein_cash = float(variant.tradein_cash)
+        cex_tradein_voucher = float(variant.tradein_voucher)
+        image_urls = {}
 
     # Our Target Sale Price
     target_sell_price = variant.get_target_sell_price()
@@ -651,17 +688,25 @@ def variant_prices(request):
     cash_offers = generate_offer_set(cex_tradein_cash, "cash")
     voucher_offers = generate_offer_set(cex_tradein_voucher, "voucher")
 
+    reference_data = {
+        "cex_sale_price": cex_sale_price,
+        "cex_tradein_cash": cex_tradein_cash,
+        "cex_tradein_voucher": cex_tradein_voucher,
+        "cex_based_sale_price": round(our_sale_price, 2),
+        "percentage_used": percentage_used
+    }
+    if image_urls:
+        reference_data["cex_image_urls"] = {
+            "large": image_urls.get("large"),
+            "medium": image_urls.get("medium"),
+            "small": image_urls.get("small"),
+        }
+
     return Response({
         "sku": sku,
         "cash_offers": cash_offers,
         "voucher_offers": voucher_offers,
-        "reference_data": {
-            "cex_sale_price": cex_sale_price,
-            "cex_tradein_cash": cex_tradein_cash,
-            "cex_tradein_voucher": cex_tradein_voucher,
-            "cex_based_sale_price": round(our_sale_price, 2),
-            "percentage_used": percentage_used
-        }
+        "reference_data": reference_data
     })
     
 # react app

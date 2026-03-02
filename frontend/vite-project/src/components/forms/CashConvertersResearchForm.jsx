@@ -20,6 +20,7 @@ export default function CashConvertersResearchForm({
   showManualOffer = false,
   referenceData = null,
   ourSalePrice = null,
+  initialSearchQuery = null,
 }) {
   const [step, setStep] = useState(savedState?.listings?.length ? 'cards' : 'get-data');
   const [listings, setListings] = useState(savedState?.listings ?? []);
@@ -42,7 +43,7 @@ export default function CashConvertersResearchForm({
     setError(null);
     setLoading(true);
     try {
-      const result = await getDataFromListingPage('CashConverters');
+      const result = await getDataFromListingPage('CashConverters', initialSearchQuery || undefined);
       if (result?.success && Array.isArray(result.results)) {
         setListings(result.results);
         setListingPageUrl(result.listingPageUrl || null);
@@ -56,7 +57,7 @@ export default function CashConvertersResearchForm({
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [initialSearchQuery]);
 
   const handleRefineSearch = useCallback(async () => {
     setError(null);

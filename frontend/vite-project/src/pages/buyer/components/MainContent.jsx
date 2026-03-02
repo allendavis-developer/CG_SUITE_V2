@@ -738,18 +738,25 @@ const MainContent = ({
               setAllAttributeValues={setAllAttributeValues}
               variant={variant}
               setVariant={setVariant}
+              variantImageUrl={
+                referenceData?.cex_image_urls?.large ||
+                referenceData?.cex_image_urls?.medium ||
+                referenceData?.cex_image_urls?.small
+              }
             />
 
-            <MarketComparisonsTable
-              variant={variant}
-              competitorStats={competitorStats}
-              ourSalePrice={ourSalePrice}
-              referenceData={referenceData}
-              ebayData={ebayData}
-              setEbayModalOpen={setEbayModalOpen}
-              cashConvertersData={cashConvertersData}
-              setCashConvertersModalOpen={setCashConvertersModalOpen}
-            />
+            {variant && (
+              <MarketComparisonsTable
+                variant={variant}
+                competitorStats={competitorStats}
+                ourSalePrice={ourSalePrice}
+                referenceData={referenceData}
+                ebayData={ebayData}
+                setEbayModalOpen={setEbayModalOpen}
+                cashConvertersData={cashConvertersData}
+                setCashConvertersModalOpen={setCashConvertersModalOpen}
+              />
+            )}
 
             {isLoadingOffers ? (
               <div className="flex items-center justify-center py-8">
@@ -777,6 +784,7 @@ const MainContent = ({
               showManualOffer={false}
               referenceData={referenceData}
               ourSalePrice={ourSalePrice}
+              initialSearchQuery={selectedModel?.name || undefined}
               onComplete={(data) => {
                 if (data?.cancel) {
                   setEbayModalOpen(false);
@@ -796,6 +804,7 @@ const MainContent = ({
               initialHistogramState={false}
               referenceData={referenceData}
               ourSalePrice={ourSalePrice}
+              initialSearchQuery={selectedModel?.name || undefined}
               onComplete={(data) => {
                 if (data?.cancel) {
                   setCashConvertersModalOpen(false);

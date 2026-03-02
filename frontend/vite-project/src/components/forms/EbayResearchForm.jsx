@@ -20,6 +20,7 @@ export default function EbayResearchForm({
   showManualOffer = false,
   referenceData = null,
   ourSalePrice = null,
+  initialSearchQuery = null,
 }) {
   const [step, setStep] = useState(savedState?.listings?.length ? 'cards' : 'get-data');
   const [listings, setListings] = useState(savedState?.listings ?? []);
@@ -42,8 +43,12 @@ export default function EbayResearchForm({
   const handleGetData = useCallback(async () => {
     setError(null);
     setLoading(true);
+    const searchQueryToSend = initialSearchQuery || undefined;
+    if (typeof console !== 'undefined') {
+      console.log('[CG Suite] Get data clicked, initialSearchQuery:', initialSearchQuery, '-> sending:', searchQueryToSend);
+    }
     try {
-      const result = await getDataFromListingPage('eBay');
+      const result = await getDataFromListingPage('eBay', searchQueryToSend);
       if (result?.success && Array.isArray(result.results)) {
         setListings(result.results);
         setSearchTerm((result.searchTerm != null && String(result.searchTerm).trim()) ? String(result.searchTerm).trim() : '');
@@ -58,7 +63,7 @@ export default function EbayResearchForm({
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [initialSearchQuery]);
 
   const handleRefineSearch = useCallback(async () => {
     setError(null);

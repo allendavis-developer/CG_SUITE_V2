@@ -7,9 +7,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const appTabId = sender.tab?.id;
     if (payload.action === 'startWaitingForData' && appTabId != null) {
       const competitor = payload.competitor || 'eBay';
-      const url = competitor === 'CashConverters'
-        ? 'https://www.cashconverters.co.uk/'
-        : 'https://www.ebay.co.uk/';
+      const searchQuery = (payload.searchQuery || '').trim();
+      // Debug: check service worker console (chrome://extensions -> "Inspect views: service worker")
+      if (typeof console !== 'undefined') {
+        console.log('[CG Suite] startWaitingForData:', { competitor, searchQuery, fullPayload: payload });
+      }
+      let url;
+      if (competitor === 'CashConverters') {
+        url = searchQuery
+          ? `https://www.cashconverters.co.uk/search-results?Sort=default&page=1&query=${encodeURIComponent(searchQuery)}`
+          : 'https://www.cashconverters.co.uk/';
+      } else {
+        url = searchQuery
+          ? `https://www.ebay.co.uk/sch/i.html?_nkw=${encodeURIComponent(searchQuery)}`
+          : 'https://www.ebay.co.uk/';
+      }
       chrome.tabs.create({ url }, (newTab) => {
         pendingRequests.set(requestId, { appTabId, listingTabId: newTab.id });
       });

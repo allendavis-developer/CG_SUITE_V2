@@ -918,7 +918,7 @@ export default function ResearchFormShell({
                 onClick={handleComplete} 
                 disabled={loading && !readOnly}
               >
-                {readOnly ? "OK" : <><Icon name="save" className="text-sm" /> Apply Research Data</>}
+                OK
               </Button>
             )}
           </div>

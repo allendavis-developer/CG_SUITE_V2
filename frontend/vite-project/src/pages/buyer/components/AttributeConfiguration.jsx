@@ -14,7 +14,8 @@ const AttributeConfiguration = ({
   handleAttributeChange,
   setAllAttributeValues,
   variant,
-  setVariant
+  setVariant,
+  variantImageUrl
 }) => {
   const [selectedViaDropdown, setSelectedViaDropdown] = useState(false);
 
@@ -96,6 +97,10 @@ const AttributeConfiguration = ({
   };
 
   const handleQuickFindSelect = (title) => {
+    if (!title) {
+      handleReset();
+      return;
+    }
     const v = variants.find(vr => vr.title === title);
     if (v) selectVariant(v);
   };
@@ -157,32 +162,36 @@ const AttributeConfiguration = ({
             value={quickFindVariantTitle}
             options={filteredVariants.map((v) => v.title)}
             onChange={handleQuickFindSelect}
-            placeholder={`Search ${filteredVariants.length} variant${filteredVariants.length !== 1 ? 's' : ''}...`}
+            placeholder={`Search ${variants.length} variant${variants.length !== 1 ? 's' : ''}...`}
+            clearable
+            onClear={handleReset}
           />
           <p className="mt-1.5 text-xs text-gray-500">Search by name if you know your variant</p>
         </div>
       )}
 
-      {/* Configuration & Condition */}
-      <div className="flex items-center justify-between mb-4 gap-6">
-        <div className="flex items-center gap-3">
-          <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest">
-            Configuration & Condition
-          </h3>
+      {/* Configuration & Condition + Image */}
+      <div className="flex gap-6 items-start">
+        <div className="flex-shrink-0 min-w-0">
+          <div className="flex items-center justify-between mb-4 gap-6">
+            <div className="flex items-center gap-3">
+              <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest">
+                Configuration & Condition
+              </h3>
 
-          {(variant || Object.values(attributeValues).some(v => v)) && (
-            <button 
-              onClick={handleReset}
-              className="px-2 py-0.5 text-xs font-bold bg-gray-200 hover:bg-red-100 hover:text-red-600 text-gray-600 rounded-full transition-all duration-200 uppercase tracking-widest"
-            >
-              Clear All
-            </button>
-          )}
-        </div>
-      </div>
+              {(variant || Object.values(attributeValues).some(v => v)) && (
+                <button 
+                  onClick={handleReset}
+                  className="px-2 py-0.5 text-xs font-bold bg-gray-200 hover:bg-red-100 hover:text-red-600 text-gray-600 rounded-full transition-all duration-200 uppercase tracking-widest"
+                >
+                  Clear All
+                </button>
+              )}
+            </div>
+          </div>
 
-      {/* Attribute dropdowns — full width */}
-      <div className="flex flex-col gap-4">
+          {/* Attribute dropdowns */}
+          <div className="flex flex-col gap-4">
         {attributes.map((attr, index) => {
           const previousSelections = Object.entries(attributeValues)
             .filter(([code]) => {
@@ -254,6 +263,18 @@ const AttributeConfiguration = ({
             </div>
           );
         })}
+          </div>
+        </div>
+
+        {variant && variantImageUrl && (
+          <div className="flex-shrink-0 w-80 h-80 rounded-lg overflow-hidden border border-gray-200 bg-gray-50">
+            <img
+              src={variantImageUrl}
+              alt="Product"
+              className="w-full h-full object-contain"
+            />
+          </div>
+        )}
       </div>
 
       {/* Variant selection at end — only after every config/condition dropdown is selected */}

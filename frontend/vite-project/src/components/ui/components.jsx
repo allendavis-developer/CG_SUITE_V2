@@ -162,7 +162,7 @@ export const CustomDropdown = ({ label, value, options, onChange, labelPosition 
   );
 };
 
-export const SearchableDropdown = ({ label, value, options, onChange, placeholder = "Select..." }) => {
+export const SearchableDropdown = ({ label, value, options, onChange, placeholder = "Select...", clearable, onClear }) => {
   const selectRef = useRef(null);
   const tomSelectInstance = useRef(null);
   const onChangeRef = useRef(onChange);
@@ -238,9 +238,22 @@ export const SearchableDropdown = ({ label, value, options, onChange, placeholde
           {label}
         </label>
       )}
-      <select ref={selectRef} className="w-full">
-        <option value="">{placeholder}</option>
-      </select>
+      <div className={`relative ${clearable && value && onClear ? 'pr-9' : ''}`}>
+        <select ref={selectRef} className="w-full">
+          <option value="">{placeholder}</option>
+        </select>
+        {clearable && value && onClear && (
+          <button
+            type="button"
+            onClick={(e) => { e.preventDefault(); onClear(); }}
+            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-gray-200 text-gray-500 hover:text-gray-700 transition-colors"
+            title="Clear and show all variants"
+            aria-label="Clear"
+          >
+            <span className="material-symbols-outlined text-lg">close</span>
+          </button>
+        )}
+      </div>
     </div>
   );
 };
@@ -410,6 +423,30 @@ export const Sidebar = ({ onCategorySelect }) => {
   const filteredCategories = filterCategoryTree(categories, filterText.trim());
   const isFiltering = !!filterText.trim();
 
+  // Collect leaf categories (no children) from tree, with their breadcrumb path
+  const collectLeaves = (cats, path = []) => {
+    return cats.flatMap((cat) => {
+      const newPath = [...path, cat.name];
+      const hasChildren = cat.children && cat.children.length > 0;
+      if (hasChildren) return collectLeaves(cat.children, newPath);
+      return [{ category: cat, path: newPath }];
+    });
+  };
+
+  const leafMatches = isFiltering ? collectLeaves(filteredCategories) : [];
+
+  // Auto-select when exactly one leaf matches (debounced)
+  useEffect(() => {
+    if (!filterText.trim() || leafMatches.length !== 1) return;
+    const t = setTimeout(() => {
+      const { category } = leafMatches[0];
+      setSelectedCategory(category.category_id);
+      const path = getCategoryPath(category.category_id, categories);
+      onCategorySelect({ id: category.category_id, name: category.name, path: path || [category.name] });
+    }, 400);
+    return () => clearTimeout(t);
+  }, [filterText.trim(), leafMatches.length]); // eslint-disable-line react-hooks/exhaustive-deps -- intentional: only re-run when match count changes
+
   // Get breadcrumb path for a category
   const getCategoryPath = (categoryId, categories, path = []) => {
     for (const cat of categories) {
@@ -482,6 +519,24 @@ export const Sidebar = ({ onCategorySelect }) => {
         </div>
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto buyer-panel-scroll p-4 pt-0">
+        {leafMatches.length > 1 && (
+          <div className="mb-3 p-3 bg-white/5 rounded-lg border border-white/10">
+            <p className="text-xs text-white/70 mb-2">Multiple matches — pick one:</p>
+            <div className="space-y-1">
+              {leafMatches.map(({ category, path }) => (
+                <button
+                  key={category.category_id}
+                  type="button"
+                  onClick={() => handleCategorySelect(category)}
+                  className="w-full text-left px-3 py-2 rounded-lg text-sm text-white hover:bg-yellow-500/20 hover:text-yellow-400 transition-colors flex items-center gap-2"
+                >
+                  <Icon name="smartphone" className="text-sm flex-shrink-0" />
+                  <span>{path.join(' › ')}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="space-y-1">
           {filteredCategories.map((cat) => renderCategory(cat))}
         </div>
