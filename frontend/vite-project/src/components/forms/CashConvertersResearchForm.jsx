@@ -21,6 +21,7 @@ export default function CashConvertersResearchForm({
   referenceData = null,
   ourSalePrice = null,
   initialSearchQuery = null,
+  marketComparisonContext = null,
 }) {
   const [step, setStep] = useState(savedState?.listings?.length ? 'cards' : 'get-data');
   const [listings, setListings] = useState(savedState?.listings ?? []);
@@ -44,7 +45,7 @@ export default function CashConvertersResearchForm({
     setError(null);
     setLoading(true);
     try {
-      const result = await getDataFromListingPage('CashConverters', initialSearchQuery || undefined);
+      const result = await getDataFromListingPage('CashConverters', initialSearchQuery || undefined, marketComparisonContext);
       if (result?.success && Array.isArray(result.results)) {
         setListings(result.results);
         const term = (result.searchTerm != null && String(result.searchTerm).trim())
@@ -54,6 +55,10 @@ export default function CashConvertersResearchForm({
         setListingPageUrl(result.listingPageUrl || null);
         setDrillHistory([]);
         setStep('cards');
+      } else if (result?.cancelled) {
+        if (mode === 'modal') {
+          onComplete?.({ cancel: true });
+        }
       } else {
         setError(result?.error || "No data returned. Make sure you're on a listings page and clicked Yes.");
       }
@@ -62,19 +67,23 @@ export default function CashConvertersResearchForm({
     } finally {
       setLoading(false);
     }
-  }, [initialSearchQuery]);
+  }, [initialSearchQuery, marketComparisonContext]);
 
   const handleRefineSearch = useCallback(async () => {
     setError(null);
     setLoading(true);
     try {
-      const result = await getDataFromRefine('CashConverters', listingPageUrl);
+      const result = await getDataFromRefine('CashConverters', listingPageUrl, marketComparisonContext);
       if (result?.success && Array.isArray(result.results)) {
         setListings(result.results);
         setSearchTerm((prev) => (result.searchTerm != null && String(result.searchTerm).trim()) ? String(result.searchTerm).trim() : prev);
         setListingPageUrl(result.listingPageUrl || null);
         setDrillHistory([]);
         setError(null);
+      } else if (result?.cancelled) {
+        if (mode === 'modal') {
+          onComplete?.({ cancel: true });
+        }
       } else {
         setError(result?.error || "No data returned. Make sure you're on a listings page and clicked the button.");
       }
@@ -83,7 +92,7 @@ export default function CashConvertersResearchForm({
     } finally {
       setLoading(false);
     }
-  }, [listingPageUrl]);
+  }, [listingPageUrl, marketComparisonContext]);
 
   const currentPriceRange = drillHistory.length > 0 ? drillHistory[drillHistory.length - 1] : null;
 

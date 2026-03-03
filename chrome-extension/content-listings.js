@@ -1,8 +1,24 @@
 /**
- * Runs on ebay.co.uk and cashconverters.co.uk.
+ * CG Suite Research – content script for eBay, Cash Converters, and CeX.
+ *
+ * Runs on ebay.co.uk, cashconverters.co.uk, and uk.webuy.com (CeX).
  * Injects a side panel: "Have you got the data yet?" [Yes].
  * On Yes, scrapes the page using site-specific config and sends data to the app.
- * DRY: one flow; site-specific logic in SITE_CONFIGS.
+ *
+ * FLOW FOR "ADD FROM CEX":
+ * 1. User clicks "Add from CeX" in the app → app sends startWaitingForData(competitor: 'CeX') to extension.
+ * 2. Background opens a new tab (uk.webuy.com/ or search). Saves pending request with that tab's ID.
+ * 3. User navigates to a product-detail page (same tab or new tab). CeX is a SPA so URL may change without full reload.
+ * 4. This content script must: (a) detect we're on a product-detail page, (b) send LISTING_PAGE_READY to background.
+ * 5. Background matches the tab to the pending CeX request and sends WAITING_FOR_DATA back to this tab.
+ * 6. We receive WAITING_FOR_DATA, set currentRequestId, and show the "Have you got the data yet?" panel.
+ * 7. User clicks Yes → we scrape and send SCRAPED_DATA to background → app receives the data.
+ *
+ * WHY "HAVE YOU GOT THE DATA?" MIGHT NOT SHOW:
+ * - CeX is a SPA: navigation to product-detail may not trigger a full page load, so we rely on setInterval + history listeners.
+ * - LISTING_PAGE_READY must be sent; then background must send WAITING_FOR_DATA to this tab. If the tab ID doesn't match
+ *   (e.g. user opened product in a different tab), background has a fallback to re-associate the pending request.
+ * - If the content script sends LISTING_PAGE_READY before the background has stored the pending request, the message is ignored.
  */
 (function () {
   let currentRequestId = null;
@@ -68,7 +84,12 @@
     cex: {
       competitor: 'CeX',
       isListingsPage(url) {
-        return (url.includes('webuy.com') && /\/product-detail\?.*id=/.test(url));
+        const u = (url || window.location.href || '').toLowerCase();
+        if (!u || !u.includes('webuy.com')) return false;
+        // URL: product-detail with id param (e.g. .../product-detail?id=045496420055&categoryName=... or /product-detail/?id=...)
+        if (/product-detail[\/?]/.test(u) && /[?&]id=/.test(u)) return true;
+        // DOM fallback: user may have landed via SPA/navigation where URL format differs or updates late
+        return !!(document.querySelector('.product-detail, [class*="product-detail"]') || document.querySelector('span.sell-price'));
       },
       getSearchTerm() {
         const titleEl = document.querySelector('.product-detail h1, h1.heading-s-semibold, h1');
@@ -150,6 +171,63 @@
           });
         }
 
+        // Out-of-stock detection: use targeted DOM queries rather than innerText
+        // (innerText is unreliable on Vue/Nuxt SPAs where the DOM may not flush visible text).
+        //
+        // CeX marks out-of-stock items with:
+        //   <div class="... feedback-error-500-color"><i class="xicon-close ..."></i><span>Out Of Stock</span></div>
+        // There is also a "Get notified when this item is back in stock" block when OOS.
+        let stockStatus = null;
+        let isOutOfStock = false;
+        try {
+          // 1. Any .feedback-error-500-color element whose text contains "out of stock"
+          var errorEls = doc.querySelectorAll('.feedback-error-500-color');
+          for (var ei = 0; ei < errorEls.length; ei++) {
+            var elText = (errorEls[ei].textContent || '').trim();
+            if (/out of stock/i.test(elText)) {
+              isOutOfStock = true;
+              stockStatus = 'Out Of Stock';
+              break;
+            }
+          }
+          // 2. xicon-close icon whose parent mentions "out of stock"
+          if (!isOutOfStock) {
+            var closeIcons = doc.querySelectorAll('.xicon-close');
+            for (var ci = 0; ci < closeIcons.length; ci++) {
+              var parentText = ((closeIcons[ci].parentElement || {}).textContent || '').trim();
+              if (/out of stock/i.test(parentText)) {
+                isOutOfStock = true;
+                stockStatus = 'Out Of Stock';
+                break;
+              }
+            }
+          }
+          // 3. "notify me when back in stock" helper text
+          if (!isOutOfStock) {
+            var notifyEls = doc.querySelectorAll('[class*="notify"]');
+            for (var ni = 0; ni < notifyEls.length; ni++) {
+              if (/back in stock/i.test((notifyEls[ni].textContent || ''))) {
+                isOutOfStock = true;
+                stockStatus = 'Out Of Stock';
+                break;
+              }
+            }
+          }
+          // 4. Broad textContent fallback (textContent works on hidden/invisible SPA nodes too)
+          if (!isOutOfStock) {
+            var fullText = (doc.body && doc.body.textContent) ? doc.body.textContent : '';
+            if (/out of stock/i.test(fullText)) {
+              isOutOfStock = true;
+              stockStatus = 'Out Of Stock';
+            }
+          }
+          if (typeof console !== 'undefined') {
+            console.log('[CG Suite CeX] out-of-stock detection:', { isOutOfStock, stockStatus });
+          }
+        } catch (e) {
+          // best-effort; ignore errors
+        }
+
         const scraped = {
           title: title.slice(0, 200),
           price: sellPrice,
@@ -161,7 +239,9 @@
           tradeInCash: tradeInCash,
           category: category,
           specifications: specs,
-          modelName: modelName || title
+          modelName: modelName || title,
+          stockStatus: stockStatus,
+          isOutOfStock: isOutOfStock
         };
         if (typeof console !== 'undefined') {
           console.log('[CG Suite CeX] scrapeCards result:', JSON.stringify(scraped));
@@ -233,10 +313,14 @@
     return null;
   }
 
+  // —— Message from background: we're the tab that was chosen for this pending request ——
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg.type === 'WAITING_FOR_DATA') {
+      if (typeof console !== 'undefined') {
+        console.log('[CG Suite content-listings] WAITING_FOR_DATA received, requestId=', msg.requestId, 'url=', window.location.href);
+      }
       currentRequestId = msg.requestId;
-      showPanel(!!msg.isRefine);
+      showPanel(!!msg.isRefine, msg.marketComparisonContext || null);
       sendResponse({ ok: true });
     }
     return true;
@@ -244,13 +328,23 @@
 
   function isListingsPage() {
     const config = getSiteConfig();
-    return config ? config.isListingsPage(window.location.href) : false;
+    const url = window.location.href || '';
+    return config ? config.isListingsPage(url) : false;
   }
 
+  /**
+   * Tell the background we're on a listing/product-detail page so it can send us WAITING_FOR_DATA
+   * (which triggers the "Have you got the data yet?" panel).
+   * Called on load and on CeX every 1.5s (SPA) and when URL changes (history listeners).
+   */
   function maybeNotifyReady() {
-    if (isListingsPage()) {
-      chrome.runtime.sendMessage({ type: 'LISTING_PAGE_READY' }).catch(function () {});
+    if (!isListingsPage()) return;
+    if (typeof console !== 'undefined') {
+      console.log('[CG Suite content-listings] maybeNotifyReady: sending LISTING_PAGE_READY, url=', window.location.href);
     }
+    chrome.runtime.sendMessage({ type: 'LISTING_PAGE_READY' }).catch(function (err) {
+      if (typeof console !== 'undefined') console.warn('[CG Suite content-listings] LISTING_PAGE_READY send failed', err);
+    });
   }
 
   function removePanelIfNotListingsPage() {
@@ -261,12 +355,73 @@
     }
   }
 
-  function showPanel(isRefine) {
-    if (document.getElementById('cg-suite-research-panel')) return;
-    if (!isListingsPage()) return;
+  function formatPrice(val) {
+    if (val == null || val === '' || (typeof val === 'number' && isNaN(val))) return '—';
+    const n = typeof val === 'string' ? parseFloat(val.replace(/[^0-9.]/g, '')) : Number(val);
+    if (isNaN(n)) return '—';
+    return '£' + n.toFixed(2);
+  }
+
+  function buildContextHtml(ctx) {
+    if (!ctx) return '';
+
+    const hasPrices = ctx.cexSalePrice != null || ctx.ourSalePrice != null || ctx.ebaySalePrice != null || ctx.cashConvertersSalePrice != null;
+    const hasItemDetails = !!(ctx.itemTitle || ctx.itemConfig || ctx.itemCondition);
+
+    if (!hasPrices && !hasItemDetails) return '';
+
+    const priceLines = [];
+    if (ctx.cexSalePrice != null) priceLines.push('CeX sale price: ' + formatPrice(ctx.cexSalePrice));
+    if (ctx.ourSalePrice != null) priceLines.push('Our sale price: ' + formatPrice(ctx.ourSalePrice));
+    if (ctx.ebaySalePrice != null) priceLines.push('eBay sale price: ' + formatPrice(ctx.ebaySalePrice));
+    if (ctx.cashConvertersSalePrice != null) priceLines.push('Cash Converters sale price: ' + formatPrice(ctx.cashConvertersSalePrice));
+
+    let html = '<div style="margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.25); font-size: 13px; line-height: 1.6;">';
+
+    if (hasItemDetails) {
+      if (ctx.itemTitle) {
+        html += '<div style="font-size: 15px; font-weight: 700; margin-bottom: 4px;">' + ctx.itemTitle + '</div>';
+      }
+      if (ctx.itemConfig) {
+        var parts = String(ctx.itemConfig).split('/').map(function (p) { return p.trim(); }).filter(Boolean);
+        if (parts.length > 0) {
+          html += '<div style="font-size: 13px; opacity: 0.95; margin-bottom: 4px;">';
+          html += parts.map(function (p) { return '<div>' + p + '</div>'; }).join('');
+          html += '</div>';
+        }
+      }
+      if (ctx.itemCondition) {
+        html += '<div style="font-size: 13px; opacity: 0.95; margin-bottom: 2px;">Condition: ' + ctx.itemCondition + '</div>';
+      }
+      if (priceLines.length > 0) {
+        html += '<div style="margin-top: 8px; opacity: 0.9;">';
+        html += priceLines.map(function (l) { return '<div>' + l + '</div>'; }).join('');
+        html += '</div>';
+      }
+    } else if (priceLines.length > 0) {
+      html += priceLines.map(function (l) { return '<div>' + l + '</div>'; }).join('');
+    }
+
+    html += '</div>';
+    return html;
+  }
+
+  function showPanel(isRefine, marketComparisonContext) {
+    if (document.getElementById('cg-suite-research-panel')) {
+      if (typeof console !== 'undefined') console.log('[CG Suite content-listings] showPanel: panel already exists, skip');
+      return;
+    }
+    if (!isListingsPage()) {
+      if (typeof console !== 'undefined') console.log('[CG Suite content-listings] showPanel: not a listing page, url=', window.location.href);
+      return;
+    }
+    if (typeof console !== 'undefined') {
+      console.log('[CG Suite content-listings] showPanel: injecting "Have you got the data yet?" panel');
+    }
 
     const heading = isRefine ? 'Are you done?' : 'Have you got the data yet?';
     const buttonLabel = isRefine ? 'Yes, bring me back' : 'Yes';
+    const contextHtml = buildContextHtml(marketComparisonContext || null);
 
     const panel = document.createElement('div');
     panel.id = 'cg-suite-research-panel';
@@ -274,14 +429,23 @@
       <div style="
         position: fixed; top: 50%; right: 0; transform: translateY(-50%);
         z-index: 2147483647; background: #1e3a8a; color: white;
-        padding: 16px 20px; border-radius: 12px 0 0 12px; box-shadow: -4px 4px 20px rgba(0,0,0,0.2);
-        font-family: system-ui, sans-serif; min-width: 200px;
+        padding: 24px 26px; border-radius: 16px 0 0 16px; box-shadow: -8px 8px 28px rgba(0,0,0,0.4);
+        font-family: system-ui, sans-serif; min-width: 320px; max-width: 380px;
       ">
-        <p style="margin: 0 0 12px 0; font-weight: 600; font-size: 14px;">${heading}</p>
-        <button id="cg-suite-research-yes" style="
-          width: 100%; padding: 10px 16px; background: #fbbf24; color: #1e3a8a;
-          border: none; border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 14px;
-        ">${buttonLabel}</button>
+        <p style="margin: 0 0 14px 0; font-weight: 800; font-size: 17px;">${heading}</p>
+        ${contextHtml}
+        <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 4px;">
+          <button id="cg-suite-research-yes" style="
+            width: 100%; padding: 14px 22px; background: #facc15; color: #020617;
+            border: none; border-radius: 9999px; font-weight: 900; cursor: pointer; font-size: 16px;
+            box-shadow: 0 12px 24px rgba(0,0,0,0.45); text-transform: uppercase; letter-spacing: 0.06em;
+          ">${buttonLabel}</button>
+          <button id="cg-suite-research-cancel" style="
+            width: 100%; padding: 10px 18px; background: transparent; color: #e5e7eb;
+            border: 1px solid rgba(248,250,252,0.4); border-radius: 9999px;
+            font-weight: 600; cursor: pointer; font-size: 13px;
+          ">Cancel research</button>
+        </div>
       </div>
     `;
     document.body.appendChild(panel);
@@ -297,6 +461,19 @@
           type: 'SCRAPED_DATA',
           requestId: currentRequestId,
           data: data
+        });
+        currentRequestId = null;
+      }
+      panel.remove();
+    });
+
+    const cancelBtn = document.getElementById('cg-suite-research-cancel');
+    cancelBtn && cancelBtn.addEventListener('click', function () {
+      if (currentRequestId) {
+        chrome.runtime.sendMessage({
+          type: 'SCRAPED_DATA',
+          requestId: currentRequestId,
+          data: { success: false, cancelled: true, error: 'User cancelled research' }
         });
         currentRequestId = null;
       }
@@ -323,15 +500,49 @@
     return out;
   }
 
+  // —— Initial run: notify background if we're already on a listing page (e.g. full page load to product-detail) ——
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', maybeNotifyReady);
+    document.addEventListener('DOMContentLoaded', function () {
+      if (typeof console !== 'undefined') console.log('[CG Suite content-listings] DOMContentLoaded, maybeNotifyReady');
+      maybeNotifyReady();
+    });
   } else {
     maybeNotifyReady();
   }
 
-  // Poll: show panel when on listing page (CeX SPA), remove when user navigates away (all sites).
+  // —— CeX SPA: URL can change without full reload. Listen for history changes so we notify as soon as we're on product-detail. ——
+  var lastNotifiedUrl = '';
+  function onUrlMaybeChanged() {
+    var url = window.location.href || '';
+    if (url === lastNotifiedUrl) return;
+    if (getSiteConfig() !== SITE_CONFIGS.cex) return;
+    if (isListingsPage()) {
+      lastNotifiedUrl = url;
+      if (typeof console !== 'undefined') console.log('[CG Suite content-listings] CeX URL changed to listing page, notifying', url);
+      maybeNotifyReady();
+    }
+  }
+  window.addEventListener('popstate', onUrlMaybeChanged);
+  // CeX (Nuxt/Vue) often uses history.pushState/replaceState for in-page navigation
+  var origPush = history.pushState;
+  var origReplace = history.replaceState;
+  if (typeof origPush === 'function') {
+    history.pushState = function () {
+      origPush.apply(this, arguments);
+      setTimeout(onUrlMaybeChanged, 0);
+    };
+  }
+  if (typeof origReplace === 'function') {
+    history.replaceState = function () {
+      origReplace.apply(this, arguments);
+      setTimeout(onUrlMaybeChanged, 0);
+    };
+  }
+
+  // Poll: on CeX, keep notifying when we're on a listing page (in case history listeners missed it). Remove panel when user navigates away.
   setInterval(function () {
     if (getSiteConfig() === SITE_CONFIGS.cex) {
+      if (isListingsPage()) lastNotifiedUrl = window.location.href || '';
       maybeNotifyReady();
     }
     removePanelIfNotListingsPage();

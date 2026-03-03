@@ -25,19 +25,24 @@ export async function scrapeCashConverters(params) {
  * Open eBay, Cash Converters, or CeX in a new tab and wait for the user to confirm
  * they're on a listings page (or CeX product-detail page) and click "Yes" in the extension panel.
  * Returns scraped listing data when the user confirms.
+ *
+ * For CeX: extension opens uk.webuy.com; user navigates to a product-detail URL (e.g. uk.webuy.com/product-detail?id=...).
+ * The extension content script on that page must send LISTING_PAGE_READY; then background sends WAITING_FOR_DATA
+ * so the "Have you got the data yet?" panel appears. If it doesn't appear, check extension console (CeX tab and background)
+ * for logs: LISTING_PAGE_READY, WAITING_FOR_DATA, and content-listings maybeNotifyReady/showPanel.
+ *
  * @param {string} competitor - 'eBay', 'CashConverters', or 'CeX'
  * @param {string} [searchQuery] - Optional search term to pre-populate the URL (e.g. product name)
+ * @param {Object} [marketComparisonContext] - Optional context from market comparisons table to show in the extension panel (cexSalePrice, ourSalePrice, ebaySalePrice, cashConvertersSalePrice)
  */
-export async function getDataFromListingPage(competitor, searchQuery) {
-  let payload;
-  if (competitor === 'CashConverters') {
-    payload = { action: 'startWaitingForData', competitor: 'CashConverters', searchQuery: searchQuery || null };
-  } else if (competitor === 'CeX') {
-    payload = { action: 'startWaitingForData', competitor: 'CeX', searchQuery: searchQuery || null };
-  } else {
-    payload = { action: 'startWaitingForData', competitor: 'eBay', searchQuery: searchQuery || null };
-  }
-  return sendMessage(payload);
+export async function getDataFromListingPage(competitor, searchQuery, marketComparisonContext) {
+  const competitorVal = ['CashConverters', 'CeX'].includes(competitor) ? competitor : 'eBay';
+  return sendMessage({
+    action: 'startWaitingForData',
+    competitor: competitorVal,
+    searchQuery: searchQuery || null,
+    marketComparisonContext: marketComparisonContext || null
+  });
 }
 
 /**
@@ -46,9 +51,12 @@ export async function getDataFromListingPage(competitor, searchQuery) {
  * The extension shows "Are you done?" on the listing page; when they click Yes,
  * returns scraped data and focuses the app tab (same as getDataFromListingPage).
  */
-export async function getDataFromRefine(competitor, listingPageUrl) {
-  const payload = competitor === 'CashConverters'
-    ? { action: 'startRefine', competitor: 'CashConverters', listingPageUrl: listingPageUrl || null }
-    : { action: 'startRefine', competitor: 'eBay', listingPageUrl: listingPageUrl || null };
-  return sendMessage(payload);
+export async function getDataFromRefine(competitor, listingPageUrl, marketComparisonContext) {
+  const competitorVal = competitor === 'CashConverters' ? 'CashConverters' : 'eBay';
+  return sendMessage({
+    action: 'startRefine',
+    competitor: competitorVal,
+    listingPageUrl: listingPageUrl || null,
+    marketComparisonContext: marketComparisonContext || null
+  });
 }

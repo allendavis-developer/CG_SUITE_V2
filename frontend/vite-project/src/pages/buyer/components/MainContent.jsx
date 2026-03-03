@@ -32,6 +32,7 @@ const MainContent = ({
   availableModels, 
   selectedModel, 
   setSelectedModel, 
+  isLoadingModels = false,
   addToCart,
   updateCartItemEbayData,
   updateCartItemCashConvertersData,
@@ -389,6 +390,7 @@ const MainContent = ({
       cexSellPrice: referenceData?.cex_sale_price ? Number(referenceData.cex_sale_price) : null,
       cexBuyPrice: referenceData?.cex_tradein_cash ? Number(referenceData.cex_tradein_cash) : null,
       cexVoucherPrice: referenceData?.cex_tradein_voucher ? Number(referenceData.cex_tradein_voucher) : null,
+      cexOutOfStock: referenceData?.cex_out_of_stock ?? false,
       ebayResearchData: savedEbayState || null,
       cashConvertersResearchData: savedCashConvertersState || null,
       referenceData: referenceData,
@@ -577,8 +579,6 @@ const MainContent = ({
 
   // CeX product from "Add from CeX" flow – use normal MainContent layout (no config/condition)
   if (cexProductData) {
-    console.log('[CG Suite MainContent] rendering CeX product', cexProductData);
-
     const useVoucherOffers = customerData?.transactionType === 'store_credit';
     const offers = useVoucherOffers ? (cexProductData.voucher_offers || []) : (cexProductData.cash_offers || []);
     const refData = cexProductData.referenceData || {};
@@ -615,6 +615,7 @@ const MainContent = ({
         cexSellPrice: refData.cex_sale_price ? Number(refData.cex_sale_price) : null,
         cexBuyPrice: refData.cex_tradein_cash ? Number(refData.cex_tradein_cash) : null,
         cexVoucherPrice: refData.cex_tradein_voucher ? Number(refData.cex_tradein_voucher) : null,
+        cexOutOfStock: cexProductData.isOutOfStock ?? false,
         ebayResearchData: cexProductData.ebayResearchData || null,
         cashConvertersResearchData: cexProductData.cashConvertersResearchData || null,
         cexProductData
@@ -674,7 +675,15 @@ const MainContent = ({
                 </div>
               )}
               <div className="flex-1 min-w-0">
-                <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3">Product details</h2>
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Product details</h2>
+                  {(cexProductData.isOutOfStock || cexProductData.stockStatus) && (
+                    <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full border border-red-200 bg-red-50 text-[11px] font-bold uppercase tracking-wider text-red-700">
+                      <span className="material-symbols-outlined text-[14px]">error</span>
+                      {cexProductData.stockStatus || 'Out of stock at CeX'}
+                    </span>
+                  )}
+                </div>
                 <ul className="grid grid-cols-2 gap-x-8 gap-y-2">
                   {cexProductData.specifications && Object.entries(cexProductData.specifications).map(([label, value]) => (
                     <li key={label} className="flex">
@@ -722,6 +731,28 @@ const MainContent = ({
               referenceData={refData}
               ourSalePrice={refData.cex_based_sale_price}
               initialSearchQuery={cexProductData.modelName || cexProductData.title}
+              marketComparisonContext={
+                refData
+                  ? {
+                      cexSalePrice: refData.cex_sale_price ?? null,
+                      ourSalePrice: refData.cex_based_sale_price ?? null,
+                      ebaySalePrice: cexProductData.ebayResearchData?.stats?.median ?? null,
+                      cashConvertersSalePrice: cexProductData.cashConvertersResearchData?.stats?.median ?? null,
+                      itemTitle: cexProductData.title || 'CeX Product',
+                      itemConfig: (() => {
+                        const specs = cexProductData.specifications || {};
+                        const parts = Object.entries(specs)
+                          .filter(([label, value]) => value && label !== 'Grade' && label !== 'Condition')
+                          .map(([, value]) => value);
+                        return parts.length ? parts.join(' / ') : null;
+                      })(),
+                      itemCondition: (() => {
+                        const specs = cexProductData.specifications || {};
+                        return specs.Grade || specs.Condition || null;
+                      })()
+                    }
+                  : null
+              }
               onComplete={(data) => {
                 if (data?.cancel) {
                   setCeXEbayModalOpen(false);
@@ -741,6 +772,28 @@ const MainContent = ({
               referenceData={refData}
               ourSalePrice={refData.cex_based_sale_price}
               initialSearchQuery={cexProductData.modelName || cexProductData.title}
+              marketComparisonContext={
+                refData
+                  ? {
+                      cexSalePrice: refData.cex_sale_price ?? null,
+                      ourSalePrice: refData.cex_based_sale_price ?? null,
+                      ebaySalePrice: cexProductData.ebayResearchData?.stats?.median ?? null,
+                      cashConvertersSalePrice: cexProductData.cashConvertersResearchData?.stats?.median ?? null,
+                      itemTitle: cexProductData.title || 'CeX Product',
+                      itemConfig: (() => {
+                        const specs = cexProductData.specifications || {};
+                        const parts = Object.entries(specs)
+                          .filter(([label, value]) => value && label !== 'Grade' && label !== 'Condition')
+                          .map(([, value]) => value);
+                        return parts.length ? parts.join(' / ') : null;
+                      })(),
+                      itemCondition: (() => {
+                        const specs = cexProductData.specifications || {};
+                        return specs.Grade || specs.Condition || null;
+                      })()
+                    }
+                  : null
+              }
               onComplete={(data) => {
                 if (data?.cancel) {
                   setCeXCashConvertersModalOpen(false);
@@ -788,7 +841,15 @@ const MainContent = ({
                 </div>
               )}
               <div className="flex-1 min-w-0">
-                <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3">Product details</h2>
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Product details</h2>
+                  {(selectedCartItem.cexProductData?.isOutOfStock || selectedCartItem.cexProductData?.stockStatus) && (
+                    <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full border border-red-200 bg-red-50 text-[11px] font-bold uppercase tracking-wider text-red-700">
+                      <span className="material-symbols-outlined text-[14px]">error</span>
+                      {selectedCartItem.cexProductData.stockStatus || 'Out of stock at CeX'}
+                    </span>
+                  )}
+                </div>
                 <ul className="grid grid-cols-2 gap-x-8 gap-y-2">
                   {Object.keys(specs).length > 0 ? (
                     Object.entries(specs).map(([label, value]) => (
@@ -912,7 +973,8 @@ const MainContent = ({
       <section className="buyer-main-content w-3/5 min-w-0 min-h-0 flex-1 bg-white flex flex-col overflow-y-auto buyer-panel-scroll">
         <ProductSelection 
           availableModels={availableModels} 
-          setSelectedModel={setSelectedModel} 
+          setSelectedModel={setSelectedModel}
+          isLoading={isLoadingModels}
         />
       </section>
     );
@@ -960,14 +1022,21 @@ const MainContent = ({
             <Breadcrumb items={selectedCategory.path} />
 
             <div className="mb-4">
-              <SearchableDropdown
-                value={selectedModel?.name || 'Select a model'}
-                options={availableModels.length > 0 ? availableModels.map(m => m.name) : ['No models available']}
-                onChange={(name) => {
-                  const model = availableModels.find(m => m.name === name);
-                  if (model) setSelectedModel(model);
-                }}
-              />
+              {isLoadingModels ? (
+                <div className="flex items-center gap-3 text-sm text-gray-600 py-2">
+                  <Icon name="sync" className="animate-spin text-xl text-blue-900" />
+                  <span>Loading models for this category…</span>
+                </div>
+              ) : (
+                <SearchableDropdown
+                  value={selectedModel?.name || 'Select a model'}
+                  options={availableModels.length > 0 ? availableModels.map(m => m.name) : ['No models available']}
+                  onChange={(name) => {
+                    const model = availableModels.find(m => m.name === name);
+                    if (model) setSelectedModel(model);
+                  }}
+                />
+              )}
             </div>
 
             <div className="flex justify-between items-start">
@@ -1046,6 +1115,25 @@ const MainContent = ({
               referenceData={referenceData}
               ourSalePrice={ourSalePrice}
               initialSearchQuery={selectedModel?.name || undefined}
+              marketComparisonContext={
+                referenceData || ourSalePrice || ebayData || cashConvertersData
+                  ? {
+                      cexSalePrice: referenceData?.cex_sale_price ?? null,
+                      ourSalePrice: ourSalePrice ?? null,
+                      ebaySalePrice: ebayData?.stats?.median ?? null,
+                      cashConvertersSalePrice: cashConvertersData?.stats?.median ?? null,
+                      itemTitle: selectedModel?.name || selectedCategory?.name || null,
+                      itemConfig: (() => {
+                        const entries = Object.entries(attributeValues || {});
+                        const parts = entries
+                          .filter(([key, value]) => key !== 'condition' && value)
+                          .map(([, value]) => value);
+                        return parts.length ? parts.join(' / ') : null;
+                      })(),
+                      itemCondition: attributeValues?.condition || null
+                    }
+                  : null
+              }
               onComplete={(data) => {
                 if (data?.cancel) {
                   setEbayModalOpen(false);
@@ -1066,6 +1154,25 @@ const MainContent = ({
               referenceData={referenceData}
               ourSalePrice={ourSalePrice}
               initialSearchQuery={selectedModel?.name || undefined}
+              marketComparisonContext={
+                referenceData || ourSalePrice || ebayData || cashConvertersData
+                  ? {
+                      cexSalePrice: referenceData?.cex_sale_price ?? null,
+                      ourSalePrice: ourSalePrice ?? null,
+                      ebaySalePrice: ebayData?.stats?.median ?? null,
+                      cashConvertersSalePrice: cashConvertersData?.stats?.median ?? null,
+                      itemTitle: selectedModel?.name || selectedCategory?.name || null,
+                      itemConfig: (() => {
+                        const entries = Object.entries(attributeValues || {});
+                        const parts = entries
+                          .filter(([key, value]) => key !== 'condition' && value)
+                          .map(([, value]) => value);
+                        return parts.length ? parts.join(' / ') : null;
+                      })(),
+                      itemCondition: attributeValues?.condition || null
+                    }
+                  : null
+              }
               onComplete={(data) => {
                 if (data?.cancel) {
                   setCashConvertersModalOpen(false);

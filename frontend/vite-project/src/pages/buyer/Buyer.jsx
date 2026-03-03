@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Header, Sidebar } from '@/components/ui/components';
 import CustomerIntakeModal from "@/components/modals/CustomerIntakeModal.jsx";
 import MainContent from '@/pages/buyer/components/MainContent';
@@ -8,6 +8,7 @@ import { useNotification } from '@/contexts/NotificationContext';
 
 import { fetchProductModels, updateRequestItemRawData, fetchRequestDetail, fetchCeXProductPrices } from '@/services/api';
 import { getDataFromListingPage } from '@/services/extensionClient';
+import { mapTransactionTypeToIntent } from '@/utils/transactionConstants';
 
 export default function Buyer() {
   const location = useLocation();
@@ -16,6 +17,7 @@ export default function Buyer() {
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [availableModels, setAvailableModels] = useState([]);
   const [selectedModel, setSelectedModel] = useState(null);
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
   
   const [cartItems, setCartItems] = useState([]);
   const [isCustomerModalOpen, setCustomerModalOpen] = useState(true);
@@ -30,6 +32,7 @@ export default function Buyer() {
 
   const [intent, setIntent] = useState(null); // intent must be set when customer is selected
   const [request, setRequest] = useState(null);
+  const modelsRequestIdRef = useRef(0);
   
   // Confirmation dialog state
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
@@ -104,20 +107,6 @@ export default function Buyer() {
   }, [customerData.transactionType]);
 
 
-  // Map frontend transaction types to Django RequestIntent values
-  const mapTransactionTypeToIntent = (transactionType) => {
-    const intentMap = {
-      'sale': 'DIRECT_SALE',
-      'buyback': 'BUYBACK',
-      'store_credit': 'STORE_CREDIT'
-    };
-    const mapped = intentMap[transactionType];
-    if (!mapped) {
-      throw new Error(`Invalid transaction type: ${transactionType}. Must be one of: sale, buyback, store_credit`);
-    }
-    return mapped;
-  };
-
   // Handle customer selection
   const handleCustomerSelected = (customerInfo) => {
     setCustomerModalOpen(false);
@@ -167,13 +156,18 @@ export default function Buyer() {
       setPendingTransactionType(null);
   };
 
+  /**
+   * "Add from CeX" flow: ask extension to open CeX and wait for user to land on a product-detail page
+   * and click "Yes" in the "Have you got the data yet?" panel. The extension opens uk.webuy.com;
+   * when the user navigates to a product-detail URL the content script sends LISTING_PAGE_READY,
+   * background sends WAITING_FOR_DATA to that tab, and the panel appears. If the panel never appears,
+   * check DevTools console on the CeX tab and on the extension service worker (chrome://extensions → CG Suite → service worker) for logs.
+   */
   const handleAddFromCeX = async () => {
     setCexLoading(true);
     setCexProductData(null);
     try {
-      console.log('[CG Suite] handleAddFromCeX: calling getDataFromListingPage("CeX")');
       const data = await getDataFromListingPage('CeX');
-      console.log('[CG Suite] handleAddFromCeX: extension returned', data);
 
       if (data?.success && Array.isArray(data.results) && data.results.length > 0) {
         const product = data.results[0];
@@ -186,17 +180,11 @@ export default function Buyer() {
           image: product.image,
           id: product.id
         };
-        console.log('[CG Suite] handleAddFromCeX: scraped product', product, '-> payload for API', payload);
-
         const priceData = await fetchCeXProductPrices(payload);
-        console.log('[CG Suite] handleAddFromCeX: fetchCeXProductPrices returned', priceData);
-
         const merged = { ...product, ...priceData, listingPageUrl: data.listingPageUrl };
         setCexProductData(merged);
-        console.log('[CG Suite] handleAddFromCeX: set cexProductData', merged);
         showNotification('CeX product loaded', 'success');
       } else {
-        console.warn('[CG Suite] handleAddFromCeX: no results', data);
         showNotification(data?.error || 'No data returned', 'error');
       }
     } catch (err) {
@@ -212,12 +200,25 @@ export default function Buyer() {
   };
 
   const handleCategorySelect = async (category) => {
+    // Start a new models request; any older in-flight responses will be ignored
+    const requestId = ++modelsRequestIdRef.current;
+
     setSelectedCartItem(null);
     setCexProductData(null);
     setSelectedCategory(category);
     setSelectedModel(null);
-    const models = await fetchProductModels(category);
-    setAvailableModels(models);
+    setAvailableModels([]); // Clear old models to avoid showing stale options
+    setIsLoadingModels(true);
+
+    try {
+      const models = await fetchProductModels(category);
+      if (modelsRequestIdRef.current !== requestId) return; // Stale response
+      setAvailableModels(models);
+    } finally {
+      if (modelsRequestIdRef.current === requestId) {
+        setIsLoadingModels(false);
+      }
+    }
   };
 
   const addToCart = (item) => {
@@ -302,14 +303,26 @@ export default function Buyer() {
     if (selectedCartItem?.id === item.id) {
       setSelectedCartItem(null);
     } else {
-      // Load the category and models WITHOUT resetting selectedModel
+      // Load the category and models WITHOUT resetting selectedModel for the latest click only
       if (item.categoryObject) {
+        const requestId = ++modelsRequestIdRef.current;
         setSelectedCategory(item.categoryObject);
-        const models = await fetchProductModels(item.categoryObject);
-        setAvailableModels(models);
+        setIsLoadingModels(true);
+
+        try {
+          const models = await fetchProductModels(item.categoryObject);
+          if (modelsRequestIdRef.current !== requestId) return; // Ignore stale responses
+          setAvailableModels(models);
+          // Set the selected cart item AFTER models are loaded, but only if still latest
+          setSelectedCartItem(item);
+        } finally {
+          if (modelsRequestIdRef.current === requestId) {
+            setIsLoadingModels(false);
+          }
+        }
+      } else {
+        setSelectedCartItem(item);
       }
-      // Set the selected cart item AFTER models are loaded
-      setSelectedCartItem(item);
     }
   };
 
@@ -326,21 +339,8 @@ export default function Buyer() {
             ebayResearchData: ebayData
           };
 
-          // ✅ If the item already has a request_item_id, update the backend
           if (item.request_item_id) {
-            updateRequestItemRawData(item.request_item_id, ebayData)
-              .then(result => {
-                if (result) {
-                  console.log('✅ Successfully updated raw_data on backend for request_item_id:', item.request_item_id);
-                } else {
-                  console.error('❌ Failed to update raw_data on backend');
-                }
-              })
-              .catch(err => {
-                console.error('❌ Error updating raw_data:', err);
-              });
-          } else {
-            console.log('ℹ️ Item does not have request_item_id yet, will be included when added to cart');
+            updateRequestItemRawData(item.request_item_id, ebayData).catch(() => {});
           }
 
           return updatedItem;
@@ -382,7 +382,7 @@ export default function Buyer() {
         onClose={handleCustomerSelected}
       />
 
-      <Header onSearch={(val) => console.log('Search:', val)} />
+      <Header />
       <main className="flex flex-1 min-h-0 overflow-hidden">
         <Sidebar
           onCategorySelect={handleCategorySelect}
@@ -394,6 +394,7 @@ export default function Buyer() {
           availableModels={availableModels}
           selectedModel={selectedModel}
           setSelectedModel={setSelectedModel}
+          isLoadingModels={isLoadingModels}
           addToCart={addToCart}
           updateCartItemEbayData={updateCartItemEbayData}
           updateCartItemCashConvertersData={updateCartItemCashConvertersData}

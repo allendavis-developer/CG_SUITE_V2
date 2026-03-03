@@ -335,7 +335,8 @@ export const Header = ({ onSearch, userName = "JD" }) => (
 
 // Sidebar Category Item
 // Clicking ANY category loads its products (including descendants). Parent categories also toggle expand.
-export const CategoryItem = ({ icon, label, isActive, hasChildren, children, onToggle, onSelect }) => {
+// `isSelected` controls the highlight; `isExpanded` controls arrow/children.
+export const CategoryItem = ({ icon, label, isSelected, isExpanded, hasChildren, children, onToggle, onSelect }) => {
   const handleClick = () => {
     if (onSelect) onSelect();
     if (hasChildren && onToggle) onToggle();
@@ -345,21 +346,26 @@ export const CategoryItem = ({ icon, label, isActive, hasChildren, children, onT
     <div className="space-y-1">
       <div 
         className={`flex items-center p-2 rounded-lg cursor-pointer text-sm ${
-          isActive 
-            ? 'bg-yellow-500/10 text-yellow-500 font-semibold border-l-2 border-yellow-500' 
+          isSelected
+            ? 'bg-yellow-500/10 text-yellow-500 font-semibold border-l-2 border-yellow-500'
             : 'text-white/70 hover:bg-white/10'
-        }`}
+        } ${!isSelected && isExpanded ? 'bg-white/5' : ''}`}
         onClick={handleClick}
       >
         <div className="w-5 flex-shrink-0 flex items-center justify-start">
-          {hasChildren && <Icon name="chevron_right" className={`transition-transform text-sm ${isActive ? 'rotate-90' : ''}`} />}
+          {hasChildren && (
+            <Icon
+              name="chevron_right"
+              className={`transition-transform text-sm ${isExpanded ? 'rotate-90' : ''}`}
+            />
+          )}
         </div>
         <div className="flex items-center gap-2 min-w-0">
           <Icon name={icon} className="text-sm flex-shrink-0" />
           <span>{label}</span>
         </div>
       </div>
-      {isActive && children && (
+      {isExpanded && children && (
         <div className="ml-4 space-y-1 border-l border-white/10">
           {children}
         </div>
@@ -482,7 +488,8 @@ export const Sidebar = ({ onCategorySelect, onAddFromCeX, isCeXLoading }) => {
         key={category.category_id}
         icon={hasChildren ? "folder" : "smartphone"}
         label={category.name}
-        isActive={isSelected || isExpanded}
+        isSelected={isSelected}
+        isExpanded={isExpanded}
         hasChildren={hasChildren}
         onToggle={() => {
           setExpandedCategories((prev) =>

@@ -273,8 +273,6 @@ const PriceHistogram = React.memo(function PriceHistogram({ listings, onBucketSe
  * @param {Function} props.onRefineSearch - When set (e.g. extension flow), shows "Refine search" button; called when user wants to go back to the listing site to refine
  * @param {string} props.refineError - Optional error message to show after a failed refine (e.g. extension timeout)
  * @param {boolean} props.refineLoading - When true, Refine search button is disabled (refine in progress)
- * @param {Object} props.referenceData - Optional CeX reference {cex_tradein_cash, cex_sale_price} for product context when opened from market comparisons
- * @param {string|number} props.ourSalePrice - Optional our sale price for product context when opened from market comparisons
  */
 export default function ResearchFormShell({
   searchTerm,
@@ -313,9 +311,7 @@ export default function ResearchFormShell({
   hideSearchAndFilters = false,
   onRefineSearch = null,
   refineError = null,
-  refineLoading = false,
-  referenceData = null,
-  ourSalePrice = null
+  refineLoading = false
 }) {
   // Get current price range (latest in history, or null for full view)
   const currentPriceRange = drillHistory.length > 0 ? drillHistory[drillHistory.length - 1] : null;
@@ -533,47 +529,6 @@ export default function ResearchFormShell({
       </div>
     );
   }, [buyOffers, showManualOffer, selectedOfferIndex, manualOffer, manualOfferMargin, onManualOfferChange, readOnly, handleOfferClick, handleManualOfferCardClick, handleManualOfferChange]);
-
-  // CeX reference context (buy-in, market sale, our sale) - shown in modal when opened from market comparisons
-  const hasReferenceContext = referenceData && (
-    referenceData.cex_tradein_cash != null ||
-    referenceData.cex_sale_price != null ||
-    (ourSalePrice != null && ourSalePrice !== '')
-  );
-  const ReferenceContextDisplay = useMemo(() => {
-    if (!hasReferenceContext) return null;
-    const buyIn = referenceData?.cex_tradein_cash;
-    const marketSale = referenceData?.cex_sale_price;
-    const ourPrice = ourSalePrice != null && ourSalePrice !== '' ? Number(ourSalePrice) : null;
-    return () => (
-      <div className="flex items-center gap-6 flex-wrap">
-        {buyIn != null && (
-          <>
-            <div className="flex flex-col">
-              <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Buy-in Price</span>
-              <span className="text-lg font-extrabold text-blue-900">£{Number(buyIn).toFixed(2)}</span>
-            </div>
-            <div className="w-px h-8 bg-gray-200" />
-          </>
-        )}
-        {marketSale != null && (
-          <>
-            <div className="flex flex-col">
-              <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Market Sale Price</span>
-              <span className="text-lg font-extrabold text-gray-600">£{Number(marketSale).toFixed(2)}</span>
-            </div>
-            <div className="w-px h-8 bg-gray-200" />
-          </>
-        )}
-        {ourPrice != null && (
-          <div className="flex flex-col">
-            <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Our Sale Price</span>
-            <span className="text-lg font-extrabold text-green-600">£{Number(ourPrice).toFixed(2)}</span>
-          </div>
-        )}
-      </div>
-    );
-  }, [hasReferenceContext, referenceData, ourSalePrice]);
 
   const content = (
     <>
@@ -900,12 +855,6 @@ export default function ResearchFormShell({
       {mode === "modal" && (
         <footer className="px-6 py-4 border-t border-gray-200 bg-white flex justify-between items-center shrink-0">
           <div className="flex items-center gap-6 flex-wrap">
-            {ReferenceContextDisplay && (
-              <>
-                <ReferenceContextDisplay />
-                <div className="w-px h-8 bg-gray-200" />
-              </>
-            )}
             <StatsDisplay />
             {BuyOffersDisplay}
           </div>

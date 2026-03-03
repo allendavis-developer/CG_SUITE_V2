@@ -35,7 +35,7 @@ class VariantSerializer(serializers.ModelSerializer):
     """Variant serializer for nested use in RequestItemSerializer"""
     class Meta:
         model = Variant
-        fields = ['variant_id', 'cex_sku', 'title', 'current_price_gbp']
+        fields = ['variant_id', 'cex_sku', 'title', 'current_price_gbp', 'tradein_cash', 'tradein_voucher', 'cex_out_of_stock']
         read_only_fields = ['variant_id']
 
 

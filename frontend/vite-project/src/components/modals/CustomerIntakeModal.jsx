@@ -162,8 +162,10 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
     });
   };
 
-  // Get customer names for dropdown
-  const customerNames = customers.map(c => c.name);
+  // Get customer names for dropdown (exclude staging "New Customer" placeholders)
+  const customerNames = customers
+    .filter(c => !String(c.name || "").includes("New Customer"))
+    .map(c => c.name);
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">

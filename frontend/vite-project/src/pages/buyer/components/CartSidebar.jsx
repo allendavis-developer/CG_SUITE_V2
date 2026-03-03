@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Icon, Button } from '@/components/ui/components';
 import { useNavigate } from "react-router-dom";
-import CustomerTransactionHeader from './CustomerTransactionHeader'
+import CustomerTransactionHeader from './CustomerTransactionHeader';
 
 /**
  * Shopping cart sidebar component - No totals, non-selectable offers
@@ -20,28 +20,6 @@ const CartSidebar = ({
   const [isFinalizing, setIsFinalizing] = useState(false);
 
   const navigate = useNavigate();
-
-  const TRANSACTION_DISPLAY = {
-    sale: {
-      label: 'Direct Sale',
-      className: 'text-emerald-600'
-    },
-    buyback: {
-      label: 'Buy Back',
-      className: 'text-purple-600'
-    },
-    store_credit: {
-      label: 'Store Credit',
-      className: 'text-blue-600'
-    }
-  };
-
-  const transactionMeta =
-    TRANSACTION_DISPLAY[customerData.transactionType] || {
-      label: 'Unknown',
-      className: 'text-gray-400'
-    };
-
 
   const removeItem = (id) => {
     setCartItems(cartItems.filter(item => item.id !== id));

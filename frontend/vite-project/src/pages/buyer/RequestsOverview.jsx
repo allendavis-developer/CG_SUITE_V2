@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useNotification } from '@/contexts/NotificationContext';
 import { API_BASE_URL } from '@/services/api';
 import { Header, Icon, CustomDropdown } from '@/components/ui/components';
+import { formatIntent, getFilterTitle } from '@/utils/transactionConstants';
 
 const RequestsOverview = () => {
   const navigate = useNavigate();
@@ -74,34 +75,6 @@ const RequestsOverview = () => {
       .join('')
       .toUpperCase()
       .slice(0, 2);
-  };
-
-  const formatIntent = (intent) => {
-    switch (intent) {
-      case 'DIRECT_SALE':
-        return 'Direct Sale';
-      case 'BUYBACK':
-        return 'Buy Back';
-      case 'STORE_CREDIT':
-        return 'Store Credit';
-      default:
-        return intent.replace(/_/g, ' ');
-    }
-  };
-
-  const getFilterTitle = (status) => {
-    switch (status) {
-      case 'ALL':
-        return 'All Requests';
-      case 'QUOTE':
-        return 'Quote Requests';
-      case 'BOOKED_FOR_TESTING':
-        return 'Booked For Testing';
-      case 'COMPLETE':
-        return 'Complete Requests';
-      default:
-        return 'Requests';
-    }
   };
 
   // Calculate stats

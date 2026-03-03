@@ -640,11 +640,14 @@ def variant_prices(request):
         cex_tradein_cash = float(cex_box.get("cashPrice", 0) or variant.tradein_cash)
         cex_tradein_voucher = float(cex_box.get("exchangePrice", 0) or variant.tradein_voucher)
         image_urls = cex_box.get("imageUrls") or {}
+        # CeX Box API uses `outOfStock` as an integer (0 or 1)
+        cex_out_of_stock = bool(cex_box.get("outOfStock", 0))
     else:
         cex_sale_price = float(variant.current_price_gbp)
         cex_tradein_cash = float(variant.tradein_cash)
         cex_tradein_voucher = float(variant.tradein_voucher)
         image_urls = {}
+        cex_out_of_stock = bool(variant.cex_out_of_stock)
 
     # Our Target Sale Price
     target_sell_price = variant.get_target_sell_price()
@@ -712,7 +715,8 @@ def variant_prices(request):
         "cex_tradein_cash": cex_tradein_cash,
         "cex_tradein_voucher": cex_tradein_voucher,
         "cex_based_sale_price": round(our_sale_price, 2),
-        "percentage_used": percentage_used
+        "percentage_used": percentage_used,
+        "cex_out_of_stock": cex_out_of_stock,
     }
     if image_urls:
         reference_data["cex_image_urls"] = {

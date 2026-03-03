@@ -1,28 +1,51 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
-import { Button, Icon, Header } from "@/components/ui/components";
+import { Header } from "@/components/ui/components";
 import EbayResearchForm from "@/components/forms/EbayResearchForm";
 import CashConvertersResearchForm from "@/components/forms/CashConvertersResearchForm";
-import { CustomDropdown } from "@/components/ui/components";
-import CustomerTransactionHeader from './components/CustomerTransactionHeader'
+import CustomerTransactionHeader from './components/CustomerTransactionHeader';
 import { finishRequest, fetchRequestDetail, updateCustomer } from '@/services/api';
 import { useNotification } from '@/contexts/NotificationContext';
 import NewCustomerDetailsModal from '@/components/modals/NewCustomerDetailsModal';
 
 
-const TRANSACTION_OPTIONS = [
-  { value: 'sale', label: 'Direct Sale' },
-  { value: 'buyback', label: 'Buy Back' },
-  { value: 'store_credit', label: 'Store Credit' }
-];
+// Context menu for item row actions (e.g. remove)
+const ItemContextMenu = ({ x, y, onClose, onRemove }) => {
+  const menuRef = React.useRef(null);
 
-const TRANSACTION_META = {
-  sale: 'text-emerald-600',
-  buyback: 'text-purple-600',
-  store_credit: 'text-blue-600'
+  React.useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) onClose();
+    };
+    const handleEscape = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      ref={menuRef}
+      className="fixed z-50 min-w-[180px] py-1 border shadow-lg bg-white"
+      style={{
+        left: x,
+        top: y,
+        borderColor: 'var(--ui-border)',
+      }}
+    >
+      <button
+        className="w-full px-4 py-2 text-left text-sm font-medium hover:bg-slate-100 transition-colors"
+        style={{ color: 'var(--brand-blue)' }}
+        onClick={() => { onRemove(); onClose(); }}
+      >
+        Remove from negotiation
+      </button>
+    </div>
+  );
 };
-
-
 
 const Negotiation = ({ mode }) => {
   const navigate = useNavigate();
@@ -34,11 +57,13 @@ const Negotiation = ({ mode }) => {
   const actualRequestId = mode === 'view' ? paramsRequestId : initialRequestId;
 
   const [items, setItems] = useState([]); // Initialize empty
+  const [contextMenu, setContextMenu] = useState(null); // { x, y, item }
   const [customerData, setCustomerData] = useState({}); // Initialize empty
   const [researchItem, setResearchItem] = useState(null);
   const [cashConvertersResearchItem, setCashConvertersResearchItem] = useState(null);
   const [totalExpectation, setTotalExpectation] = useState("");
   const [transactionType, setTransactionType] = useState('sale'); // Default to 'sale'
+  const [manualGrandTotal, setManualGrandTotal] = useState("");
   const [isLoading, setIsLoading] = useState(true); // Always start loading, then set to false once initialized for any mode
   const [showNewCustomerDetailsModal, setShowNewCustomerDetailsModal] = useState(false);
   const [pendingFinishPayload, setPendingFinishPayload] = useState(null);
@@ -48,8 +73,64 @@ const Negotiation = ({ mode }) => {
   // Determine if we should show voucher offers
   const useVoucherOffers = transactionType === 'store_credit';
 
+  const applyManualGrandTotalToItems = (currentItems, rawValue) => {
+    if (mode === 'view') return currentItems;
+
+    const parsedTotal = parseFloat((rawValue || "").replace(/[£,]/g, ""));
+    if (!parsedTotal || parsedTotal <= 0) {
+      // Invalid or empty total – leave items unchanged
+      return currentItems;
+    }
+
+    // Build base totals from the 1st offer in the table (per item, including quantity)
+    const activeItems = currentItems.filter(item => !item.isRemoved);
+    const baseTotals = activeItems.map(item => {
+      const quantity = item.quantity || 1;
+      const displayOffers = useVoucherOffers
+        ? (item.voucherOffers || item.offers)
+        : (item.cashOffers || item.offers);
+      const firstOffer = displayOffers?.[0];
+      const baseTotal = firstOffer ? firstOffer.price * quantity : 0;
+      return {
+        itemId: item.id,
+        baseTotal,
+        quantity,
+      };
+    }).filter(entry => entry.baseTotal > 0);
+
+    const sumBase = baseTotals.reduce((sum, entry) => sum + entry.baseTotal, 0);
+
+    if (sumBase <= 0) {
+      // No valid 1st offers to base a distribution on – leave items unchanged
+      return currentItems;
+    }
+
+    return currentItems.map(item => {
+      if (item.isRemoved) return item;
+      const baseInfo = baseTotals.find(entry => entry.itemId === item.id);
+      if (!baseInfo || baseInfo.baseTotal <= 0) {
+        // Leave items without a valid 1st offer unchanged
+        return item;
+      }
+
+      const shareTotal = (parsedTotal * baseInfo.baseTotal) / sumBase;
+      const quantity = baseInfo.quantity || 1;
+      const perUnit = quantity > 0 ? Number((shareTotal / quantity).toFixed(2)) : 0;
+
+      if (!perUnit || perUnit <= 0) {
+        return item;
+      }
+
+      return {
+        ...item,
+        manualOffer: perUnit.toFixed(2),
+        selectedOfferId: 'manual',
+      };
+    });
+  };
+
   const buildFinishPayload = (offerPrice) => {
-    const itemsData = items.map(item => {
+    const itemsData = items.filter(item => !item.isRemoved).map(item => {
       const quantity = item.quantity || 1;
       let negotiatedPrice = 0;
 
@@ -110,6 +191,7 @@ const Negotiation = ({ mode }) => {
     }
 
     for (const item of items) {
+      if (item.isRemoved) continue;
       if (!item.selectedOfferId) {
         showNotification(`Please select an offer for item: ${item.title || 'Unknown Item'}`, 'error');
         return;
@@ -123,7 +205,7 @@ const Negotiation = ({ mode }) => {
       }
     }
 
-    const totalOfferPrice = items.reduce((sum, item) => {
+    const totalOfferPrice = items.filter(i => !i.isRemoved).reduce((sum, item) => {
       const qty = item.quantity || 1;
       if (item.selectedOfferId === 'manual' && item.manualOffer) {
         return sum + (parseFloat(item.manualOffer.replace(/[£,]/g, '')) || 0) * qty;
@@ -156,6 +238,8 @@ const Negotiation = ({ mode }) => {
     setShowNewCustomerDetailsModal(false);
   };
 
+  const hasInitializedNegotiateRef = useRef(false);
+
   useEffect(() => {
     if (mode === 'view' && actualRequestId) {
       const loadRequestDetails = async () => {
@@ -173,45 +257,78 @@ const Negotiation = ({ mode }) => {
             setTotalExpectation(data.overall_expectation_gbp?.toString() || '');
             setTransactionType(data.intent === 'DIRECT_SALE' ? 'sale' : data.intent === 'BUYBACK' ? 'buyback' : 'store_credit');
 
+            const currentStatus = data.current_status || data.status_history?.[0]?.status;
+            const isBookedOrComplete = currentStatus === 'BOOKED_FOR_TESTING' || currentStatus === 'COMPLETE';
+
             const mappedItems = data.items.map(item => {
-                const ebayResearchData = item.raw_data || null; // raw_data now contains only ebayResearchData
+                const ebayResearchData = item.raw_data || null; // raw_data may contain eBay or CeX data
                 const cashConvertersResearchData = item.cash_converters_data || null; // Cash Converters research data
+
+                // Items removed from cart before finalization have no negotiated_price_gbp
+                const isRemoved = isBookedOrComplete && (item.negotiated_price_gbp == null || item.negotiated_price_gbp === '');
 
                 // Extract saved offers from dedicated fields
                 let savedCashOffers = item.cash_offers_json || [];
                 let savedVoucherOffers = item.voucher_offers_json || [];
 
-                // --- NEW LOGIC FOR EBAY ITEMS WITH MISSING VOUCHER OFFERS ---
-                // Check if it's an eBay research item based on raw_data presence
-                // and if cash offers exist but voucher offers are missing, generate them.
-                if (ebayResearchData && savedCashOffers.length > 0 && savedVoucherOffers.length === 0) {
+                // Detect if raw_data looks like an eBay research payload
+                const isEbayResearchPayload =
+                    !!(ebayResearchData && ebayResearchData.stats && ebayResearchData.selectedFilters);
+
+                // --- LOGIC FOR EBAY ITEMS WITH MISSING VOUCHER OFFERS ---
+                // Only treat raw_data as eBay when it has the expected shape
+                if (isEbayResearchPayload && savedCashOffers.length > 0 && savedVoucherOffers.length === 0) {
                     savedVoucherOffers = savedCashOffers.map(offer => ({
                         id: `ebay-voucher-${offer.id}`, // Ensure unique IDs
                         title: offer.title,
                         price: Number((offer.price * 1.10).toFixed(2)) // 10% more, rounded to 2 decimal places
                     }));
                 }
-                // --- END NEW LOGIC ---
+                // --- END EBAY LOGIC ---
 
                 // Determine the currently displayed offers based on transaction type (for local logic)
                 const displayOffers = (transactionType === 'store_credit') ? savedVoucherOffers : savedCashOffers;
 
-                // Prefer CeX data for title/subtitle when available, fall back to eBay research
+                // Prefer CeX data for title/subtitle when available, but fall back to raw_data (CeX) or eBay/CC search term
                 const cexTitle = item.variant_details?.title;
                 const cexSubtitle = item.variant_details?.cex_sku;
-                const ebaySubtitleFromFilters =
-                    ebayResearchData
-                        ? (Object.values(ebayResearchData.selectedFilters?.apiFilters || {})
-                            .flat()
-                            .join(' / ') ||
-                           ebayResearchData.selectedFilters?.basic?.join(' / ') ||
-                           'eBay Filters')
-                        : null;
+
+                // For CeX raw_data (Add-from-CeX), use its title/modelName
+                const rawCeXTitle = !isEbayResearchPayload
+                    ? (ebayResearchData?.title || ebayResearchData?.modelName)
+                    : null;
+
+                // For eBay research payloads, use the eBay search term / title
+                const rawEbayTitle = isEbayResearchPayload
+                    ? (ebayResearchData.searchTerm || ebayResearchData.title || null)
+                    : null;
+
+                const cashConvertersTitle =
+                    cashConvertersResearchData?.searchTerm || cashConvertersResearchData?.title || null;
+
+                const ebaySubtitleFromFilters = isEbayResearchPayload
+                    ? (Object.values(ebayResearchData.selectedFilters?.apiFilters || {})
+                        .flat()
+                        .join(' / ') ||
+                       ebayResearchData.selectedFilters?.basic?.join(' / ') ||
+                       'eBay Filters')
+                    : null;
+
+                // Derive a stable CeX URL if possible (prefer raw_data URL, else build from SKU)
+                const cexSkuFromVariant = item.variant_details?.cex_sku || null;
+                const cexSkuFromRaw = !isEbayResearchPayload
+                    ? (ebayResearchData?.id || ebayResearchData?.sku || null)
+                    : null;
+                const effectiveCexSku = cexSkuFromVariant || cexSkuFromRaw || null;
+
+                const cexUrl =
+                    (ebayResearchData && !isEbayResearchPayload && (ebayResearchData.url || ebayResearchData.listingPageUrl)) ||
+                    (effectiveCexSku ? `https://uk.webuy.com/product-detail?id=${effectiveCexSku}` : null);
 
                 return {
                     id: item.request_item_id,
                     request_item_id: item.request_item_id,
-                    title: cexTitle || ebayResearchData?.searchTerm || cashConvertersResearchData?.searchTerm || 'N/A',
+                    title: cexTitle || rawCeXTitle || rawEbayTitle || cashConvertersTitle || 'N/A',
                     subtitle: cexSubtitle || ebaySubtitleFromFilters || 'No details',
                     quantity: item.quantity,
                     selectedOfferId: item.selected_offer_id,
@@ -228,6 +345,8 @@ const Negotiation = ({ mode }) => {
                     cexSellPrice: (mode === 'view' && item.cex_sell_at_negotiation !== null)
                                 ? parseFloat(item.cex_sell_at_negotiation)
                                 : (item.variant_details?.current_price_gbp ? parseFloat(item.variant_details.current_price_gbp) : null),
+                    cexOutOfStock: item.variant_details?.cex_out_of_stock ?? false,
+                    cexUrl,
                     // Load our sale price from database, fallback to eBay research suggestedPrice
                     ourSalePrice: (mode === 'view' && item.our_sale_price_at_negotiation !== null)
                                 ? parseFloat(item.our_sale_price_at_negotiation)
@@ -238,6 +357,7 @@ const Negotiation = ({ mode }) => {
                     offers: displayOffers, 
                     cashOffers: savedCashOffers, 
                     voucherOffers: savedVoucherOffers, 
+                    isRemoved,
                 };
             });
             setItems(mappedItems);
@@ -255,10 +375,13 @@ const Negotiation = ({ mode }) => {
       };
       loadRequestDetails();
     } else if (mode === 'negotiate') {
-        // For negotiate mode, initialize from location.state if state is currently empty
-        // This prevents overwriting user selections during validation re-renders
-        if (cartItems && cartItems.length > 0 && items.length === 0) { // Only set if items are empty and cartItems exist
-            setItems(cartItems);
+        // For negotiate mode, initialize from location.state only once.
+        // This prevents overwriting user edits (like removals) on re-renders.
+        if (!hasInitializedNegotiateRef.current) {
+            if (cartItems && cartItems.length > 0) {
+                setItems(cartItems);
+            }
+            hasInitializedNegotiateRef.current = true;
         }
         if (initialCustomerData?.id && !customerData?.id) { // Only set if customerData is empty and initialCustomerData exists
             setCustomerData(initialCustomerData);
@@ -312,8 +435,6 @@ const Negotiation = ({ mode }) => {
       return;
     }
 
-    console.log('Transaction type changed from', prevType, 'to', transactionType);
-
     setItems(prevItems =>
       prevItems.map(item => {
         // Don't override manual selections
@@ -332,30 +453,11 @@ const Negotiation = ({ mode }) => {
           ? (item.voucherOffers || item.offers)
           : (item.cashOffers || item.offers);
 
-        console.log('Item:', item.title);
-        console.log('  selectedOfferId:', item.selectedOfferId);
-        console.log('  prevOffers:', prevOffers?.map(o => o.id));
-        console.log('  newOffers:', newOffers?.map(o => o.id));
-
-        if (!prevOffers || !newOffers) {
-          console.log('  -> No offers, returning unchanged');
-          return item;
-        }
+        if (!prevOffers || !newOffers) return item;
 
         const prevIndex = prevOffers.findIndex(o => o.id === item.selectedOfferId);
-        console.log('  prevIndex:', prevIndex);
-        
-        if (prevIndex < 0) {
-          console.log('  -> Selected offer not found in prevOffers, returning unchanged');
-          return item;
-        }
-        
-        if (!newOffers[prevIndex]) {
-          console.log('  -> No offer at index', prevIndex, 'in newOffers, returning unchanged');
-          return item;
-        }
+        if (prevIndex < 0 || !newOffers[prevIndex]) return item;
 
-        console.log('  -> Setting selectedOfferId to', newOffers[prevIndex].id);
         return {
           ...item,
           selectedOfferId: newOffers[prevIndex].id,
@@ -366,6 +468,15 @@ const Negotiation = ({ mode }) => {
     prevTransactionTypeRef.current = transactionType;
   }, [transactionType, mode]);
 
+
+  const handleRemoveFromNegotiation = (item) => {
+    setItems(prev => {
+      const filtered = prev.filter(i => i.id !== item.id);
+      return applyManualGrandTotalToItems(filtered, manualGrandTotal);
+    });
+    setContextMenu(null);
+    showNotification(`"${item.title || 'Item'}" removed from negotiation`, 'info');
+  };
 
   const handleReopenResearch = (item) => {
     setResearchItem(item);
@@ -469,9 +580,10 @@ const Negotiation = ({ mode }) => {
     setCashConvertersResearchItem(null);
   };
 
-  // Calculate total from individual item expectations
+  // Calculate total from individual item expectations (exclude removed items)
   const calculateTotalFromItems = () => {
     return items.reduce((sum, item) => {
+      if (item.isRemoved) return sum;
       if (item.customerExpectation) {
         const value = parseFloat(item.customerExpectation.replace(/[£,]/g, '')) || 0;
         const quantity = item.quantity || 1;
@@ -504,8 +616,9 @@ const Negotiation = ({ mode }) => {
 
 
 
-  // Calculate totals with quantity
+  // Calculate totals with quantity (exclude removed items in view mode)
   const totalOfferPrice = items.reduce((sum, item) => {
+    if (item.isRemoved) return sum;
     const quantity = item.quantity || 1;
     
     if (item.selectedOfferId === 'manual' && item.manualOffer) {
@@ -616,8 +729,8 @@ const Negotiation = ({ mode }) => {
                 {mode === 'view' ? 'Back to Requests' : 'Back to Cart'}
               </button>
 
-              {/* Total Expectation Input */}
-              <div className="flex-1 max-w-md">
+              {/* Customer Total Expectation & Manual Grand Total */}
+              <div className="flex-1 max-w-md space-y-4">
                 <div className="p-4 rounded-lg border" style={{ 
                   borderColor: 'rgba(247, 185, 24, 0.5)',
                   background: 'rgba(247, 185, 24, 0.05)'
@@ -642,6 +755,41 @@ const Negotiation = ({ mode }) => {
                     />
                   </div>
                 </div>
+
+                {mode === 'negotiate' && (
+                  <div className="p-4 rounded-lg border" style={{ 
+                    borderColor: 'rgba(20, 69, 132, 0.3)',
+                    background: 'rgba(20, 69, 132, 0.03)'
+                  }}>
+                    <label className="block text-[10px] font-black uppercase tracking-wider mb-2" style={{ color: 'var(--brand-blue)' }}>
+                      Final Offer (Grand Total)
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-lg" style={{ color: 'var(--brand-blue)' }}>£</span>
+                        <input 
+                          className="w-full pl-8 pr-3 py-2.5 bg-white rounded-lg text-lg font-bold focus:ring-2"
+                          style={{ 
+                            border: '1px solid rgba(20, 69, 132, 0.3)',
+                            color: 'var(--brand-blue)',
+                            outline: 'none'
+                          }}
+                          type="text" 
+                          value={manualGrandTotal}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setManualGrandTotal(value);
+                            setItems(prev => applyManualGrandTotalToItems(prev, value));
+                          }}
+                          placeholder={totalOfferPrice ? totalOfferPrice.toFixed(2) : "0.00"}
+                        />
+                      </div>
+                    </div>
+                    <p className="mt-1 text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                      Automatically distributes this total across items using the ratio of their 1st offers.
+                    </p>
+                  </div>
+                )}
               </div>
 
               {/* Request ID Info */}
@@ -700,6 +848,9 @@ const Negotiation = ({ mode }) => {
                   const offer3 = displayOffers?.[2];
                   const isViewMode = mode === 'view';
 
+                  // Resolve out-of-stock: top-level flag (set at cart-add time) or buried in cexProductData
+                  const cexOutOfStock = item.cexOutOfStock || item.cexProductData?.isOutOfStock || false;
+
                   // Calculate Our Sale Price for margin calculations
                   const ourSalePrice =
                     item.ourSalePrice !== undefined && item.ourSalePrice !== null && item.ourSalePrice !== ''
@@ -715,7 +866,15 @@ const Negotiation = ({ mode }) => {
                   };
 
                   return (
-                    <tr key={item.id || index}>
+                    <tr
+                      key={item.id || index}
+                      className={item.isRemoved ? 'opacity-60' : ''}
+                      style={item.isRemoved ? { textDecoration: 'line-through' } : {}}
+                      onContextMenu={mode === 'negotiate' ? (e) => {
+                        e.preventDefault();
+                        setContextMenu({ x: e.clientX, y: e.clientY, item });
+                      } : undefined}
+                    >
                       {/* Qty (editable in negotiate mode) */}
                       <td className="text-center">
                         {mode === 'view' ? (
@@ -730,13 +889,14 @@ const Negotiation = ({ mode }) => {
                               const raw = e.target.value;
                               const parsed = parseInt(raw, 10);
                               const safeQuantity = Number.isNaN(parsed) || parsed <= 0 ? 1 : parsed;
-                              setItems(prev =>
-                                prev.map(i =>
+                              setItems(prev => {
+                                const updated = prev.map(i =>
                                   i.id === item.id
                                     ? { ...i, quantity: safeQuantity }
                                     : i
-                                )
-                              );
+                                );
+                                return applyManualGrandTotalToItems(updated, manualGrandTotal);
+                              });
                             }}
                           />
                         )}
@@ -744,8 +904,18 @@ const Negotiation = ({ mode }) => {
 
                       {/* Item Name & Attributes */}
                       <td>
-                        <div className="font-bold text-[13px]" style={{ color: 'var(--brand-blue)' }}>
+                        <div className="font-bold text-[13px] flex items-center gap-2 flex-wrap" style={{ color: 'var(--brand-blue)' }}>
                           {item.title || 'N/A'}
+                          {item.isRemoved && (
+                            <span className="text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-red-100 text-red-700">
+                              Removed from cart
+                            </span>
+                          )}
+                          {cexOutOfStock && (
+                            <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-red-100 text-red-700 border border-red-300">
+                              CeX out of stock
+                            </span>
+                          )}
                         </div>
                         <div className="text-[9px] uppercase font-medium mt-0.5" style={{ color: 'var(--text-muted)' }}>
                           {item.subtitle || item.category || 'No details'} {item.model && `| ${item.model}`}
@@ -753,8 +923,8 @@ const Negotiation = ({ mode }) => {
                       </td>
                       
                       {/* CeX Buy (Cash) Column */}
-                      <td className="font-medium text-emerald-700">
-                        {item.cexBuyPrice ? (
+                      <td className="font-medium text-emerald-700 align-top">
+                        {item.cexBuyPrice != null ? (
                           <div>
                             <div>£{(item.cexBuyPrice * quantity).toFixed(2)}</div>
                             {quantity > 1 && (
@@ -767,8 +937,8 @@ const Negotiation = ({ mode }) => {
                       </td>
 
                       {/* CeX Buy (Voucher) Column */}
-                      <td className="font-medium text-amber-700">
-                        {item.cexVoucherPrice ? (
+                      <td className="font-medium text-amber-700 align-top">
+                        {item.cexVoucherPrice != null ? (
                           <div>
                             <div>£{(item.cexVoucherPrice * quantity).toFixed(2)}</div>
                             {quantity > 1 && (
@@ -780,11 +950,22 @@ const Negotiation = ({ mode }) => {
                         ) : '—'}
                       </td>
 
-                      {/* CeX Sell Column */}
-                      <td className="font-medium text-blue-800">
-                        {item.cexSellPrice ? (
+                      {/* CeX Sell Column (link to CeX product when available) */}
+                      <td className="font-medium text-blue-800 align-top">
+                        {item.cexSellPrice != null ? (
                           <div>
-                            <div>£{(item.cexSellPrice * quantity).toFixed(2)}</div>
+                            {item.cexUrl ? (
+                              <a
+                                href={item.cexUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="underline decoration-dotted"
+                              >
+                                £{(item.cexSellPrice * quantity).toFixed(2)}
+                              </a>
+                            ) : (
+                              <div>£{(item.cexSellPrice * quantity).toFixed(2)}</div>
+                            )}
                             {quantity > 1 && (
                               <div className="text-[9px] opacity-70">
                                 (£{item.cexSellPrice.toFixed(2)} × {quantity})
@@ -1026,59 +1207,72 @@ const Negotiation = ({ mode }) => {
                         />
                       </td>
 
-                      {/* Our Sale Price (editable in negotiate mode) */}
+                      {/* Our Sale Price (row total in negotiate mode) */}
                       <td className="font-medium text-purple-700">
                         {(() => {
-                          const baseOurPrice =
+                          // Per-unit our sale price (internal representation)
+                          const perUnitOurPrice =
                             item.ourSalePrice !== undefined && item.ourSalePrice !== null && item.ourSalePrice !== ''
                               ? Number(item.ourSalePrice)
                               : (item.ebayResearchData?.stats?.suggestedPrice != null
                                   ? Number(item.ebayResearchData.stats.suggestedPrice)
                                   : null);
 
-                          const displayValue =
-                            item.ourSalePrice !== undefined && item.ourSalePrice !== null
-                              ? String(item.ourSalePrice)
-                              : (baseOurPrice != null ? String(baseOurPrice) : '');
+                          // Row total used for display / editing in negotiate mode
+                          const totalOurPrice =
+                            perUnitOurPrice != null && !Number.isNaN(perUnitOurPrice)
+                              ? perUnitOurPrice * quantity
+                              : null;
 
                           // View mode: keep as read-only display
                           if (mode === 'view') {
-                            return baseOurPrice != null ? (
+                            return perUnitOurPrice != null ? (
                               <div>
-                                <div>£{(baseOurPrice * quantity).toFixed(2)}</div>
+                                <div>£{(perUnitOurPrice * quantity).toFixed(2)}</div>
                                 {quantity > 1 && (
                                   <div className="text-[9px] opacity-70">
-                                    (£{baseOurPrice.toFixed(2)} × {quantity})
+                                    (£{perUnitOurPrice.toFixed(2)} × {quantity})
                                   </div>
                                 )}
                               </div>
                             ) : '—';
                           }
 
-                          // Negotiate mode: editable input (per-unit), with total shown underneath
+                          // Negotiate mode: editable input for ROW TOTAL, per-unit stored internally
                           return (
                             <div>
                               <input
                                 className="w-full h-full border-0 text-xs font-semibold text-center px-3 py-2 focus:outline-none focus:ring-0 bg-white rounded"
                                 placeholder="£0.00"
                                 type="text"
-                                value={displayValue}
+                                value={totalOurPrice != null && !Number.isNaN(totalOurPrice)
+                                  ? totalOurPrice.toFixed(2)
+                                  : ''}
                                 onChange={(e) => {
                                   const value = e.target.value;
+                                  const parsedTotal = parseFloat(value.replace(/[£,]/g, ''));
+                                  const safeQuantity = quantity || 1;
+
                                   setItems(prev =>
                                     prev.map(i =>
                                       i.id === item.id
-                                        ? { ...i, ourSalePrice: value }
+                                        ? (() => {
+                                            if (!parsedTotal || parsedTotal <= 0 || Number.isNaN(parsedTotal)) {
+                                              return { ...i, ourSalePrice: '' };
+                                            }
+                                            const perUnit = parsedTotal / safeQuantity;
+                                            return { ...i, ourSalePrice: perUnit.toFixed(2) };
+                                          })()
                                         : i
                                     )
                                   );
                                 }}
                               />
-                              {displayValue && !isNaN(Number(displayValue)) && (
+                              {totalOurPrice != null && !Number.isNaN(totalOurPrice) && (
                                 <div className="text-[9px] opacity-70 mt-0.5">
-                                  £{(Number(displayValue) * quantity).toFixed(2)}
+                                  £{totalOurPrice.toFixed(2)}
                                   {quantity > 1 && (
-                                    <span>{` ( £${Number(displayValue).toFixed(2)} × ${quantity} )`}</span>
+                                    <span>{` ( £${perUnitOurPrice != null && !Number.isNaN(perUnitOurPrice) ? perUnitOurPrice.toFixed(2) : '0.00'} × ${quantity} )`}</span>
                                   )}
                                 </div>
                               )}
@@ -1236,6 +1430,16 @@ const Negotiation = ({ mode }) => {
           </div>
         </aside>
       </main>
+
+      {/* Right-click context menu for removing items */}
+      {contextMenu && (
+        <ItemContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+          onRemove={() => handleRemoveFromNegotiation(contextMenu.item)}
+        />
+      )}
 
       {/* Research Modal Overlay */}
       {researchItem && (

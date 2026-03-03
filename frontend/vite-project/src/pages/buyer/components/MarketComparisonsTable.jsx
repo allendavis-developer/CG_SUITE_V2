@@ -44,7 +44,14 @@ const MarketComparisonsTable = ({
           {variant && competitorStats.length > 0 ? (
             competitorStats.map((row, idx) => (
               <tr key={`cex-${idx}`} className="hover:bg-gray-50 transition-colors">
-                <td className="p-4 font-medium text-gray-900">CEX</td>
+                <td className="p-4 font-medium text-gray-900">
+                  CEX
+                  {row.outOfStock && (
+                    <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full bg-red-50 border border-red-200 text-[10px] font-semibold uppercase tracking-wider text-red-700">
+                      Out of stock
+                    </span>
+                  )}
+                </td>
                 <td className="p-4 font-bold text-gray-600">{formatGBP(row.salePrice)}</td>
 
                 <td className="p-4 bg-yellow-500/5 border-x border-yellow-500/10 font-bold text-gray-900">

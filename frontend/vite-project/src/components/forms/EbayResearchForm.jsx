@@ -21,6 +21,7 @@ export default function EbayResearchForm({
   referenceData = null,
   ourSalePrice = null,
   initialSearchQuery = null,
+  marketComparisonContext = null,
 }) {
   const [step, setStep] = useState(savedState?.listings?.length ? 'cards' : 'get-data');
   const [listings, setListings] = useState(savedState?.listings ?? []);
@@ -48,13 +49,17 @@ export default function EbayResearchForm({
       console.log('[CG Suite] Get data clicked, initialSearchQuery:', initialSearchQuery, '-> sending:', searchQueryToSend);
     }
     try {
-      const result = await getDataFromListingPage('eBay', searchQueryToSend);
+      const result = await getDataFromListingPage('eBay', searchQueryToSend, marketComparisonContext);
       if (result?.success && Array.isArray(result.results)) {
         setListings(result.results);
         setSearchTerm((result.searchTerm != null && String(result.searchTerm).trim()) ? String(result.searchTerm).trim() : '');
         setListingPageUrl(result.listingPageUrl || null);
         setDrillHistory([]);
         setStep('cards');
+      } else if (result?.cancelled) {
+        if (mode === 'modal') {
+          onComplete?.({ cancel: true });
+        }
       } else {
         setError(result?.error || "No data returned. Make sure you're on a listings page and clicked Yes.");
       }
@@ -63,19 +68,23 @@ export default function EbayResearchForm({
     } finally {
       setLoading(false);
     }
-  }, [initialSearchQuery]);
+  }, [initialSearchQuery, marketComparisonContext]);
 
   const handleRefineSearch = useCallback(async () => {
     setError(null);
     setLoading(true);
     try {
-      const result = await getDataFromRefine('eBay', listingPageUrl);
+      const result = await getDataFromRefine('eBay', listingPageUrl, marketComparisonContext);
       if (result?.success && Array.isArray(result.results)) {
         setListings(result.results);
         setSearchTerm((result.searchTerm != null && String(result.searchTerm).trim()) ? String(result.searchTerm).trim() : '');
         setListingPageUrl(result.listingPageUrl || null);
         setDrillHistory([]);
         setError(null);
+      } else if (result?.cancelled) {
+        if (mode === 'modal') {
+          onComplete?.({ cancel: true });
+        }
       } else {
         setError(result?.error || "No data returned. Make sure you're on a listings page and clicked the button.");
       }
@@ -84,7 +93,7 @@ export default function EbayResearchForm({
     } finally {
       setLoading(false);
     }
-  }, [listingPageUrl]);
+  }, [listingPageUrl, marketComparisonContext]);
 
   const currentPriceRange = drillHistory.length > 0 ? drillHistory[drillHistory.length - 1] : null;
 
@@ -259,8 +268,6 @@ export default function EbayResearchForm({
       onRefineSearch={handleRefineSearch}
       refineError={error}
       refineLoading={loading}
-      referenceData={referenceData}
-      ourSalePrice={ourSalePrice}
     />
   );
 }
