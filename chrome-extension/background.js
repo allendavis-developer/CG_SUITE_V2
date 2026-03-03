@@ -38,7 +38,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === 'LISTING_PAGE_READY') {
-    handleListingPageReady(sender)
+    handleListingPageReady(message, sender)
       .then(() => sendResponse({ ok: true }))
       .catch(() => sendResponse({ ok: false }));
     return true;
@@ -72,9 +72,10 @@ async function handleBridgeForward(message, sender) {
         ? `https://www.cashconverters.co.uk/search-results?Sort=default&page=1&query=${encodeURIComponent(searchQuery)}`
         : 'https://www.cashconverters.co.uk/';
     } else if (competitor === 'CeX') {
-      url = searchQuery
+      const cexBase = searchQuery
         ? `https://uk.webuy.com/search?keyword=${encodeURIComponent(searchQuery)}`
         : 'https://uk.webuy.com/';
+      url = cexBase + (cexBase.includes('?') ? '&' : '?') + 'cgReq=' + encodeURIComponent(requestId);
     } else {
       url = searchQuery
         ? `https://www.ebay.co.uk/sch/i.html?_nkw=${encodeURIComponent(searchQuery)}`
@@ -87,7 +88,7 @@ async function handleBridgeForward(message, sender) {
     pending[requestId] = { appTabId, listingTabId: newTab.id, competitor, marketComparisonContext };
     await setPending(pending);
 
-    console.log('[CG Suite] startWaitingForData saved – when this tab (or a CeX product tab) sends LISTING_PAGE_READY we will send WAITING_FOR_DATA', { requestId, competitor, listingTabId: newTab.id, appTabId });
+    console.log('[CG Suite] startWaitingForData saved – only this tab can complete the flow; closing it will notify the app', { requestId, competitor, listingTabId: newTab.id, appTabId });
     return { ok: true };
   }
 
@@ -152,41 +153,40 @@ async function sendWaitingForData(tabId, requestId, marketComparisonContext, ret
   }
 }
 
-async function handleListingPageReady(sender) {
+async function handleListingPageReady(message, sender) {
   const tabId = sender.tab?.id;
   const tabUrl = (sender.tab?.url || '').toLowerCase();
 
-  console.log('[CG Suite] LISTING_PAGE_READY received from tab', tabId, 'url=', tabUrl);
+  console.log('[CG Suite] LISTING_PAGE_READY received from tab', tabId, 'url=', tabUrl, 'explicitRequestId=', message?.requestId);
 
   const pending = await getPending();
   const entries = Object.entries(pending);
 
-  // 1. Try exact match by the tab we created / already associated
   let matchedId = null;
   let matchedEntry = null;
 
-  for (const [rid, entry] of entries) {
-    if (entry.listingTabId === tabId) {
-      matchedId = rid;
-      matchedEntry = entry;
-      break;
-    }
+  // 1. If the content script provided an explicit requestId (CeX: from cgReq in URL / sessionStorage),
+  //    only accept it if this tab is already the one we opened for that request (no re-association to other tabs).
+  const explicitRequestId = message && message.requestId;
+  if (explicitRequestId && pending[explicitRequestId] && pending[explicitRequestId].listingTabId === tabId) {
+    matchedId = explicitRequestId;
+    matchedEntry = pending[explicitRequestId];
+    console.log('[CG Suite] LISTING_PAGE_READY matched by explicit requestId (same tab)', { explicitRequestId, tabId });
   }
 
-  // 2. Fallback: user opened product in a different tab (new tab, or same-origin link)
-  //    Re-associate the pending CeX request to whichever tab is now on the product page.
-  if (!matchedEntry && tabUrl.includes('webuy.com') && tabUrl.includes('product-detail') && tabUrl.includes('id=')) {
+  // 2. Otherwise match by tab: only the tab we opened (listingTabId) can complete this flow.
+  if (!matchedEntry) {
     for (const [rid, entry] of entries) {
-      if (entry.competitor === 'CeX') {
+      if (entry.listingTabId === tabId) {
         matchedId = rid;
-        matchedEntry = { ...entry, listingTabId: tabId };
-        pending[rid] = matchedEntry;
-        await setPending(pending);
-        console.log('[CG Suite] LISTING_PAGE_READY re-associated CeX request to tab', tabId);
+        matchedEntry = entry;
+        console.log('[CG Suite] LISTING_PAGE_READY matched by listingTabId', { matchedId, tabId });
         break;
       }
     }
   }
+
+  // Do NOT re-associate to a different tab: user must use the single tab we opened. Other CeX tabs are ignored.
 
   if (matchedEntry) {
     console.log('[CG Suite] LISTING_PAGE_READY matched', { matchedId, tabId, competitor: matchedEntry.competitor });
@@ -221,7 +221,7 @@ async function handleScrapedData(message) {
   return { ok: false };
 }
 
-// ── Tab close: unblock the app if user closes the listing tab ─────────────────
+// ── Tab close: only the single tab we opened is tracked; closing it notifies the app ─────────────
 
 chrome.tabs.onRemoved.addListener(async (removedTabId) => {
   const pending = await getPending();

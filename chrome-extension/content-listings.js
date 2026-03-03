@@ -313,6 +313,33 @@
     return null;
   }
 
+  // CeX: persist the requestId (from cgReq URL param) in sessionStorage so that
+  // product-detail pages opened via SPA navigation or new tabs can still know
+  // which pending request they belong to.
+  function getCexRequestId() {
+    try {
+      if (!window.sessionStorage) return null;
+      return window.sessionStorage.getItem('cgSuiteReqId') || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function setCexRequestIdFromUrl() {
+    try {
+      const url = window.location.href || '';
+      if (!/webuy\.com/i.test(url)) return;
+      const m = url.match(/[?&]cgReq=([^&]+)/);
+      if (m && m[1]) {
+        if (window.sessionStorage) {
+          window.sessionStorage.setItem('cgSuiteReqId', decodeURIComponent(m[1]));
+        }
+      }
+    } catch (e) {
+      // best-effort only
+    }
+  }
+
   // —— Message from background: we're the tab that was chosen for this pending request ——
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg.type === 'WAITING_FOR_DATA') {
@@ -339,10 +366,21 @@
    */
   function maybeNotifyReady() {
     if (!isListingsPage()) return;
-    if (typeof console !== 'undefined') {
-      console.log('[CG Suite content-listings] maybeNotifyReady: sending LISTING_PAGE_READY, url=', window.location.href);
+    const config = getSiteConfig();
+    // For CeX, try to attach an explicit requestId (from cgReq/sessionStorage) so the background
+    // can match this tab to the correct pending request even if there are multiple CeX flows.
+    if (config === SITE_CONFIGS.cex) {
+      setCexRequestIdFromUrl();
     }
-    chrome.runtime.sendMessage({ type: 'LISTING_PAGE_READY' }).catch(function (err) {
+    const requestId = config === SITE_CONFIGS.cex ? getCexRequestId() : null;
+    if (typeof console !== 'undefined') {
+      console.log('[CG Suite content-listings] maybeNotifyReady: sending LISTING_PAGE_READY, url=', window.location.href, 'requestId=', requestId);
+    }
+    const msg = { type: 'LISTING_PAGE_READY' };
+    if (requestId) {
+      msg.requestId = requestId;
+    }
+    chrome.runtime.sendMessage(msg).catch(function (err) {
       if (typeof console !== 'undefined') console.warn('[CG Suite content-listings] LISTING_PAGE_READY send failed', err);
     });
   }
@@ -504,9 +542,11 @@
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', function () {
       if (typeof console !== 'undefined') console.log('[CG Suite content-listings] DOMContentLoaded, maybeNotifyReady');
+      setCexRequestIdFromUrl();
       maybeNotifyReady();
     });
   } else {
+    setCexRequestIdFromUrl();
     maybeNotifyReady();
   }
 
@@ -516,6 +556,7 @@
     var url = window.location.href || '';
     if (url === lastNotifiedUrl) return;
     if (getSiteConfig() !== SITE_CONFIGS.cex) return;
+    setCexRequestIdFromUrl();
     if (isListingsPage()) {
       lastNotifiedUrl = url;
       if (typeof console !== 'undefined') console.log('[CG Suite content-listings] CeX URL changed to listing page, notifying', url);

@@ -144,11 +144,22 @@ const Negotiation = ({ mode }) => {
         negotiatedPrice = selected ? selected.price : 0;
       }
 
-      const ourSalePrice = item.ourSalePrice !== undefined && item.ourSalePrice !== null && item.ourSalePrice !== ''
-        ? Number(item.ourSalePrice)
-        : (item.ebayResearchData?.stats?.suggestedPrice != null
-            ? Number(item.ebayResearchData.stats.suggestedPrice)
-            : null);
+      // Use uncommitted row-total input if present (user typed but didn't blur)
+      const rawInput = item.ourSalePriceInput;
+      const parsedFromInput = rawInput !== undefined && rawInput !== '' ? parseFloat(String(rawInput).replace(/[£,]/g, '')) : NaN;
+      const ourSalePrice =
+        !Number.isNaN(parsedFromInput) && parsedFromInput > 0
+          ? parsedFromInput / quantity
+          : (item.ourSalePrice !== undefined && item.ourSalePrice !== null && item.ourSalePrice !== ''
+              ? Number(item.ourSalePrice)
+              : (item.ebayResearchData?.stats?.suggestedPrice != null
+                  ? Number(item.ebayResearchData.stats.suggestedPrice)
+                  : null));
+
+      // Always persist whatever the frontend is showing as title/subtitle so view-after-serialize matches
+      const rawData = { ...(item.ebayResearchData || {}) };
+      rawData.display_title = item.title ?? '';
+      rawData.display_subtitle = item.subtitle ?? '';
 
       return {
         request_item_id: item.request_item_id,
@@ -160,7 +171,7 @@ const Negotiation = ({ mode }) => {
         our_sale_price_at_negotiation: ourSalePrice,
         cash_offers_json: item.cashOffers || [],
         voucher_offers_json: item.voucherOffers || [],
-        raw_data: item.ebayResearchData || {},
+        raw_data: rawData,
         cash_converters_data: item.cashConvertersResearchData || {}
       };
     });
@@ -289,16 +300,19 @@ const Negotiation = ({ mode }) => {
                 // Determine the currently displayed offers based on transaction type (for local logic)
                 const displayOffers = (transactionType === 'store_credit') ? savedVoucherOffers : savedCashOffers;
 
-                // Prefer CeX data for title/subtitle when available, but fall back to raw_data (CeX) or eBay/CC search term
+                // Prefer saved display strings from frontend (what was shown when request was finalized)
+                const savedDisplayTitle = ebayResearchData?.display_title;
+                const savedDisplaySubtitle = ebayResearchData?.display_subtitle;
+                const hasSavedDisplay = savedDisplayTitle != null && savedDisplayTitle !== '';
+
+                // Fallbacks: CeX data, then raw_data (CeX) or eBay/CC search term
                 const cexTitle = item.variant_details?.title;
                 const cexSubtitle = item.variant_details?.cex_sku;
 
-                // For CeX raw_data (Add-from-CeX), use its title/modelName
                 const rawCeXTitle = !isEbayResearchPayload
                     ? (ebayResearchData?.title || ebayResearchData?.modelName)
                     : null;
 
-                // For eBay research payloads, use the eBay search term / title
                 const rawEbayTitle = isEbayResearchPayload
                     ? (ebayResearchData.searchTerm || ebayResearchData.title || null)
                     : null;
@@ -314,6 +328,8 @@ const Negotiation = ({ mode }) => {
                        'eBay Filters')
                     : null;
 
+                const isCexItem = !!(cexTitle || rawCeXTitle);
+
                 // Derive a stable CeX URL if possible (prefer raw_data URL, else build from SKU)
                 const cexSkuFromVariant = item.variant_details?.cex_sku || null;
                 const cexSkuFromRaw = !isEbayResearchPayload
@@ -328,8 +344,8 @@ const Negotiation = ({ mode }) => {
                 return {
                     id: item.request_item_id,
                     request_item_id: item.request_item_id,
-                    title: cexTitle || rawCeXTitle || rawEbayTitle || cashConvertersTitle || 'N/A',
-                    subtitle: cexSubtitle || ebaySubtitleFromFilters || 'No details',
+                    title: hasSavedDisplay ? savedDisplayTitle : (isCexItem ? (cexTitle || rawCeXTitle || 'N/A') : (rawEbayTitle || cashConvertersTitle || 'N/A')),
+                    subtitle: hasSavedDisplay ? (savedDisplaySubtitle ?? '') : (isCexItem ? '' : (ebaySubtitleFromFilters || 'No details')),
                     quantity: item.quantity,
                     selectedOfferId: item.selected_offer_id,
                     manualOffer: item.manual_offer_gbp?.toString() || '',
@@ -379,7 +395,19 @@ const Negotiation = ({ mode }) => {
         // This prevents overwriting user edits (like removals) on re-renders.
         if (!hasInitializedNegotiateRef.current) {
             if (cartItems && cartItems.length > 0) {
-                setItems(cartItems);
+                // For CEX items: use CEX item name as title and nothing underneath (not eBay search term/filters)
+                const normalizedCartItems = cartItems.map((item) => {
+                    const isEbayPayload = !!(item.ebayResearchData?.stats && item.ebayResearchData?.selectedFilters);
+                    const cexName = item.variant_details?.title
+                        || (!isEbayPayload && (item.ebayResearchData?.title || item.ebayResearchData?.modelName))
+                        || (item.isCustomCeXItem && item.title) || null;
+                    const isCexItem = !!(cexName || item.isCustomCeXItem || (item.cexBuyPrice != null || item.cexSellPrice != null));
+                    if (isCexItem) {
+                        return { ...item, title: cexName || item.title, subtitle: '' };
+                    }
+                    return item;
+                });
+                setItems(normalizedCartItems);
             }
             hasInitializedNegotiateRef.current = true;
         }
@@ -918,7 +946,7 @@ const Negotiation = ({ mode }) => {
                           )}
                         </div>
                         <div className="text-[9px] uppercase font-medium mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                          {item.subtitle || item.category || 'No details'} {item.model && `| ${item.model}`}
+                          {(item.cexBuyPrice != null || item.cexSellPrice != null) ? (item.subtitle || '') : (item.subtitle || item.category || 'No details')} {item.model && `| ${item.model}`}
                         </div>
                       </td>
                       
@@ -1210,19 +1238,27 @@ const Negotiation = ({ mode }) => {
                       {/* Our Sale Price (row total in negotiate mode) */}
                       <td className="font-medium text-purple-700">
                         {(() => {
-                          // Per-unit our sale price (internal representation)
+                          // Per-unit our sale price. Empty string = user cleared (show empty); undefined/null = use suggested fallback.
                           const perUnitOurPrice =
-                            item.ourSalePrice !== undefined && item.ourSalePrice !== null && item.ourSalePrice !== ''
-                              ? Number(item.ourSalePrice)
-                              : (item.ebayResearchData?.stats?.suggestedPrice != null
-                                  ? Number(item.ebayResearchData.stats.suggestedPrice)
-                                  : null);
+                            item.ourSalePrice === ''
+                              ? null
+                              : (item.ourSalePrice !== undefined && item.ourSalePrice !== null && item.ourSalePrice !== ''
+                                  ? Number(item.ourSalePrice)
+                                  : (item.ebayResearchData?.stats?.suggestedPrice != null
+                                      ? Number(item.ebayResearchData.stats.suggestedPrice)
+                                      : null));
 
-                          // Row total used for display / editing in negotiate mode
+                          // Row total used for display (when not actively editing)
                           const totalOurPrice =
                             perUnitOurPrice != null && !Number.isNaN(perUnitOurPrice)
                               ? perUnitOurPrice * quantity
                               : null;
+
+                          // While editing we show raw string so user can type "55", delete, etc.
+                          const isEditingRowTotal = item.ourSalePriceInput !== undefined;
+                          const inputValue = isEditingRowTotal
+                            ? item.ourSalePriceInput
+                            : (totalOurPrice != null && !Number.isNaN(totalOurPrice) ? totalOurPrice.toFixed(2) : '');
 
                           // View mode: keep as read-only display
                           if (mode === 'view') {
@@ -1238,37 +1274,55 @@ const Negotiation = ({ mode }) => {
                             ) : '—';
                           }
 
-                          // Negotiate mode: editable input for ROW TOTAL, per-unit stored internally
+                          // Negotiate mode: editable input for ROW TOTAL; parse and commit on blur
+                          const handleOurSalePriceBlur = () => {
+                            const raw = (item.ourSalePriceInput ?? inputValue).replace(/[£,]/g, '').trim();
+                            const parsedTotal = parseFloat(raw);
+                            const safeQuantity = quantity || 1;
+                            setItems(prev =>
+                              prev.map(i => {
+                                if (i.id !== item.id) return i;
+                                const next = { ...i };
+                                delete next.ourSalePriceInput;
+                                if (raw === '' || Number.isNaN(parsedTotal) || parsedTotal <= 0) {
+                                  next.ourSalePrice = '';
+                                  return next;
+                                }
+                                next.ourSalePrice = (parsedTotal / safeQuantity).toFixed(2);
+                                return next;
+                              })
+                            );
+                          };
+
                           return (
                             <div>
                               <input
                                 className="w-full h-full border-0 text-xs font-semibold text-center px-3 py-2 focus:outline-none focus:ring-0 bg-white rounded"
                                 placeholder="£0.00"
                                 type="text"
-                                value={totalOurPrice != null && !Number.isNaN(totalOurPrice)
-                                  ? totalOurPrice.toFixed(2)
-                                  : ''}
+                                value={inputValue}
                                 onChange={(e) => {
-                                  const value = e.target.value;
-                                  const parsedTotal = parseFloat(value.replace(/[£,]/g, ''));
-                                  const safeQuantity = quantity || 1;
-
+                                  const value = e.target.value.replace(/[£,]/g, '').trim();
                                   setItems(prev =>
                                     prev.map(i =>
                                       i.id === item.id
-                                        ? (() => {
-                                            if (!parsedTotal || parsedTotal <= 0 || Number.isNaN(parsedTotal)) {
-                                              return { ...i, ourSalePrice: '' };
-                                            }
-                                            const perUnit = parsedTotal / safeQuantity;
-                                            return { ...i, ourSalePrice: perUnit.toFixed(2) };
-                                          })()
+                                        ? { ...i, ourSalePriceInput: value }
                                         : i
                                     )
                                   );
                                 }}
+                                onBlur={handleOurSalePriceBlur}
+                                onFocus={() => {
+                                  if (item.ourSalePriceInput === undefined && inputValue !== '') {
+                                    setItems(prev =>
+                                      prev.map(i =>
+                                        i.id === item.id ? { ...i, ourSalePriceInput: inputValue } : i
+                                      )
+                                    );
+                                  }
+                                }}
                               />
-                              {totalOurPrice != null && !Number.isNaN(totalOurPrice) && (
+                              {!isEditingRowTotal && totalOurPrice != null && !Number.isNaN(totalOurPrice) && (
                                 <div className="text-[9px] opacity-70 mt-0.5">
                                   £{totalOurPrice.toFixed(2)}
                                   {quantity > 1 && (

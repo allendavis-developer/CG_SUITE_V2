@@ -876,6 +876,7 @@ const MainContent = ({
             setEbayModalOpen={() => {}}
             cashConvertersData={selectedCartItem.cashConvertersResearchData || null}
             setCashConvertersModalOpen={() => {}}
+            readOnly={true}
           />
           {displayOffers.length > 0 && (
             <OfferSelection variant="cex" offers={displayOffers} referenceData={refWithOurSale} offerType={useVoucherOffers ? 'voucher' : 'cash'} />

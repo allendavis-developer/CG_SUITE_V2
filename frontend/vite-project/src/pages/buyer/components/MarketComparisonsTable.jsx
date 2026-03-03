@@ -13,7 +13,8 @@ const MarketComparisonsTable = ({
   ebayData, 
   setEbayModalOpen,
   cashConvertersData,
-  setCashConvertersModalOpen 
+  setCashConvertersModalOpen,
+  readOnly = false
 }) => {
   const hasEbayResearch = Boolean(ebayData?.searchTerm || ebayData?.lastSearchedTerm);
   const hasCashConvertersResearch = Boolean(cashConvertersData?.searchTerm || cashConvertersData?.lastSearchedTerm);
@@ -112,16 +113,18 @@ const MarketComparisonsTable = ({
                 })()}
               </td>
               <td className="p-4">
-                <div className="flex justify-end">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    icon="refresh"
-                    onClick={() => setEbayModalOpen(true)}
-                  >
-                    Refine Research
-                  </Button>
-                </div>
+                {!readOnly && (
+                  <div className="flex justify-end">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      icon="refresh"
+                      onClick={() => setEbayModalOpen(true)}
+                    >
+                      Refine Research
+                    </Button>
+                  </div>
+                )}
               </td>
             </tr>
           ) : (
@@ -137,17 +140,19 @@ const MarketComparisonsTable = ({
 
               <td className="p-4 italic text-gray-600/60">—</td>
               <td className="p-4">
-                <div className="flex justify-end">
-                  <Button
-                    variant="primary"
-                    size="lg"
-                    className="group"
-                    icon="search_insights"
-                    onClick={() => setEbayModalOpen(true)}
-                  >
-                    Research on eBay
-                  </Button>
-                </div>
+                {!readOnly && (
+                  <div className="flex justify-end">
+                    <Button
+                      variant="primary"
+                      size="lg"
+                      className="group"
+                      icon="search_insights"
+                      onClick={() => setEbayModalOpen(true)}
+                    >
+                      Research on eBay
+                    </Button>
+                  </div>
+                )}
               </td>
             </tr>
           )}
@@ -179,16 +184,18 @@ const MarketComparisonsTable = ({
                 })()}
               </td>
               <td className="p-4">
-                <div className="flex justify-end">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    icon="refresh"
-                    onClick={() => setCashConvertersModalOpen(true)}
-                  >
-                    Refine Research
-                  </Button>
-                </div>
+                {!readOnly && (
+                  <div className="flex justify-end">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      icon="refresh"
+                      onClick={() => setCashConvertersModalOpen(true)}
+                    >
+                      Refine Research
+                    </Button>
+                  </div>
+                )}
               </td>
             </tr>
           ) : (
@@ -204,17 +211,19 @@ const MarketComparisonsTable = ({
 
               <td className="p-4 italic text-gray-600/60">—</td>
               <td className="p-4">
-                <div className="flex justify-end">
-                  <Button
-                    variant="primary"
-                    size="lg"
-                    className="group"
-                    icon="store"
-                    onClick={() => setCashConvertersModalOpen(true)}
-                  >
-                    Research on Cash Converters
-                  </Button>
-                </div>
+                {!readOnly && (
+                  <div className="flex justify-end">
+                    <Button
+                      variant="primary"
+                      size="lg"
+                      className="group"
+                      icon="store"
+                      onClick={() => setCashConvertersModalOpen(true)}
+                    >
+                      Research on Cash Converters
+                    </Button>
+                  </div>
+                )}
               </td>
             </tr>
           )}
