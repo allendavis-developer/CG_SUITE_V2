@@ -461,8 +461,22 @@ def finish_request(request, request_id):
         # Update fields for RequestItem
         update_fields = []
 
-        # Save historical variant prices
-        if request_item.variant:
+        # Save historical CEX prices: prefer values from payload (e.g. "Add from CeX" items with no variant),
+        # otherwise use variant prices when available
+        cex_from_payload = (
+            'cex_buy_cash_at_negotiation' in item_data
+            or 'cex_buy_voucher_at_negotiation' in item_data
+            or 'cex_sell_at_negotiation' in item_data
+        )
+        if cex_from_payload:
+            for field in ('cex_buy_cash_at_negotiation', 'cex_buy_voucher_at_negotiation', 'cex_sell_at_negotiation'):
+                if field in item_data and item_data[field] is not None:
+                    try:
+                        setattr(request_item, field, Decimal(str(item_data[field])))
+                        update_fields.append(field)
+                    except (InvalidOperation, TypeError):
+                        pass
+        elif request_item.variant:
             request_item.cex_buy_cash_at_negotiation = request_item.variant.tradein_cash
             update_fields.append('cex_buy_cash_at_negotiation')
             request_item.cex_buy_voucher_at_negotiation = request_item.variant.tradein_voucher

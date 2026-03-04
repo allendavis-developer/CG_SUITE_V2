@@ -161,6 +161,11 @@ const Negotiation = ({ mode }) => {
       rawData.display_title = item.title ?? '';
       rawData.display_subtitle = item.subtitle ?? '';
 
+      // Persist CEX prices when present (e.g. "Add from CeX" items with no variant) so they show in request overview
+      const cexBuyCash = item.cexBuyPrice != null ? Number(item.cexBuyPrice) : null;
+      const cexBuyVoucher = item.cexVoucherPrice != null ? Number(item.cexVoucherPrice) : null;
+      const cexSell = item.cexSellPrice != null ? Number(item.cexSellPrice) : null;
+
       return {
         request_item_id: item.request_item_id,
         quantity: quantity,
@@ -172,7 +177,10 @@ const Negotiation = ({ mode }) => {
         cash_offers_json: item.cashOffers || [],
         voucher_offers_json: item.voucherOffers || [],
         raw_data: rawData,
-        cash_converters_data: item.cashConvertersResearchData || {}
+        cash_converters_data: item.cashConvertersResearchData || {},
+        ...(cexBuyCash != null && { cex_buy_cash_at_negotiation: cexBuyCash }),
+        ...(cexBuyVoucher != null && { cex_buy_voucher_at_negotiation: cexBuyVoucher }),
+        ...(cexSell != null && { cex_sell_at_negotiation: cexSell }),
       };
     });
 

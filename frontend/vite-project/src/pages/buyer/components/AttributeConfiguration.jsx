@@ -40,13 +40,44 @@ const AttributeConfiguration = ({
   const filteredVariants = useMemo(() => {
     return variants.filter(v => {
       return Object.entries(attributeValues).every(([attrCode, attrValue]) => {
-        // If no value selected for this attribute, don't filter by it
         if (!attrValue) return true;
-        // Check if variant matches this attribute value
         return v.attribute_values[attrCode] === attrValue;
       });
     });
   }, [variants, attributeValues]);
+
+  // True when every attribute that would actually render a dropdown has a value selected.
+  // Attributes with no renderable options (e.g. color not in API but exists on variants)
+  // do NOT block — they simply won't appear as dropdowns.
+  const allRenderableAttributesSelected = useMemo(() => {
+    return attributes.every((attr, index) => {
+      if (attributeValues[attr.code]) return true;
+
+      const previousSelections = Object.entries(attributeValues).filter(([code]) => {
+        const attrIndex = attributes.findIndex(a => a.code === code);
+        return attrIndex < index && attributeValues[code];
+      });
+
+      const matchingVars = variants.filter(v =>
+        previousSelections.every(([code, value]) => v.attribute_values[code] === value)
+      );
+
+      const availableValues = new Set(
+        matchingVars.map(v => v.attribute_values[attr.code]).filter(Boolean)
+      );
+
+      let options = attr.values.filter(opt => index === 0 || availableValues.has(opt));
+      if (options.length === 0 && availableValues.size > 0) {
+        options = Array.from(availableValues).sort();
+      }
+
+      // No renderable options → this attr won't show a dropdown, so it doesn't block
+      if (options.length === 0) return true;
+
+      // Has options but nothing selected → still blocking
+      return false;
+    });
+  }, [attributes, attributeValues, variants]);
 
   // When attribute values change, update the selected variant if it matches exactly one filtered variant
   useEffect(() => {
@@ -162,7 +193,7 @@ const AttributeConfiguration = ({
             value={quickFindVariantTitle}
             options={filteredVariants.map((v) => v.title)}
             onChange={handleQuickFindSelect}
-            placeholder={`Search ${variants.length} variant${variants.length !== 1 ? 's' : ''}...`}
+            placeholder={`Search ${filteredVariants.length} variant${filteredVariants.length !== 1 ? 's' : ''}...`}
             clearable
             onClear={handleReset}
           />
@@ -172,7 +203,7 @@ const AttributeConfiguration = ({
 
       {/* Configuration & Condition + Image */}
       <div className="flex gap-6 items-start">
-        <div className="flex-shrink-0 min-w-0">
+        <div className="flex-shrink-0 min-w-0"> 
           <div className="flex items-center justify-between mb-4 gap-6">
             <div className="flex items-center gap-3">
               <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest">
@@ -206,12 +237,16 @@ const AttributeConfiguration = ({
           });
 
           const availableValues = new Set(
-            matchingVariants.map(v => v.attribute_values[attr.code])
+            matchingVariants.map(v => v.attribute_values[attr.code]).filter(Boolean)
           );
           
-          const options = attr.values.filter(opt => 
+          let options = attr.values.filter(opt => 
             index === 0 || availableValues.has(opt)
           );
+          // Edge case: API attr.values may not include all variant values (e.g. missing or mismatched). Use variant-derived values so the dropdown appears.
+          if (options.length === 0 && availableValues.size > 0) {
+            options = Array.from(availableValues).sort();
+          }
 
           if (options.length === 0) {
             return null;
@@ -277,10 +312,12 @@ const AttributeConfiguration = ({
         )}
       </div>
 
-      {/* Variant selection at end — only after every config/condition dropdown is selected */}
+      {/* Variant selection: show only once every renderable dropdown has been filled.
+          If a dropdown has no options (e.g. color missing from API), it's skipped — the
+          variant list still appears so the user can always progress. */}
       {variants.length > 0 &&
         filteredVariants.length > 0 &&
-        attributes.every((attr) => !!attributeValues[attr.code]) && (
+        allRenderableAttributesSelected && (
         <div className="mt-6 pt-6 border-t border-gray-200">
           <span className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">
             {filteredVariants.length === 1 ? 'Variant' : 'Select variant'}
