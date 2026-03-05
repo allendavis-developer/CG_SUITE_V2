@@ -912,6 +912,7 @@ const MainContent = ({
               savedState={selectedCartItem.ebayResearchData}
               initialHistogramState={false}
               showManualOffer={false}
+              resetDrillOnOpen={true}
             />
           ) : (
             <div className="text-center py-12">
@@ -949,6 +950,7 @@ const MainContent = ({
               savedState={savedCashConvertersState}
               initialHistogramState={false}
               readOnly={true}
+              resetDrillOnOpen={true}
             />
           ) : (
             <div className="text-center py-12">

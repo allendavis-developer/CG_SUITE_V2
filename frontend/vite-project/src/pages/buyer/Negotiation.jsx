@@ -519,61 +519,72 @@ const Negotiation = ({ mode }) => {
   };
 
   const handleResearchComplete = (updatedState) => {
-    // Only update items if not in view mode (read-only)
-    if (updatedState && researchItem && mode !== 'view') {
+    // Only update items if not in view mode (read-only), and ignore cancel signals
+    if (updatedState && !updatedState.cancel && researchItem && mode !== 'view') {
       setItems(prevItems => prevItems.map(i => {
         if (i.id !== researchItem.id) return i;
-        
-        // Regenerate offers from new buyOffers if they exist
+
+        // Consider offers "existing" if cashOffers, voucherOffers, OR the generic offers array has entries
+        // (e.g. CeX-based offers). When existing, do NOT replace them with eBay research offers.
+        const hasExistingOffers =
+          (i.cashOffers && i.cashOffers.length > 0) ||
+          (i.voucherOffers && i.voucherOffers.length > 0) ||
+          (i.offers && i.offers.length > 0);
+
         let newCashOffers = i.cashOffers || [];
         let newVoucherOffers = i.voucherOffers || [];
-        
-        if (updatedState.buyOffers && updatedState.buyOffers.length > 0) {
-          // Regenerate cash offers from new buyOffers
+
+        // Only generate offers from eBay research when the item has none yet (e.g. eBay-only items)
+        if (!hasExistingOffers && updatedState.buyOffers && updatedState.buyOffers.length > 0) {
           newCashOffers = updatedState.buyOffers.map((o, idx) => ({
             id: `ebay-cash-${Date.now()}-${idx}`,
             title: ["1st Offer", "2nd Offer", "3rd Offer"][idx] || "Offer",
             price: Number(o.price)
           }));
-          
-          // Regenerate voucher offers (10% more)
           newVoucherOffers = newCashOffers.map(offer => ({
             id: `ebay-voucher-${offer.id}`,
             title: offer.title,
             price: Number((offer.price * 1.10).toFixed(2))
           }));
         }
-        
-        // Determine which offers to use based on transaction type
+
         const displayOffers = useVoucherOffers ? newVoucherOffers : newCashOffers;
-        
-        // Handle selected offer based on selectedOfferIndex
+
         let newSelectedOfferId = i.selectedOfferId;
-        let newManualOffer = i.manualOffer; // Preserve existing manual offer by default
-        
+        let newManualOffer = i.manualOffer;
+
         if (updatedState.selectedOfferIndex !== undefined && updatedState.selectedOfferIndex !== null) {
           if (updatedState.selectedOfferIndex === 'manual') {
-            // Manual offer selected - update both selectedOfferId and manualOffer
             newSelectedOfferId = 'manual';
             newManualOffer = updatedState.manualOffer || i.manualOffer;
           } else if (typeof updatedState.selectedOfferIndex === 'number') {
-            // Calculated offer selected - find the corresponding offer ID from new offers
-            const selectedOffer = displayOffers[updatedState.selectedOfferIndex];
-            if (selectedOffer) {
-              newSelectedOfferId = selectedOffer.id;
-              // Don't update manual offer when a calculated offer is selected
-              newManualOffer = i.manualOffer; // Keep existing manual offer value
+            if (hasExistingOffers) {
+              // Existing offers stay; route the research form's clicked price into manual offer
+              const clickedPrice = updatedState.buyOffers?.[updatedState.selectedOfferIndex]?.price;
+              if (clickedPrice != null) {
+                newManualOffer = Number(clickedPrice).toFixed(2);
+                newSelectedOfferId = 'manual';
+              }
+            } else {
+              // No prior offers — newly generated; select by offer ID at that index
+              const selectedOffer = displayOffers[updatedState.selectedOfferIndex];
+              if (selectedOffer) {
+                newSelectedOfferId = selectedOffer.id;
+              }
             }
           }
         } else {
-          // No selection made in modal - preserve existing selection
-          // But update manualOffer if it was changed in the input
           if (updatedState.manualOffer !== undefined) {
             newManualOffer = updatedState.manualOffer;
           }
+          // Preserve selection by index when offers were replaced (e.g. after exclusions)
+          const prevOffers = useVoucherOffers ? (i.voucherOffers || i.offers) : (i.cashOffers || i.offers);
+          const prevIdx = prevOffers?.findIndex(o => o.id === i.selectedOfferId);
+          if (prevIdx >= 0 && displayOffers[prevIdx]) {
+            newSelectedOfferId = displayOffers[prevIdx].id;
+          }
         }
-        
-        // When refining eBay search, update Our Sale Price from new suggested price if present
+
         const newOurSalePrice = updatedState?.stats?.suggestedPrice != null
           ? Number(updatedState.stats.suggestedPrice)
           : i.ourSalePrice;
@@ -583,7 +594,7 @@ const Negotiation = ({ mode }) => {
           ebayResearchData: updatedState,
           cashOffers: newCashOffers,
           voucherOffers: newVoucherOffers,
-          offers: displayOffers, // Update displayed offers
+          offers: displayOffers,
           manualOffer: newManualOffer,
           selectedOfferId: newSelectedOfferId,
           ourSalePrice: newOurSalePrice
@@ -598,20 +609,65 @@ const Negotiation = ({ mode }) => {
   };
 
   const handleCashConvertersResearchComplete = (updatedState) => {
-    // Only update items if not in view mode (read-only)
-    if (updatedState && cashConvertersResearchItem && mode !== 'view') {
-      setItems(prevItems => prevItems.map(i => 
-        i.id === cashConvertersResearchItem.id 
-          ? { 
-              ...i, 
-              cashConvertersResearchData: updatedState,
-              // Update manual offer if provided from research form
-              manualOffer: updatedState.manualOffer || i.manualOffer,
-              // Auto-select manual offer if a value was provided
-              selectedOfferId: updatedState.manualOffer ? 'manual' : i.selectedOfferId
-            } 
-          : i
-      ));
+    // Only update items if not in view mode (read-only), and ignore cancel signals
+    if (updatedState && !updatedState.cancel && cashConvertersResearchItem && mode !== 'view') {
+      setItems(prevItems => prevItems.map(i => {
+        if (i.id !== cashConvertersResearchItem.id) return i;
+
+        let newManualOffer = i.manualOffer;
+        let newSelectedOfferId = i.selectedOfferId;
+
+        if (updatedState.selectedOfferIndex !== undefined && updatedState.selectedOfferIndex !== null) {
+          if (updatedState.selectedOfferIndex === 'manual') {
+            newManualOffer = updatedState.manualOffer || i.manualOffer;
+            newSelectedOfferId = 'manual';
+          } else if (typeof updatedState.selectedOfferIndex === 'number') {
+            // User clicked a buy offer — route its price into the manual offer field
+            const clickedPrice = updatedState.buyOffers?.[updatedState.selectedOfferIndex]?.price;
+            if (clickedPrice != null) {
+              newManualOffer = Number(clickedPrice).toFixed(2);
+              newSelectedOfferId = 'manual';
+            }
+          }
+        } else if (updatedState.manualOffer) {
+          newManualOffer = updatedState.manualOffer;
+          newSelectedOfferId = 'manual';
+        }
+
+        // Only generate offers from CC research when the item has none yet (e.g. CC-only items)
+        // CeX-based offers must stay; clicking a CC offer only updates the manual offer cell
+        const hasExistingOffers =
+          (i.cashOffers && i.cashOffers.length > 0) ||
+          (i.voucherOffers && i.voucherOffers.length > 0) ||
+          (i.offers && i.offers.length > 0);
+
+        let newCashOffers = i.cashOffers || [];
+        let newVoucherOffers = i.voucherOffers || [];
+        if (!hasExistingOffers && updatedState.buyOffers && updatedState.buyOffers.length > 0) {
+          newCashOffers = updatedState.buyOffers.map((o, idx) => ({
+            id: `cc-cash-${Date.now()}-${idx}`,
+            title: ["1st Offer", "2nd Offer", "3rd Offer"][idx] || "Offer",
+            price: Number(o.price)
+          }));
+          newVoucherOffers = newCashOffers.map(offer => ({
+            id: `cc-voucher-${offer.id}`,
+            title: offer.title,
+            price: Number((offer.price * 1.10).toFixed(2))
+          }));
+        }
+        const displayOffers = useVoucherOffers ? newVoucherOffers : newCashOffers;
+
+        return {
+          ...i,
+          cashConvertersResearchData: updatedState,
+          cashOffers: newCashOffers,
+          voucherOffers: newVoucherOffers,
+          offers: displayOffers,
+          manualOffer: newManualOffer,
+          selectedOfferId: newSelectedOfferId,
+          ourSalePrice: updatedState?.stats?.suggestedPrice != null ? Number(updatedState.stats.suggestedPrice) : i.ourSalePrice,
+        };
+      }));
     }
     setCashConvertersResearchItem(null);
   };

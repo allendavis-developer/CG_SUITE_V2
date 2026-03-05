@@ -311,13 +311,36 @@ export default function ResearchFormShell({
   hideSearchAndFilters = false,
   onRefineSearch = null,
   refineError = null,
-  refineLoading = false
+  refineLoading = false,
+  onToggleExclude = null,
+  onClearAllExclusions = null,
 }) {
   // Get current price range (latest in history, or null for full view)
   const currentPriceRange = drillHistory.length > 0 ? drillHistory[drillHistory.length - 1] : null;
   
   // State for selected offer when opened from negotiation page
   const [selectedOfferIndex, setSelectedOfferIndex] = useState(null); // null, 0, 1, 2, or 'manual'
+
+  // Toggle: hide excluded listings from grid
+  const [showOnlyRelevant, setShowOnlyRelevant] = useState(false);
+
+  // Sort order: 'default' | 'low_to_high' | 'high_to_low'
+  const [sortOrder, setSortOrder] = useState('default');
+
+  // Multi-select range for exclude: first two clicks act as a range select
+  const [firstExcludeClickIndex, setFirstExcludeClickIndex] = useState(null);
+  const [firstExcludeTargetExcluded, setFirstExcludeTargetExcluded] = useState(null);
+  const [hasInitialRangeSelection, setHasInitialRangeSelection] = useState(false);
+
+  // Reset multi-select when zero items are excluded so next two clicks work as range
+  const excludedCount = displayedListings ? displayedListings.filter(l => l.excluded).length : 0;
+  useEffect(() => {
+    if (excludedCount === 0) {
+      setHasInitialRangeSelection(false);
+      setFirstExcludeClickIndex(null);
+      setFirstExcludeTargetExcluded(null);
+    }
+  }, [excludedCount]);
   
   // Ref to maintain input focus
   const manualInputRef = useRef(null);
@@ -331,6 +354,26 @@ export default function ResearchFormShell({
       }, 0);
     }
   }, [selectedOfferIndex]);
+
+  const parsePrice = useCallback((item) => {
+    if (!item || item.price == null) return NaN;
+    const p = item.price;
+    if (typeof p === 'number') return isNaN(p) ? NaN : p;
+    return parseFloat(String(p).replace(/[^0-9.]/g, '')) || NaN;
+  }, []);
+
+  const sortedListings = useMemo(() => {
+    const list = displayedListings || [];
+    const withIdx = list.map((item, i) => ({ item, origIdx: i }));
+    if (sortOrder === 'default') return withIdx;
+    return [...withIdx].sort((a, b) => {
+      const pa = parsePrice(a.item);
+      const pb = parsePrice(b.item);
+      if (sortOrder === 'low_to_high') return (pa || 0) - (pb || 0);
+      if (sortOrder === 'high_to_low') return (pb || 0) - (pa || 0);
+      return a.origIdx - b.origIdx;
+    });
+  }, [displayedListings, sortOrder, parsePrice]);
 
   // Helper function to format rounding increment for display
   const formatRoundingIncrement = useCallback((increment) => {
@@ -438,6 +481,72 @@ export default function ResearchFormShell({
     if (salePrice <= 0) return null;
     return Math.round(((salePrice - cleanManual) / salePrice) * 100);
   }, [displayedStats, manualOffer]);
+
+  // Handle clicking the exclude toggle on a listing card.
+  // First two clicks behave like a range select (apply to everything in between).
+  // Uses sortedIdx (index in sortedListings) so the range matches the visible sort order.
+  const handleExcludeClick = useCallback((sortedIdx) => {
+    if (!onToggleExclude || !sortedListings || !sortedListings[sortedIdx]) return;
+
+    const { item: clicked, origIdx } = sortedListings[sortedIdx];
+
+    // If we've already done the initial range, or no anchor is set, treat as single toggle.
+    if (hasInitialRangeSelection || firstExcludeClickIndex === null) {
+      const shouldExclude = !clicked.excluded;
+      const id = clicked._id ?? clicked.id ?? `${clicked.url ?? clicked.title ?? 'listing'}-${origIdx}`;
+      onToggleExclude(id);
+
+      if (!hasInitialRangeSelection) {
+        setFirstExcludeClickIndex(sortedIdx);
+        setFirstExcludeTargetExcluded(shouldExclude);
+      }
+      return;
+    }
+
+    // Second click in the initial sequence: apply to range between anchor and this index (in sorted order).
+    const anchor = firstExcludeClickIndex;
+    const start = Math.min(anchor, sortedIdx);
+    const end = Math.max(anchor, sortedIdx);
+
+    for (let i = start; i <= end; i++) {
+      const entry = sortedListings[i];
+      if (!entry) continue;
+      const { item, origIdx } = entry;
+      const currentlyExcluded = !!item.excluded;
+
+      // Only toggle items that don't already match the target state.
+      if (currentlyExcluded !== firstExcludeTargetExcluded) {
+        const id = item._id ?? item.id ?? `${item.url ?? item.title ?? 'listing'}-${origIdx}`;
+        onToggleExclude(id);
+      }
+    }
+
+    setHasInitialRangeSelection(true);
+    setFirstExcludeClickIndex(null);
+    setFirstExcludeTargetExcluded(null);
+  }, [
+    sortedListings,
+    onToggleExclude,
+    firstExcludeClickIndex,
+    firstExcludeTargetExcluded,
+    hasInitialRangeSelection,
+  ]);
+
+  const handleClearAllExclusions = useCallback(() => {
+    if (onClearAllExclusions) {
+      onClearAllExclusions();
+    } else if (onToggleExclude && displayedListings) {
+      displayedListings.forEach((item, i) => {
+        if (item.excluded) {
+          const id = item._id ?? item.id ?? `${item.url ?? item.title ?? 'listing'}-${i}`;
+          onToggleExclude(id);
+        }
+      });
+    }
+    setHasInitialRangeSelection(false);
+    setFirstExcludeClickIndex(null);
+    setFirstExcludeTargetExcluded(null);
+  }, [displayedListings, onToggleExclude, onClearAllExclusions]);
 
   // MEMOIZED BUY OFFERS DISPLAY with manual offer card
   const BuyOffersDisplay = useMemo(() => {
@@ -595,7 +704,7 @@ export default function ResearchFormShell({
               )}
             </div>
           </div>
-          <div className="mt-3 flex items-center gap-4">
+          <div className="mt-3 flex items-center gap-4 flex-wrap">
             {customControls}
             {listings && allowHistogramToggle && (
               <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-gray-700">
@@ -612,6 +721,58 @@ export default function ResearchFormShell({
                 </span>
               </label>
             )}
+            {displayedListings && displayedListings.length > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-gray-700">Sort:</span>
+                <select
+                  className="text-xs font-medium rounded-lg border border-gray-300 bg-white text-gray-700 focus:ring-2 focus:ring-blue-400 focus:border-blue-900"
+                  value={sortOrder}
+                  onChange={(e) => setSortOrder(e.target.value)}
+                >
+                  <option value="default">Default order</option>
+                  <option value="low_to_high">Low to high</option>
+                  <option value="high_to_low">High to low</option>
+                </select>
+              </div>
+            )}
+            {displayedListings && (onToggleExclude || displayedListings.some(l => l.excluded)) && (() => {
+              const excludedCount = displayedListings.filter(l => l.excluded).length;
+              return (
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="material-symbols-outlined text-sm text-gray-600">filter_list</span>
+                    <span className="text-xs font-medium text-gray-700">Show only relevant</span>
+                    {excludedCount > 0 && (
+                      <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 text-[9px] font-bold border border-blue-200">
+                        {excludedCount} excluded
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      className="relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1"
+                      style={{ backgroundColor: showOnlyRelevant ? '#1e3a8a' : '#d1d5db' }}
+                      onClick={() => setShowOnlyRelevant(prev => !prev)}
+                      aria-pressed={showOnlyRelevant}
+                    >
+                      <span
+                        className={`absolute top-1/2 left-0.5 h-4 w-4 -translate-y-1/2 bg-white rounded-full shadow-sm transition-transform duration-150 ${
+                          showOnlyRelevant ? 'translate-x-4' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                  {excludedCount > 0 && (onToggleExclude || onClearAllExclusions) && !readOnly && (
+                    <button
+                      type="button"
+                      className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1"
+                      onClick={handleClearAllExclusions}
+                    >
+                      Clear selection
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
@@ -641,6 +802,59 @@ export default function ResearchFormShell({
               </span>
             </label>
             )}
+            {displayedListings && displayedListings.length > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-gray-700">Sort:</span>
+                <select
+                  className="text-xs font-medium rounded-lg border border-gray-300 bg-white text-gray-700 focus:ring-2 focus:ring-blue-400 focus:border-blue-900"
+                  value={sortOrder}
+                  onChange={(e) => setSortOrder(e.target.value)}
+                >
+                  <option value="default">Default order</option>
+                  <option value="low_to_high">Low to high</option>
+                  <option value="high_to_low">High to low</option>
+                </select>
+              </div>
+            )}
+            {/* Show only relevant toggle — visible whenever there are excluded listings or exclusion is available */}
+            {displayedListings && (onToggleExclude || displayedListings.some(l => l.excluded)) && (() => {
+              const excludedCount = displayedListings.filter(l => l.excluded).length;
+              return (
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="material-symbols-outlined text-sm text-gray-600">filter_list</span>
+                    <span className="text-xs font-medium text-gray-700">Show only relevant</span>
+                    {excludedCount > 0 && (
+                      <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 text-[9px] font-bold border border-blue-200">
+                        {excludedCount} excluded
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      className="relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1"
+                      style={{ backgroundColor: showOnlyRelevant ? '#1e3a8a' : '#d1d5db' }}
+                      onClick={() => setShowOnlyRelevant(prev => !prev)}
+                      aria-pressed={showOnlyRelevant}
+                    >
+                      <span
+                        className={`absolute top-1/2 left-0.5 h-4 w-4 -translate-y-1/2 bg-white rounded-full shadow-sm transition-transform duration-150 ${
+                          showOnlyRelevant ? 'translate-x-4' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                  {excludedCount > 0 && (onToggleExclude || onClearAllExclusions) && !readOnly && (
+                    <button
+                      type="button"
+                      className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1"
+                      onClick={handleClearAllExclusions}
+                    >
+                      Clear selection
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
           </div>
           {refineError && (
             <p className="text-sm text-red-600 bg-red-50 px-3 py-1.5 rounded">{refineError}</p>
@@ -788,48 +1002,87 @@ export default function ResearchFormShell({
               )}
 
               <div className={`grid ${showHistogram ? 'grid-cols-1' : 'grid-cols-2'} gap-4`}>
-                {displayedListings && displayedListings.map((item, idx) => (
-                  <a
-                    key={`${item.title}-${idx}`}
-                    href={item.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="bg-white rounded-xl border border-gray-200 p-4 flex gap-4 hover:shadow-md transition-all duration-300"
-                    style={{ 
-                      animationDelay: `${idx * 20}ms`,
-                      opacity: 0,
-                      animation: 'fadeInUp 0.4s ease-out forwards'
-                    }}
+                {sortedListings && sortedListings
+                  .map((entry, sortedIdx) => ({ ...entry, sortedIdx }))
+                  .filter(({ item }) => !showOnlyRelevant || !item.excluded)
+                  .map(({ item, origIdx, sortedIdx }, displayIdx) => (
+                  <div
+                    key={`${item._id || item.title}-${origIdx}`}
+                    className={`relative group ${item.excluded ? 'opacity-60' : ''}`}
                   >
-                    <div className="w-32 h-32 bg-gray-200 rounded-lg flex items-center justify-center overflow-hidden rounded-lg">
-                      {item.image ? (
-                        <img
-                          src={item.image}
-                          alt={item.title || "listing"}
-                          className="w-full h-full object-cover"
-                          loading="lazy"
-                        />
-                      ) : (
-                        <span className="text-xs text-gray-500">No image</span>
-                      )}
-                    </div>
-                    <div className="flex flex-col justify-between flex-1">
-                      <div>
-                        <h4 className="text-sm font-bold text-blue-900 line-clamp-2 leading-tight cursor-pointer hover:underline">{item.title}</h4>
-                        {item.shop && (
-                          <p className="text-[11px] text-gray-500 mt-0.5">Shop: {item.shop}</p>
-                        )}
-                        {item.sold && (
-                          <p className="text-[11px] text-green-600 font-bold mt-1">{item.sold}</p>
+                    <a
+                      href={item.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`flex gap-4 rounded-xl border p-4 hover:shadow-md transition-all duration-300 ${
+                        item.excluded
+                          ? 'bg-orange-50/60 border-orange-300'
+                          : 'bg-white border-gray-200'
+                      }`}
+                      style={{ 
+                        animationDelay: `${displayIdx * 20}ms`,
+                        opacity: 0,
+                        animation: 'fadeInUp 0.4s ease-out forwards'
+                      }}
+                    >
+                      <div className="w-32 h-32 bg-gray-200 rounded-lg flex items-center justify-center overflow-hidden shrink-0">
+                        {item.image ? (
+                          <img
+                            src={item.image}
+                            alt={item.title || "listing"}
+                            className="w-full h-full object-cover"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <span className="text-xs text-gray-500">No image</span>
                         )}
                       </div>
-                      <div className="flex items-end justify-between mt-2">
+                      <div className="flex flex-col justify-between flex-1 min-w-0">
                         <div>
+                          <h4 className="text-sm font-bold text-blue-900 line-clamp-2 leading-tight cursor-pointer hover:underline">{item.title}</h4>
+                          {item.shop && (
+                            <p className="text-[11px] text-gray-500 mt-0.5">Shop: {item.shop}</p>
+                          )}
+                          {item.sold && (
+                            <p className="text-[11px] text-green-600 font-bold mt-1">{item.sold}</p>
+                          )}
+                        </div>
+                        <div className="flex items-end justify-between mt-2">
                           <p className="text-lg font-extrabold text-gray-900 leading-none">£{item.price}</p>
                         </div>
                       </div>
-                    </div>
-                  </a>
+                    </a>
+
+                    {/* Excluded badge */}
+                    {item.excluded && (
+                      <div className="absolute top-2 left-3 z-10 pointer-events-none">
+                        <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 tracking-wider border border-orange-200">
+                          Excluded
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Exclude / re-include toggle button */}
+                    {onToggleExclude && !readOnly && (
+                      <button
+                        className={`absolute top-2 right-2 z-10 w-6 h-6 rounded-full flex items-center justify-center transition-all duration-150 ${
+                          item.excluded
+                            ? 'bg-orange-500 text-white shadow-sm'
+                            : 'bg-white text-gray-500 border border-gray-200 shadow-sm hover:bg-red-50 hover:text-red-600 hover:border-red-300'
+                        }`}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleExcludeClick(sortedIdx);
+                        }}
+                        title={item.excluded ? 'Re-include in calculations' : 'Exclude from calculations'}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: '13px' }}>
+                          {item.excluded ? 'undo' : 'block'}
+                        </span>
+                      </button>
+                    )}
+                  </div>
                 ))}
               </div>
             </div>
@@ -838,7 +1091,7 @@ export default function ResearchFormShell({
             {showHistogram && (
               <aside className="w-80 border-l border-gray-200 overflow-hidden">
                 <PriceHistogram 
-                  listings={displayedListings} 
+                  listings={displayedListings ? displayedListings.filter(l => !l.excluded) : displayedListings} 
                   onBucketSelect={onDrillDown}
                   priceRange={currentPriceRange}
                   onGoBack={onZoomOut}

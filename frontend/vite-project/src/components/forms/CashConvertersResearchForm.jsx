@@ -10,6 +10,12 @@ import { Icon } from '../ui/components';
  * 2. User lands on a listings page; extension shows "Have you got the data yet?" [Yes].
  * 3. User clicks Yes → data appears in ResearchFormShell with histogram, buy offers, modal/page mode (no left filters).
  */
+function ensureListingIds(items) {
+  return items.map((item, idx) =>
+    item._id ? item : { ...item, _id: `cc-${Date.now()}-${idx}` }
+  );
+}
+
 export default function CashConvertersResearchForm({
   onComplete,
   category,
@@ -22,14 +28,15 @@ export default function CashConvertersResearchForm({
   ourSalePrice = null,
   initialSearchQuery = null,
   marketComparisonContext = null,
+  resetDrillOnOpen = false,
 }) {
   const [step, setStep] = useState(savedState?.listings?.length ? 'cards' : 'get-data');
-  const [listings, setListings] = useState(savedState?.listings ?? []);
+  const [listings, setListings] = useState(() => ensureListingIds(savedState?.listings ?? []));
   const [searchTerm, setSearchTerm] = useState(savedState?.searchTerm ?? '');
   const [listingPageUrl, setListingPageUrl] = useState(savedState?.listingPageUrl ?? null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [drillHistory, setDrillHistory] = useState(savedState?.drillHistory ?? []);
+  const [drillHistory, setDrillHistory] = useState(resetDrillOnOpen ? [] : (savedState?.drillHistory ?? []));
   const [showHistogram, setShowHistogram] = useState(
     savedState?.showHistogram ?? (initialHistogramState !== null ? initialHistogramState : mode === 'modal')
   );
@@ -47,7 +54,7 @@ export default function CashConvertersResearchForm({
     try {
       const result = await getDataFromListingPage('CashConverters', initialSearchQuery || undefined, marketComparisonContext);
       if (result?.success && Array.isArray(result.results)) {
-        setListings(result.results);
+        setListings(ensureListingIds(result.results));
         const term = (result.searchTerm != null && String(result.searchTerm).trim())
           ? String(result.searchTerm).trim()
           : (initialSearchQuery || '');
@@ -75,7 +82,7 @@ export default function CashConvertersResearchForm({
     try {
       const result = await getDataFromRefine('CashConverters', listingPageUrl, marketComparisonContext);
       if (result?.success && Array.isArray(result.results)) {
-        setListings(result.results);
+        setListings(ensureListingIds(result.results));
         setSearchTerm((prev) => (result.searchTerm != null && String(result.searchTerm).trim()) ? String(result.searchTerm).trim() : prev);
         setListingPageUrl(result.listingPageUrl || null);
         setDrillHistory([]);
@@ -96,6 +103,16 @@ export default function CashConvertersResearchForm({
 
   const currentPriceRange = drillHistory.length > 0 ? drillHistory[drillHistory.length - 1] : null;
 
+  const handleToggleExclude = useCallback((listingId) => {
+    setListings(prev => prev.map(l =>
+      l._id === listingId ? { ...l, excluded: !l.excluded } : l
+    ));
+  }, []);
+
+  const handleClearAllExclusions = useCallback(() => {
+    setListings(prev => prev.map(l => (l.excluded ? { ...l, excluded: false } : l)));
+  }, []);
+
   const displayedListings = useMemo(() => {
     if (!listings || listings.length === 0) return null;
     if (!currentPriceRange) return listings;
@@ -107,10 +124,13 @@ export default function CashConvertersResearchForm({
     });
   }, [listings, currentPriceRange]);
 
-  const stats = useMemo(() => calculateStats(listings), [listings]);
+  // Stats exclude listings marked as excluded
+  const stats = useMemo(() => calculateStats(listings.filter(l => !l.excluded)), [listings]);
   const displayedStats = useMemo(() => {
     if (!displayedListings || displayedListings.length === 0) return stats;
-    return calculateStats(displayedListings);
+    const relevant = displayedListings.filter(l => !l.excluded);
+    if (relevant.length === 0) return stats;
+    return calculateStats(relevant);
   }, [displayedListings, stats]);
 
   const buyOffers = useMemo(
@@ -269,6 +289,8 @@ export default function CashConvertersResearchForm({
       refineLoading={loading}
       referenceData={referenceData}
       ourSalePrice={ourSalePrice}
+      onToggleExclude={!readOnly ? handleToggleExclude : undefined}
+      onClearAllExclusions={!readOnly ? handleClearAllExclusions : undefined}
     />
   );
 }
