@@ -524,28 +524,49 @@ const Negotiation = ({ mode }) => {
       setItems(prevItems => prevItems.map(i => {
         if (i.id !== researchItem.id) return i;
 
-        // Consider offers "existing" if cashOffers, voucherOffers, OR the generic offers array has entries
-        // (e.g. CeX-based offers). When existing, do NOT replace them with eBay research offers.
-        const hasExistingOffers =
-          (i.cashOffers && i.cashOffers.length > 0) ||
-          (i.voucherOffers && i.voucherOffers.length > 0) ||
-          (i.offers && i.offers.length > 0);
+        // eBay-only items: three offer cells MUST always match the eBay research form.
+        // CeX items: preserve CeX-based offers; clicking eBay offer only updates manual cell.
+        const hasCeXBasedOffers = (i.variantId != null && i.variantId !== '') || i.isCustomCeXItem === true;
+        const isEbayOnlyItem =
+          i.isCustomEbayItem === true ||
+          (!hasCeXBasedOffers && i.ebayResearchData?.stats && i.ebayResearchData?.selectedFilters);
 
         let newCashOffers = i.cashOffers || [];
         let newVoucherOffers = i.voucherOffers || [];
 
-        // Only generate offers from eBay research when the item has none yet (e.g. eBay-only items)
-        if (!hasExistingOffers && updatedState.buyOffers && updatedState.buyOffers.length > 0) {
-          newCashOffers = updatedState.buyOffers.map((o, idx) => ({
-            id: `ebay-cash-${Date.now()}-${idx}`,
-            title: ["1st Offer", "2nd Offer", "3rd Offer"][idx] || "Offer",
-            price: Number(o.price)
-          }));
-          newVoucherOffers = newCashOffers.map(offer => ({
-            id: `ebay-voucher-${offer.id}`,
-            title: offer.title,
-            price: Number((offer.price * 1.10).toFixed(2))
-          }));
+        if (updatedState.buyOffers && updatedState.buyOffers.length > 0) {
+          if (isEbayOnlyItem) {
+            // eBay-only: ALWAYS sync the three offers from the research form
+            newCashOffers = updatedState.buyOffers.map((o, idx) => ({
+              id: `ebay-cash-${Date.now()}-${idx}`,
+              title: ["1st Offer", "2nd Offer", "3rd Offer"][idx] || "Offer",
+              price: Number(o.price)
+            }));
+            newVoucherOffers = newCashOffers.map(offer => ({
+              id: `ebay-voucher-${offer.id}`,
+              title: offer.title,
+              price: Number((offer.price * 1.10).toFixed(2))
+            }));
+          } else if (!hasCeXBasedOffers) {
+            // Non-CeX, non-eBay-only (e.g. item with no offers yet): generate from research
+            const hasExistingOffers =
+              (i.cashOffers && i.cashOffers.length > 0) ||
+              (i.voucherOffers && i.voucherOffers.length > 0) ||
+              (i.offers && i.offers.length > 0);
+            if (!hasExistingOffers) {
+              newCashOffers = updatedState.buyOffers.map((o, idx) => ({
+                id: `ebay-cash-${Date.now()}-${idx}`,
+                title: ["1st Offer", "2nd Offer", "3rd Offer"][idx] || "Offer",
+                price: Number(o.price)
+              }));
+              newVoucherOffers = newCashOffers.map(offer => ({
+                id: `ebay-voucher-${offer.id}`,
+                title: offer.title,
+                price: Number((offer.price * 1.10).toFixed(2))
+              }));
+            }
+          }
+          // hasCeXBasedOffers: do not replace offers
         }
 
         const displayOffers = useVoucherOffers ? newVoucherOffers : newCashOffers;
@@ -558,15 +579,15 @@ const Negotiation = ({ mode }) => {
             newSelectedOfferId = 'manual';
             newManualOffer = updatedState.manualOffer || i.manualOffer;
           } else if (typeof updatedState.selectedOfferIndex === 'number') {
-            if (hasExistingOffers) {
-              // Existing offers stay; route the research form's clicked price into manual offer
+            if (hasCeXBasedOffers) {
+              // CeX item: route the clicked price into manual offer only
               const clickedPrice = updatedState.buyOffers?.[updatedState.selectedOfferIndex]?.price;
               if (clickedPrice != null) {
                 newManualOffer = Number(clickedPrice).toFixed(2);
                 newSelectedOfferId = 'manual';
               }
             } else {
-              // No prior offers — newly generated; select by offer ID at that index
+              // eBay-only or no prior offers: select the offer cell at that index
               const selectedOffer = displayOffers[updatedState.selectedOfferIndex];
               if (selectedOffer) {
                 newSelectedOfferId = selectedOffer.id;
