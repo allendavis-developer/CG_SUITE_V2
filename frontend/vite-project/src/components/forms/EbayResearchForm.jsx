@@ -29,6 +29,7 @@ export default function EbayResearchForm({
   initialSearchQuery = null,
   marketComparisonContext = null,
   resetDrillOnOpen = false,
+  onAddNewItem = null,
 }) {
   const [step, setStep] = useState(savedState?.listings?.length ? 'cards' : 'get-data');
   const [listings, setListings] = useState(() => ensureListingIds(savedState?.listings ?? []));
@@ -183,6 +184,23 @@ export default function EbayResearchForm({
     onComplete?.(state);
   }, [onComplete, listings, showHistogram, drillHistory, displayedStats, buyOffers, searchTerm, listingPageUrl, manualOffer, showManualOffer]);
 
+  const handleAddToCartWithOffer = useCallback((offerIndex) => {
+    const state = {
+      listings,
+      showHistogram,
+      drillHistory,
+      stats: displayedStats,
+      buyOffers,
+      searchTerm,
+      listingPageUrl,
+      selectedFilters: { basic: [], apiFilters: {} },
+      filterOptions: [],
+      manualOffer,
+      selectedOfferIndex: offerIndex,
+    };
+    onComplete?.(state);
+  }, [onComplete, listings, showHistogram, drillHistory, displayedStats, buyOffers, searchTerm, listingPageUrl, manualOffer]);
+
   if (step === 'get-data') {
     const getDataBody = (
       <div className="max-w-md mx-auto flex flex-col items-center justify-center min-h-[200px] gap-4 p-6">
@@ -271,6 +289,7 @@ export default function EbayResearchForm({
       onNavigateToDrillLevel={handleNavigateToDrillLevel}
       onComplete={showManualOffer ? undefined : handleComplete}
       onCompleteWithSelection={showManualOffer ? handleCompleteWithSelection : undefined}
+      onAddToCartWithOffer={mode === 'page' && onComplete && !onAddNewItem ? handleAddToCartWithOffer : undefined}
       mode={mode}
       readOnly={readOnly}
       basicFilterOptions={[]}
@@ -290,6 +309,7 @@ export default function EbayResearchForm({
       refineLoading={loading}
       onToggleExclude={!readOnly ? handleToggleExclude : undefined}
       onClearAllExclusions={!readOnly ? handleClearAllExclusions : undefined}
+      onAddNewItem={onAddNewItem}
     />
   );
 }

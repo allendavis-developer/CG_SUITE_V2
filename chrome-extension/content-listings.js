@@ -400,44 +400,96 @@
     return '£' + n.toFixed(2);
   }
 
+  function escapeHtml(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
   function buildContextHtml(ctx) {
     if (!ctx) return '';
 
     const hasPrices = ctx.cexSalePrice != null || ctx.ourSalePrice != null || ctx.ebaySalePrice != null || ctx.cashConvertersSalePrice != null;
-    const hasItemDetails = !!(ctx.itemTitle || ctx.itemConfig || ctx.itemCondition);
+    const hasItemDetails = !!(ctx.itemTitle || ctx.itemCondition);
+    const hasSearchTerms = !!(ctx.ebaySearchTerm || ctx.cashConvertersSearchTerm);
+    const hasCexSpecs = ctx.cexSpecs && typeof ctx.cexSpecs === 'object' && Object.keys(ctx.cexSpecs).length > 0;
+    const hasItemSpecs = ctx.itemSpecs && typeof ctx.itemSpecs === 'object' && Object.keys(ctx.itemSpecs).length > 0;
 
-    if (!hasPrices && !hasItemDetails) return '';
+    if (!hasPrices && !hasItemDetails && !hasSearchTerms && !hasCexSpecs && !hasItemSpecs) return '';
 
-    const priceLines = [];
-    if (ctx.cexSalePrice != null) priceLines.push('CeX sale price: ' + formatPrice(ctx.cexSalePrice));
-    if (ctx.ourSalePrice != null) priceLines.push('Our sale price: ' + formatPrice(ctx.ourSalePrice));
-    if (ctx.ebaySalePrice != null) priceLines.push('eBay sale price: ' + formatPrice(ctx.ebaySalePrice));
-    if (ctx.cashConvertersSalePrice != null) priceLines.push('Cash Converters sale price: ' + formatPrice(ctx.cashConvertersSalePrice));
+    var html = '<div style="margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.25); font-size: 13px; line-height: 1.6;">';
 
-    let html = '<div style="margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.25); font-size: 13px; line-height: 1.6;">';
-
+    // ── Item identity (title + condition) ──
     if (hasItemDetails) {
       if (ctx.itemTitle) {
-        html += '<div style="font-size: 15px; font-weight: 700; margin-bottom: 4px;">' + ctx.itemTitle + '</div>';
-      }
-      if (ctx.itemConfig) {
-        var parts = String(ctx.itemConfig).split('/').map(function (p) { return p.trim(); }).filter(Boolean);
-        if (parts.length > 0) {
-          html += '<div style="font-size: 13px; opacity: 0.95; margin-bottom: 4px;">';
-          html += parts.map(function (p) { return '<div>' + p + '</div>'; }).join('');
-          html += '</div>';
-        }
+        html += '<div style="font-size: 15px; font-weight: 700; margin-bottom: 5px;">' + escapeHtml(ctx.itemTitle) + '</div>';
       }
       if (ctx.itemCondition) {
-        html += '<div style="font-size: 13px; opacity: 0.95; margin-bottom: 2px;">Condition: ' + ctx.itemCondition + '</div>';
+        html += '<div style="font-size:12px; opacity:0.85; margin-bottom:5px;">Condition: <strong>' + escapeHtml(ctx.itemCondition) + '</strong></div>';
       }
-      if (priceLines.length > 0) {
-        html += '<div style="margin-top: 8px; opacity: 0.9;">';
-        html += priceLines.map(function (l) { return '<div>' + l + '</div>'; }).join('');
+    }
+
+    // ── Dropdown item attributes (label plain, value as badge) ────────────────
+    if (hasItemSpecs) {
+      var itemSpecEntries = Object.entries(ctx.itemSpecs).slice(0, 10);
+      html += '<div style="margin-bottom:8px; padding:8px; background:rgba(255,255,255,0.1); border-radius:8px;">';
+      html += '<div style="font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; opacity:0.65; margin-bottom:6px;">Product Details</div>';
+      html += '<div style="display:flex; flex-direction:column; gap:5px;">';
+      itemSpecEntries.forEach(function (entry) {
+        html += '<div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">';
+        html += '<span style="font-size:12px; opacity:0.75; white-space:nowrap;">' + escapeHtml(entry[0]) + '</span>';
+        html += '<span style="background:rgba(255,255,255,0.2); border-radius:5px; padding:2px 8px; font-size:12px; font-weight:700; white-space:nowrap;">' + escapeHtml(entry[1]) + '</span>';
         html += '</div>';
+      });
+      html += '</div></div>';
+    }
+
+    // ── CeX product specs (label plain, value as badge) ───────────────────────
+    if (hasCexSpecs) {
+      var specEntries = Object.entries(ctx.cexSpecs).slice(0, 10);
+      html += '<div style="margin-bottom:8px; padding:8px; background:rgba(255,255,255,0.1); border-radius:8px;">';
+      html += '<div style="font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; opacity:0.65; margin-bottom:6px;">Product Details</div>';
+      html += '<div style="display:flex; flex-direction:column; gap:5px;">';
+      specEntries.forEach(function (entry) {
+        html += '<div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">';
+        html += '<span style="font-size:12px; opacity:0.75; white-space:nowrap;">' + escapeHtml(entry[0]) + '</span>';
+        html += '<span style="background:rgba(255,255,255,0.2); border-radius:5px; padding:2px 8px; font-size:12px; font-weight:700; white-space:nowrap;">' + escapeHtml(entry[1]) + '</span>';
+        html += '</div>';
+      });
+      html += '</div></div>';
+    }
+
+    // ── Search terms ──────────────────────────────────────────────────────────
+    if (hasSearchTerms) {
+      html += '<div style="margin-bottom:8px; padding:8px 10px; background:rgba(250,204,21,0.18); border:1px solid rgba(250,204,21,0.45); border-radius:8px;">';
+      html += '<div style="font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; color:#facc15; margin-bottom:5px;">Reference Search Terms</div>';
+      if (ctx.ebaySearchTerm) {
+        html += '<div style="margin-bottom:3px;"><span style="font-size:11px; opacity:0.7;">eBay: </span>';
+        html += '<span style="font-weight:700; font-size:13px;">' + escapeHtml(ctx.ebaySearchTerm) + '</span></div>';
       }
-    } else if (priceLines.length > 0) {
-      html += priceLines.map(function (l) { return '<div>' + l + '</div>'; }).join('');
+      if (ctx.cashConvertersSearchTerm) {
+        html += '<div><span style="font-size:11px; opacity:0.7;">Cash Converters: </span>';
+        html += '<span style="font-weight:700; font-size:13px;">' + escapeHtml(ctx.cashConvertersSearchTerm) + '</span></div>';
+      }
+      html += '</div>';
+    }
+
+    // ── Price comparisons ─────────────────────────────────────────────────────
+    var priceRows = [];
+    if (ctx.cexSalePrice != null) priceRows.push(['CeX sell', formatPrice(ctx.cexSalePrice)]);
+    if (ctx.ourSalePrice != null) priceRows.push(['Our price', formatPrice(ctx.ourSalePrice)]);
+    if (ctx.ebaySalePrice != null) priceRows.push(['eBay median', formatPrice(ctx.ebaySalePrice)]);
+    if (ctx.cashConvertersSalePrice != null) priceRows.push(['Cash Conv.', formatPrice(ctx.cashConvertersSalePrice)]);
+
+    if (priceRows.length > 0) {
+      html += '<div style="display:grid; grid-template-columns:auto 1fr; gap:3px 12px; font-size:12px; opacity:0.9;">';
+      priceRows.forEach(function (row) {
+        html += '<div style="opacity:0.7;">' + escapeHtml(row[0]) + '</div>';
+        html += '<div style="font-weight:700;">' + escapeHtml(row[1]) + '</div>';
+      });
+      html += '</div>';
     }
 
     html += '</div>';

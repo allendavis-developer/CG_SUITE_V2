@@ -203,6 +203,7 @@ async function handleScrapedData(message) {
   const entry = pending[requestId];
 
   if (entry?.appTabId != null) {
+    const listingTabId = entry.listingTabId;
     delete pending[requestId];
     await setPending(pending);
 
@@ -215,6 +216,11 @@ async function handleScrapedData(message) {
       requestId,
       response: data
     });
+
+    // Close the listing tab (eBay, Cash Converters, or CeX) after data was sent to the app
+    if (listingTabId != null) {
+      await chrome.tabs.remove(listingTabId).catch(() => {});
+    }
     return { ok: true };
   }
 

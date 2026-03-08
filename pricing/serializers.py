@@ -132,6 +132,8 @@ class RequestItemSerializer(serializers.ModelSerializer):
             'quantity',
             'selected_offer_id',
             'manual_offer_gbp',
+            'manual_offer_used',
+            'senior_mgmt_approved_by',
             'customer_expectation_gbp',
             'negotiated_price_gbp',
             'cash_offers_json',  # Add new field

@@ -16,7 +16,7 @@ import MarketComparisonsTable from './MarketComparisonsTable';
 import OfferSelection from './OfferSelection';
 
 import { useProductAttributes } from '@/pages/buyer/hooks/useProductAttributes';
-import { fetchCompetitorStats, fetchVariantPrices } from '@/services/api';
+import { fetchVariantPrices } from '@/services/api';
 import { createRequest, addRequestItem, updateRequestItemRawData } from '@/services/api';
 
 import { formatGBP } from '@/utils/helpers';
@@ -44,20 +44,18 @@ const MainContent = ({
   cartItems = [],  // Used to detect duplicates and avoid creating extra request items
   cexProductData = null,
   setCexProductData = null,
-  onClearCeXProduct = null
+  onClearCeXProduct = null,
+  onDeselectCartItem = null
 }) => {
   // Determine if we should use voucher offers based on transaction type
   const useVoucherOffers = customerData?.transactionType === 'store_credit';
   
   const [activeTab, setActiveTab] = useState('info');
   const [variants, setVariants] = useState([]);
-  const [competitorStats, setCompetitorStats] = useState([]);
-  const [isLoadingStats, setIsLoadingStats] = useState(false);
   const [isEbayModalOpen, setEbayModalOpen] = useState(false);
   const [isCashConvertersModalOpen, setCashConvertersModalOpen] = useState(false);
   const [offers, setOffers] = useState([]);
   const [isLoadingOffers, setIsLoadingOffers] = useState(false);
-  const [selectedOfferId, setSelectedOfferId] = useState(null);
   const [referenceData, setReferenceData] = useState(null);
   const [ourSalePrice, setOurSalePrice] = useState('');
   const [ebayData, setEbayData] = useState(null);
@@ -90,6 +88,22 @@ const MainContent = ({
     }
   }, [selectedCategory, isEbayCategory]);
 
+  // When deselecting a cart item, clear research state so we show empty "get data" form for new items
+  useEffect(() => {
+    if (!selectedCartItem) {
+      if (isEbayCategory) {
+        setSavedEbayState(null);
+        setEbayData(null);
+      }
+      const isCCCategory = selectedCategory?.path?.some(p => p.toLowerCase() === 'cash converters') ||
+                           selectedCategory?.name?.toLowerCase() === 'cash converters';
+      if (isCCCategory) {
+        setSavedCashConvertersState(null);
+        setCashConvertersData(null);
+      }
+    }
+  }, [selectedCartItem, isEbayCategory, selectedCategory]);
+
   // Load variants when attributes are loaded
   useEffect(() => {
     const loadVariants = async () => {
@@ -111,29 +125,6 @@ const MainContent = ({
 
     loadVariants();
   }, [selectedModel]);
-
-  // Load competitor stats when variant changes
-  useEffect(() => {
-    if (!variant) {
-      setCompetitorStats([]);
-      return;
-    }
-
-    const selectedVariant = variants.find(v => v.cex_sku === variant);
-    if (!selectedVariant) return;
-
-    const loadStats = async () => {
-      setIsLoadingStats(true);
-      const data = await fetchCompetitorStats(
-        selectedVariant.cex_sku,
-        selectedVariant.title
-      );
-      setCompetitorStats(data);
-      setIsLoadingStats(false);
-    };
-
-    loadStats();
-  }, [variant, variants]);
 
   // Load offers when variant changes - now transaction-type aware
   useEffect(() => {
@@ -170,9 +161,6 @@ const MainContent = ({
           setOurSalePrice(data.referenceData.cex_based_sale_price.toString());
         }
         
-        if (selectedOffers && selectedOffers.length > 0) {
-          setSelectedOfferId(selectedOffers[0].id);
-        }
       } catch (err) {
         console.error('Error fetching offers:', err);
         setOffers([]);
@@ -322,12 +310,7 @@ const MainContent = ({
   };
 
 
-  // Reset selected offer when variant changes
-  useEffect(() => {
-    setSelectedOfferId(null);
-  }, [variant]);
-
-  const handleAddToCart = async () => {
+  const handleAddToCart = async (offerId) => {
     if (!selectedModel || !variant) {
       alert('Please select a variant');
       return;
@@ -338,6 +321,7 @@ const MainContent = ({
       return;
     }
 
+    const selectedOfferIdForItem = offerId === undefined ? (offers[0]?.id ?? null) : offerId;
     const selectedVariant = variants.find(v => v.cex_sku === variant);
 
     // Get the currently displayed offers (based on transaction type)
@@ -372,9 +356,9 @@ const MainContent = ({
         selectedVariant?.title ||
         Object.values(attributeValues).filter(v => v).join(' / ') ||
         'Standard',
-      offers: normalizedOffers, // Currently selected offers (cash or voucher)
-      cashOffers: cashOffers, // Store cash offers separately
-      voucherOffers: voucherOffers, // Store voucher offers separately
+      offers: normalizedOffers,
+      cashOffers: cashOffers,
+      voucherOffers: voucherOffers,
       quantity: 1,
       variantId,
       category: selectedCategory?.name,
@@ -384,8 +368,8 @@ const MainContent = ({
       color: attributeValues.color || selectedVariant?.color,
       storage: attributeValues.storage || selectedVariant?.storage,
       network: attributeValues.network || selectedVariant?.network,
+      attributeValues: { ...attributeValues },
       
-      // Added specific price fields for easy access
       ourSalePrice: ourSalePrice ? Number(ourSalePrice) : null,
       cexSellPrice: referenceData?.cex_sale_price ? Number(referenceData.cex_sale_price) : null,
       cexBuyPrice: referenceData?.cex_tradein_cash ? Number(referenceData.cex_tradein_cash) : null,
@@ -395,7 +379,8 @@ const MainContent = ({
       cashConvertersResearchData: savedCashConvertersState || null,
       referenceData: referenceData,
       request_item_id: null,
-      offerType: useVoucherOffers ? 'voucher' : 'cash' // Track which type of offers were used
+      offerType: useVoucherOffers ? 'voucher' : 'cash',
+      selectedOfferId: selectedOfferIdForItem
     };
 
     try {
@@ -422,25 +407,30 @@ const MainContent = ({
     setSavedEbayState(data);
 
     if (isEbayCategory) {
-      // eBay-only items: variant is null
-      const apiFilterValues = Object.values(data.selectedFilters.apiFilters).flat();
-      const basicFilterValues = data.selectedFilters.basic;
+      // eBay-only items: variant is null. Use stable offer ids (ebay-cash-0,1,2) so same item keeps same ids.
+      const apiFilterValues = Object.values(data.selectedFilters?.apiFilters || {}).flat();
+      const basicFilterValues = data.selectedFilters?.basic || [];
       const allFilters = [...basicFilterValues, ...apiFilterValues].filter(Boolean);
       const filterSubtitle = allFilters.length > 0
         ? allFilters.join(' / ')
         : (data.searchTerm || 'No filters applied');
 
-      const cashOffers = data.buyOffers.map((o, idx) => ({
-          id: `ebay-cash-${Date.now()}-${idx}`, // Make IDs unique for cash
-          title: ["1st Offer", "2nd Offer", "3rd Offer"][idx] || "Offer",
-          price: Number(o.price)
+      const cashOffers = (data.buyOffers || []).map((o, idx) => ({
+        id: `ebay-cash-${idx}`,
+        title: ["1st Offer", "2nd Offer", "3rd Offer"][idx] || "Offer",
+        price: Number(o.price)
       }));
 
       const voucherOffers = cashOffers.map(offer => ({
-          id: `ebay-voucher-${offer.id}`, // Make IDs unique for voucher
-          title: offer.title,
-          price: Number((offer.price * 1.10).toFixed(2)) // 10% more, rounded to 2 decimal places
+        id: `ebay-voucher-${offer.id}`,
+        title: offer.title,
+        price: Number((offer.price * 1.10).toFixed(2))
       }));
+
+      const displayOffers = useVoucherOffers ? voucherOffers : cashOffers;
+      const selectedOfferId = data.selectedOfferIndex != null && data.selectedOfferIndex >= 0 && displayOffers[data.selectedOfferIndex]
+        ? displayOffers[data.selectedOfferIndex].id
+        : null;
 
       const customCartItem = {
         id: crypto.randomUUID?.() ?? `cart-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -449,14 +439,15 @@ const MainContent = ({
         quantity: 1,
         category: EBAY_TOP_LEVEL_CATEGORY.name,
         categoryObject: EBAY_TOP_LEVEL_CATEGORY,
-        offers: useVoucherOffers ? voucherOffers : cashOffers, // Default to appropriate offer type
-        cashOffers: cashOffers, // Store cash offers
-        voucherOffers: voucherOffers, // Store voucher offers
+        offers: displayOffers,
+        cashOffers: cashOffers,
+        voucherOffers: voucherOffers,
         ebayResearchData: data,
         isCustomEbayItem: true,
-        variantId: null, // ✅ eBay items have no variant
+        variantId: null,
         request_item_id: null,
-        ourSalePrice: data.stats?.suggestedPrice ? Number(data.stats.suggestedPrice) : null
+        ourSalePrice: data.stats?.suggestedPrice ? Number(data.stats.suggestedPrice) : null,
+        selectedOfferId,
       };
 
       const isDuplicateEbayItem = cartItems.some(
@@ -468,14 +459,13 @@ const MainContent = ({
           addToCart(customCartItem);
         } else {
           const requestItemId = await createOrAppendRequestItem({
-            variantId: null,   // 👈 this is the ONLY difference for eBay
+            variantId: null,
             rawData: data
           });
 
           customCartItem.request_item_id = requestItemId;
           addToCart(customCartItem);
         }
-        // Clear the research form after successful add so user can run new research
         setSavedEbayState(null);
         setEbayData(null);
       } catch (err) {
@@ -749,7 +739,10 @@ const MainContent = ({
                       itemCondition: (() => {
                         const specs = cexProductData.specifications || {};
                         return specs.Grade || specs.Condition || null;
-                      })()
+                      })(),
+                      ebaySearchTerm: cexProductData.ebayResearchData?.searchTerm || null,
+                      cashConvertersSearchTerm: cexProductData.cashConvertersResearchData?.searchTerm || null,
+                      cexSpecs: Object.keys(cexProductData.specifications || {}).length > 0 ? cexProductData.specifications : null,
                     }
                   : null
               }
@@ -790,7 +783,10 @@ const MainContent = ({
                       itemCondition: (() => {
                         const specs = cexProductData.specifications || {};
                         return specs.Grade || specs.Condition || null;
-                      })()
+                      })(),
+                      ebaySearchTerm: cexProductData.ebayResearchData?.searchTerm || null,
+                      cashConvertersSearchTerm: cexProductData.cashConvertersResearchData?.searchTerm || null,
+                      cexSpecs: Object.keys(cexProductData.specifications || {}).length > 0 ? cexProductData.specifications : null,
                     }
                   : null
               }
@@ -821,7 +817,7 @@ const MainContent = ({
 
     return (
       <section className="buyer-main-content w-3/5 min-w-0 min-h-0 flex-1 bg-white flex flex-col overflow-y-auto buyer-panel-scroll">
-        <div className="flex items-center px-8 bg-gray-50 border-b border-gray-200 sticky top-0 z-40">
+        <div className="flex items-center justify-between px-8 bg-gray-50 border-b border-gray-200 sticky top-0 z-40">
           <div className="flex items-center gap-3 py-4">
             <div className="bg-blue-900 p-1.5 rounded">
               <span className="material-symbols-outlined text-yellow-400 text-sm">add_link</span>
@@ -831,6 +827,16 @@ const MainContent = ({
               <p className="text-[10px] text-gray-500 uppercase tracking-wider">Viewing saved item</p>
             </div>
           </div>
+          {onDeselectCartItem && (
+            <button
+              type="button"
+              onClick={onDeselectCartItem}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-blue-900 hover:bg-blue-100 rounded-lg transition-colors"
+            >
+              <span className="material-symbols-outlined text-base">add_circle</span>
+              Add new item
+            </button>
+          )}
         </div>
         <div className="p-8 space-y-8">
           <div className="bg-gray-50 p-6 rounded-xl border border-gray-200">
@@ -913,6 +919,7 @@ const MainContent = ({
               initialHistogramState={false}
               showManualOffer={false}
               resetDrillOnOpen={true}
+              onAddNewItem={onDeselectCartItem}
             />
           ) : (
             <div className="text-center py-12">
@@ -951,6 +958,7 @@ const MainContent = ({
               initialHistogramState={false}
               readOnly={true}
               resetDrillOnOpen={true}
+              onAddNewItem={onDeselectCartItem}
             />
           ) : (
             <div className="text-center py-12">
@@ -986,8 +994,40 @@ const MainContent = ({
   return (
     <section className="buyer-main-content w-3/5 min-w-0 min-h-0 flex-1 bg-white flex flex-col overflow-y-auto buyer-panel-scroll">
       {!isEbayCategory && (
-        <div className="flex items-center px-8 bg-gray-50 border-b border-gray-200 sticky top-0 z-40">
-          <Tab icon="info" label="Product Info" isActive={activeTab === 'info'} onClick={() => setActiveTab('info')} />
+        <div className="sticky top-0 z-40 flex flex-col bg-white border-b border-gray-200">
+          <div className="flex items-center px-8 bg-gray-50 border-b border-gray-200">
+            <Tab icon="info" label="Product Info" isActive={activeTab === 'info'} onClick={() => setActiveTab('info')} />
+          </div>
+          <div className="px-8 py-6 bg-gray-50/50">
+            <Breadcrumb items={selectedCategory.path} />
+
+            <div className="mb-4">
+              {isLoadingModels ? (
+                <div className="flex items-center gap-3 text-sm text-gray-600 py-2">
+                  <Icon name="sync" className="animate-spin text-xl text-blue-900" />
+                  <span>Loading models for this category…</span>
+                </div>
+              ) : (
+                <SearchableDropdown
+                  value={selectedModel?.name || 'Select a model'}
+                  options={availableModels.length > 0 ? availableModels.map(m => m.name) : ['No models available']}
+                  onChange={(name) => {
+                    const model = availableModels.find(m => m.name === name);
+                    if (model) setSelectedModel(model);
+                  }}
+                />
+              )}
+            </div>
+
+            <div>
+              <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">
+                {selectedModel?.name || selectedCategory.name}
+                {Object.keys(attributeValues).length > 0 && (
+                  <span> - {Object.values(attributeValues).filter(v => v).join(' / ')}</span>
+                )}
+              </h1>
+            </div>
+          </div>
         </div>
       )}
       
@@ -1021,47 +1061,6 @@ const MainContent = ({
 
       {!isEbayCategory && (
         <>
-          <div className="px-8 py-6 border-b border-gray-200 bg-gray-50/50">
-            <Breadcrumb items={selectedCategory.path} />
-
-            <div className="mb-4">
-              {isLoadingModels ? (
-                <div className="flex items-center gap-3 text-sm text-gray-600 py-2">
-                  <Icon name="sync" className="animate-spin text-xl text-blue-900" />
-                  <span>Loading models for this category…</span>
-                </div>
-              ) : (
-                <SearchableDropdown
-                  value={selectedModel?.name || 'Select a model'}
-                  options={availableModels.length > 0 ? availableModels.map(m => m.name) : ['No models available']}
-                  onChange={(name) => {
-                    const model = availableModels.find(m => m.name === name);
-                    if (model) setSelectedModel(model);
-                  }}
-                />
-              )}
-            </div>
-
-            <div className="flex justify-between items-start">
-              <div>
-                <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">
-                  {selectedModel?.name || selectedCategory.name}
-                  {Object.keys(attributeValues).length > 0 && (
-                    <span> - {Object.values(attributeValues).filter(v => v).join(' / ')}</span>
-                  )}
-                </h1>
-              </div>
-              <Button
-                variant="primary"
-                icon="add_shopping_cart"
-                className="px-8 py-4 text-base font-bold"
-                onClick={handleAddToCart}
-              >
-                Add to Cart
-              </Button>
-            </div>
-          </div>
-
           <div className="p-8 space-y-8">
             <AttributeConfiguration
               attributes={attributes}
@@ -1081,7 +1080,7 @@ const MainContent = ({
             {variant && (
               <MarketComparisonsTable
                 variant={variant}
-                competitorStats={competitorStats}
+                competitorStats={[]}
                 ourSalePrice={ourSalePrice}
                 referenceData={referenceData}
                 ebayData={ebayData}
@@ -1104,6 +1103,7 @@ const MainContent = ({
                 offers={offers}
                 referenceData={referenceData}
                 offerType={useVoucherOffers ? 'voucher' : 'cash'}
+                onAddToCart={handleAddToCart}
               />
             )}
           </div>
@@ -1119,21 +1119,23 @@ const MainContent = ({
               ourSalePrice={ourSalePrice}
               initialSearchQuery={selectedModel?.name || undefined}
               marketComparisonContext={
-                referenceData || ourSalePrice || ebayData || cashConvertersData
+                (selectedModel || referenceData || ourSalePrice || ebayData || cashConvertersData)
                   ? {
                       cexSalePrice: referenceData?.cex_sale_price ?? null,
                       ourSalePrice: ourSalePrice ?? null,
                       ebaySalePrice: ebayData?.stats?.median ?? null,
                       cashConvertersSalePrice: cashConvertersData?.stats?.median ?? null,
                       itemTitle: selectedModel?.name || selectedCategory?.name || null,
-                      itemConfig: (() => {
-                        const entries = Object.entries(attributeValues || {});
-                        const parts = entries
-                          .filter(([key, value]) => key !== 'condition' && value)
-                          .map(([, value]) => value);
-                        return parts.length ? parts.join(' / ') : null;
-                      })(),
-                      itemCondition: attributeValues?.condition || null
+                      itemCondition: attributeValues?.condition || null,
+                      itemSpecs: Object.values(attributeValues || {}).some(v => v)
+                        ? Object.fromEntries(
+                            Object.entries(attributeValues || {})
+                              .filter(([, v]) => v)
+                              .map(([k, v]) => [k.charAt(0).toUpperCase() + k.slice(1), v])
+                          )
+                        : null,
+                      ebaySearchTerm: ebayData?.searchTerm || ebayData?.lastSearchedTerm || null,
+                      cashConvertersSearchTerm: cashConvertersData?.searchTerm || cashConvertersData?.lastSearchedTerm || null,
                     }
                   : null
               }
@@ -1156,23 +1158,25 @@ const MainContent = ({
               initialHistogramState={false}
               referenceData={referenceData}
               ourSalePrice={ourSalePrice}
-              initialSearchQuery={selectedModel?.name || undefined}
+              initialSearchQuery={ebayData?.searchTerm || ebayData?.lastSearchedTerm || selectedModel?.name || undefined}
               marketComparisonContext={
-                referenceData || ourSalePrice || ebayData || cashConvertersData
+                (selectedModel || referenceData || ourSalePrice || ebayData || cashConvertersData)
                   ? {
                       cexSalePrice: referenceData?.cex_sale_price ?? null,
                       ourSalePrice: ourSalePrice ?? null,
                       ebaySalePrice: ebayData?.stats?.median ?? null,
                       cashConvertersSalePrice: cashConvertersData?.stats?.median ?? null,
                       itemTitle: selectedModel?.name || selectedCategory?.name || null,
-                      itemConfig: (() => {
-                        const entries = Object.entries(attributeValues || {});
-                        const parts = entries
-                          .filter(([key, value]) => key !== 'condition' && value)
-                          .map(([, value]) => value);
-                        return parts.length ? parts.join(' / ') : null;
-                      })(),
-                      itemCondition: attributeValues?.condition || null
+                      itemCondition: attributeValues?.condition || null,
+                      itemSpecs: Object.values(attributeValues || {}).some(v => v)
+                        ? Object.fromEntries(
+                            Object.entries(attributeValues || {})
+                              .filter(([, v]) => v)
+                              .map(([k, v]) => [k.charAt(0).toUpperCase() + k.slice(1), v])
+                          )
+                        : null,
+                      ebaySearchTerm: ebayData?.searchTerm || ebayData?.lastSearchedTerm || null,
+                      cashConvertersSearchTerm: cashConvertersData?.searchTerm || cashConvertersData?.lastSearchedTerm || null,
                     }
                   : null
               }

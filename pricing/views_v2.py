@@ -542,6 +542,13 @@ def finish_request(request, request_id):
                     {"error": f"Invalid format for our_sale_price_at_negotiation for item {request_item_id}"},
                     status=status.HTTP_400_BAD_REQUEST
                 )
+
+        if 'manual_offer_used' in item_data:
+            request_item.manual_offer_used = bool(item_data['manual_offer_used'])
+            update_fields.append('manual_offer_used')
+        if 'senior_mgmt_approved_by' in item_data:
+            request_item.senior_mgmt_approved_by = (item_data['senior_mgmt_approved_by'] or '').strip() or None
+            update_fields.append('senior_mgmt_approved_by')
         
         if update_fields:
             request_item.save(update_fields=update_fields)
@@ -664,10 +671,16 @@ def variant_prices(request):
         cex_out_of_stock = bool(variant.cex_out_of_stock)
 
     # Our Target Sale Price
+    # Always compute our_sale_price relative to the *live* cex_sale_price so that
+    # offer_1 (based on our margin) never ends up above offer_3 (CeX trade-in)
+    # when the DB price is stale vs the live CeX price.
     target_sell_price = variant.get_target_sell_price()
-    if target_sell_price is not None:
-        our_sale_price = float(target_sell_price)
-        percentage_used = round(our_sale_price / cex_sale_price * 100, 2)
+    if target_sell_price is not None and float(variant.current_price_gbp) > 0:
+        # Derive the multiplier implied by the pricing rule, then apply it to the
+        # live CeX sell price so both our_sale_price and cex_sale_price stay in sync.
+        multiplier = float(target_sell_price) / float(variant.current_price_gbp)
+        our_sale_price = cex_sale_price * multiplier
+        percentage_used = round(multiplier * 100, 2)
     else:
         percentage_used = 85.0
         our_sale_price = cex_sale_price * 0.85

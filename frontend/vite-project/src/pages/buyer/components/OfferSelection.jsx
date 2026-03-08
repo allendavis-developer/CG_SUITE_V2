@@ -1,26 +1,27 @@
 import React from 'react';
-import { OfferCard } from '@/components/ui/components';
+import { OfferCard, Button } from '@/components/ui/components';
 import { formatGBP, calculateMargin } from '@/utils/helpers';
 
 /**
- * Offer selection component - Now read-only (Selection Disabled)
+ * Offer selection component.
+ * When onAddToCart is provided: clicking an offer adds with that offer selected;
+ * Add to Cart button adds with no offer selected.
  */
-const OfferSelection = ({ 
-  variant, 
-  offers = [], // Default to empty array to prevent undefined errors
+const OfferSelection = ({
+  variant,
+  offers = [],
   referenceData,
-  offerType = 'cash' // 'cash' or 'voucher'
+  offerType = 'cash',
+  onAddToCart = null
 }) => {
-  // Don't render if no variant selected or offers still loading
   if (!variant || !offers || offers.length === 0) return null;
 
-  // Determine the header text based on offer type
-  const headerText = offerType === 'voucher' 
-    ? 'Available Voucher Valuations' 
+  const headerText = offerType === 'voucher'
+    ? 'Available Voucher Valuations'
     : 'Available Trade-In Valuations';
 
-  // Get our sale price from referenceData
   const ourSalePrice = referenceData?.our_sale_price;
+  const showAddToCart = Boolean(onAddToCart);
 
   return (
     <div>
@@ -28,25 +29,36 @@ const OfferSelection = ({
         {headerText}
       </h3>
 
-      <div className="grid grid-cols-3 gap-4 opacity-90">
+      <div className={`grid gap-4 ${showAddToCart ? 'grid-cols-4' : 'grid-cols-3'}`}>
         {offers.map((offer) => {
-          const recalculatedMargin = ourSalePrice 
+          const recalculatedMargin = ourSalePrice
             ? calculateMargin(offer.price, ourSalePrice)
             : null;
-          
+
           return (
             <OfferCard
               key={offer.id}
               title={offer.title}
               price={formatGBP(parseFloat(offer.price))}
               margin={recalculatedMargin}
-              // Selection logic removed:
-              isHighlighted={false} 
-              onClick={null} 
-              className="cursor-default hover:border-gray-200" // Prevents pointer cursor
+              isHighlighted={false}
+              onClick={onAddToCart ? () => onAddToCart(offer.id) : null}
             />
           );
         })}
+        {showAddToCart && (
+          <div className="p-6 rounded-xl bg-white text-center relative overflow-hidden border-2 border-blue-900/40 flex flex-col items-center justify-center h-full min-h-0">
+            <div className="h-1 bg-yellow-500/60 w-full absolute top-0 left-0" />
+            <Button
+              variant="primary"
+              icon="add_shopping_cart"
+              className="w-full justify-center py-3 font-bold"
+              onClick={() => onAddToCart(null)}
+            >
+              Add to Cart
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );

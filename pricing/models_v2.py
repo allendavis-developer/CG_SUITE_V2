@@ -869,6 +869,17 @@ class RequestItem(models.Model):
         help_text="Our calculated sale price at the time of negotiation"
     )
 
+    manual_offer_used = models.BooleanField(
+        default=False,
+        help_text="True if a manual offer was set using the manual offer tool"
+    )
+    senior_mgmt_approved_by = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="Name of senior management who approved when offer exceeded sale price"
+    )
+
     class Meta:
         db_table = "buying_request_item"
 

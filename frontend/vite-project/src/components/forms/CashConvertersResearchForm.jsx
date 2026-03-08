@@ -29,6 +29,7 @@ export default function CashConvertersResearchForm({
   initialSearchQuery = null,
   marketComparisonContext = null,
   resetDrillOnOpen = false,
+  onAddNewItem = null,
 }) {
   const [step, setStep] = useState(savedState?.listings?.length ? 'cards' : 'get-data');
   const [listings, setListings] = useState(() => ensureListingIds(savedState?.listings ?? []));
@@ -291,6 +292,7 @@ export default function CashConvertersResearchForm({
       ourSalePrice={ourSalePrice}
       onToggleExclude={!readOnly ? handleToggleExclude : undefined}
       onClearAllExclusions={!readOnly ? handleClearAllExclusions : undefined}
+      onAddNewItem={onAddNewItem}
     />
   );
 }

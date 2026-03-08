@@ -19,6 +19,13 @@ const MarketComparisonsTable = ({
   const hasEbayResearch = Boolean(ebayData?.searchTerm || ebayData?.lastSearchedTerm);
   const hasCashConvertersResearch = Boolean(cashConvertersData?.searchTerm || cashConvertersData?.lastSearchedTerm);
 
+  // Prefer live data from referenceData (fetched from CeX API in variant_prices),
+  // fall back to competitorStats (DB snapshot) if referenceData isn't available yet.
+  const cexSalePrice = referenceData?.cex_sale_price ?? competitorStats?.[0]?.salePrice ?? null;
+  const cexBuyPrice  = referenceData?.cex_tradein_cash ?? competitorStats?.[0]?.buyPrice ?? null;
+  const cexOutOfStock = referenceData?.cex_out_of_stock ?? competitorStats?.[0]?.outOfStock ?? false;
+  const hasCexData = variant && cexSalePrice != null;
+
   return (
     <Card noPadding>
       <CardHeader
@@ -26,7 +33,7 @@ const MarketComparisonsTable = ({
         actions={
           <span className="text-[10px] font-bold text-gray-500 flex items-center gap-1.5">
             <Icon name="schedule" className="text-xs" />
-            Last Synced: 2 mins ago
+            Live
           </span>
         }
       />
@@ -37,40 +44,38 @@ const MarketComparisonsTable = ({
             <th className="p-4">Market Sale Price</th>
             <th className="p-4 bg-yellow-500/10 border-x border-yellow-500/20">OUR SALE PRICE</th>
             <th className="p-4 text-xs font-semibold text-gray-700">Method</th>
-            <th className="p-4">Buy-in Price (Cash) </th>
+            <th className="p-4">Buy-in Price (Cash)</th>
             <th className="p-4 text-right">Action</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-200">
-          {variant && competitorStats.length > 0 ? (
-            competitorStats.map((row, idx) => (
-              <tr key={`cex-${idx}`} className="hover:bg-gray-50 transition-colors">
-                <td className="p-4 font-medium text-gray-900">
-                  CEX
-                  {row.outOfStock && (
-                    <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full bg-red-50 border border-red-200 text-[10px] font-semibold uppercase tracking-wider text-red-700">
-                      Out of stock
-                    </span>
-                  )}
-                </td>
-                <td className="p-4 font-bold text-gray-600">{formatGBP(row.salePrice)}</td>
-
-                <td className="p-4 bg-yellow-500/5 border-x border-yellow-500/10 font-bold text-gray-900">
-                  {formatGBP(parseFloat(ourSalePrice))}
-                </td>
-
-                <td className="p-4 text-gray-700 font-semibold text-sm">
-                  {referenceData?.percentage_used ? `${referenceData.percentage_used}%` : '—'}
-                </td>
-
-                <td className="p-4 font-bold text-blue-900">{formatGBP(row.buyPrice)}</td>
-                <td className="p-4 text-right">
-                  <span className="text-emerald-600 inline-flex items-center gap-1 text-xs font-bold">
-                    <Icon name="check_circle" className="text-xs" /> Verified
+          {hasCexData ? (
+            <tr className="hover:bg-gray-50 transition-colors">
+              <td className="p-4 font-medium text-gray-900">
+                CEX
+                {cexOutOfStock && (
+                  <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full bg-red-50 border border-red-200 text-[10px] font-semibold uppercase tracking-wider text-red-700">
+                    Out of stock
                   </span>
-                </td>
-              </tr>
-            ))
+                )}
+              </td>
+              <td className="p-4 font-bold text-gray-600">{formatGBP(cexSalePrice)}</td>
+
+              <td className="p-4 bg-yellow-500/5 border-x border-yellow-500/10 font-bold text-gray-900">
+                {formatGBP(parseFloat(ourSalePrice))}
+              </td>
+
+              <td className="p-4 text-gray-700 font-semibold text-sm">
+                {referenceData?.percentage_used ? `${referenceData.percentage_used}%` : '—'}
+              </td>
+
+              <td className="p-4 font-bold text-blue-900">{cexBuyPrice != null ? formatGBP(cexBuyPrice) : '—'}</td>
+              <td className="p-4 text-right">
+                <span className="text-emerald-600 inline-flex items-center gap-1 text-xs font-bold">
+                  <Icon name="check_circle" className="text-xs" /> Live
+                </span>
+              </td>
+            </tr>
           ) : (
             <tr className="bg-gray-50/20">
               <td className="p-4 font-medium text-gray-600">CEX</td>

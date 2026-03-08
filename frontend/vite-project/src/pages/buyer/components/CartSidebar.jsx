@@ -143,14 +143,17 @@ const CartSidebar = ({
                 </Button>
               </div>
 
-              {/* Quantity Controls */}
-              <div className="mt-3 flex items-center gap-2">
+              {/* Quantity Controls - stopPropagation prevents quantity change from selecting item */}
+              <div className="mt-3 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                 <span className="text-xs text-gray-500 font-medium">Qty:</span>
                 <div className="flex items-center border border-blue-900/20 rounded-md overflow-hidden">
                   <Button
                     variant="ghost"
                     className="h-7 w-7 p-0 min-w-0 rounded-none hover:bg-blue-50"
-                    onClick={() => decrementQuantity(item.id)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      decrementQuantity(item.id);
+                    }}
                   >
                     <Icon name="remove" className="text-sm text-blue-900" />
                   </Button>
@@ -162,12 +165,16 @@ const CartSidebar = ({
                       const value = parseInt(e.target.value) || 1;
                       updateQuantity(item.id, value);
                     }}
+                    onClick={(e) => e.stopPropagation()}
                     className="w-12 h-7 text-center text-sm font-semibold text-blue-900 border-x border-blue-900/20 focus:outline-none focus:bg-blue-50"
                   />
                   <Button
                     variant="ghost"
                     className="h-7 w-7 p-0 min-w-0 rounded-none hover:bg-blue-50"
-                    onClick={() => incrementQuantity(item.id)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      incrementQuantity(item.id);
+                    }}
                   >
                     <Icon name="add" className="text-sm text-blue-900" />
                   </Button>
@@ -179,14 +186,20 @@ const CartSidebar = ({
                 <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1">
                   Valuation Options {customerData.transactionType === 'store_credit' ? '(Voucher)' : '(Cash)'}:
                 </p>
-                <div className="flex flex-wrap items-center text-xs text-gray-600">
+                <div className="flex flex-wrap items-center gap-1.5 text-xs text-gray-600">
                   {item.offers.map((offer, index) => (
                     <React.Fragment key={offer.id}>
-                      <span className="font-medium">
+                      <span
+                        className={`font-medium px-2 py-0.5 rounded ${
+                          item.selectedOfferId === offer.id
+                            ? 'bg-blue-600 text-white'
+                            : ''
+                        }`}
+                      >
                         £{offer.price.toFixed(2)}
                       </span>
                       {index < item.offers.length - 1 && (
-                        <span className="mx-2 text-gray-300">|</span>
+                        <span className="text-gray-300">|</span>
                       )}
                     </React.Fragment>
                   ))}

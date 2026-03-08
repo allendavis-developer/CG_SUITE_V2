@@ -314,6 +314,8 @@ export default function ResearchFormShell({
   refineLoading = false,
   onToggleExclude = null,
   onClearAllExclusions = null,
+  onAddNewItem = null, // When set, replaces Add to Cart with "Add new item" button (e.g. when viewing saved research)
+  onAddToCartWithOffer = null, // When set (e.g. eBay page), clicking an offer adds with that offer; 4th "Add to Cart" adds with no offer. Called with (offerIndex) where offerIndex is 0, 1, 2, or null.
 }) {
   // Get current price range (latest in history, or null for full view)
   const currentPriceRange = drillHistory.length > 0 ? drillHistory[drillHistory.length - 1] : null;
@@ -325,7 +327,7 @@ export default function ResearchFormShell({
   const [showOnlyRelevant, setShowOnlyRelevant] = useState(false);
 
   // Sort order: 'default' | 'low_to_high' | 'high_to_low'
-  const [sortOrder, setSortOrder] = useState('default');
+  const [sortOrder, setSortOrder] = useState('low_to_high');
 
   // Multi-select range for exclude: first two clicks act as a range select
   const [firstExcludeClickIndex, setFirstExcludeClickIndex] = useState(null);
@@ -383,55 +385,107 @@ export default function ResearchFormShell({
     return `£${increment}`; // e.g., "£1", "£5", "£10"
   }, []);
 
+  // Working out for stats tooltips (from non-excluded listings only)
+  const statsWorkingOut = useMemo(() => {
+    const included = displayedListings ? displayedListings.filter(l => !l.excluded) : [];
+    const prices = included.map(l => parsePrice(l)).filter(p => !isNaN(p) && p > 0);
+    if (prices.length === 0) return null;
+    const sum = prices.reduce((a, b) => a + b, 0);
+    const count = prices.length;
+    const averageRaw = sum / count;
+    const sorted = [...prices].sort((a, b) => a - b);
+    const mid = Math.floor(count / 2);
+    const medianRaw = count % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+    return { sum, count, averageRaw, medianRaw };
+  }, [displayedListings, parsePrice]);
+
   // MEMOIZED STATS DISPLAY COMPONENT
   const StatsDisplay = useMemo(() => {
     const roundingIncrement = displayedStats.roundingIncrement || 5;
     const roundingLabel = formatRoundingIncrement(roundingIncrement);
     const roundingTitle = `Rounded to nearest ${roundingLabel} for realistic market pricing`;
-    
-    return () => (
-      <div className="flex items-center gap-6">
+    const wo = statsWorkingOut;
+
+    const tooltipAbove = mode === "modal";
+    const StatWithTooltip = ({ label, value, valueClass, tooltipContent }) => (
+      <div className="relative group cursor-help">
         <div className="flex flex-col">
           <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">
-            Average
-            <span
-              title={roundingTitle}
-              className="text-[9px] text-blue-900 bg-blue-100 px-1.5 py-0.5 rounded"
-            >
+            {label}
+            <span title={roundingTitle} className="text-[9px] text-blue-900 bg-blue-100 px-1.5 py-0.5 rounded ml-0.5">
               {roundingLabel}
             </span>
           </span>
-          <span className="text-lg font-extrabold text-blue-900">£{displayedStats.average}</span>
+          <span className={`text-lg font-extrabold ${valueClass}`}>£{value}</span>
         </div>
-        <div className="w-px h-8 bg-gray-200"></div>
-        <div className="flex flex-col">
-          <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">
-            Median
-            <span
-              title={roundingTitle}
-              className="text-[9px] text-blue-900 bg-blue-100 px-1.5 py-0.5 rounded"
-            >
-              {roundingLabel}
-            </span>
-          </span>
-          <span className="text-lg font-extrabold text-blue-900">£{displayedStats.median}</span>
-        </div>
-        <div className="w-px h-8 bg-gray-200"></div>
-        <div className="flex flex-col">
-          <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">
-            Suggested Sale Price
-            <span
-              title={roundingTitle}
-              className="text-[9px] text-blue-900 bg-blue-100 px-1.5 py-0.5 rounded"
-            >
-              {roundingLabel}
-            </span>
-          </span>
-          <span className="text-lg font-extrabold text-green-600">£{displayedStats.suggestedPrice}</span>
-        </div>
+        {tooltipContent && (
+          <div
+            className={`absolute left-0 hidden group-hover:block z-50 w-64 pointer-events-none ${tooltipAbove ? "bottom-full mb-1.5" : "top-full mt-1.5"}`}
+            role="tooltip"
+          >
+            {tooltipAbove ? (
+              <>
+                <div className="py-2.5 px-3 rounded-lg bg-gray-800 text-gray-100 text-xs shadow-xl border border-gray-600">
+                  {tooltipContent}
+                </div>
+                <div className="absolute left-4 -bottom-1.5 w-0 h-0 border-[6px] border-transparent border-t-gray-800" aria-hidden="true" />
+              </>
+            ) : (
+              <>
+                <div className="absolute left-4 -top-1.5 w-0 h-0 border-[6px] border-transparent border-b-gray-800" aria-hidden="true" />
+                <div className="py-2.5 px-3 rounded-lg bg-gray-800 text-gray-100 text-xs shadow-xl border border-gray-600">
+                  {tooltipContent}
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
     );
-  }, [displayedStats, formatRoundingIncrement]);
+
+    return () => (
+      <div className="flex items-center gap-6">
+        <StatWithTooltip
+          label="Average"
+          value={displayedStats.average}
+          valueClass="text-blue-900"
+          tooltipContent={wo && (
+            <>
+              <div className="font-semibold text-gray-200 mb-1">Average</div>
+              <div>Sum of {wo.count} prices (£{wo.sum.toFixed(2)}) ÷ {wo.count} = £{wo.averageRaw.toFixed(2)}</div>
+              <div className="mt-1 text-gray-300">Rounded to nearest {roundingLabel} → £{displayedStats.average}</div>
+            </>
+          )}
+        />
+        <div className="w-px h-8 bg-gray-200" />
+        <StatWithTooltip
+          label="Median"
+          value={displayedStats.median}
+          valueClass="text-blue-900"
+          tooltipContent={wo && (
+            <>
+              <div className="font-semibold text-gray-200 mb-1">Median</div>
+              <div>Middle value of {wo.count} sorted prices = £{wo.medianRaw.toFixed(2)}</div>
+              <div className="mt-1 text-gray-300">Rounded to nearest {roundingLabel} → £{displayedStats.median}</div>
+            </>
+          )}
+        />
+        <div className="w-px h-8 bg-gray-200" />
+        <StatWithTooltip
+          label="Suggested Sale Price"
+          value={displayedStats.suggestedPrice}
+          valueClass="text-green-600"
+          tooltipContent={wo && (
+            <>
+              <div className="font-semibold text-gray-200 mb-1">Suggested Sale Price</div>
+              <div>Median (£{displayedStats.median}) − {roundingLabel} = £{displayedStats.suggestedPrice}</div>
+              <div className="mt-1 text-gray-300">Conservative pricing below median</div>
+            </>
+          )}
+        />
+      </div>
+    );
+  }, [displayedStats, formatRoundingIncrement, statsWorkingOut, mode]);
 
   // Manual offer change handler - memoized to prevent input re-creation
   const handleManualOfferChange = useCallback((e) => {
@@ -548,11 +602,12 @@ export default function ResearchFormShell({
     setFirstExcludeTargetExcluded(null);
   }, [displayedListings, onToggleExclude, onClearAllExclusions]);
 
-  // MEMOIZED BUY OFFERS DISPLAY with manual offer card
+  // MEMOIZED BUY OFFERS DISPLAY with manual offer card and optional "Add to Cart" per-offer flow
   const BuyOffersDisplay = useMemo(() => {
     if (!buyOffers.length && !showManualOffer) return null;
 
     const offerLabels = ["1st Cash Offer", "2nd Cash Offer", "3rd Cash Offer"];
+    const useAddWithOfferFlow = Boolean(onAddToCartWithOffer && !readOnly);
 
     return (
       <div className="flex flex-wrap items-center gap-4">
@@ -563,9 +618,24 @@ export default function ResearchFormShell({
             price={`£${price}`}
             margin={Math.round([0.6, 0.5, 0.4][idx] * 100)}
             isHighlighted={showManualOffer && selectedOfferIndex === idx}
-            onClick={showManualOffer && !readOnly ? () => handleOfferClick(price, idx) : undefined}
+            onClick={
+              useAddWithOfferFlow
+                ? () => onAddToCartWithOffer(idx)
+                : showManualOffer && !readOnly
+                  ? () => handleOfferClick(price, idx)
+                  : undefined
+            }
           />
         ))}
+        {useAddWithOfferFlow && (
+          <div
+            onClick={() => onAddToCartWithOffer(null)}
+            className="flex items-center justify-center px-4 py-2 rounded-lg bg-white cursor-pointer border-2 border-blue-900/40 hover:border-blue-900 hover:shadow-md transition-all duration-150 ease-out"
+          >
+            <Icon name="add_shopping_cart" className="text-blue-900 text-lg mr-2" />
+            <span className="text-blue-900 font-extrabold text-sm uppercase">Add to Cart</span>
+          </div>
+        )}
         
         {/* Manual Offer Card - styled like the other offers, with inline input */}
         {showManualOffer && onManualOfferChange && (
@@ -637,7 +707,7 @@ export default function ResearchFormShell({
         )}
       </div>
     );
-  }, [buyOffers, showManualOffer, selectedOfferIndex, manualOffer, manualOfferMargin, onManualOfferChange, readOnly, handleOfferClick, handleManualOfferCardClick, handleManualOfferChange]);
+  }, [buyOffers, showManualOffer, selectedOfferIndex, manualOffer, manualOfferMargin, onManualOfferChange, readOnly, handleOfferClick, handleManualOfferCardClick, handleManualOfferChange, onAddToCartWithOffer]);
 
   const content = (
     <>
@@ -668,16 +738,34 @@ export default function ResearchFormShell({
             <StatsDisplay />
             {BuyOffersDisplay}
           </div>
-          <Button
-            variant="primary"
-            size="md"
-            onClick={readOnly ? undefined : handleComplete}
-            className="shrink-0 mt-2 md:mt-0"
-            disabled={readOnly}
-          >
-            <Icon name="add_shopping_cart" className="text-sm" />
-            Add to Cart
-          </Button>
+          {onAddNewItem ? (
+            <Button
+              variant="primary"
+              size="md"
+              onClick={onAddNewItem}
+              className="shrink-0 mt-2 md:mt-0"
+            >
+              <Icon name="add_circle" className="text-sm" />
+              Add new item
+            </Button>
+          ) : (
+            <Button
+              variant="primary"
+              size="md"
+              onClick={
+                readOnly
+                  ? undefined
+                  : onAddToCartWithOffer
+                    ? () => onAddToCartWithOffer(null)
+                    : handleComplete
+              }
+              className="shrink-0 mt-2 md:mt-0"
+              disabled={readOnly}
+            >
+              <Icon name="add_shopping_cart" className="text-sm" />
+              Add to Cart
+            </Button>
+          )}
         </div>
       )}
 
@@ -742,11 +830,6 @@ export default function ResearchFormShell({
                   <div className="flex items-center gap-2">
                     <span className="material-symbols-outlined text-sm text-gray-600">filter_list</span>
                     <span className="text-xs font-medium text-gray-700">Show only relevant</span>
-                    {excludedCount > 0 && (
-                      <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 text-[9px] font-bold border border-blue-200">
-                        {excludedCount} excluded
-                      </span>
-                    )}
                     <button
                       type="button"
                       className="relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1"
@@ -824,11 +907,6 @@ export default function ResearchFormShell({
                   <div className="flex items-center gap-2">
                     <span className="material-symbols-outlined text-sm text-gray-600">filter_list</span>
                     <span className="text-xs font-medium text-gray-700">Show only relevant</span>
-                    {excludedCount > 0 && (
-                      <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 text-[9px] font-bold border border-blue-200">
-                        {excludedCount} excluded
-                      </span>
-                    )}
                     <button
                       type="button"
                       className="relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1"
@@ -948,6 +1026,29 @@ export default function ResearchFormShell({
           <main className="flex-1 overflow-y-auto bg-gray-100 flex">
             {/* Listings Column */}
             <div className="flex-1 overflow-y-auto p-6 histogram-scrollbar">
+              {/* Records / Excluded banner */}
+              {displayedListings && displayedListings.length > 0 && (
+                <div className="mb-4 flex items-center justify-center gap-6 py-2.5 px-4 rounded-lg bg-gray-200/80 text-gray-700 border border-gray-300/60">
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-xs font-medium uppercase tracking-wider text-gray-500">Records</span>
+                    <span className="text-lg font-semibold tabular-nums">{displayedListings.length}</span>
+                  </div>
+                  <div className="w-px h-5 bg-gray-400 rounded-full" aria-hidden="true" />
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-xs font-medium uppercase tracking-wider text-gray-500">Excluded</span>
+                    <span className="text-lg font-semibold tabular-nums">{displayedListings.filter(l => l.excluded).length}</span>
+                  </div>
+                  {drillHistory.length > 0 && (
+                    <>
+                      <div className="w-px h-5 bg-gray-400 rounded-full" aria-hidden="true" />
+                      <div className="text-xs text-gray-500">
+                        from <span className="font-semibold text-gray-700">{listings.length}</span> total
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
               {/* Breadcrumb Navigation */}
               {showHistogram && drillHistory.length > 0 && (
                 <div className="mb-4 flex items-center gap-2 text-xs font-medium">
@@ -973,31 +1074,6 @@ export default function ResearchFormShell({
                       </button>
                     </React.Fragment>
                   ))}
-
-                  {displayedListings && (
-                    <div className="mb-4 flex items-center gap-4">
-                      <div className="px-4 py-2 rounded-xl bg-blue-900 text-white shadow-md flex items-center gap-3">
-                        <span className="material-symbols-outlined text-yellow-400 text-lg">
-                          inventory_2
-                        </span>
-
-                        <div className="leading-tight">
-                          <div className="text-[10px] uppercase tracking-wider text-blue-200">
-                            Listings in view
-                          </div>
-                          <div className="text-2xl font-extrabold">
-                            {displayedListings.length}
-                          </div>
-                        </div>
-                      </div>
-
-                      {drillHistory.length > 0 && (
-                        <div className="text-xs text-gray-500">
-                          from <span className="font-bold text-gray-900">{listings.length}</span> total
-                        </div>
-                      )}
-                    </div>
-                  )}
                 </div>
               )}
 

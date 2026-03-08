@@ -225,12 +225,12 @@ export default function Buyer() {
     // Helper function to find existing item index
     const findExistingItemIndex = (items) => {
       return items.findIndex(cartItem => {
-        // For CeX items, match by variantId
-        if (!item.isCustomEbayItem && !item.isCustomCashConvertersItem && item.variantId) {
+        // For CeX items, one line per variant; same variant = update offer or merge qty
+        if (!item.isCustomEbayItem && !item.isCustomCashConvertersItem && item.variantId != null) {
           return cartItem.variantId === item.variantId;
         }
         
-        // For eBay items, match by search term and category
+        // For eBay items, one line per (title, category); same as CeX: update offer or merge qty
         if (item.isCustomEbayItem) {
           return (
             cartItem.isCustomEbayItem &&
@@ -261,35 +261,52 @@ export default function Buyer() {
       });
     };
 
-    // Check current state synchronously to determine notification message
+    // Check current state synchronously to determine notification message and behavior
     const existingItemIndex = findExistingItemIndex(cartItems);
     const isExistingItem = existingItemIndex !== -1;
     let notificationMessage = null;
-    
+    const existingItem = isExistingItem ? cartItems[existingItemIndex] : null;
+    const sameOffer = existingItem && (
+      (existingItem.selectedOfferId ?? null) === (item.selectedOfferId ?? null)
+    );
+
     if (isExistingItem) {
-      const newQuantity = (cartItems[existingItemIndex].quantity || 1) + 1;
-      notificationMessage = `Quantity increased to ${newQuantity} for ${item.title}`;
+      if (sameOffer) {
+        const newQuantity = (existingItem.quantity || 1) + 1;
+        notificationMessage = `Quantity increased to ${newQuantity} for ${item.title}`;
+      } else {
+        notificationMessage = `Offer updated for ${item.title}`;
+      }
     } else {
       notificationMessage = `${item.title} added to cart`;
     }
-    
+
     // Update cart state
     setCartItems((prev) => {
       const existingIndex = findExistingItemIndex(prev);
-      
-      // If item exists, increment quantity
-      if (existingIndex !== -1) {
-        const updatedItems = [...prev];
-        const newQuantity = (updatedItems[existingIndex].quantity || 1) + 1;
-        updatedItems[existingIndex] = {
-          ...updatedItems[existingIndex],
-          quantity: newQuantity
-        };
-        return updatedItems;
+      if (existingIndex === -1) {
+        return [...prev, item];
       }
 
-      // Otherwise, add as new item
-      return [...prev, item];
+      const updatedItems = [...prev];
+      const existing = updatedItems[existingIndex];
+      const sameSelectedOffer = (existing.selectedOfferId ?? null) === (item.selectedOfferId ?? null);
+
+      if (sameSelectedOffer) {
+        updatedItems[existingIndex] = {
+          ...existing,
+          quantity: (existing.quantity || 1) + 1
+        };
+      } else {
+        updatedItems[existingIndex] = {
+          ...existing,
+          selectedOfferId: item.selectedOfferId,
+          offers: item.offers ?? existing.offers,
+          cashOffers: item.cashOffers ?? existing.cashOffers,
+          voucherOffers: item.voucherOffers ?? existing.voucherOffers
+        };
+      }
+      return updatedItems;
     });
     
     // Show notification once after state update
@@ -408,6 +425,7 @@ export default function Buyer() {
           cexProductData={cexProductData}
           setCexProductData={setCexProductData}
           onClearCeXProduct={handleClearCeXProduct}
+          onDeselectCartItem={() => setSelectedCartItem(null)}
         />
       <CartSidebar 
         cartItems={cartItems} 
