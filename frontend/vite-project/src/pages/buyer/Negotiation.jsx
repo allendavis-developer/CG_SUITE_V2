@@ -1027,7 +1027,7 @@ const Negotiation = ({ mode }) => {
                           {(item.cexBuyPrice != null || item.cexSellPrice != null) ? (item.subtitle || '') : (item.subtitle || item.category || 'No details')} {item.model && `| ${item.model}`}
                         </div>
                         {mode === 'negotiate' && (
-                          <div className="text-[9px] mt-1 text-slate-400 italic">Right-click to set manual offer</div>
+                          <div className="text-[9px] mt-1 text-slate-400 italic">Click manual offer field or right-click to set</div>
                         )}
                       </td>
 
@@ -1163,8 +1163,14 @@ const Negotiation = ({ mode }) => {
                         ) : '-'}
                       </td>
 
-                      {/* Manual Offer — display only, set via right-click */}
-                      <td className="relative">
+                      {/* Manual Offer — display only; set via right-click or left-click in negotiate mode */}
+                      <td
+                        className={`relative ${mode === 'negotiate' ? 'cursor-pointer' : ''}`}
+                        onClick={mode === 'negotiate' ? (e) => { e.stopPropagation(); setItemOfferModal({ item }); } : undefined}
+                        role={mode === 'negotiate' ? 'button' : undefined}
+                        tabIndex={mode === 'negotiate' ? 0 : undefined}
+                        onKeyDown={mode === 'negotiate' ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setItemOfferModal({ item }); } } : undefined}
+                      >
                         {item.manualOffer && item.selectedOfferId === 'manual' ? (
                           <div
                             className="rounded px-2 py-1.5 text-xs font-bold text-center"
@@ -1201,7 +1207,7 @@ const Negotiation = ({ mode }) => {
                         ) : (
                           <div className="text-center text-slate-400 text-[11px]">
                             {mode === 'negotiate' ? (
-                              <span className="italic">Right-click to set</span>
+                              <span className="italic">Click or right-click to set</span>
                             ) : '—'}
                           </div>
                         )}

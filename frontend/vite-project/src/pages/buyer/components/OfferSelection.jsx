@@ -1,5 +1,5 @@
 import React from 'react';
-import { OfferCard, Button } from '@/components/ui/components';
+import { OfferCard, Icon } from '@/components/ui/components';
 import { formatGBP, calculateMargin } from '@/utils/helpers';
 
 /**
@@ -47,16 +47,20 @@ const OfferSelection = ({
           );
         })}
         {showAddToCart && (
-          <div className="p-6 rounded-xl bg-white text-center relative overflow-hidden border-2 border-blue-900/40 flex flex-col items-center justify-center h-full min-h-0">
-            <div className="h-1 bg-yellow-500/60 w-full absolute top-0 left-0" />
-            <Button
-              variant="primary"
-              icon="add_shopping_cart"
-              className="w-full justify-center py-3 font-bold"
-              onClick={() => onAddToCart(null)}
-            >
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => onAddToCart(null)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onAddToCart(null); } }}
+            className="p-6 rounded-xl bg-yellow-500 cursor-pointer text-center relative overflow-hidden border-2 border-yellow-500 transition-all duration-200 ease-out hover:bg-yellow-400 hover:border-yellow-400 shadow-md shadow-yellow-500/10 active:scale-[0.98]"
+          >
+            <h4 className="text-[10px] font-black uppercase text-blue-900 mb-4 tracking-wider">
+              Action
+            </h4>
+            <p className="text-4xl font-extrabold text-blue-900 mb-2 flex items-center justify-center gap-2">
+              <Icon name="add_shopping_cart" className="text-3xl" />
               Add to Cart
-            </Button>
+            </p>
           </div>
         )}
       </div>
