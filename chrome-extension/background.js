@@ -38,6 +38,24 @@ function ensureEbayFilters(url) {
   }
 }
 
+// ── Tab group styling (yellow) for extension-opened eBay/CC/CeX tabs ─────────────
+
+/**
+ * Put a tab into a yellow tab group so users can distinguish extension-opened
+ * tabs (eBay, Cash Converters, CeX) from other tabs.
+ */
+async function putTabInYellowGroup(tabId) {
+  try {
+    const groupId = await chrome.tabs.group({ tabIds: tabId });
+    await chrome.tabGroups.update(groupId, {
+      color: 'yellow',
+      title: 'CG Suite'
+    });
+  } catch (e) {
+    console.warn('[CG Suite] Could not add tab to yellow group:', e?.message);
+  }
+}
+
 // ── Storage helpers ────────────────────────────────────────────────────────────
 
 async function getPending() {
@@ -106,6 +124,7 @@ async function handleBridgeForward(message, sender) {
     }
 
     const newTab = await chrome.tabs.create({ url });
+    await putTabInYellowGroup(newTab.id);
 
     const pending = await getPending();
     pending[requestId] = { appTabId, listingTabId: newTab.id, competitor, marketComparisonContext };
@@ -159,8 +178,10 @@ async function handleBridgeForward(message, sender) {
       listingTabId = existingTab.id;
       await chrome.tabs.update(existingTab.id, { active: true }).catch(() => {});
       if (existingTab.windowId) await chrome.windows.update(existingTab.windowId, { focused: true }).catch(() => {});
+      await putTabInYellowGroup(existingTab.id);
     } else {
       const newTab = await chrome.tabs.create({ url: urlToOpen });
+      await putTabInYellowGroup(newTab.id);
       await chrome.tabs.update(newTab.id, { active: true }).catch(() => {});
       listingTabId = newTab.id;
     }
