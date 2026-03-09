@@ -179,6 +179,7 @@ class RequestSerializer(serializers.ModelSerializer):
             'intent',
             'created_at',
             'overall_expectation_gbp',
+            'target_offer_gbp',
             'negotiated_grand_total_gbp',
             'items',
             'current_status',

@@ -739,6 +739,14 @@ class Request(models.Model):
         help_text="Grand total of all negotiated item prices in GBP"
     )
 
+    target_offer_gbp = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Target grand total offer in GBP"
+    )
+
     def __str__(self):
         # This will show "Request #101 - John Doe (BUYBACK)"
         return f"Request #{self.request_id} - {self.customer.name} ({self.intent})"

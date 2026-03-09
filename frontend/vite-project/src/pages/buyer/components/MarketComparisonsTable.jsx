@@ -14,7 +14,8 @@ const MarketComparisonsTable = ({
   setEbayModalOpen,
   cashConvertersData,
   setCashConvertersModalOpen,
-  readOnly = false
+  readOnly = false,
+  cexSku: explicitCexSku = null,
 }) => {
   const hasEbayResearch = Boolean(ebayData?.searchTerm || ebayData?.lastSearchedTerm);
   const hasCashConvertersResearch = Boolean(cashConvertersData?.searchTerm || cashConvertersData?.lastSearchedTerm);
@@ -25,6 +26,16 @@ const MarketComparisonsTable = ({
   const cexBuyPrice  = referenceData?.cex_tradein_cash ?? competitorStats?.[0]?.buyPrice ?? null;
   const cexOutOfStock = referenceData?.cex_out_of_stock ?? competitorStats?.[0]?.outOfStock ?? false;
   const hasCexData = variant && cexSalePrice != null;
+
+  // Determine CeX SKU / URL (works for both dropdown flow and "Add from CeX" flow)
+  const inferredCexSku =
+    explicitCexSku ||
+    referenceData?.cex_sku ||
+    referenceData?.id ||
+    null;
+  const cexUrl = inferredCexSku
+    ? `https://uk.webuy.com/product-detail?id=${inferredCexSku}`
+    : null;
 
   return (
     <Card noPadding>
@@ -59,7 +70,20 @@ const MarketComparisonsTable = ({
                   </span>
                 )}
               </td>
-              <td className="p-4 font-bold text-gray-600">{formatGBP(cexSalePrice)}</td>
+              <td className="p-4 font-bold text-gray-600">
+                {cexUrl ? (
+                  <a
+                    href={cexUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-700 underline decoration-dotted"
+                  >
+                    {formatGBP(cexSalePrice)}
+                  </a>
+                ) : (
+                  formatGBP(cexSalePrice)
+                )}
+              </td>
 
               <td className="p-4 bg-yellow-500/5 border-x border-yellow-500/10 font-bold text-gray-900">
                 {formatGBP(parseFloat(ourSalePrice))}
@@ -69,7 +93,24 @@ const MarketComparisonsTable = ({
                 {referenceData?.percentage_used ? `${referenceData.percentage_used}%` : '—'}
               </td>
 
-              <td className="p-4 font-bold text-blue-900">{cexBuyPrice != null ? formatGBP(cexBuyPrice) : '—'}</td>
+              <td className="p-4 font-bold text-blue-900">
+                {cexBuyPrice != null ? (
+                  cexUrl ? (
+                    <a
+                      href={cexUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-700 underline decoration-dotted"
+                    >
+                      {formatGBP(cexBuyPrice)}
+                    </a>
+                  ) : (
+                    formatGBP(cexBuyPrice)
+                  )
+                ) : (
+                  '—'
+                )}
+              </td>
               <td className="p-4 text-right">
                 <span className="text-emerald-600 inline-flex items-center gap-1 text-xs font-bold">
                   <Icon name="check_circle" className="text-xs" /> Live

@@ -183,6 +183,18 @@ export default function CashConvertersResearchForm({
     onComplete?.(state);
   }, [onComplete, listings, showHistogram, drillHistory, displayedStats, buyOffers, searchTerm, listingPageUrl, manualOffer, showManualOffer]);
 
+  const handleResetSearch = useCallback(() => {
+    // Go back to the initial "get data" step and clear current research state
+    setListings([]);
+    setSearchTerm('');
+    setListingPageUrl(null);
+    setDrillHistory([]);
+    setShowHistogram(initialHistogramState !== null ? initialHistogramState : (mode === 'modal'));
+    setManualOffer('');
+    setError(null);
+    setStep('get-data');
+  }, [initialHistogramState, mode]);
+
   if (step === 'get-data') {
     const getDataBody = (
       <div className="max-w-md mx-auto flex flex-col items-center justify-center min-h-[200px] gap-4 p-6">
@@ -293,6 +305,7 @@ export default function CashConvertersResearchForm({
       onToggleExclude={!readOnly ? handleToggleExclude : undefined}
       onClearAllExclusions={!readOnly ? handleClearAllExclusions : undefined}
       onAddNewItem={onAddNewItem}
+      onResetSearch={!readOnly ? handleResetSearch : null}
     />
   );
 }

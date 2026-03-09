@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
-import { getDataFromListingPage, getDataFromRefine } from '@/services/extensionClient';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { getDataFromListingPage, getDataFromRefine, cancelListingTab } from '@/services/extensionClient';
 import ResearchFormShell from './ResearchFormShell';
 import { calculateStats, calculateBuyOffers } from './researchStats';
 import { Icon } from '../ui/components';
@@ -37,6 +37,11 @@ export default function EbayResearchForm({
   const [listingPageUrl, setListingPageUrl] = useState(savedState?.listingPageUrl ?? null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  // When the user clicks Cancel or Reset while a listing tab is open, we set this
+  // ref so that the still-awaiting handleRefineSearch/handleGetData promise is
+  // ignored when it eventually resolves (avoids calling onComplete or showing errors).
+  const userCancelledRef = useRef(false);
   const [drillHistory, setDrillHistory] = useState(resetDrillOnOpen ? [] : (savedState?.drillHistory ?? []));
   const [showHistogram, setShowHistogram] = useState(
     savedState?.showHistogram ?? (initialHistogramState !== null ? initialHistogramState : mode === 'modal')
@@ -50,6 +55,7 @@ export default function EbayResearchForm({
   }, [initialHistogramState, savedState?.showHistogram, mode, step]);
 
   const handleGetData = useCallback(async () => {
+    userCancelledRef.current = false;
     setError(null);
     setLoading(true);
     const searchQueryToSend = initialSearchQuery || undefined;
@@ -58,6 +64,7 @@ export default function EbayResearchForm({
     }
     try {
       const result = await getDataFromListingPage('eBay', searchQueryToSend, marketComparisonContext);
+      if (userCancelledRef.current) return; // user hit Cancel/Reset — ignore result
       if (result?.success && Array.isArray(result.results)) {
         setListings(ensureListingIds(result.results));
         setSearchTerm((result.searchTerm != null && String(result.searchTerm).trim()) ? String(result.searchTerm).trim() : '');
@@ -72,17 +79,21 @@ export default function EbayResearchForm({
         setError(result?.error || "No data returned. Make sure you're on a listings page and clicked Yes.");
       }
     } catch (err) {
-      setError(err?.message || 'Extension communication failed. Is the Chrome extension installed and the tab open?');
+      if (!userCancelledRef.current) {
+        setError(err?.message || 'Extension communication failed. Is the Chrome extension installed and the tab open?');
+      }
     } finally {
       setLoading(false);
     }
-  }, [initialSearchQuery, marketComparisonContext]);
+  }, [initialSearchQuery, marketComparisonContext, mode, onComplete]);
 
   const handleRefineSearch = useCallback(async () => {
+    userCancelledRef.current = false;
     setError(null);
     setLoading(true);
     try {
       const result = await getDataFromRefine('eBay', listingPageUrl, marketComparisonContext);
+      if (userCancelledRef.current) return; // user hit Cancel/Reset — ignore result
       if (result?.success && Array.isArray(result.results)) {
         setListings(ensureListingIds(result.results));
         setSearchTerm((result.searchTerm != null && String(result.searchTerm).trim()) ? String(result.searchTerm).trim() : '');
@@ -97,11 +108,23 @@ export default function EbayResearchForm({
         setError(result?.error || "No data returned. Make sure you're on a listings page and clicked the button.");
       }
     } catch (err) {
-      setError(err?.message || 'Extension communication failed. Is the Chrome extension installed?');
+      if (!userCancelledRef.current) {
+        setError(err?.message || 'Extension communication failed. Is the Chrome extension installed?');
+      }
     } finally {
       setLoading(false);
     }
-  }, [listingPageUrl, marketComparisonContext]);
+  }, [listingPageUrl, marketComparisonContext, mode, onComplete]);
+
+  // Cancel the active listing tab session without leaving the cards view.
+  // The awaiting handleRefineSearch/handleGetData promise resolves but is ignored
+  // because userCancelledRef is set, so no error or onComplete is triggered.
+  const handleCancelRefine = useCallback(() => {
+    userCancelledRef.current = true;
+    setError(null);
+    cancelListingTab().catch(() => {});
+    // setLoading(false) will be called by the finally block of the awaiting handler
+  }, []);
 
   const currentPriceRange = drillHistory.length > 0 ? drillHistory[drillHistory.length - 1] : null;
 
@@ -200,6 +223,23 @@ export default function EbayResearchForm({
     };
     onComplete?.(state);
   }, [onComplete, listings, showHistogram, drillHistory, displayedStats, buyOffers, searchTerm, listingPageUrl, manualOffer]);
+
+  const handleResetSearch = useCallback(() => {
+    // If a listing tab is currently open and waiting, cancel it first
+    if (loading) {
+      userCancelledRef.current = true;
+      cancelListingTab().catch(() => {});
+    }
+    setListings([]);
+    setSearchTerm('');
+    setListingPageUrl(null);
+    setDrillHistory([]);
+    setShowHistogram(initialHistogramState !== null ? initialHistogramState : (mode === 'modal'));
+    setManualOffer('');
+    setError(null);
+    setLoading(false);
+    setStep('get-data');
+  }, [loading, initialHistogramState, mode]);
 
   if (step === 'get-data') {
     const getDataBody = (
@@ -305,11 +345,14 @@ export default function EbayResearchForm({
       showManualOffer={showManualOffer}
       hideSearchAndFilters={true}
       onRefineSearch={handleRefineSearch}
+      onCancelRefine={handleCancelRefine}
       refineError={error}
       refineLoading={loading}
       onToggleExclude={!readOnly ? handleToggleExclude : undefined}
       onClearAllExclusions={!readOnly ? handleClearAllExclusions : undefined}
       onAddNewItem={onAddNewItem}
+      onAddToCartWithOffer={mode === 'page' && onComplete && !onAddNewItem ? handleAddToCartWithOffer : undefined}
+      onResetSearch={!readOnly ? handleResetSearch : null}
     />
   );
 }

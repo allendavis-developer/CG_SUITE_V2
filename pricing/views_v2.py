@@ -419,6 +419,7 @@ def finish_request(request, request_id):
     items_data = request.data.get('items_data', [])
     overall_expectation_gbp = request.data.get('overall_expectation_gbp')
     negotiated_grand_total_gbp = request.data.get('negotiated_grand_total_gbp')
+    target_offer_gbp = request.data.get('target_offer_gbp')
 
     # Validate incoming data for main request
     if overall_expectation_gbp is not None:
@@ -439,7 +440,16 @@ def finish_request(request, request_id):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-    existing_request.save(update_fields=['overall_expectation_gbp', 'negotiated_grand_total_gbp'])
+    if target_offer_gbp is not None:
+        try:
+            existing_request.target_offer_gbp = Decimal(str(target_offer_gbp))
+        except InvalidOperation:
+            return Response(
+                {"error": "Invalid format for target_offer_gbp"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+    existing_request.save(update_fields=['overall_expectation_gbp', 'negotiated_grand_total_gbp', 'target_offer_gbp'])
 
     # Update individual request items
     for item_data in items_data:
@@ -565,7 +575,8 @@ def finish_request(request, request_id):
             "status": RequestStatus.BOOKED_FOR_TESTING,
             "items_count": existing_request.items.count(),
             "overall_expectation_gbp": existing_request.overall_expectation_gbp,
-            "negotiated_grand_total_gbp": existing_request.negotiated_grand_total_gbp
+            "negotiated_grand_total_gbp": existing_request.negotiated_grand_total_gbp,
+            "target_offer_gbp": existing_request.target_offer_gbp,
         },
         status=status.HTTP_200_OK
     )

@@ -16,6 +16,28 @@
  * 5. We send WAITING_FOR_DATA to that tab so the content script shows "Have you got the data yet?". We retry a few times in case the content script isn't ready yet.
  */
 
+// ── eBay filter enforcement ────────────────────────────────────────────────────
+
+/**
+ * Ensure the three required eBay filters are present in the URL:
+ *   LH_Complete=1  (Completed items)
+ *   LH_Sold=1      (Sold items)
+ *   LH_PrefLoc=1   (UK Only)
+ * Returns the (possibly modified) URL unchanged for non-eBay URLs.
+ */
+function ensureEbayFilters(url) {
+  if (!url || !url.includes('ebay.co.uk')) return url;
+  try {
+    const u = new URL(url);
+    u.searchParams.set('LH_Complete', '1');
+    u.searchParams.set('LH_Sold', '1');
+    u.searchParams.set('LH_PrefLoc', '1');
+    return u.toString();
+  } catch (e) {
+    return url;
+  }
+}
+
 // ── Storage helpers ────────────────────────────────────────────────────────────
 
 async function getPending() {
@@ -72,13 +94,14 @@ async function handleBridgeForward(message, sender) {
         ? `https://www.cashconverters.co.uk/search-results?Sort=default&page=1&query=${encodeURIComponent(searchQuery)}`
         : 'https://www.cashconverters.co.uk/';
     } else if (competitor === 'CeX') {
-      const cexBase = searchQuery
-        ? `https://uk.webuy.com/search?keyword=${encodeURIComponent(searchQuery)}`
-        : 'https://uk.webuy.com/';
-      url = cexBase + (cexBase.includes('?') ? '&' : '?') + 'cgReq=' + encodeURIComponent(requestId);
+      // For CeX, always open the clean homepage. We no longer append any
+      // tracking/query parameters (cgReq, keyword, etc.) so the user only ever
+      // sees a simple `https://uk.webuy.com/` URL.
+      url = 'https://uk.webuy.com/';
     } else {
+      // Always enforce: Completed items (LH_Complete=1), Sold items (LH_Sold=1), UK Only (LH_PrefLoc=1)
       url = searchQuery
-        ? `https://www.ebay.co.uk/sch/i.html?_nkw=${encodeURIComponent(searchQuery)}`
+        ? `https://www.ebay.co.uk/sch/i.html?_nkw=${encodeURIComponent(searchQuery)}&LH_Complete=1&LH_Sold=1&LH_PrefLoc=1`
         : 'https://www.ebay.co.uk/';
     }
 
@@ -92,13 +115,40 @@ async function handleBridgeForward(message, sender) {
     return { ok: true };
   }
 
+  if (payload.action === 'cancelRequest' && appTabId != null) {
+    // User clicked Cancel/Reset in the app while a listing tab was open.
+    // Find the pending entry for this app tab, close the listing tab, and
+    // send a clean cancelled response so the app's awaiting promise resolves.
+    const pending = await getPending();
+    for (const [reqId, entry] of Object.entries(pending)) {
+      if (entry.appTabId === appTabId) {
+        const listingTabId = entry.listingTabId;
+        delete pending[reqId];
+        await setPending(pending);
+        // Close listing tab first (onRemoved will NOT fire a response because
+        // we already removed the entry from pending above).
+        if (listingTabId != null) {
+          await chrome.tabs.remove(listingTabId).catch(() => {});
+        }
+        // Send a clean cancelled response so the app-side promise resolves.
+        chrome.tabs.sendMessage(appTabId, {
+          type: 'EXTENSION_RESPONSE_TO_PAGE',
+          requestId: reqId,
+          response: { success: false, cancelled: true }
+        }).catch(() => {});
+        break;
+      }
+    }
+    return { ok: true };
+  }
+
   if (payload.action === 'startRefine' && appTabId != null) {
     const listingPageUrl = payload.listingPageUrl;
     const competitor = payload.competitor === 'CashConverters' ? 'CashConverters' : 'eBay';
     const defaultUrl = competitor === 'CashConverters'
       ? 'https://www.cashconverters.co.uk/'
       : 'https://www.ebay.co.uk/';
-    const urlToOpen = listingPageUrl || defaultUrl;
+    const urlToOpen = ensureEbayFilters(listingPageUrl) || defaultUrl;
     const marketComparisonContext = payload.marketComparisonContext || null;
 
     const tabs = await chrome.tabs.query({});

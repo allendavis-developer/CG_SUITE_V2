@@ -375,6 +375,8 @@ const MainContent = ({
       cexBuyPrice: referenceData?.cex_tradein_cash ? Number(referenceData.cex_tradein_cash) : null,
       cexVoucherPrice: referenceData?.cex_tradein_voucher ? Number(referenceData.cex_tradein_voucher) : null,
       cexOutOfStock: referenceData?.cex_out_of_stock ?? false,
+      cexSku: selectedVariant?.cex_sku ?? null,
+      cexUrl: selectedVariant?.cex_sku ? `https://uk.webuy.com/product-detail?id=${selectedVariant.cex_sku}` : null,
       ebayResearchData: savedEbayState || null,
       cashConvertersResearchData: savedCashConvertersState || null,
       referenceData: referenceData,
@@ -606,6 +608,8 @@ const MainContent = ({
         cexBuyPrice: refData.cex_tradein_cash ? Number(refData.cex_tradein_cash) : null,
         cexVoucherPrice: refData.cex_tradein_voucher ? Number(refData.cex_tradein_voucher) : null,
         cexOutOfStock: cexProductData.isOutOfStock ?? false,
+        cexSku: cexProductData.id ?? null,
+        cexUrl: cexProductData.id ? `https://uk.webuy.com/product-detail?id=${cexProductData.id}` : null,
         ebayResearchData: cexProductData.ebayResearchData || null,
         cashConvertersResearchData: cexProductData.cashConvertersResearchData || null,
         cexProductData
@@ -700,6 +704,7 @@ const MainContent = ({
             setEbayModalOpen={setCexProductData ? () => setCeXEbayModalOpen(true) : () => {}}
             cashConvertersData={cexProductData.cashConvertersResearchData || null}
             setCashConvertersModalOpen={setCexProductData ? () => setCeXCashConvertersModalOpen(true) : () => {}}
+            cexSku={cexProductData.id}
           />
 
           {offers.length > 0 && (
@@ -883,6 +888,7 @@ const MainContent = ({
             cashConvertersData={selectedCartItem.cashConvertersResearchData || null}
             setCashConvertersModalOpen={() => {}}
             readOnly={true}
+            cexSku={selectedCartItem.cexProductData?.id}
           />
           {displayOffers.length > 0 && (
             <OfferSelection variant="cex" offers={displayOffers} referenceData={refWithOurSale} offerType={useVoucherOffers ? 'voucher' : 'cash'} />
@@ -1087,6 +1093,7 @@ const MainContent = ({
                 setEbayModalOpen={setEbayModalOpen}
                 cashConvertersData={cashConvertersData}
                 setCashConvertersModalOpen={setCashConvertersModalOpen}
+                cexSku={variant}
               />
             )}
 

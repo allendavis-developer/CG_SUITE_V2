@@ -46,6 +46,15 @@ export async function getDataFromListingPage(competitor, searchQuery, marketComp
 }
 
 /**
+ * Cancel the active listing-tab session (refine or initial get-data).
+ * Tells the background to close the listing tab and resolve the pending promise
+ * with { success: false, cancelled: true } so the app can clean up gracefully.
+ */
+export async function cancelListingTab() {
+  return sendMessage({ action: 'cancelRequest' });
+}
+
+/**
  * Send user back to the listing page (or open it if closed) to refine their search.
  * listingPageUrl should be the URL stored from the last scrape (app side).
  * The extension shows "Are you done?" on the listing page; when they click Yes,

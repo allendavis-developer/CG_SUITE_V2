@@ -203,7 +203,16 @@ const AttributeConfiguration = ({
 
       {/* Configuration & Condition + Image */}
       <div className="flex gap-6 items-start">
-        <div className="flex-shrink-0 min-w-0"> 
+        {variant && variantImageUrl && (
+          <div className="flex-shrink-0 w-80 h-80 rounded-lg overflow-hidden border border-gray-200 bg-gray-50">
+            <img
+              src={variantImageUrl}
+              alt="Product"
+              className="w-full h-full object-contain"
+            />
+          </div>
+        )}
+        <div className="flex-1 min-w-0"> 
           <div className="flex items-center justify-between mb-4 gap-6">
             <div className="flex items-center gap-3">
               <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest">
@@ -300,16 +309,6 @@ const AttributeConfiguration = ({
         })}
           </div>
         </div>
-
-        {variant && variantImageUrl && (
-          <div className="flex-shrink-0 w-80 h-80 rounded-lg overflow-hidden border border-gray-200 bg-gray-50">
-            <img
-              src={variantImageUrl}
-              alt="Product"
-              className="w-full h-full object-contain"
-            />
-          </div>
-        )}
       </div>
 
       {/* Variant selection: show only once every renderable dropdown has been filled.

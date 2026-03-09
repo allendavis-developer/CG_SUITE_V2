@@ -171,8 +171,8 @@ const Negotiation = ({ mode }) => {
     return null;
   };
 
-  // Apply a manual offer per-unit to an item (with senior mgmt check)
-  // Returns false if blocked (will open senior mgmt modal)
+  // Apply a manual offer per-unit to an item (with target + senior mgmt checks)
+  // Returns false if blocked (will open senior mgmt modal or show error)
   const applyManualOffer = (item, proposedPerUnit, seniorMgmtConfirmedBy = null) => {
     const ourSalePrice = resolveOurSalePrice(item);
 
@@ -258,10 +258,14 @@ const Negotiation = ({ mode }) => {
       };
     });
 
+    const overallExpectationValue = parseFloat(totalExpectation.replace(/[£,]/g, '')) || 0;
+    const targetOfferValue = parseFloat(targetOffer) || null;
+
     return {
       items_data: itemsData,
-      overall_expectation_gbp: parseFloat(totalExpectation.replace(/[£,]/g, '')) || 0,
-      negotiated_grand_total_gbp: offerPrice
+      overall_expectation_gbp: overallExpectationValue,
+      negotiated_grand_total_gbp: offerPrice,
+      ...(targetOfferValue && { target_offer_gbp: targetOfferValue }),
     };
   };
 
@@ -298,15 +302,19 @@ const Negotiation = ({ mode }) => {
       }
     }
 
-    // Block booking if target offer is set but not met
+    // Block booking if target offer is set and grand total does not match the target (must be effectively equal)
     if (targetOffer) {
       const parsedTarget = parseFloat(targetOffer);
-      if (parsedTarget > 0 && totalOfferPrice < parsedTarget - 0.005) {
-        showNotification(
-          `Cannot book for testing: grand total £${totalOfferPrice.toFixed(2)} has not met the target offer of £${parsedTarget.toFixed(2)}.`,
-          'error'
-        );
-        return;
+      if (parsedTarget > 0) {
+        const delta = totalOfferPrice - parsedTarget;
+        if (Math.abs(delta) > 0.005) {
+          const relationText = delta < 0 ? 'has not met' : 'exceeds';
+          showNotification(
+            `Cannot book for testing: grand total £${totalOfferPrice.toFixed(2)} ${relationText} the target offer of £${parsedTarget.toFixed(2)}.`,
+            'error'
+          );
+          return;
+        }
       }
     }
 
@@ -349,6 +357,11 @@ const Negotiation = ({ mode }) => {
                 transactionType: (data.intent === 'DIRECT_SALE' ? 'sale' : data.intent === 'BUYBACK' ? 'buyback' : 'store_credit')
             });
             setTotalExpectation(data.overall_expectation_gbp?.toString() || '');
+            if (data.target_offer_gbp != null) {
+              setTargetOffer(data.target_offer_gbp.toString());
+            } else {
+              setTargetOffer("");
+            }
             setTransactionType(data.intent === 'DIRECT_SALE' ? 'sale' : data.intent === 'BUYBACK' ? 'buyback' : 'store_credit');
 
             const currentStatus = data.current_status || data.status_history?.[0]?.status;
@@ -742,9 +755,28 @@ const Negotiation = ({ mode }) => {
       if (item.customerExpectation) {
         const value = parseFloat(item.customerExpectation.replace(/[£,]/g, '')) || 0;
         const quantity = item.quantity || 1;
-        return sum + (value * quantity);
+        return sum + value * quantity;
       }
       return sum;
+    }, 0);
+  };
+
+  const calculateTotalOfferPrice = (sourceItems) => {
+    return sourceItems.reduce((sum, item) => {
+      if (item.isRemoved) return sum;
+      const quantity = item.quantity || 1;
+
+      if (item.selectedOfferId === 'manual' && item.manualOffer) {
+        const manualValue = parseFloat(item.manualOffer.replace(/[£,]/g, '')) || 0;
+        return sum + manualValue * quantity;
+      }
+
+      const displayOffers = useVoucherOffers
+        ? item.voucherOffers || item.offers
+        : item.cashOffers || item.offers;
+
+      const selected = displayOffers?.find((o) => o.id === item.selectedOfferId);
+      return sum + (selected ? selected.price * quantity : 0);
     }, 0);
   };
 
@@ -769,26 +801,14 @@ const Negotiation = ({ mode }) => {
 
 
 
-  const totalOfferPrice = items.reduce((sum, item) => {
-    if (item.isRemoved) return sum;
-    const quantity = item.quantity || 1;
-
-    if (item.selectedOfferId === 'manual' && item.manualOffer) {
-      const manualValue = parseFloat(item.manualOffer.replace(/[£,]/g, '')) || 0;
-      return sum + (manualValue * quantity);
-    }
-
-    const displayOffers = useVoucherOffers
-      ? (item.voucherOffers || item.offers)
-      : (item.cashOffers || item.offers);
-
-    const selected = displayOffers?.find(o => o.id === item.selectedOfferId);
-    return sum + (selected ? selected.price * quantity : 0);
-  }, 0);
-
   const parsedTarget = parseFloat(targetOffer) || 0;
-  const targetMet = parsedTarget > 0 && totalOfferPrice >= parsedTarget - 0.005;
-  const targetShortfall = parsedTarget > 0 ? parsedTarget - totalOfferPrice : 0;
+  const totalOfferPrice = calculateTotalOfferPrice(items);
+  // Target must be matched exactly (within a small tolerance).
+  const hasTarget = parsedTarget > 0;
+  const targetDelta = hasTarget ? totalOfferPrice - parsedTarget : 0;
+  const targetMatched = hasTarget && Math.abs(targetDelta) <= 0.005;
+  const targetShortfall = hasTarget && totalOfferPrice < parsedTarget ? parsedTarget - totalOfferPrice : 0;
+  const targetExcess = hasTarget && totalOfferPrice > parsedTarget ? totalOfferPrice - parsedTarget : 0;
 
   return (
     <div className="bg-ui-bg text-text-main min-h-screen flex flex-col text-sm overflow-hidden">
@@ -880,30 +900,50 @@ const Negotiation = ({ mode }) => {
                 {mode === 'view' ? 'Back to Requests' : 'Back to Cart'}
               </button>
 
-              {/* Customer Total Expectation */}
-              <div className="flex-1 max-w-md">
-                <div className="p-4 rounded-lg border" style={{
-                  borderColor: 'rgba(247, 185, 24, 0.5)',
-                  background: 'rgba(247, 185, 24, 0.05)'
-                }}>
-                  <label className="block text-[10px] font-black uppercase tracking-wider mb-2" style={{ color: 'var(--brand-blue)' }}>
-                    Customer Total Expectation
-                  </label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-lg" style={{ color: 'var(--brand-blue)' }}>£</span>
-                    <input
-                      className="w-full pl-8 pr-3 py-2.5 bg-white rounded-lg text-lg font-bold focus:ring-2"
-                      style={{
-                        border: '1px solid rgba(247, 185, 24, 0.3)',
-                        color: 'var(--brand-blue)',
-                        outline: 'none'
-                      }}
-                      type="text"
-                      value={totalExpectation}
-                      onChange={(e) => setTotalExpectation(e.target.value)}
-                      placeholder="0.00"
-                      readOnly={mode === 'view'}
-                    />
+              {/* Customer Total Expectation + Target Offer */}
+              <div className="flex-1 max-w-xl">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="p-4 rounded-lg border" style={{
+                    borderColor: 'rgba(247, 185, 24, 0.5)',
+                    background: 'rgba(247, 185, 24, 0.05)'
+                  }}>
+                    <label className="block text-[10px] font-black uppercase tracking-wider mb-2" style={{ color: 'var(--brand-blue)' }}>
+                      Customer Total Expectation
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-lg" style={{ color: 'var(--brand-blue)' }}>£</span>
+                      <input
+                        className="w-full pl-8 pr-3 py-2.5 bg-white rounded-lg text-lg font-bold focus:ring-2"
+                        style={{
+                          border: '1px solid rgba(247, 185, 24, 0.3)',
+                          color: 'var(--brand-blue)',
+                          outline: 'none'
+                        }}
+                        type="text"
+                        value={totalExpectation}
+                        onChange={(e) => setTotalExpectation(e.target.value)}
+                        placeholder="0.00"
+                        readOnly={mode === 'view'}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="p-4 rounded-lg border" style={{
+                    borderColor: 'rgba(20, 69, 132, 0.2)',
+                    background: 'rgba(20, 69, 132, 0.02)'
+                  }}>
+                    <label className="block text-[10px] font-black uppercase tracking-wider mb-1" style={{ color: 'var(--brand-blue)' }}>
+                      Target Offer
+                    </label>
+                    <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>
+                      {parsedTarget > 0 ? 'Exact total offer required' : 'Not set'}
+                    </p>
+                    <div className="flex items-baseline gap-1">
+                      <span className="font-bold text-lg" style={{ color: 'var(--brand-blue)' }}>£</span>
+                      <span className="text-2xl font-black tracking-tight" style={{ color: 'var(--brand-blue)' }}>
+                        {parsedTarget > 0 ? parsedTarget.toFixed(2) : '0.00'}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1000,9 +1040,11 @@ const Negotiation = ({ mode }) => {
                               const raw = e.target.value;
                               const parsed = parseInt(raw, 10);
                               const safeQuantity = Number.isNaN(parsed) || parsed <= 0 ? 1 : parsed;
-                              setItems(prev => prev.map(i =>
-                                i.id === item.id ? { ...i, quantity: safeQuantity } : i
-                              ));
+                              setItems((prev) =>
+                                prev.map((i) =>
+                                  i.id === item.id ? { ...i, quantity: safeQuantity } : i
+                                )
+                              );
                             }}
                           />
                         )}
@@ -1077,13 +1119,18 @@ const Negotiation = ({ mode }) => {
                       <td
                         className={`font-semibold ${mode === 'view' ? '' : 'cursor-pointer'}`}
                         style={item.selectedOfferId === offer1?.id ? {
-                          background: 'rgba(247, 185, 24, 0.1)',
+                          background: 'rgba(34, 197, 94, 0.15)',
                           fontWeight: 'bold',
-                          color: 'var(--brand-blue)'
+                          color: '#166534'
                         } : {}}
-                        onClick={() => offer1 && mode !== 'view' && setItems(prev =>
-                          prev.map(i => i.id === item.id ? { ...i, selectedOfferId: offer1.id } : i)
-                        )}
+                        onClick={() => {
+                          if (!offer1 || mode === 'view') return;
+                          setItems((prev) =>
+                            prev.map((i) =>
+                              i.id === item.id ? { ...i, selectedOfferId: offer1.id } : i
+                            )
+                          );
+                        }}
                       >
                         {offer1 ? (
                           <div>
@@ -1091,7 +1138,7 @@ const Negotiation = ({ mode }) => {
                             {(() => {
                               const margin = calculateMargin(offer1.price);
                               return margin !== null ? (
-                                <div className="text-[9px] font-medium" style={{ color: margin >= 0 ? '#059669' : '#dc2626' }}>
+                                <div className="text-[9px] font-medium" style={{ color: margin >= 0 ? 'var(--brand-blue)' : '#dc2626' }}>
                                   {margin >= 0 ? '+' : ''}{margin.toFixed(1)}% margin
                                 </div>
                               ) : null;
@@ -1107,13 +1154,18 @@ const Negotiation = ({ mode }) => {
                       <td
                         className={`font-semibold ${mode === 'view' ? '' : 'cursor-pointer'}`}
                         style={item.selectedOfferId === offer2?.id ? {
-                          background: 'rgba(247, 185, 24, 0.1)',
+                          background: 'rgba(34, 197, 94, 0.15)',
                           fontWeight: 'bold',
-                          color: 'var(--brand-blue)'
+                          color: '#166534'
                         } : {}}
-                        onClick={() => offer2 && mode !== 'view' && setItems(prev =>
-                          prev.map(i => i.id === item.id ? { ...i, selectedOfferId: offer2.id } : i)
-                        )}
+                        onClick={() => {
+                          if (!offer2 || mode === 'view') return;
+                          setItems((prev) =>
+                            prev.map((i) =>
+                              i.id === item.id ? { ...i, selectedOfferId: offer2.id } : i
+                            )
+                          );
+                        }}
                       >
                         {offer2 ? (
                           <div>
@@ -1121,7 +1173,7 @@ const Negotiation = ({ mode }) => {
                             {(() => {
                               const margin = calculateMargin(offer2.price);
                               return margin !== null ? (
-                                <div className="text-[9px] font-medium" style={{ color: margin >= 0 ? '#059669' : '#dc2626' }}>
+                                <div className="text-[9px] font-medium" style={{ color: margin >= 0 ? 'var(--brand-blue)' : '#dc2626' }}>
                                   {margin >= 0 ? '+' : ''}{margin.toFixed(1)}% margin
                                 </div>
                               ) : null;
@@ -1137,13 +1189,18 @@ const Negotiation = ({ mode }) => {
                       <td
                         className={`font-semibold ${mode === 'view' ? '' : 'cursor-pointer'}`}
                         style={item.selectedOfferId === offer3?.id ? {
-                          background: 'rgba(247, 185, 24, 0.1)',
+                          background: 'rgba(34, 197, 94, 0.15)',
                           fontWeight: 'bold',
-                          color: 'var(--brand-blue)'
+                          color: '#166534'
                         } : {}}
-                        onClick={() => offer3 && mode !== 'view' && setItems(prev =>
-                          prev.map(i => i.id === item.id ? { ...i, selectedOfferId: offer3.id } : i)
-                        )}
+                        onClick={() => {
+                          if (!offer3 || mode === 'view') return;
+                          setItems((prev) =>
+                            prev.map((i) =>
+                              i.id === item.id ? { ...i, selectedOfferId: offer3.id } : i
+                            )
+                          );
+                        }}
                       >
                         {offer3 ? (
                           <div>
@@ -1151,7 +1208,7 @@ const Negotiation = ({ mode }) => {
                             {(() => {
                               const margin = calculateMargin(offer3.price);
                               return margin !== null ? (
-                                <div className="text-[9px] font-medium" style={{ color: margin >= 0 ? '#059669' : '#dc2626' }}>
+                                <div className="text-[9px] font-medium" style={{ color: margin >= 0 ? 'var(--brand-blue)' : '#dc2626' }}>
                                   {margin >= 0 ? '+' : ''}{margin.toFixed(1)}% margin
                                 </div>
                               ) : null;
@@ -1175,9 +1232,9 @@ const Negotiation = ({ mode }) => {
                           <div
                             className="rounded px-2 py-1.5 text-xs font-bold text-center"
                             style={{
-                              background: manualExceedsSale ? 'rgba(239, 68, 68, 0.1)' : 'rgba(247, 185, 24, 0.15)',
-                              color: manualExceedsSale ? '#dc2626' : 'var(--brand-blue)',
-                              border: manualExceedsSale ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(247,185,24,0.3)'
+                              background: manualExceedsSale ? 'rgba(239, 68, 68, 0.1)' : 'rgba(34, 197, 94, 0.15)',
+                              color: manualExceedsSale ? '#dc2626' : '#166534',
+                              border: manualExceedsSale ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(34,197,94,0.4)'
                             }}
                           >
                             {mode === 'view' && (item.manualOfferUsed || item.selectedOfferId === 'manual') && (
@@ -1193,7 +1250,7 @@ const Negotiation = ({ mode }) => {
                               <div className="text-[9px] opacity-70 mt-0.5">(£{parseFloat(item.manualOffer).toFixed(2)} × {quantity})</div>
                             )}
                             {manualMargin !== null && (
-                              <div className="text-[9px] font-semibold mt-0.5" style={{ color: manualMargin >= 0 ? '#059669' : '#dc2626' }}>
+                              <div className="text-[9px] font-semibold mt-0.5" style={{ color: manualMargin >= 0 ? 'var(--brand-blue)' : '#dc2626' }}>
                                 {manualMargin >= 0 ? '+' : ''}{manualMargin.toFixed(1)}% margin
                                 {ourSalePrice && ` (£${Math.abs(ourSalePrice - parseFloat(item.manualOffer)).toFixed(2)})`}
                               </div>
@@ -1438,35 +1495,45 @@ const Negotiation = ({ mode }) => {
                   {mode === 'negotiate' ? 'Click to set target' : 'Based on selected offers'}
                 </span>
               </div>
-              <div className="text-right">
-                <span className="text-3xl font-black tracking-tighter leading-none" style={{ color: 'var(--brand-blue)' }}>
+              <div
+                className="text-right text-3xl font-black tracking-tighter leading-none"
+                style={{ color: 'var(--brand-blue)' }}
+              >
+                <span>
                   £{totalOfferPrice.toFixed(2)}
                 </span>
                 {mode === 'negotiate' && (
-                  <span className="material-symbols-outlined text-[16px] ml-1 text-blue-300 group-hover:text-blue-600 transition-colors align-middle">edit</span>
+                  <span
+                    className="material-symbols-outlined ml-1 text-blue-300 group-hover:text-blue-600 transition-colors align-middle"
+                    style={{ fontSize: 'inherit' }}
+                  >
+                    edit
+                  </span>
                 )}
               </div>
             </div>
 
             {/* Target offer display */}
-            {parsedTarget > 0 && (
-              <div className={`rounded-lg px-3 py-2 flex items-center justify-between ${targetMet ? 'bg-emerald-50 border border-emerald-200' : 'bg-red-50 border border-red-200'}`}>
+            {hasTarget && (
+              <div className={`rounded-lg px-3 py-2 flex items-center justify-between ${targetMatched ? 'bg-emerald-50 border border-emerald-200' : 'bg-red-50 border border-red-200'}`}>
                 <div>
-                  <div className={`text-[10px] font-black uppercase tracking-wider ${targetMet ? 'text-emerald-700' : 'text-red-700'}`}>
+                  <div className={`text-[10px] font-black uppercase tracking-wider ${targetMatched ? 'text-emerald-700' : 'text-red-700'}`}>
                     Target Offer
                   </div>
-                  {!targetMet && (
+                  {!targetMatched && (
                     <div className="text-[9px] text-red-600 font-medium">
-                      Shortfall: £{targetShortfall.toFixed(2)}
+                      {totalOfferPrice < parsedTarget
+                        ? `Grand total is below target by £${targetShortfall.toFixed(2)}`
+                        : `Grand total is too high by £${targetExcess.toFixed(2)}`}
                     </div>
                   )}
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <span className={`text-xl font-black ${targetMet ? 'text-emerald-700' : 'text-red-700'}`}>
+                  <span className={`text-xl font-black ${targetMatched ? 'text-emerald-700' : 'text-red-700'}`}>
                     £{parsedTarget.toFixed(2)}
                   </span>
-                  <span className={`material-symbols-outlined text-[20px] ${targetMet ? 'text-emerald-600' : 'text-red-500'}`}>
-                    {targetMet ? 'check_circle' : 'cancel'}
+                  <span className={`material-symbols-outlined text-[20px] ${targetMatched ? 'text-emerald-600' : 'text-red-500'}`}>
+                    {targetMatched ? 'check_circle' : 'cancel'}
                   </span>
                   {mode === 'negotiate' && (
                     <button
@@ -1482,7 +1549,7 @@ const Negotiation = ({ mode }) => {
             )}
 
             <button
-              className={`w-full font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 group active:scale-[0.98] ${mode === 'view' || (parsedTarget > 0 && !targetMet) ? 'opacity-50 cursor-not-allowed' : ''}`}
+              className={`w-full font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 group active:scale-[0.98] ${mode === 'view' || (hasTarget && !targetMatched) ? 'opacity-50 cursor-not-allowed' : ''}`}
               style={{
                 background: 'var(--brand-orange)',
                 color: 'var(--brand-blue)',
@@ -1494,9 +1561,11 @@ const Negotiation = ({ mode }) => {
               <span className="text-base uppercase tracking-tight">Book for Testing</span>
               <span className="material-symbols-outlined text-xl group-hover:translate-x-1 transition-transform">arrow_forward</span>
             </button>
-            {parsedTarget > 0 && !targetMet && mode === 'negotiate' && (
+            {hasTarget && !targetMatched && mode === 'negotiate' && (
               <p className="text-[10px] text-center text-red-600 font-semibold -mt-2">
-                Target not yet met — £{targetShortfall.toFixed(2)} short
+                {totalOfferPrice < parsedTarget
+                  ? `Grand total is below target by £${targetShortfall.toFixed(2)}`
+                  : `Grand total is too high by £${targetExcess.toFixed(2)}`}
               </p>
             )}
           </div>
@@ -1789,14 +1858,14 @@ const Negotiation = ({ mode }) => {
                 </div>
                 <div className="border-t pt-2" style={{ borderColor: 'var(--ui-border)' }}>
                   <div className="flex justify-between text-sm font-bold">
-                    <span style={{ color: isPositiveMargin ? '#059669' : '#dc2626' }}>
+                    <span style={{ color: isPositiveMargin ? 'var(--brand-blue)' : '#dc2626' }}>
                       Margin
                     </span>
                     <div className="text-right">
-                      <div style={{ color: isPositiveMargin ? '#059669' : '#dc2626' }}>
+                      <div style={{ color: isPositiveMargin ? 'var(--brand-blue)' : '#dc2626' }}>
                         {isPositiveMargin ? '+' : ''}{marginPct.toFixed(1)}%
                       </div>
-                      <div className="text-xs font-semibold" style={{ color: isPositiveMargin ? '#059669' : '#dc2626' }}>
+                      <div className="text-xs font-semibold" style={{ color: isPositiveMargin ? 'var(--brand-blue)' : '#dc2626' }}>
                         {isPositiveMargin ? '+' : '-'}£{Math.abs(marginGbp * qty).toFixed(2)}
                       </div>
                     </div>

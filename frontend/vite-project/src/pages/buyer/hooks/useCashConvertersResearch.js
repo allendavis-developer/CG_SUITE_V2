@@ -22,42 +22,14 @@ function parseSoldDate(soldStr) {
   return isNaN(parsed) ? null : parsed;
 }
 
-/**
- * Determines the appropriate rounding increment based on the value
- * Returns a "nice number" that scales appropriately for cheap vs expensive items
- * @param {number} value - The value to determine rounding for
- * @returns {number} The rounding increment (e.g., 0.5, 1, 2, 5, 10, 50, 100)
- */
-function getRoundingIncrement(value) {
-  if (value < 5) return 0.5;
-  if (value < 20) return 1;
-  if (value < 50) return 2;
-  if (value < 500) return 5;
-  if (value < 1000) return 10;
-  if (value < 2500) return 25;
-  if (value < 5000) return 50;
-  return 100;
-}
-
-/**
- * Rounds a value to the nearest increment
- * @param {number} value - The value to round
- * @param {number} increment - The rounding increment
- * @returns {number} The rounded value
- */
-function roundToNearest(value, increment) {
-  return Math.round(value / increment) * increment;
-}
-
 function calculateBuyOffers(sellPrice) {
   if (!sellPrice || sellPrice <= 0) return [];
 
   const margins = [0.6, 0.5, 0.4];
-  const roundingIncrement = getRoundingIncrement(sellPrice);
 
   return margins.map(margin => ({
     margin,
-    price: roundToNearest(sellPrice * (1 - margin), roundingIncrement)
+    price: sellPrice * (1 - margin)
   }));
 }
 
@@ -186,7 +158,7 @@ async function fetchCashConvertersResultsStreaming(searchResultsUrl, onPageFetch
 
 function calculateStats(listingsData) {
   if (!listingsData || listingsData.length === 0) {
-    return { average: 0, median: 0, suggestedPrice: 0, roundingIncrement: 5 };
+    return { average: 0, median: 0, suggestedPrice: 0 };
   }
 
   // Normalise prices to numeric values and drop anything invalid to avoid NaN stats
@@ -203,36 +175,25 @@ function calculateStats(listingsData) {
     .filter(p => p != null);
 
   if (prices.length === 0) {
-    return { average: 0, median: 0, suggestedPrice: 0, roundingIncrement: 5 };
+    return { average: 0, median: 0, suggestedPrice: 0 };
   }
 
   const sum = prices.reduce((acc, price) => acc + price, 0);
-  const averageRaw = sum / prices.length;
+  const average = sum / prices.length;
 
   const sortedPrices = [...prices].sort((a, b) => a - b);
   const mid = Math.floor(sortedPrices.length / 2);
-  const medianRaw = sortedPrices.length % 2 === 0
+  const median = sortedPrices.length % 2 === 0
     ? (sortedPrices[mid - 1] + sortedPrices[mid]) / 2
     : sortedPrices[mid];
 
-  // Determine rounding increment based on median value for consistency
-  const roundingIncrement = getRoundingIncrement(medianRaw);
-
-  // Round intelligently to market-friendly pricing using the determined increment
-  const average = roundToNearest(averageRaw, roundingIncrement);
-  const median = roundToNearest(medianRaw, roundingIncrement);
-
-  // Undercut slightly but stay on the same rounding grid
-  const suggestedPrice = Math.max(
-    roundToNearest(median - roundingIncrement, roundingIncrement),
-    0
-  );
+  // Suggested sale price: £1 below median
+  const suggestedPrice = Math.max(median - 1, 0);
 
   return {
     average,
     median,
-    suggestedPrice,
-    roundingIncrement
+    suggestedPrice
   };
 }
 
@@ -251,7 +212,7 @@ export function useCashConvertersResearch(category, savedState = null) {
   const [filterOptions, setFilterOptions] = useState(savedState?.filterOptions || []);
   const [listings, setListings] = useState(savedState?.listings || null);
   const [loading, setLoading] = useState(false);
-  const [stats, setStats] = useState(savedState?.stats || { average: 0, median: 0, suggestedPrice: 0, roundingIncrement: 5 });
+  const [stats, setStats] = useState(savedState?.stats || { average: 0, median: 0, suggestedPrice: 0 });
   
   // Track the last search term that was actually searched
   const [lastSearchedTerm, setLastSearchedTerm] = useState(savedState?.lastSearchedTerm || "");
@@ -330,7 +291,7 @@ export function useCashConvertersResearch(category, savedState = null) {
     // If search term changed, reset filters and fetch everything fresh
     if (termChanged) {
       setListings(null);
-      setStats({ average: 0, median: 0, suggestedPrice: 0, roundingIncrement: 5 });
+      setStats({ average: 0, median: 0, suggestedPrice: 0 });
       setFilterOptions([]);
       setSelectedFilters(prev => ({
         ...prev,
