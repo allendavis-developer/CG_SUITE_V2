@@ -4,7 +4,7 @@ import { Header } from "@/components/ui/components";
 import EbayResearchForm from "@/components/forms/EbayResearchForm";
 import CashConvertersResearchForm from "@/components/forms/CashConvertersResearchForm";
 import CustomerTransactionHeader from './components/CustomerTransactionHeader';
-import { finishRequest, fetchRequestDetail, updateCustomer } from '@/services/api';
+import { finishRequest, fetchRequestDetail, updateCustomer, saveQuoteDraft } from '@/services/api';
 import { useNotification } from '@/contexts/NotificationContext';
 import NewCustomerDetailsModal from '@/components/modals/NewCustomerDetailsModal';
 
@@ -205,7 +205,9 @@ const Negotiation = ({ mode }) => {
   };
 
   const buildFinishPayload = (offerPrice) => {
-    const itemsData = items.filter(item => !item.isRemoved).map(item => {
+    const itemsData = items
+      .filter(item => !item.isRemoved && item.request_item_id)
+      .map(item => {
       const quantity = item.quantity || 1;
       let negotiatedPrice = 0;
 
@@ -272,6 +274,7 @@ const Negotiation = ({ mode }) => {
   const doFinishRequest = async (payload) => {
     try {
       await finishRequest(actualRequestId, payload);
+      completedRef.current = true;
       showNotification("Transaction finalized successfully and booked for testing!", 'success');
       navigate("/transaction-complete");
     } catch (error) {
@@ -342,6 +345,8 @@ const Negotiation = ({ mode }) => {
   };
 
   const hasInitializedNegotiateRef = useRef(false);
+  const completedRef = useRef(false);
+  const draftPayloadRef = useRef(null);
 
   useEffect(() => {
     if (mode === 'view' && actualRequestId) {
@@ -789,7 +794,51 @@ const Negotiation = ({ mode }) => {
     }
   }, [items, mode, customerData]);
 
+  // Keep draft payload ref updated and auto-save when data changes (debounced)
+  useEffect(() => {
+    if (mode !== 'negotiate' || !actualRequestId || items.length === 0) {
+      draftPayloadRef.current = null;
+      return;
+    }
+    const total = calculateTotalOfferPrice(items);
+    const payload = buildFinishPayload(total);
+    draftPayloadRef.current = payload;
 
+    if (payload.items_data?.length === 0) return;
+
+    const timer = setTimeout(() => {
+      if (completedRef.current) return;
+      saveQuoteDraft(actualRequestId, payload).catch((err) => {
+        console.warn('Quote draft save failed:', err);
+      });
+    }, 800);
+
+    return () => clearTimeout(timer);
+  }, [items, totalExpectation, targetOffer, transactionType, mode, actualRequestId]);
+
+  // Save quote draft on unmount (SPA navigation away) and on tab/window close
+  useEffect(() => {
+    if (mode !== 'negotiate' || !actualRequestId) return;
+
+    const saveDraft = (opts = {}) => {
+      if (completedRef.current) return;
+      const payload = draftPayloadRef.current;
+      if (payload) {
+        saveQuoteDraft(actualRequestId, payload, opts).catch(() => {});
+      }
+    };
+
+    const handleUnload = () => saveDraft({ keepalive: true });
+
+    window.addEventListener('beforeunload', handleUnload);
+    window.addEventListener('pagehide', handleUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleUnload);
+      window.removeEventListener('pagehide', handleUnload);
+      saveDraft();
+    };
+  }, [mode, actualRequestId]);
 
   if (isLoading) {
     return (

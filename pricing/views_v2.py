@@ -563,16 +563,19 @@ def finish_request(request, request_id):
         if update_fields:
             request_item.save(update_fields=update_fields)
 
-    # Create new status history entry
-    RequestStatusHistory.objects.create(
-        request=existing_request,
-        status=RequestStatus.BOOKED_FOR_TESTING
-    )
+    # When save_only/request_not_completed: save all data but stay in QUOTE (for tab close / draft)
+    save_only = request.data.get('save_only') or request.data.get('request_not_completed')
+    if not save_only:
+        # Create new status history entry (move to BOOKED_FOR_TESTING)
+        RequestStatusHistory.objects.create(
+            request=existing_request,
+            status=RequestStatus.BOOKED_FOR_TESTING
+        )
 
     return Response(
         {
             "request_id": existing_request.request_id,
-            "status": RequestStatus.BOOKED_FOR_TESTING,
+            "status": RequestStatus.QUOTE if save_only else RequestStatus.BOOKED_FOR_TESTING,
             "items_count": existing_request.items.count(),
             "overall_expectation_gbp": existing_request.overall_expectation_gbp,
             "negotiated_grand_total_gbp": existing_request.negotiated_grand_total_gbp,

@@ -287,6 +287,35 @@ export const finishRequest = async (requestId, payload) => {
 };
 
 /**
+ * Save quote draft (negotiation data) without completing the request.
+ * Keeps status as QUOTE, "request not completed". Use when closing tab.
+ * @param {number} requestId
+ * @param {object} payload - same shape as finishRequest (items_data, overall_expectation_gbp, etc.)
+ * @param {{ keepalive?: boolean }} options - use keepalive: true for beforeunload (request survives page unload)
+ */
+export const saveQuoteDraft = async (requestId, payload, { keepalive = false } = {}) => {
+  if (!requestId || !payload) return null;
+
+  const body = JSON.stringify({ ...payload, request_not_completed: true });
+
+  const res = await fetch(`${API_BASE_URL}/requests/${requestId}/finish/`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRFToken': getCSRFToken()
+    },
+    body,
+    keepalive
+  });
+
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || 'Failed to save quote draft');
+  }
+  return res.json();
+};
+
+/**
  * Cancel a request
  * @param {number} requestId
  */
