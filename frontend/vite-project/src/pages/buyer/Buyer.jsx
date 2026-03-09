@@ -10,7 +10,8 @@ import { fetchProductModels, updateRequestItemRawData, fetchRequestDetail, fetch
 import { getDataFromListingPage } from '@/services/extensionClient';
 import { mapTransactionTypeToIntent } from '@/utils/transactionConstants';
 
-export default function Buyer() {
+export default function Buyer({ mode = 'buyer' }) {
+  const isRepricing = mode === 'repricing';
   const location = useLocation();
   const { showNotification } = useNotification();
   
@@ -20,7 +21,7 @@ export default function Buyer() {
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   
   const [cartItems, setCartItems] = useState([]);
-  const [isCustomerModalOpen, setCustomerModalOpen] = useState(true);
+  const [isCustomerModalOpen, setCustomerModalOpen] = useState(!isRepricing);
   const [selectedCartItem, setSelectedCartItem] = useState(null); // Track selected cart item
 
   const [customerData, setCustomerData] = useState({
@@ -402,10 +403,12 @@ export default function Buyer() {
         .material-symbols-outlined { font-size: 20px; }
       `}</style>
 
-      <CustomerIntakeModal
-        open={isCustomerModalOpen}
-        onClose={handleCustomerSelected}
-      />
+      {!isRepricing && (
+        <CustomerIntakeModal
+          open={isCustomerModalOpen}
+          onClose={handleCustomerSelected}
+        />
+      )}
 
       <Header />
       <main className="flex flex-1 min-h-0 overflow-hidden">
@@ -434,6 +437,7 @@ export default function Buyer() {
           setCexProductData={setCexProductData}
           onClearCeXProduct={handleClearCeXProduct}
           onDeselectCartItem={() => setSelectedCartItem(null)}
+          mode={mode}
         />
       <CartSidebar 
         cartItems={cartItems} 
@@ -443,6 +447,7 @@ export default function Buyer() {
         currentRequestId={request?.request_id}
         onItemSelect={handleCartItemSelect}
         selectedCartItemId={selectedCartItem?.id}
+        mode={mode}
       />
 
       </main>

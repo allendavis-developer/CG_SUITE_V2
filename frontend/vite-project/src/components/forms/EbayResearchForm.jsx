@@ -207,7 +207,18 @@ export default function EbayResearchForm({
     onComplete?.(state);
   }, [onComplete, listings, showHistogram, drillHistory, displayedStats, buyOffers, searchTerm, listingPageUrl, manualOffer, showManualOffer]);
 
-  const handleAddToCartWithOffer = useCallback((offerIndex) => {
+  const handleAddToCartWithOffer = useCallback((offerArg) => {
+    let selectedOfferIndex = offerArg;
+    let nextManualOffer = manualOffer;
+
+    if (offerArg && typeof offerArg === 'object' && offerArg.type === 'manual') {
+      selectedOfferIndex = 'manual';
+      const amount = Number(offerArg.amount);
+      if (Number.isFinite(amount) && amount > 0) {
+        nextManualOffer = amount.toFixed(2);
+      }
+    }
+
     const state = {
       listings,
       showHistogram,
@@ -218,8 +229,8 @@ export default function EbayResearchForm({
       listingPageUrl,
       selectedFilters: { basic: [], apiFilters: {} },
       filterOptions: [],
-      manualOffer,
-      selectedOfferIndex: offerIndex,
+      manualOffer: nextManualOffer,
+      selectedOfferIndex,
     };
     onComplete?.(state);
   }, [onComplete, listings, showHistogram, drillHistory, displayedStats, buyOffers, searchTerm, listingPageUrl, manualOffer]);

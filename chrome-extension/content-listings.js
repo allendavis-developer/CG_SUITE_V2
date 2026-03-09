@@ -1273,6 +1273,44 @@
     return true;
   }
 
+  var OVERLAY_ID = 'cg-suite-ebay-loading-overlay';
+
+  function showEbayLoadingOverlay() {
+    if (document.getElementById(OVERLAY_ID)) return;
+    var overlay = document.createElement('div');
+    overlay.id = OVERLAY_ID;
+    overlay.setAttribute('aria-hidden', 'true');
+    overlay.style.cssText = [
+      'position: fixed',
+      'inset: 0',
+      'z-index: 2147483646',
+      'background: rgba(15, 23, 42, 0.75)',
+      'backdrop-filter: blur(8px)',
+      '-webkit-backdrop-filter: blur(8px)',
+      'display: flex',
+      'align-items: center',
+      'justify-content: center',
+      'pointer-events: auto',
+      'cursor: wait'
+    ].join(';');
+    overlay.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;gap:20px;">' +
+      '<div class="cg-suite-spinner" style="width:64px;height:64px;border:4px solid rgba(254,249,195,0.4);border-top-color:#facc15;border-radius:50%;animation:cg-suite-spin 0.9s linear infinite;"></div>' +
+      '<span style="font-family:system-ui,sans-serif;font-size:16px;font-weight:600;color:#f8fafc;">Setting up eBay page…</span>' +
+      '</div>';
+    var style = document.createElement('style');
+    style.id = 'cg-suite-ebay-overlay-style';
+    style.textContent = '@keyframes cg-suite-spin { to { transform: rotate(360deg); } }';
+    document.head.appendChild(style);
+    document.body.appendChild(overlay);
+  }
+
+  function removeEbayLoadingOverlay() {
+    var overlay = document.getElementById(OVERLAY_ID);
+    if (overlay) overlay.remove();
+    var styleEl = document.getElementById('cg-suite-ebay-overlay-style');
+    if (styleEl) styleEl.remove();
+  }
+
   async function showPanel(isRefine, marketComparisonContext) {
     if (document.getElementById('cg-suite-research-panel')) {
       if (typeof console !== 'undefined') console.log('[CG Suite content-listings] showPanel: panel already exists, skip');
@@ -1283,9 +1321,12 @@
       return;
     }
 
+    var isEbay = getSiteConfig() === SITE_CONFIGS.ebay;
+    if (isEbay) showEbayLoadingOverlay();
+
     // For eBay: auto-navigate to add the required filters. The tab keeps its ID so the
     // background will re-send WAITING_FOR_DATA once the page reloads with correct filters.
-    if (getSiteConfig() === SITE_CONFIGS.ebay && enforceEbayFilters()) {
+    if (isEbay && enforceEbayFilters()) {
       if (typeof console !== 'undefined') console.log('[CG Suite content-listings] showPanel: redirecting to enforce eBay filters');
       return;
     }
@@ -1297,6 +1338,8 @@
       return;
     }
 
+    if (isEbay) removeEbayLoadingOverlay();
+
     if (typeof console !== 'undefined') {
       console.log('[CG Suite content-listings] showPanel: injecting "Have you got the data yet?" panel');
     }
@@ -1304,6 +1347,34 @@
     const heading = isRefine ? 'Are you done?' : 'Have you got the data yet?';
     const buttonLabel = isRefine ? 'Yes, bring me back' : 'Yes';
     const contextHtml = buildContextHtml(marketComparisonContext || null);
+    const hasContext = !!contextHtml;
+
+    const contextSectionHtml = hasContext
+      ? `
+        <div id="cg-suite-research-context-wrapper" style="margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.25);">
+          <button id="cg-suite-research-toggle-context" style="
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            border-radius: 9999px;
+            border: 1px solid rgba(248,250,252,0.5);
+            background: rgba(15,23,42,0.4);
+            color: #e5e7eb;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+          ">
+            ▶ Show details
+          </button>
+          <div id="cg-suite-research-context" style="margin-top: 10px; display: none; font-size: 14px; line-height: 1.7;">
+            ${contextHtml}
+          </div>
+        </div>
+      `
+      : '';
 
     const panel = document.createElement('div');
     panel.id = 'cg-suite-research-panel';
@@ -1315,7 +1386,7 @@
         font-family: system-ui, sans-serif; min-width: 380px; max-width: 460px;
       ">
         <p style="margin: 0 0 16px 0; font-weight: 800; font-size: 20px;">${heading}</p>
-        ${contextHtml}
+        ${contextSectionHtml}
         <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 4px;">
           <button id="cg-suite-research-yes" style="
             width: 100%; padding: 16px 24px; background: #facc15; color: #020617;
@@ -1331,6 +1402,24 @@
       </div>
     `;
     document.body.appendChild(panel);
+
+    // Expand/collapse extra context when present
+    if (hasContext) {
+      const toggleBtn = document.getElementById('cg-suite-research-toggle-context');
+      const contextEl = document.getElementById('cg-suite-research-context');
+      if (toggleBtn && contextEl) {
+        let isOpen = false;
+        const updateToggleLabel = () => {
+          toggleBtn.textContent = (isOpen ? '▼ Hide details' : '▶ Show details');
+        };
+        updateToggleLabel();
+        toggleBtn.addEventListener('click', function () {
+          isOpen = !isOpen;
+          contextEl.style.display = isOpen ? 'block' : 'none';
+          updateToggleLabel();
+        });
+      }
+    }
 
     document.getElementById('cg-suite-research-yes').addEventListener('click', function () {
       if (!isListingsPage()) {

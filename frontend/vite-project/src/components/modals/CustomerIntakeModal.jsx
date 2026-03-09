@@ -5,7 +5,7 @@ import { createCustomer } from "@/services/api";
 export default function CustomerIntakeModal({ open = true, onClose }) {
   const [customerType, setCustomerType] = useState("existing"); // "existing" | "new"
   const [selectedCustomer, setSelectedCustomer] = useState("");
-  const [transactionType, setTransactionType] = useState("sale"); // "sale", "buyback", or "store_credit"
+  const [transactionType, setTransactionType] = useState("buyback"); // "sale", "buyback", or "store_credit"
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);

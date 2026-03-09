@@ -1,0 +1,789 @@
+import React, { useState, useEffect, useRef } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
+import { Header } from "@/components/ui/components";
+import EbayResearchForm from "@/components/forms/EbayResearchForm";
+import CashConvertersResearchForm from "@/components/forms/CashConvertersResearchForm";
+import { useNotification } from "@/contexts/NotificationContext";
+import SalePriceConfirmModal from "@/components/modals/SalePriceConfirmModal";
+import TinyModal from "@/components/ui/TinyModal";
+import { maybeShowSalePriceConfirm } from "./utils/researchCompletionHelpers";
+
+// ─── Right-click context menu (remove only) ────────────────────────────────
+const ContextMenu = ({ x, y, onClose, onRemove }) => {
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) onClose();
+    };
+    const handleEscape = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      ref={menuRef}
+      className="fixed z-50 min-w-[200px] py-1 border shadow-xl bg-white rounded-lg"
+      style={{ left: x, top: y, borderColor: 'var(--ui-border)' }}
+    >
+      <button
+        className="w-full px-4 py-2.5 text-left text-sm font-semibold hover:bg-red-50 transition-colors flex items-center gap-2 text-red-600"
+        onClick={() => { onRemove(); onClose(); }}
+      >
+        <span className="material-symbols-outlined text-[16px]">remove_circle</span>
+        Remove from reprice list
+      </button>
+    </div>
+  );
+};
+
+// ─── Item spec helpers (same logic as Negotiation.jsx) ────────────────────────
+const buildItemSpecs = (item) => {
+  if (!item) return null;
+  if (item.cexProductData?.specifications && Object.keys(item.cexProductData.specifications).length > 0) {
+    return item.cexProductData.specifications;
+  }
+  if (item.attributeValues && Object.values(item.attributeValues).some(v => v)) {
+    return Object.fromEntries(
+      Object.entries(item.attributeValues)
+        .filter(([, v]) => v)
+        .map(([k, v]) => [k.charAt(0).toUpperCase() + k.slice(1), v])
+    );
+  }
+  const specs = {};
+  if (item.storage)   specs['Storage']   = item.storage;
+  if (item.color)     specs['Colour']    = item.color;
+  if (item.network)   specs['Network']   = item.network;
+  if (item.condition) specs['Condition'] = item.condition;
+  return Object.keys(specs).length > 0 ? specs : null;
+};
+
+const buildInitialSearchQuery = (item) =>
+  item?.ebayResearchData?.searchTerm ||
+  item?.ebayResearchData?.lastSearchedTerm ||
+  item?.title ||
+  undefined;
+
+// Resolve our sale price for an item (repricing: ourSalePrice or ebay suggested)
+const resolveOurSalePrice = (item) => {
+  if (item?.ourSalePrice !== undefined && item.ourSalePrice !== null && item.ourSalePrice !== '') {
+    return Number(item.ourSalePrice);
+  }
+  if (item?.ebayResearchData?.stats?.suggestedPrice != null) {
+    return Number(item.ebayResearchData.stats.suggestedPrice);
+  }
+  return null;
+};
+
+// ─── Main component ────────────────────────────────────────────────────────────
+const RepricingNegotiation = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { showNotification } = useNotification();
+
+  const { cartItems } = location.state || {};
+
+  const [items, setItems] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Barcode state: { [itemId]: string[] }
+  const [barcodes, setBarcodes] = useState({});
+  const [barcodeModal, setBarcodeModal] = useState(null); // { item } | null
+  const [barcodeInput, setBarcodeInput] = useState('');
+
+  // Sale price confirm after research (shared with Negotiation)
+  const [salePriceConfirmModal, setSalePriceConfirmModal] = useState(null); // { itemId, oldPricePerUnit, newPricePerUnit, source }
+
+  // Research modal state
+  const [researchItem, setResearchItem] = useState(null);
+  const [cashConvertersResearchItem, setCashConvertersResearchItem] = useState(null);
+
+  // Right-click context menu
+  const [contextMenu, setContextMenu] = useState(null); // { x, y, item }
+
+  const hasInitialized = useRef(false);
+
+  useEffect(() => {
+    if (hasInitialized.current) return;
+    hasInitialized.current = true;
+
+    if (!cartItems || cartItems.length === 0) {
+      navigate('/repricing', { replace: true });
+      return;
+    }
+
+    setItems(cartItems.map(item => ({ ...item })));
+    setIsLoading(false);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Derived state ────────────────────────────────────────────────────────────
+  const activeItems = items.filter(i => !i.isRemoved);
+  const allItemsHaveBarcodes =
+    activeItems.length > 0 &&
+    activeItems.every(i => (barcodes[i.id] || []).length > 0);
+
+  // ── Handlers ─────────────────────────────────────────────────────────────────
+  const handleRemoveItem = (item) => {
+    setItems(prev => prev.filter(i => i.id !== item.id));
+    showNotification(`"${item.title || 'Item'}" removed from reprice list`, 'info');
+  };
+
+  const handleResearchComplete = (updatedState) => {
+    if (updatedState?.cancel) { setResearchItem(null); return; }
+    if (updatedState && researchItem) {
+      const currentItem = items.find(i => i.id === researchItem.id);
+      setItems(prev => prev.map(i =>
+        i.id !== researchItem.id ? i : { ...i, ebayResearchData: updatedState }
+      ));
+      maybeShowSalePriceConfirm(
+        updatedState,
+        currentItem,
+        researchItem,
+        setSalePriceConfirmModal,
+        resolveOurSalePrice,
+        'ebay'
+      );
+    }
+    setResearchItem(null);
+  };
+
+  const handleCashConvertersResearchComplete = (updatedState) => {
+    if (updatedState?.cancel) { setCashConvertersResearchItem(null); return; }
+    if (updatedState && cashConvertersResearchItem) {
+      const currentItem = items.find(i => i.id === cashConvertersResearchItem.id);
+      setItems(prev => prev.map(i =>
+        i.id !== cashConvertersResearchItem.id ? i : { ...i, cashConvertersResearchData: updatedState }
+      ));
+      maybeShowSalePriceConfirm(
+        updatedState,
+        currentItem,
+        cashConvertersResearchItem,
+        setSalePriceConfirmModal,
+        resolveOurSalePrice,
+        'cashConverters'
+      );
+    }
+    setCashConvertersResearchItem(null);
+  };
+
+  const handleProceed = () => {
+    for (const item of activeItems) {
+      if (!(barcodes[item.id] || []).length) {
+        showNotification(`Add at least one barcode for: ${item.title || 'Unknown Item'}`, 'error');
+        return;
+      }
+    }
+    showNotification("Repricing completed successfully!", 'success');
+    navigate("/repricing");
+  };
+
+  // ── Loading state ─────────────────────────────────────────────────────────────
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: '#f8f9fa' }}>
+        <p className="text-sm text-gray-500">Loading reprice list...</p>
+      </div>
+    );
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────────
+  return (
+    <div className="text-sm overflow-hidden min-h-screen flex flex-col" style={{ background: '#f8f9fa', color: '#1a1a1a' }}>
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+      <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
+      <style>{`
+        :root {
+          --brand-blue: #144584;
+          --brand-orange: #f7b918;
+          --ui-border: #e5e7eb;
+          --text-muted: #64748b;
+        }
+        body { font-family: 'Inter', sans-serif; }
+        .material-symbols-outlined { font-size: 20px; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #144584; }
+        .reprice-table th {
+          background: #144584;
+          color: white;
+          font-weight: 600;
+          font-size: 10px;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          padding: 0.75rem;
+          border-right: 1px solid rgba(255,255,255,0.1);
+          position: sticky;
+          top: 0;
+          z-index: 10;
+        }
+        .reprice-table th:last-child { border-right: 0; }
+        .reprice-table td {
+          padding: 0.5rem 0.75rem;
+          border-right: 1px solid #e5e7eb;
+          vertical-align: middle;
+        }
+        .reprice-table td:last-child { border-right: 0; }
+        .reprice-table tr { border-bottom: 1px solid #e5e7eb; }
+        .reprice-table tr:hover { background: rgba(20,69,132,0.05); }
+      `}</style>
+
+      <Header />
+
+      <main className="flex flex-1 overflow-hidden h-[calc(100vh-61px)]">
+
+        {/* ── Main Table Section ─────────────────────────────────────────────── */}
+        <section className="flex-1 bg-white flex flex-col overflow-hidden">
+
+          {/* Top Controls */}
+          <div className="p-6 border-b" style={{ borderColor: '#e5e7eb' }}>
+            <div className="flex items-center justify-between gap-6">
+              <button
+                onClick={() => navigate('/repricing', { state: { preserveCart: true, cartItems: items } })}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg border font-medium text-sm transition-all hover:shadow-md"
+                style={{ borderColor: '#e5e7eb', color: '#144584' }}
+              >
+                <span className="material-symbols-outlined text-lg">arrow_back</span>
+                Back to Reprice List
+              </button>
+
+              <div
+                className="flex items-center gap-3 px-5 py-3 rounded-xl border"
+                style={{ borderColor: 'rgba(20,69,132,0.2)', background: 'rgba(20,69,132,0.03)' }}
+              >
+                <span className="material-symbols-outlined text-2xl" style={{ color: '#144584' }}>sell</span>
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-wider" style={{ color: '#144584' }}>
+                    Repricing Session
+                  </p>
+                  <p className="text-xs" style={{ color: '#64748b' }}>
+                    {activeItems.length} item{activeItems.length !== 1 ? 's' : ''} to reprice
+                  </p>
+                </div>
+              </div>
+
+              <div className="text-right">
+                <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: '#64748b' }}>
+                  Items
+                </p>
+                <p className="text-lg font-bold" style={{ color: '#144584' }}>
+                  {activeItems.length}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Table */}
+          <div className="overflow-auto flex-1">
+            <table className="w-full reprice-table border-collapse text-left">
+              <thead>
+                <tr>
+                  <th className="w-12 text-center">Qty</th>
+                  <th className="min-w-[220px]">Item Name &amp; Attributes</th>
+                  <th className="w-24">CeX Sell</th>
+                  <th className="w-28">Our Sale Price</th>
+                  <th className="w-36">eBay Price</th>
+                  <th className="w-36">Cash Converters</th>
+                  <th className="w-44">Barcodes</th>
+                </tr>
+              </thead>
+
+              <tbody className="text-xs">
+                {items.map((item, index) => {
+                  const quantity = item.quantity || 1;
+                  const ebayData = item.ebayResearchData;
+                  const ccData = item.cashConvertersResearchData;
+                  const cexOutOfStock = item.cexOutOfStock || item.cexProductData?.isOutOfStock || false;
+                  const itemBarcodes = barcodes[item.id] || [];
+                  const hasBarcodes = itemBarcodes.length > 0;
+
+                  // Our Sale Price — same logic as Negotiation.jsx
+                  const perUnitOurPrice =
+                    item.ourSalePrice === '' ? null :
+                    (item.ourSalePrice !== undefined && item.ourSalePrice !== null && item.ourSalePrice !== ''
+                      ? Number(item.ourSalePrice)
+                      : (item.ebayResearchData?.stats?.suggestedPrice != null
+                          ? Number(item.ebayResearchData.stats.suggestedPrice)
+                          : null));
+                  const totalOurPrice =
+                    perUnitOurPrice != null && !Number.isNaN(perUnitOurPrice)
+                      ? perUnitOurPrice * quantity
+                      : null;
+                  const isEditingRowTotal = item.ourSalePriceInput !== undefined;
+                  const ourSalePriceDisplayValue = isEditingRowTotal
+                    ? item.ourSalePriceInput
+                    : (totalOurPrice != null && !Number.isNaN(totalOurPrice) ? totalOurPrice.toFixed(2) : '');
+
+                  const handleOurSalePriceBlur = () => {
+                    const raw = (item.ourSalePriceInput ?? ourSalePriceDisplayValue).replace(/[£,]/g, '').trim();
+                    const parsedTotal = parseFloat(raw);
+                    const safeQty = quantity || 1;
+                    setItems(prev => prev.map(i => {
+                      if (i.id !== item.id) return i;
+                      const next = { ...i };
+                      delete next.ourSalePriceInput;
+                      if (raw === '' || Number.isNaN(parsedTotal) || parsedTotal <= 0) {
+                        next.ourSalePrice = '';
+                        return next;
+                      }
+                      next.ourSalePrice = (parsedTotal / safeQty).toFixed(2);
+                      return next;
+                    }));
+                  };
+
+                  return (
+                    <tr
+                      key={item.id || index}
+                      className={item.isRemoved ? 'opacity-60' : ''}
+                      style={item.isRemoved ? { textDecoration: 'line-through' } : {}}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setContextMenu({ x: e.clientX, y: e.clientY, item });
+                      }}
+                    >
+                      {/* Qty */}
+                      <td className="text-center">
+                        <input
+                          className="w-12 text-center border rounded px-1 py-0.5 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-[#144584]"
+                          type="number"
+                          min="1"
+                          value={quantity}
+                          onChange={(e) => {
+                            const parsed = parseInt(e.target.value, 10);
+                            const safe = Number.isNaN(parsed) || parsed <= 0 ? 1 : parsed;
+                            setItems(prev => prev.map(i => i.id === item.id ? { ...i, quantity: safe } : i));
+                          }}
+                        />
+                      </td>
+
+                      {/* Item Name & Attributes */}
+                      <td>
+                        <div
+                          className="font-bold text-[13px] flex items-center gap-2 flex-wrap"
+                          style={{ color: '#144584' }}
+                        >
+                          {item.title || 'N/A'}
+                          {cexOutOfStock && (
+                            <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-red-100 text-red-700 border border-red-300">
+                              CeX out of stock
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[9px] uppercase font-medium mt-0.5" style={{ color: '#64748b' }}>
+                          {(item.cexBuyPrice != null || item.cexSellPrice != null)
+                            ? (item.subtitle || '')
+                            : (item.subtitle || item.category || 'No details')}
+                          {item.model && ` | ${item.model}`}
+                        </div>
+                        <div className="text-[9px] mt-1 text-slate-400 italic">Right-click to remove</div>
+                      </td>
+
+                      {/* CeX Sell */}
+                      <td className="font-medium text-blue-800 align-top">
+                        {item.cexSellPrice != null ? (
+                          <div>
+                            {item.cexUrl ? (
+                              <a
+                                href={item.cexUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="underline decoration-dotted"
+                              >
+                                £{(item.cexSellPrice * quantity).toFixed(2)}
+                              </a>
+                            ) : (
+                              <div>£{(item.cexSellPrice * quantity).toFixed(2)}</div>
+                            )}
+                            {quantity > 1 && (
+                              <div className="text-[9px] opacity-70">
+                                (£{item.cexSellPrice.toFixed(2)} × {quantity})
+                              </div>
+                            )}
+                          </div>
+                        ) : '—'}
+                      </td>
+
+                      {/* Our Sale Price — editable, same behaviour as negotiate mode */}
+                      <td className="font-medium text-purple-700">
+                        <div>
+                          <input
+                            className="w-full border-0 text-xs font-semibold text-center px-3 py-2 focus:outline-none focus:ring-0 bg-white rounded"
+                            placeholder="£0.00"
+                            type="text"
+                            value={ourSalePriceDisplayValue}
+                            onChange={(e) => {
+                              const value = e.target.value.replace(/[£,]/g, '').trim();
+                              setItems(prev =>
+                                prev.map(i => i.id === item.id ? { ...i, ourSalePriceInput: value } : i)
+                              );
+                            }}
+                            onBlur={handleOurSalePriceBlur}
+                            onFocus={() => {
+                              if (item.ourSalePriceInput === undefined && ourSalePriceDisplayValue !== '') {
+                                setItems(prev =>
+                                  prev.map(i => i.id === item.id ? { ...i, ourSalePriceInput: ourSalePriceDisplayValue } : i)
+                                );
+                              }
+                            }}
+                          />
+                          {!isEditingRowTotal && totalOurPrice != null && !Number.isNaN(totalOurPrice) && (
+                            <div className="text-[9px] opacity-70 mt-0.5">
+                              £{totalOurPrice.toFixed(2)}
+                              {quantity > 1 && (
+                                <span>
+                                  {` (£${perUnitOurPrice != null && !Number.isNaN(perUnitOurPrice)
+                                    ? perUnitOurPrice.toFixed(2) : '0.00'} × ${quantity})`}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* eBay Price */}
+                      <td>
+                        {ebayData?.stats?.median ? (
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="text-[13px] font-medium" style={{ color: '#144584' }}>
+                              <div>£{(Number(ebayData.stats.median) * quantity).toFixed(2)}</div>
+                              {quantity > 1 && (
+                                <div className="text-[9px] opacity-70">
+                                  (£{Number(ebayData.stats.median).toFixed(2)} × {quantity})
+                                </div>
+                              )}
+                            </div>
+                            <button
+                              className="flex items-center justify-center size-7 rounded transition-colors shrink-0"
+                              style={{ background: '#f7b918', color: '#144584' }}
+                              onClick={() => setResearchItem(item)}
+                              title="View/Refine eBay Research"
+                            >
+                              <span className="material-symbols-outlined text-[16px]">search_insights</span>
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[13px] font-medium" style={{ color: '#64748b' }}>—</span>
+                            <button
+                              className="flex items-center justify-center size-7 rounded transition-colors shrink-0"
+                              style={{ background: '#f7b918', color: '#144584' }}
+                              onClick={() => setResearchItem(item)}
+                              title="Research eBay"
+                            >
+                              <span className="material-symbols-outlined text-[16px]">search_insights</span>
+                            </button>
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Cash Converters */}
+                      <td>
+                        {ccData?.stats?.median ? (
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="text-[13px] font-medium" style={{ color: '#144584' }}>
+                              <div>£{(Number(ccData.stats.median) * quantity).toFixed(2)}</div>
+                              {quantity > 1 && (
+                                <div className="text-[9px] opacity-70">
+                                  (£{Number(ccData.stats.median).toFixed(2)} × {quantity})
+                                </div>
+                              )}
+                            </div>
+                            <button
+                              className="flex items-center justify-center size-7 rounded transition-colors shrink-0"
+                              style={{ background: '#f7b918', color: '#144584' }}
+                              onClick={() => setCashConvertersResearchItem(item)}
+                              title="View/Refine Cash Converters Research"
+                            >
+                              <span className="material-symbols-outlined text-[16px]">store</span>
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[13px] font-medium" style={{ color: '#64748b' }}>—</span>
+                            <button
+                              className="flex items-center justify-center size-7 rounded transition-colors shrink-0"
+                              style={{ background: '#f7b918', color: '#144584' }}
+                              onClick={() => setCashConvertersResearchItem(item)}
+                              title="Research Cash Converters"
+                            >
+                              <span className="material-symbols-outlined text-[16px]">store</span>
+                            </button>
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Barcodes */}
+                      <td>
+                        <button
+                          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-all w-full ${
+                            hasBarcodes
+                              ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                              : 'border-red-300 bg-red-50 text-red-600 hover:bg-red-100'
+                          }`}
+                          onClick={() => { setBarcodeModal({ item }); setBarcodeInput(''); }}
+                          title="Click to manage barcodes"
+                        >
+                          <span className="material-symbols-outlined text-[14px]">barcode</span>
+                          <span className="flex-1 text-left">
+                            {hasBarcodes
+                              ? `${itemBarcodes.length} barcode${itemBarcodes.length !== 1 ? 's' : ''}`
+                              : 'Add barcodes'}
+                          </span>
+                          {!hasBarcodes && (
+                            <span className="material-symbols-outlined text-[14px] text-red-500">error</span>
+                          )}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+
+                <tr className="h-10 opacity-50"><td colSpan="7"></td></tr>
+                <tr className="h-10 opacity-50"><td colSpan="7"></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        {/* ── Sidebar ────────────────────────────────────────────────────────── */}
+        <aside
+          className="w-80 border-l flex flex-col bg-white shrink-0"
+          style={{ borderColor: 'rgba(20,69,132,0.2)' }}
+        >
+          {/* Header */}
+          <div className="px-5 py-4 border-b bg-blue-900" style={{ borderColor: 'rgba(20,69,132,0.2)' }}>
+            <div className="flex items-center gap-3">
+              <span className="material-symbols-outlined text-yellow-400 text-2xl">sell</span>
+              <div>
+                <p className="text-sm font-black uppercase tracking-wider text-white">Reprice List</p>
+                <p className="text-xs text-blue-200">
+                  {activeItems.length} item{activeItems.length !== 1 ? 's' : ''}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Barcode status */}
+          <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            <div>
+              <p
+                className="text-[10px] font-black uppercase tracking-wider mb-3"
+                style={{ color: '#144584' }}
+              >
+                Barcode Status
+              </p>
+              <div className="space-y-2">
+                {activeItems.map(i => {
+                  const count = (barcodes[i.id] || []).length;
+                  return (
+                    <div key={i.id} className="flex items-center justify-between gap-2">
+                      <span className="text-xs truncate flex-1" style={{ color: '#64748b' }}>
+                        {i.title}
+                      </span>
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                          count > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'
+                        }`}
+                      >
+                        {count > 0 ? `${count} barcode${count !== 1 ? 's' : ''}` : 'missing'}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div
+            className="p-6 bg-white border-t space-y-4"
+            style={{ borderColor: 'rgba(20,69,132,0.2)' }}
+          >
+            <button
+              className={`w-full font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 group active:scale-[0.98] ${
+                !allItemsHaveBarcodes ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+              style={{
+                background: '#f7b918',
+                color: '#144584',
+                boxShadow: '0 10px 15px -3px rgba(247,185,24,0.3)'
+              }}
+              onClick={handleProceed}
+              disabled={!allItemsHaveBarcodes}
+            >
+              <span className="text-base uppercase tracking-tight">Proceed with Repricing</span>
+              <span className="material-symbols-outlined text-xl group-hover:translate-x-1 transition-transform">
+                arrow_forward
+              </span>
+            </button>
+            {!allItemsHaveBarcodes && (
+              <p className="text-[10px] text-center text-red-600 font-semibold -mt-2">
+                Add barcodes to all items to proceed
+              </p>
+            )}
+          </div>
+        </aside>
+      </main>
+
+      {/* ── Context Menu ───────────────────────────────────────────────────────── */}
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+          onRemove={() => handleRemoveItem(contextMenu.item)}
+        />
+      )}
+
+      <SalePriceConfirmModal
+        modalState={salePriceConfirmModal}
+        items={items}
+        setItems={setItems}
+        onClose={() => setSalePriceConfirmModal(null)}
+        useResearchSuggestedPrice={false}
+      />
+
+      {/* ── Barcode Modal ──────────────────────────────────────────────────────── */}
+      {barcodeModal && (() => {
+        const modalItem = barcodeModal.item;
+        const itemBarcodes = barcodes[modalItem.id] || [];
+
+        const addBarcode = () => {
+          const code = barcodeInput.trim();
+          if (!code) return;
+          setBarcodes(prev => ({
+            ...prev,
+            [modalItem.id]: [...(prev[modalItem.id] || []), code]
+          }));
+          setBarcodeInput('');
+        };
+
+        const removeBarcode = (code) => {
+          setBarcodes(prev => ({
+            ...prev,
+            [modalItem.id]: (prev[modalItem.id] || []).filter(b => b !== code)
+          }));
+        };
+
+        return (
+          <TinyModal title="Barcodes" onClose={() => setBarcodeModal(null)}>
+            <p className="text-xs font-semibold mb-4" style={{ color: '#144584' }}>
+              {modalItem.title}
+            </p>
+
+            {itemBarcodes.length > 0 ? (
+              <div className="space-y-1.5 mb-4 max-h-40 overflow-y-auto">
+                {itemBarcodes.map((code, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg bg-gray-50 border border-gray-200"
+                  >
+                    <span className="text-xs font-mono font-semibold" style={{ color: '#144584' }}>
+                      {code}
+                    </span>
+                    <button
+                      onClick={() => removeBarcode(code)}
+                      className="text-red-400 hover:text-red-600 transition-colors"
+                      title="Remove barcode"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">close</span>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400 italic mb-4">No barcodes added yet.</p>
+            )}
+
+            <div className="flex gap-2 mb-4">
+              <input
+                autoFocus
+                className="flex-1 px-3 py-2 border rounded-lg text-sm font-mono focus:outline-none focus:ring-2"
+                style={{ borderColor: 'rgba(20,69,132,0.3)', color: '#144584' }}
+                type="text"
+                placeholder="Enter barcode"
+                value={barcodeInput}
+                onChange={(e) => setBarcodeInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') addBarcode(); }}
+              />
+              <button
+                className="px-3 py-2 rounded-lg text-sm font-bold transition-all hover:opacity-90"
+                style={{ background: '#144584', color: 'white' }}
+                onClick={addBarcode}
+              >
+                Add
+              </button>
+            </div>
+
+            <button
+              className="w-full py-2.5 rounded-lg text-sm font-bold transition-all hover:opacity-90"
+              style={{ background: '#f7b918', color: '#144584' }}
+              onClick={() => setBarcodeModal(null)}
+            >
+              OK
+            </button>
+          </TinyModal>
+        );
+      })()}
+
+      {/* ── eBay Research Modal ────────────────────────────────────────────────── */}
+      {researchItem && (
+        <EbayResearchForm
+          mode="modal"
+          category={researchItem.categoryObject || { path: [researchItem.category], name: researchItem.category }}
+          savedState={researchItem.ebayResearchData}
+          onComplete={handleResearchComplete}
+          initialHistogramState={true}
+          readOnly={false}
+          showManualOffer={false}
+          initialSearchQuery={buildInitialSearchQuery(researchItem)}
+          marketComparisonContext={{
+            cexSalePrice: researchItem?.cexSellPrice ?? null,
+            ourSalePrice: researchItem?.ourSalePrice ?? null,
+            ebaySalePrice: researchItem?.ebayResearchData?.stats?.median ?? null,
+            cashConvertersSalePrice: researchItem?.cashConvertersResearchData?.stats?.median ?? null,
+            itemTitle: researchItem?.title || null,
+            itemCondition: researchItem?.condition || null,
+            itemSpecs: researchItem?.isCustomCeXItem ? null : buildItemSpecs(researchItem),
+            cexSpecs: researchItem?.isCustomCeXItem ? buildItemSpecs(researchItem) : null,
+            ebaySearchTerm: researchItem?.ebayResearchData?.searchTerm || null,
+            cashConvertersSearchTerm: researchItem?.cashConvertersResearchData?.searchTerm || null,
+          }}
+        />
+      )}
+
+      {/* ── Cash Converters Research Modal ────────────────────────────────────── */}
+      {cashConvertersResearchItem && (
+        <CashConvertersResearchForm
+          mode="modal"
+          category={cashConvertersResearchItem.categoryObject || { path: [cashConvertersResearchItem.category], name: cashConvertersResearchItem.category }}
+          savedState={cashConvertersResearchItem.cashConvertersResearchData}
+          onComplete={handleCashConvertersResearchComplete}
+          initialHistogramState={true}
+          readOnly={false}
+          showManualOffer={false}
+          initialSearchQuery={buildInitialSearchQuery(cashConvertersResearchItem)}
+          marketComparisonContext={{
+            cexSalePrice: cashConvertersResearchItem?.cexSellPrice ?? null,
+            ourSalePrice: cashConvertersResearchItem?.ourSalePrice ?? null,
+            ebaySalePrice: cashConvertersResearchItem?.ebayResearchData?.stats?.median ?? null,
+            cashConvertersSalePrice: cashConvertersResearchItem?.cashConvertersResearchData?.stats?.median ?? null,
+            itemTitle: cashConvertersResearchItem?.title || null,
+            itemCondition: cashConvertersResearchItem?.condition || null,
+            itemSpecs: cashConvertersResearchItem?.isCustomCeXItem ? null : buildItemSpecs(cashConvertersResearchItem),
+            cexSpecs: cashConvertersResearchItem?.isCustomCeXItem ? buildItemSpecs(cashConvertersResearchItem) : null,
+            ebaySearchTerm: cashConvertersResearchItem?.ebayResearchData?.searchTerm || null,
+            cashConvertersSearchTerm: cashConvertersResearchItem?.cashConvertersResearchData?.searchTerm || null,
+          }}
+        />
+      )}
+    </div>
+  );
+};
+
+export default RepricingNegotiation;

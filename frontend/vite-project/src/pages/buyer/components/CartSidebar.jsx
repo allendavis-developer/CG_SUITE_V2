@@ -12,11 +12,12 @@ const CartSidebar = ({
   customerData,
   currentRequestId,
   onFinalize,
-  onTransactionTypeChange,  // <--- add this
-  onItemSelect = () => {},   // <--- new: callback when item is clicked
-  selectedCartItemId = null  // <--- new: track which item is selected
-
+  onTransactionTypeChange,
+  onItemSelect = () => {},
+  selectedCartItemId = null,
+  mode = 'buyer'
 }) => {
+  const isRepricing = mode === 'repricing';
   const [isFinalizing, setIsFinalizing] = useState(false);
 
   const navigate = useNavigate();
@@ -82,13 +83,24 @@ const CartSidebar = ({
 
   return (
     <aside className="w-1/5 min-w-0 min-h-0 shrink-0 border-l border-blue-900/20 flex flex-col bg-white overflow-hidden">
-      {/* Customer Header */}
-      <CustomerTransactionHeader
-        customer={customerData}
-        transactionType={customerData.transactionType}      // controlled by parent
-        onTransactionChange={onTransactionTypeChange}      // call parent setter
-        containerClassName="shadow-md shadow-blue-900/10"
-      />
+      {isRepricing ? (
+        <div className="px-4 py-3 border-b border-blue-900/20 bg-blue-900 shadow-md shadow-blue-900/10">
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-yellow-400 text-base">sell</span>
+            <div>
+              <p className="text-xs font-black uppercase tracking-wider text-white">Reprice List</p>
+              <p className="text-[10px] text-blue-200">{cartItems.length} item{cartItems.length !== 1 ? 's' : ''}</p>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <CustomerTransactionHeader
+          customer={customerData}
+          transactionType={customerData.transactionType}
+          onTransactionChange={onTransactionTypeChange}
+          containerClassName="shadow-md shadow-blue-900/10"
+        />
+      )}
 
 
 
@@ -96,8 +108,8 @@ const CartSidebar = ({
       <div className="flex-1 min-h-0 overflow-y-auto buyer-panel-scroll p-4 space-y-3 bg-white">
         {cartItems.length === 0 ? (
           <div className="text-center py-12">
-            <Icon name="shopping_cart" className="text-4xl text-gray-300 mb-2" />
-            <p className="text-sm text-gray-500">No items in cart</p>
+            <Icon name={isRepricing ? 'sell' : 'shopping_cart'} className="text-4xl text-gray-300 mb-2" />
+            <p className="text-sm text-gray-500">No items in {isRepricing ? 'reprice list' : 'cart'}</p>
           </div>
         ) : (
           <>
@@ -189,78 +201,88 @@ const CartSidebar = ({
                 </div>
               </div>
 
-              {/* Read-only Offers Display */}
-              <div className="mt-3 pt-2 border-t border-gray-100">
-                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1">
-                  Valuation Options {customerData.transactionType === 'store_credit' ? '(Voucher)' : '(Cash)'}:
-                </p>
-                <div className="flex flex-wrap items-center gap-1.5 text-xs text-gray-600">
-                  {item.offers.map((offer, index) => (
-                    <React.Fragment key={offer.id}>
-                      <span
-                        className={`font-medium px-2 py-0.5 rounded ${
-                          item.selectedOfferId === offer.id
-                            ? 'bg-blue-600 text-white'
-                            : ''
-                        }`}
-                      >
-                        £{offer.price.toFixed(2)}
-                      </span>
-                      {index < item.offers.length - 1 && (
-                        <span className="text-gray-300">|</span>
-                      )}
-                    </React.Fragment>
-                  ))}
+              {/* Read-only Offers Display — hidden in repricing mode */}
+              {!isRepricing && (item.offers?.length > 0 || (item.manualOffer && item.selectedOfferId === 'manual')) && (
+                <div className="mt-3 pt-2 border-t border-gray-100">
+                  <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1">
+                    Valuation Options {customerData.transactionType === 'store_credit' ? '(Voucher)' : '(Cash)'}:
+                  </p>
+                  <div className="flex flex-wrap items-center gap-1.5 text-xs text-gray-600">
+                    {item.offers?.map((offer, index) => (
+                      <React.Fragment key={offer.id}>
+                        <span
+                          className={`font-medium px-2 py-0.5 rounded ${
+                            item.selectedOfferId === offer.id
+                              ? 'bg-blue-600 text-white'
+                              : ''
+                          }`}
+                        >
+                          £{offer.price.toFixed(2)}
+                        </span>
+                        {index < item.offers.length - 1 && (
+                          <span className="text-gray-300">|</span>
+                        )}
+                      </React.Fragment>
+                    ))}
+                    {item.manualOffer && item.selectedOfferId === 'manual' && (
+                      <>
+                        {item.offers?.length ? <span className="text-gray-300">|</span> : null}
+                        <span className="font-medium px-2 py-0.5 rounded bg-blue-600 text-white">
+                          £{Number(item.manualOffer).toFixed(2)}
+                        </span>
+                      </>
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           ))}
           </>
         )}
       </div>
 
-     {/* Footer – Offer Range + Action */}
+      {/* Footer – Offer Range (buyer only) + Action */}
       <div className="p-6 bg-white border-t border-blue-900/20 space-y-4">
-        
-        {/* Offer Min / Max */}
-        <div className="space-y-1">
-          <div className="flex justify-between items-baseline">
-            <div className="flex flex-col">
-              <span className="text-2xl font-black uppercase tracking-widest text-blue-900">
-                Offer Min
-              </span>
-              <span className="text-[9px] text-gray-500 font-bold">
-                {customerData.transactionType === 'store_credit' ? '(Voucher)' : '(Cash)'}
+
+        {/* Offer Min / Max — hidden in repricing mode */}
+        {!isRepricing && (
+          <div className="space-y-1">
+            <div className="flex justify-between items-baseline">
+              <div className="flex flex-col">
+                <span className="text-2xl font-black uppercase tracking-widest text-blue-900">
+                  Offer Min
+                </span>
+                <span className="text-[9px] text-gray-500 font-bold">
+                  {customerData.transactionType === 'store_credit' ? '(Voucher)' : '(Cash)'}
+                </span>
+              </div>
+              <span className="text-3xl font-black text-blue-900 tabular-nums">
+                {offerMin !== null ? `£${offerMin.toFixed(2)}` : '—'}
               </span>
             </div>
-            <span className="text-3xl font-black text-blue-900 tabular-nums">
-              {offerMin !== null ? `£${offerMin.toFixed(2)}` : '—'}
-            </span>
-          </div>
-
-          <div className="flex justify-between items-baseline">
-            <div className="flex flex-col">
-              <span className="text-2xl font-black uppercase tracking-widest text-blue-900">
-                Offer Max
-              </span>
-              <span className="text-[9px] text-gray-500 font-bold">
-                {customerData.transactionType === 'store_credit' ? '(Voucher)' : '(Cash)'}
+            <div className="flex justify-between items-baseline">
+              <div className="flex flex-col">
+                <span className="text-2xl font-black uppercase tracking-widest text-blue-900">
+                  Offer Max
+                </span>
+                <span className="text-[9px] text-gray-500 font-bold">
+                  {customerData.transactionType === 'store_credit' ? '(Voucher)' : '(Cash)'}
+                </span>
+              </div>
+              <span className="text-3xl font-black text-blue-900 tabular-nums">
+                {offerMax !== null ? `£${offerMax.toFixed(2)}` : '—'}
               </span>
             </div>
-            <span className="text-3xl font-black text-blue-900 tabular-nums">
-              {offerMax !== null ? `£${offerMax.toFixed(2)}` : '—'}
-            </span>
           </div>
-        </div>
+        )}
 
-
-        {/* Negotiate Button */}
+        {/* Proceed Button */}
         <Button 
           variant="primary" 
           size="lg" 
           className="w-full group"
           onClick={() => {
-            navigate('/negotiation', { 
+            navigate(isRepricing ? '/repricing-negotiation' : '/negotiation', { 
               state: { 
                 cartItems, 
                 customerData,
@@ -276,7 +298,7 @@ const CartSidebar = ({
             <Icon name="sync" className="animate-spin" />
           ) : (
             <>
-              Negotiate
+              {isRepricing ? 'View Reprice List' : 'Negotiate'}
               <Icon
                 name="arrow_forward"
                 className="ml-2 text-sm group-hover:translate-x-1 transition-transform"

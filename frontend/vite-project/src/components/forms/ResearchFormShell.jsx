@@ -635,20 +635,43 @@ export default function ResearchFormShell({
     return (
       <div className="flex flex-wrap items-center gap-4">
         {buyOffers.map(({ price }, idx) => (
-          <HorizontalOfferCard
+          <div
             key={idx}
-            title={offerLabels[idx] || `${idx + 1}th Offer`}
-            price={`£${formatStat(price)}`}
-            margin={Math.round([0.6, 0.5, 0.4][idx] * 100)}
-            isHighlighted={showManualOffer && selectedOfferIndex === idx}
-            onClick={
+            onContextMenu={
               useAddWithOfferFlow
-                ? () => onAddToCartWithOffer(idx)
-                : showManualOffer && !readOnly
-                  ? () => handleOfferClick(price, idx)
-                  : undefined
+                ? (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const basePrice = Number(price);
+                    const manualValue = Number.isFinite(basePrice) && basePrice > 0 ? basePrice.toFixed(2) : '';
+                    const raw = window.prompt('Enter manual per-item offer (£):', manualValue);
+                    if (raw == null) return;
+                    const cleaned = String(raw).replace(/[£,]/g, '').trim();
+                    const parsed = parseFloat(cleaned);
+                    if (!Number.isFinite(parsed) || parsed <= 0) return;
+                    onAddToCartWithOffer({
+                      type: 'manual',
+                      amount: parsed,
+                      baseIndex: idx,
+                    });
+                  }
+                : undefined
             }
-          />
+          >
+            <HorizontalOfferCard
+              title={offerLabels[idx] || `${idx + 1}th Offer`}
+              price={`£${formatStat(price)}`}
+              margin={Math.round([0.6, 0.5, 0.4][idx] * 100)}
+              isHighlighted={showManualOffer && selectedOfferIndex === idx}
+              onClick={
+                useAddWithOfferFlow
+                  ? () => onAddToCartWithOffer(idx)
+                  : showManualOffer && !readOnly
+                    ? () => handleOfferClick(price, idx)
+                    : undefined
+              }
+            />
+          </div>
         ))}
         {useAddWithOfferFlow && (
           <div

@@ -45,8 +45,10 @@ const MainContent = ({
   cexProductData = null,
   setCexProductData = null,
   onClearCeXProduct = null,
-  onDeselectCartItem = null
+  onDeselectCartItem = null,
+  mode = 'buyer'
 }) => {
+  const isRepricing = mode === 'repricing';
   // Determine if we should use voucher offers based on transaction type
   const useVoucherOffers = customerData?.transactionType === 'store_credit';
   
@@ -310,18 +312,31 @@ const MainContent = ({
   };
 
 
-  const handleAddToCart = async (offerId) => {
+  const handleAddToCart = async (offerArg) => {
     if (!selectedModel || !variant) {
       alert('Please select a variant');
       return;
     }
 
-    if (!offers || offers.length === 0) {
+    if (!isRepricing && (!offers || offers.length === 0)) {
       alert('No offers available. Please wait for offers to load.');
       return;
     }
 
-    const selectedOfferIdForItem = offerId === undefined ? (offers[0]?.id ?? null) : offerId;
+    let selectedOfferIdForItem = null;
+    let manualOfferPerUnit = null;
+
+    if (offerArg && typeof offerArg === 'object' && offerArg.type === 'manual') {
+      selectedOfferIdForItem = 'manual';
+      manualOfferPerUnit = Number(offerArg.amount);
+      if (!manualOfferPerUnit || manualOfferPerUnit <= 0) {
+        alert('Please enter a valid manual offer amount.');
+        return;
+      }
+    } else {
+      const offerId = offerArg;
+      selectedOfferIdForItem = isRepricing ? null : (offerId === undefined ? (offers[0]?.id ?? null) : offerId);
+    }
     const selectedVariant = variants.find(v => v.cex_sku === variant);
 
     // Get the currently displayed offers (based on transaction type)
@@ -332,17 +347,17 @@ const MainContent = ({
     }));
 
     // Store both cash and voucher offers for flexibility in negotiation
-    const cashOffers = referenceData?.cash_offers?.map(o => ({
-      id: o.id,
-      title: o.title,
-      price: Number(o.price)
-    })) || [];
+      const cashOffers = referenceData?.cash_offers?.map(o => ({
+        id: o.id,
+        title: o.title,
+        price: Number(o.price)
+      })) || [];
 
-    const voucherOffers = referenceData?.voucher_offers?.map(o => ({
-      id: o.id,
-      title: o.title,
-      price: Number(o.price)
-    })) || [];
+      const voucherOffers = referenceData?.voucher_offers?.map(o => ({
+        id: o.id,
+        title: o.title,
+        price: Number(o.price)
+      })) || [];
 
     const variantId = selectedVariant?.variant_id;
     const isDuplicateCeXItem = cartItems.some(
@@ -382,11 +397,15 @@ const MainContent = ({
       referenceData: referenceData,
       request_item_id: null,
       offerType: useVoucherOffers ? 'voucher' : 'cash',
-      selectedOfferId: selectedOfferIdForItem
+      selectedOfferId: selectedOfferIdForItem,
+      manualOffer: manualOfferPerUnit != null ? manualOfferPerUnit.toFixed(2) : null,
     };
 
     try {
-      if (isDuplicateCeXItem) {
+      if (isRepricing) {
+        // No backend request in repricing mode — just add to the reprice list
+        addToCart(cartItem);
+      } else if (isDuplicateCeXItem) {
         addToCart(cartItem);
       } else {
         const requestItemId = await createOrAppendRequestItem({
@@ -430,9 +449,23 @@ const MainContent = ({
       }));
 
       const displayOffers = useVoucherOffers ? voucherOffers : cashOffers;
-      const selectedOfferId = data.selectedOfferIndex != null && data.selectedOfferIndex >= 0 && displayOffers[data.selectedOfferIndex]
-        ? displayOffers[data.selectedOfferIndex].id
-        : null;
+
+      let selectedOfferId = null;
+      let manualOfferValue = null;
+      if (data.selectedOfferIndex === 'manual' && data.manualOffer) {
+        selectedOfferId = 'manual';
+        const parsed = parseFloat(String(data.manualOffer).replace(/[£,]/g, ''));
+        if (!Number.isNaN(parsed) && parsed > 0) {
+          manualOfferValue = parsed.toFixed(2);
+        }
+      } else if (
+        data.selectedOfferIndex != null &&
+        typeof data.selectedOfferIndex === 'number' &&
+        data.selectedOfferIndex >= 0 &&
+        displayOffers[data.selectedOfferIndex]
+      ) {
+        selectedOfferId = displayOffers[data.selectedOfferIndex].id;
+      }
 
       const customCartItem = {
         id: crypto.randomUUID?.() ?? `cart-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -450,6 +483,7 @@ const MainContent = ({
         request_item_id: null,
         ourSalePrice: data.stats?.suggestedPrice ? Number(data.stats.suggestedPrice) : null,
         selectedOfferId,
+        manualOffer: manualOfferValue,
       };
 
       const isDuplicateEbayItem = cartItems.some(
@@ -457,7 +491,7 @@ const MainContent = ({
       );
 
       try {
-        if (isDuplicateEbayItem) {
+        if (isRepricing || isDuplicateEbayItem) {
           addToCart(customCartItem);
         } else {
           const requestItemId = await createOrAppendRequestItem({
@@ -543,7 +577,7 @@ const MainContent = ({
       );
 
       try {
-        if (isDuplicateCCItem) {
+        if (isRepricing || isDuplicateCCItem) {
           addToCart(customCartItem);
         } else {
           const requestItemId = await createOrAppendRequestItem({
@@ -618,7 +652,7 @@ const MainContent = ({
         (ci) => ci.isCustomCeXItem && ci.title === customCartItem.title && ci.subtitle === customCartItem.subtitle
       );
       try {
-        if (isDuplicateCeX) {
+        if (isRepricing || isDuplicateCeX) {
           addToCart(customCartItem);
         } else {
           const requestItemId = await createOrAppendRequestItem({ variantId: null, rawData: cexProductData, cexSku: cexProductData.id });
@@ -654,7 +688,7 @@ const MainContent = ({
                 </button>
               )}
               <Button variant="primary" icon="add_shopping_cart" className="px-8 py-4 text-base font-bold" onClick={handleAddCeXToCart}>
-                Add to Cart
+                {isRepricing ? 'Add to Reprice List' : 'Add to Cart'}
               </Button>
             </div>
           </div>
@@ -832,16 +866,6 @@ const MainContent = ({
               <p className="text-[10px] text-gray-500 uppercase tracking-wider">Viewing saved item</p>
             </div>
           </div>
-          {onDeselectCartItem && (
-            <button
-              type="button"
-              onClick={onDeselectCartItem}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-blue-900 hover:bg-blue-100 rounded-lg transition-colors"
-            >
-              <span className="material-symbols-outlined text-base">add_circle</span>
-              Add new item
-            </button>
-          )}
         </div>
         <div className="p-8 space-y-8">
           <div className="bg-gray-50 p-6 rounded-xl border border-gray-200">
@@ -1097,7 +1121,20 @@ const MainContent = ({
               />
             )}
 
-            {isLoadingOffers ? (
+            {isRepricing ? (
+              variant && (
+                <div className="flex justify-end pt-2">
+                  <button
+                    onClick={() => handleAddToCart(null)}
+                    className="flex items-center gap-2 px-8 py-3 rounded-xl text-sm font-bold text-blue-900 transition-all hover:opacity-90 active:scale-[0.98]"
+                    style={{ background: 'var(--brand-orange, #f7b918)', boxShadow: '0 4px 12px rgba(247,185,24,0.3)' }}
+                  >
+                    <span className="material-symbols-outlined text-base">sell</span>
+                    Add to Reprice List
+                  </button>
+                </div>
+              )
+            ) : isLoadingOffers ? (
               <div className="flex items-center justify-center py-8">
                 <Icon name="sync" className="animate-spin text-2xl text-blue-900 mr-3" />
                 <span className="text-sm text-gray-600">
