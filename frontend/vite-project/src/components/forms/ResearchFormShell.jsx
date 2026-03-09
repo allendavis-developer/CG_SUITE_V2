@@ -653,7 +653,7 @@ export default function ResearchFormShell({
         {useAddWithOfferFlow && (
           <div
             onClick={() => onAddToCartWithOffer(null)}
-            className="flex items-center justify-center px-4 py-2 rounded-lg bg-white cursor-pointer border-2 border-blue-900/40 hover:border-blue-900 hover:shadow-md transition-all duration-150 ease-out"
+            className="flex items-center justify-center px-4 py-2 rounded-lg bg-yellow-500 hover:bg-yellow-400 cursor-pointer border-2 border-yellow-500 hover:border-yellow-400 text-blue-900 shadow-md shadow-yellow-500/10 hover:shadow-lg transition-all duration-150 ease-out"
           >
             <Icon name="add_shopping_cart" className="text-blue-900 text-lg mr-2" />
             <span className="text-blue-900 font-extrabold text-sm uppercase">Add to Cart</span>

@@ -1170,6 +1170,19 @@
 
     if (getSiteConfig() !== SITE_CONFIGS.ebay) return false;
 
+    // Guard against infinite reload loops: consume the flag FIRST (before any
+    // field detection) so it is always used up on the one reload we triggered,
+    // whether or not the fields ended up visible on that reload.
+    // Flag is absent on every other reload (user manually changing settings, filter
+    // redirects, etc.) so we always re-check those.
+    try {
+      if (sessionStorage.getItem('cgSuiteCustomizeAppliedAt')) {
+        log('[CG Suite] enforceEbayCustomizeSettings: this page load was triggered by our own Apply click — skipping once (flag consumed)');
+        sessionStorage.removeItem('cgSuiteCustomizeAppliedAt');
+        return false;
+      }
+    } catch (e) {}
+
     // Only run when there are actual result cards on the page
     var container = document.querySelector('#srp-river-results > ul');
     var cardCount = container ? container.querySelectorAll(':scope > li').length : 0;
@@ -1195,15 +1208,6 @@
     if (!detection.sellerFound) missing.push('seller info');
     if (!detection.itemNumFound) missing.push('item number');
     log('[CG Suite] enforceEbayCustomizeSettings: missing fields —', missing.join(', '), '— will auto-configure');
-
-    // Guard: only attempt once per tab session
-    try {
-      if (sessionStorage.getItem('cgSuiteCustomizeAttempted')) {
-        log('[CG Suite] enforceEbayCustomizeSettings: already attempted this session — will not retry (avoids reload loop)');
-        return false;
-      }
-      sessionStorage.setItem('cgSuiteCustomizeAttempted', '1');
-    } catch (e) {}
 
     // ── Step 1: find and click the Customise button ──────────────────────────
     var btnResult = findCustomizeButton();
@@ -1261,6 +1265,10 @@
       return false;
     }
     log('[CG Suite] enforceEbayCustomizeSettings: clicking Apply (found via:', applyResult.strategy + ') — page will reload with prefs saved as cookie');
+    // Stamp the time so the immediately-following reload is recognised as ours
+    // and skipped (15 s window). Any reload outside that window is treated as a
+    // fresh check so we re-enforce if the user manually removed the fields later.
+    try { sessionStorage.setItem('cgSuiteCustomizeAppliedAt', String(Date.now())); } catch (e) {}
     applyResult.el.click();
     return true;
   }

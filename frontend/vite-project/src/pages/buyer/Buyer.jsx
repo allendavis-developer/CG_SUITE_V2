@@ -319,26 +319,34 @@ export default function Buyer() {
     // If clicking the same item, deselect it
     if (selectedCartItem?.id === item.id) {
       setSelectedCartItem(null);
-    } else {
-      // Load the category and models WITHOUT resetting selectedModel for the latest click only
-      if (item.categoryObject) {
-        const requestId = ++modelsRequestIdRef.current;
-        setSelectedCategory(item.categoryObject);
-        setIsLoadingModels(true);
+      return;
+    }
 
-        try {
-          const models = await fetchProductModels(item.categoryObject);
-          if (modelsRequestIdRef.current !== requestId) return; // Ignore stale responses
-          setAvailableModels(models);
-          // Set the selected cart item AFTER models are loaded, but only if still latest
-          setSelectedCartItem(item);
-        } finally {
-          if (modelsRequestIdRef.current === requestId) {
-            setIsLoadingModels(false);
-          }
+    // Set immediately so the sidebar highlights the item and MainContent renders right away
+    setSelectedCartItem(item);
+
+    // eBay and CeX items don't use variants – skip models fetch for instant display
+    const isEbayOrCex = item.isCustomEbayItem || item.isCustomCeXItem;
+    if (isEbayOrCex && item.categoryObject) {
+      setSelectedCategory(item.categoryObject);
+      return;
+    }
+
+    if (item.categoryObject) {
+      const requestId = ++modelsRequestIdRef.current;
+      setSelectedCategory(item.categoryObject);
+      setIsLoadingModels(true);
+
+      try {
+        const models = await fetchProductModels(item.categoryObject);
+        if (modelsRequestIdRef.current !== requestId) return; // Ignore stale responses
+        setAvailableModels(models);
+        // MainContent's Step-1 effect depends on [selectedCartItem, availableModels]
+        // so it will re-run and pick up the correct model once models are available
+      } finally {
+        if (modelsRequestIdRef.current === requestId) {
+          setIsLoadingModels(false);
         }
-      } else {
-        setSelectedCartItem(item);
       }
     }
   };

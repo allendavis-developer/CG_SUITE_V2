@@ -110,12 +110,20 @@ const CartSidebar = ({
             {cartItems.map((item) => (
             <div
               key={item.id}
-              className={`border rounded-lg p-3 cursor-pointer transition-all relative ${
+              role="button"
+              tabIndex={0}
+              className={`border rounded-lg p-3 cursor-pointer transition-all relative select-none ${
                 selectedCartItemId === item.id
                   ? 'border-blue-600 bg-blue-50 shadow-md'
                   : 'border-blue-900/10 bg-gray-50/30 hover:border-blue-400 hover:bg-blue-50/50'
               }`}
               onClick={() => onItemSelect(item)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onItemSelect(item);
+                }
+              }}
             >
               {selectedCartItemId === item.id && (
                 <div className="absolute top-2 right-2">
@@ -143,8 +151,8 @@ const CartSidebar = ({
                 </Button>
               </div>
 
-              {/* Quantity Controls - stopPropagation prevents quantity change from selecting item */}
-              <div className="mt-3 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+              {/* Quantity Controls - only buttons/input stop propagation so clicking "Qty:" label selects item */}
+              <div className="mt-3 flex items-center gap-2">
                 <span className="text-xs text-gray-500 font-medium">Qty:</span>
                 <div className="flex items-center border border-blue-900/20 rounded-md overflow-hidden">
                   <Button
