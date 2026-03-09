@@ -362,7 +362,6 @@ export default function EbayResearchForm({
       onToggleExclude={!readOnly ? handleToggleExclude : undefined}
       onClearAllExclusions={!readOnly ? handleClearAllExclusions : undefined}
       onAddNewItem={onAddNewItem}
-      onAddToCartWithOffer={mode === 'page' && onComplete && !onAddNewItem ? handleAddToCartWithOffer : undefined}
       onResetSearch={!readOnly ? handleResetSearch : null}
     />
   );
