@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Icon,
   Button,
@@ -423,7 +423,7 @@ const MainContent = ({
 
   };
 
-  const handleEbayResearchComplete = async (data) => {
+  const handleEbayResearchComplete = useCallback(async (data) => {
     setEbayData(data);
     setSavedEbayState(data);
 
@@ -524,7 +524,7 @@ const MainContent = ({
         // For now, we'll update via the parent component's callback
       }
     }
-  };
+  }, [addToCart, cartItems, createOrAppendRequestItem, isEbayCategory, isRepricing, updateCartItemEbayData, useVoucherOffers, variant, variants]);
 
   const handleCashConvertersResearchComplete = async (data) => {
     setCashConvertersData(data);
@@ -606,31 +606,39 @@ const MainContent = ({
   // CeX product from "Add from CeX" flow – use normal MainContent layout (no config/condition)
   if (cexProductData) {
     const useVoucherOffers = customerData?.transactionType === 'store_credit';
-    const offers = useVoucherOffers ? (cexProductData.voucher_offers || []) : (cexProductData.cash_offers || []);
+    const cashOffers = (cexProductData.cash_offers || []).map((o, idx) => ({
+      id: o.id || `cex-cash-${cexProductData.id ?? 'cex'}-${idx}`,
+      title: o.title || ['First Offer', 'Second Offer', 'Third Offer'][idx],
+      price: Number(o.price)
+    }));
+    const voucherOffers = (cexProductData.voucher_offers || []).map((o, idx) => ({
+      id: o.id || `cex-voucher-${cexProductData.id ?? 'cex'}-${idx}`,
+      title: o.title || ['First Offer', 'Second Offer', 'Third Offer'][idx],
+      price: Number(o.price)
+    }));
+    const offers = useVoucherOffers ? voucherOffers : cashOffers;
     const refData = cexProductData.referenceData || {};
     const refWithOurSale = { ...refData, our_sale_price: refData.cex_based_sale_price };
     const imageUrl = refData.cex_image_urls?.large || refData.cex_image_urls?.medium || cexProductData.image;
     const breadcrumbItems = ['CeX', cexProductData.category || 'Product'].filter(Boolean);
 
-    const handleAddCeXToCart = async () => {
-      const cashOffers = (cexProductData.cash_offers || []).map((o, idx) => ({
-        id: o.id || `cex-cash-${Date.now()}-${idx}`,
-        title: o.title || ['First Offer', 'Second Offer', 'Third Offer'][idx],
-        price: Number(o.price)
-      }));
-      const voucherOffers = (cexProductData.voucher_offers || []).map((o, idx) => ({
-        id: o.id || `cex-voucher-${Date.now()}-${idx}`,
-        title: o.title || ['First Offer', 'Second Offer', 'Third Offer'][idx],
-        price: Number(o.price)
-      }));
-      const customCartItem = {
+    const buildCeXCartItem = (offerArg) => {
+      let selectedOfferId = null;
+      let manualOffer = null;
+      if (offerArg && typeof offerArg === 'object' && offerArg.type === 'manual') {
+        selectedOfferId = 'manual';
+        manualOffer = String(Number(offerArg.amount).toFixed(2));
+      } else if (typeof offerArg === 'string') {
+        selectedOfferId = offerArg;
+      }
+      return {
         id: crypto.randomUUID?.() ?? `cart-${Date.now()}-${Math.random().toString(36).slice(2)}`,
         title: cexProductData.title || 'CeX Product',
         subtitle: cexProductData.category || '',
         quantity: 1,
         category: 'CeX',
         categoryObject: { name: 'CeX', path: ['CeX'] },
-        offers: useVoucherOffers ? voucherOffers : cashOffers,
+        offers,
         cashOffers,
         voucherOffers,
         isCustomCeXItem: true,
@@ -646,8 +654,34 @@ const MainContent = ({
         cexUrl: cexProductData.id ? `https://uk.webuy.com/product-detail?id=${cexProductData.id}` : null,
         ebayResearchData: cexProductData.ebayResearchData || null,
         cashConvertersResearchData: cexProductData.cashConvertersResearchData || null,
-        cexProductData
+        cexProductData,
+        selectedOfferId,
+        manualOffer
       };
+    };
+
+    const handleAddCeXToCart = async () => {
+      const customCartItem = buildCeXCartItem(null);
+      const isDuplicateCeX = cartItems.some(
+        (ci) => ci.isCustomCeXItem && ci.title === customCartItem.title && ci.subtitle === customCartItem.subtitle
+      );
+      try {
+        if (isRepricing || isDuplicateCeX) {
+          addToCart(customCartItem);
+        } else {
+          const requestItemId = await createOrAppendRequestItem({ variantId: null, rawData: cexProductData, cexSku: cexProductData.id });
+          customCartItem.request_item_id = requestItemId;
+          addToCart(customCartItem);
+        }
+        onClearCeXProduct?.();
+      } catch (err) {
+        console.error('[CG Suite] Failed to add CeX item to request:', err);
+        alert('Failed to add CeX item to request. Check console for details.');
+      }
+    };
+
+    const handleAddCeXToCartWithOffer = async (offerArg) => {
+      const customCartItem = buildCeXCartItem(offerArg);
       const isDuplicateCeX = cartItems.some(
         (ci) => ci.isCustomCeXItem && ci.title === customCartItem.title && ci.subtitle === customCartItem.subtitle
       );
@@ -747,6 +781,7 @@ const MainContent = ({
               offers={offers}
               referenceData={refWithOurSale}
               offerType={useVoucherOffers ? 'voucher' : 'cash'}
+              onAddToCart={handleAddCeXToCartWithOffer}
             />
           )}
 

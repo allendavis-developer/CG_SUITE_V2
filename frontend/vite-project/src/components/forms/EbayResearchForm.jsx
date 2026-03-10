@@ -2,7 +2,7 @@ import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { getDataFromListingPage, getDataFromRefine, cancelListingTab } from '@/services/extensionClient';
 import ResearchFormShell from './ResearchFormShell';
 import { calculateStats, calculateBuyOffers } from './researchStats';
-import { Icon } from '../ui/components';
+import { Icon, Button } from '../ui/components';
 
 /**
  * eBay Research Form – multi-step flow:
@@ -16,7 +16,7 @@ function ensureListingIds(items) {
   );
 }
 
-export default function EbayResearchForm({
+function EbayResearchForm({
   onComplete,
   category,
   mode = 'modal',
@@ -37,7 +37,6 @@ export default function EbayResearchForm({
   const [listingPageUrl, setListingPageUrl] = useState(savedState?.listingPageUrl ?? null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-
   // When the user clicks Cancel or Reset while a listing tab is open, we set this
   // ref so that the still-awaiting handleRefineSearch/handleGetData promise is
   // ignored when it eventually resolves (avoids calling onComplete or showing errors).
@@ -319,7 +318,8 @@ export default function EbayResearchForm({
   }
 
   return (
-    <ResearchFormShell
+    <>
+      <ResearchFormShell
       searchTerm=""
       onSearchTermChange={() => {}}
       onSearch={() => {}}
@@ -341,6 +341,7 @@ export default function EbayResearchForm({
       onComplete={showManualOffer ? undefined : handleComplete}
       onCompleteWithSelection={showManualOffer ? handleCompleteWithSelection : undefined}
       onAddToCartWithOffer={mode === 'page' && onComplete && !onAddNewItem ? handleAddToCartWithOffer : undefined}
+      enableRightClickManualOffer={mode === 'page'}
       mode={mode}
       readOnly={readOnly}
       basicFilterOptions={[]}
@@ -364,5 +365,8 @@ export default function EbayResearchForm({
       onAddNewItem={onAddNewItem}
       onResetSearch={!readOnly ? handleResetSearch : null}
     />
+    </>
   );
 }
+
+export default React.memo(EbayResearchForm);

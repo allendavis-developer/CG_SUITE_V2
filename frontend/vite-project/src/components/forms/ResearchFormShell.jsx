@@ -43,6 +43,71 @@ if (typeof document !== 'undefined' && !stylesInjected) {
   stylesInjected = true;
 }
 
+// MEMOIZED LISTING CARD - prevents re-renders when parent updates
+const ListingCard = React.memo(function ListingCard({ item, origIdx, sortedIdx, displayIdx, onExcludeClick, showExcludeButton, readOnly }) {
+  const handleExcludeClick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onExcludeClick?.(sortedIdx);
+  };
+  const animDelay = Math.min(displayIdx * 8, 80);
+  return (
+    <div className={`relative group ${item.excluded ? 'opacity-60' : ''}`}>
+      <a
+        href={item.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={`flex gap-4 rounded-xl border p-4 hover:shadow-md transition-all duration-200 ${
+          item.excluded ? 'bg-orange-50/60 border-orange-300' : 'bg-white border-gray-200'
+        }`}
+        style={animDelay > 0 ? { animationDelay: `${animDelay}ms`, opacity: 0, animation: 'fadeInUp 0.25s ease-out forwards' } : undefined}
+      >
+        <div className="w-32 h-32 bg-gray-200 rounded-lg flex items-center justify-center overflow-hidden shrink-0">
+          {item.image ? (
+            <img src={item.image} alt={item.title || "listing"} className="w-full h-full object-cover" loading="lazy" />
+          ) : (
+            <span className="text-xs text-gray-500">No image</span>
+          )}
+        </div>
+        <div className="flex flex-col justify-between flex-1 min-w-0">
+          <div>
+            <h4 className="text-sm font-bold text-blue-900 line-clamp-2 leading-tight cursor-pointer hover:underline">{item.title}</h4>
+            {item.shop && <p className="text-[11px] text-gray-500 mt-0.5">Shop: {item.shop}</p>}
+            {item.sold && <p className="text-[11px] text-green-600 font-bold mt-1">{item.sold}</p>}
+            {item.sellerInfo && (
+              <p className="text-[10px] text-gray-400 mt-0.5 truncate">
+                <span className="font-medium text-gray-500">Seller:</span> {item.sellerInfo}
+              </p>
+            )}
+          </div>
+          <div className="flex items-end justify-between mt-2">
+            <p className="text-lg font-extrabold text-gray-900 leading-none">£{item.price}</p>
+            {item.itemId && <span className="text-[9px] text-gray-400 font-mono tabular-nums">#{item.itemId}</span>}
+          </div>
+        </div>
+      </a>
+      {item.excluded && (
+        <div className="absolute top-2 left-3 z-10 pointer-events-none">
+          <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 tracking-wider border border-orange-200">Excluded</span>
+        </div>
+      )}
+      {showExcludeButton && (
+        <button
+          className={`absolute top-2 right-2 z-10 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wide transition-all duration-150 ${
+            item.excluded ? 'bg-orange-500 text-white shadow-sm hover:bg-orange-600' : 'bg-white text-gray-600 border border-gray-300 shadow-sm hover:bg-red-50 hover:text-red-600 hover:border-red-300'
+          }`}
+          onClick={handleExcludeClick}
+          title={item.excluded ? 'Re-include this listing in stats' : 'Exclude this listing from stats'}
+          aria-label={item.excluded ? 'Re-include listing in stats' : 'Exclude listing from stats'}
+        >
+          <span className="material-symbols-outlined text-[14px]">{item.excluded ? 'undo' : 'block'}</span>
+          <span>{item.excluded ? 'Excluded' : 'Exclude'}</span>
+        </button>
+      )}
+    </div>
+  );
+});
+
 // MEMOIZED HISTOGRAM COMPONENT
 const PriceHistogram = React.memo(function PriceHistogram({ listings, onBucketSelect, priceRange, onGoBack, drillLevel, readOnly }) {
   const [bucketCount, setBucketCount] = useState(10);
@@ -320,6 +385,7 @@ export default function ResearchFormShell({
   onAddNewItem = null, // When set, replaces Add to Cart with "Add new item" button (e.g. when viewing saved research)
   onAddToCartWithOffer = null, // When set (e.g. eBay page), clicking an offer adds with that offer; 4th "Add to Cart" adds with no offer. Called with (offerIndex) where offerIndex is 0, 1, 2, or null.
   onResetSearch = null,
+  enableRightClickManualOffer = false, // When true (eBay page mode), right-click on offer opens manual-offer dialog
 }) {
   // Get current price range (latest in history, or null for full view)
   const currentPriceRange = drillHistory.length > 0 ? drillHistory[drillHistory.length - 1] : null;
@@ -369,6 +435,56 @@ export default function ResearchFormShell({
   
   // Ref to maintain input focus
   const manualInputRef = useRef(null);
+
+  // Right-click manual offer dialog (eBay page mode only)
+  const [manualOfferDialog, setManualOfferDialog] = useState(null); // { x, y, value, baseIndex } | null
+  const manualOfferDialogRef = useRef(null);
+  const manualOfferInputRef = useRef(null);
+  const manualOfferDidFocusRef = useRef(false);
+
+  const openManualOfferDialog = useCallback((e, idx, initialValue) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setManualOfferDialog({ x: e.clientX, y: e.clientY, value: initialValue, baseIndex: idx });
+    manualOfferDidFocusRef.current = false;
+  }, []);
+
+  const closeManualOfferDialog = useCallback(() => setManualOfferDialog(null), []);
+
+  const applyManualOfferDialog = useCallback(() => {
+    if (!manualOfferDialog || !onAddToCartWithOffer) return;
+    const raw = String(manualOfferDialog.value || '').replace(/[£,]/g, '').trim();
+    const parsed = parseFloat(raw);
+    if (Number.isNaN(parsed) || parsed <= 0) {
+      closeManualOfferDialog();
+      return;
+    }
+    onAddToCartWithOffer({ type: 'manual', amount: parsed, baseIndex: manualOfferDialog.baseIndex });
+    closeManualOfferDialog();
+  }, [manualOfferDialog, onAddToCartWithOffer, closeManualOfferDialog]);
+
+  useEffect(() => {
+    if (!manualOfferDialog) return;
+    const handleClickOutside = (e) => {
+      if (manualOfferDialogRef.current && !manualOfferDialogRef.current.contains(e.target)) closeManualOfferDialog();
+    };
+    const handleEscape = (e) => {
+      if (e.key === 'Escape') closeManualOfferDialog();
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [manualOfferDialog, closeManualOfferDialog]);
+
+  useEffect(() => {
+    if (!manualOfferDialog || manualOfferDidFocusRef.current || !manualOfferInputRef.current) return;
+    manualOfferInputRef.current.focus();
+    manualOfferInputRef.current.select();
+    manualOfferDidFocusRef.current = true;
+  }, [manualOfferDialog]);
   
   // Maintain focus when manual offer is selected
   useEffect(() => {
@@ -399,6 +515,20 @@ export default function ResearchFormShell({
       return a.origIdx - b.origIdx;
     });
   }, [displayedListings, sortOrder, parsePrice]);
+
+  // Pre-compute filtered display list (avoids map+filter+map on every render)
+  const displayListings = useMemo(() => {
+    if (!sortedListings) return [];
+    return sortedListings
+      .map((entry, sortedIdx) => ({ ...entry, sortedIdx }))
+      .filter(({ item }) => !showOnlyRelevant || !item.excluded);
+  }, [sortedListings, showOnlyRelevant]);
+
+  // Memoize for histogram to avoid new array on every render
+  const histogramListings = useMemo(
+    () => (displayedListings ? displayedListings.filter(l => !l.excluded) : displayedListings),
+    [displayedListings]
+  );
 
   // Format stat value for display (2 decimal places)
   const formatStat = useCallback((val) => {
@@ -484,18 +614,20 @@ export default function ResearchFormShell({
           )}
         />
         <div className="w-px h-8 bg-gray-200" />
-        <StatWithTooltip
-          label="Suggested Sale Price"
-          value={displayedStats.suggestedPrice}
-          valueClass="text-green-600"
-          tooltipContent={wo && (
-            <>
-              <div className="font-semibold text-gray-200 mb-1">Suggested Sale Price</div>
-              <div>Median (£{wo.medianRaw.toFixed(2)}) − £1 = £{formatStat(displayedStats.suggestedPrice)}</div>
-              <div className="mt-1 text-gray-300">£1 below median</div>
-            </>
-          )}
-        />
+        <div className="flex items-center gap-2">
+          <StatWithTooltip
+            label="Suggested Sale Price"
+            value={displayedStats.suggestedPrice}
+            valueClass="text-green-600"
+            tooltipContent={wo && (
+              <>
+                <div className="font-semibold text-gray-200 mb-1">Suggested Sale Price</div>
+                <div>Median (£{wo.medianRaw.toFixed(2)}) − £1 = £{formatStat(displayedStats.suggestedPrice)}</div>
+                <div className="mt-1 text-gray-300">£1 below median</div>
+              </>
+            )}
+          />
+        </div>
       </div>
     );
   }, [displayedStats, formatStat, statsWorkingOut, mode]);
@@ -631,6 +763,7 @@ export default function ResearchFormShell({
 
     const offerLabels = ["1st Cash Offer", "2nd Cash Offer", "3rd Cash Offer"];
     const useAddWithOfferFlow = Boolean(onAddToCartWithOffer && !readOnly);
+    const showRightClickManual = enableRightClickManualOffer && useAddWithOfferFlow;
 
     return (
       <div className="flex flex-wrap items-center gap-4">
@@ -638,22 +771,11 @@ export default function ResearchFormShell({
           <div
             key={idx}
             onContextMenu={
-              useAddWithOfferFlow
+              showRightClickManual
                 ? (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
                     const basePrice = Number(price);
-                    const manualValue = Number.isFinite(basePrice) && basePrice > 0 ? basePrice.toFixed(2) : '';
-                    const raw = window.prompt('Enter manual per-item offer (£):', manualValue);
-                    if (raw == null) return;
-                    const cleaned = String(raw).replace(/[£,]/g, '').trim();
-                    const parsed = parseFloat(cleaned);
-                    if (!Number.isFinite(parsed) || parsed <= 0) return;
-                    onAddToCartWithOffer({
-                      type: 'manual',
-                      amount: parsed,
-                      baseIndex: idx,
-                    });
+                    const initialValue = Number.isFinite(basePrice) && basePrice > 0 ? basePrice.toFixed(2) : '';
+                    openManualOfferDialog(e, idx, initialValue);
                   }
                 : undefined
             }
@@ -753,7 +875,7 @@ export default function ResearchFormShell({
         )}
       </div>
     );
-  }, [buyOffers, showManualOffer, selectedOfferIndex, manualOffer, manualOfferMargin, onManualOfferChange, readOnly, handleOfferClick, handleManualOfferCardClick, handleManualOfferChange, onAddToCartWithOffer, formatStat]);
+  }, [buyOffers, showManualOffer, selectedOfferIndex, manualOffer, manualOfferMargin, onManualOfferChange, readOnly, handleOfferClick, handleManualOfferCardClick, handleManualOfferChange, onAddToCartWithOffer, formatStat, enableRightClickManualOffer, openManualOfferDialog]);
 
   const content = (
     <>
@@ -1155,97 +1277,17 @@ export default function ResearchFormShell({
               )}
 
               <div className={`grid ${showHistogram ? 'grid-cols-1' : 'grid-cols-2'} gap-4`}>
-                {sortedListings && sortedListings
-                  .map((entry, sortedIdx) => ({ ...entry, sortedIdx }))
-                  .filter(({ item }) => !showOnlyRelevant || !item.excluded)
-                  .map(({ item, origIdx, sortedIdx }, displayIdx) => (
-                  <div
+                {displayListings.map(({ item, origIdx, sortedIdx }, displayIdx) => (
+                  <ListingCard
                     key={`${item._id || item.title}-${origIdx}`}
-                    className={`relative group ${item.excluded ? 'opacity-60' : ''}`}
-                  >
-                    <a
-                      href={item.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={`flex gap-4 rounded-xl border p-4 hover:shadow-md transition-all duration-300 ${
-                        item.excluded
-                          ? 'bg-orange-50/60 border-orange-300'
-                          : 'bg-white border-gray-200'
-                      }`}
-                      style={{ 
-                        animationDelay: `${displayIdx * 20}ms`,
-                        opacity: 0,
-                        animation: 'fadeInUp 0.4s ease-out forwards'
-                      }}
-                    >
-                      <div className="w-32 h-32 bg-gray-200 rounded-lg flex items-center justify-center overflow-hidden shrink-0">
-                        {item.image ? (
-                          <img
-                            src={item.image}
-                            alt={item.title || "listing"}
-                            className="w-full h-full object-cover"
-                            loading="lazy"
-                          />
-                        ) : (
-                          <span className="text-xs text-gray-500">No image</span>
-                        )}
-                      </div>
-                      <div className="flex flex-col justify-between flex-1 min-w-0">
-                        <div>
-                          <h4 className="text-sm font-bold text-blue-900 line-clamp-2 leading-tight cursor-pointer hover:underline">{item.title}</h4>
-                          {item.shop && (
-                            <p className="text-[11px] text-gray-500 mt-0.5">Shop: {item.shop}</p>
-                          )}
-                          {item.sold && (
-                            <p className="text-[11px] text-green-600 font-bold mt-1">{item.sold}</p>
-                          )}
-                          {item.sellerInfo && (
-                            <p className="text-[10px] text-gray-400 mt-0.5 truncate">
-                              <span className="font-medium text-gray-500">Seller:</span> {item.sellerInfo}
-                            </p>
-                          )}
-                        </div>
-                        <div className="flex items-end justify-between mt-2">
-                          <p className="text-lg font-extrabold text-gray-900 leading-none">£{item.price}</p>
-                          {item.itemId && (
-                            <span className="text-[9px] text-gray-400 font-mono tabular-nums">#{item.itemId}</span>
-                          )}
-                        </div>
-                      </div>
-                    </a>
-
-                    {/* Excluded badge */}
-                    {item.excluded && (
-                      <div className="absolute top-2 left-3 z-10 pointer-events-none">
-                        <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 tracking-wider border border-orange-200">
-                          Excluded
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Exclude / re-include toggle button */}
-                    {onToggleExclude && !readOnly && (
-                      <button
-                        className={`absolute top-2 right-2 z-10 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wide transition-all duration-150 ${
-                          item.excluded
-                            ? 'bg-orange-500 text-white shadow-sm hover:bg-orange-600'
-                            : 'bg-white text-gray-600 border border-gray-300 shadow-sm hover:bg-red-50 hover:text-red-600 hover:border-red-300'
-                        }`}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          handleExcludeClick(sortedIdx);
-                        }}
-                        title={item.excluded ? 'Re-include this listing in stats' : 'Exclude this listing from stats'}
-                        aria-label={item.excluded ? 'Re-include listing in stats' : 'Exclude listing from stats'}
-                      >
-                        <span className="material-symbols-outlined text-[14px]">
-                          {item.excluded ? 'undo' : 'block'}
-                        </span>
-                        <span>{item.excluded ? 'Excluded' : 'Exclude'}</span>
-                      </button>
-                    )}
-                  </div>
+                    item={item}
+                    origIdx={origIdx}
+                    sortedIdx={sortedIdx}
+                    displayIdx={displayIdx}
+                    onExcludeClick={handleExcludeClick}
+                    showExcludeButton={Boolean(onToggleExclude && !readOnly)}
+                    readOnly={readOnly}
+                  />
                 ))}
               </div>
             </div>
@@ -1253,8 +1295,8 @@ export default function ResearchFormShell({
             {/* --- HISTOGRAM COMPONENT (Right Side) --- */}
             {showHistogram && (
               <aside className="w-80 border-l border-gray-200 overflow-hidden">
-                <PriceHistogram 
-                  listings={displayedListings ? displayedListings.filter(l => !l.excluded) : displayedListings} 
+                <PriceHistogram
+                  listings={histogramListings}
                   onBucketSelect={onDrillDown}
                   priceRange={currentPriceRange}
                   onGoBack={onZoomOut}
@@ -1301,15 +1343,74 @@ export default function ResearchFormShell({
     ? "bg-white w-full h-full flex flex-col overflow-hidden"
     : "bg-white w-full h-full flex flex-col overflow-hidden";
 
+  const manualOfferDialogEl = manualOfferDialog && (
+    <div
+      ref={manualOfferDialogRef}
+      className="fixed z-[110] w-72 bg-white rounded-lg border border-gray-200 shadow-xl p-3"
+      style={{ left: manualOfferDialog.x, top: manualOfferDialog.y }}
+      role="dialog"
+      aria-label="Set manual offer and add to cart"
+    >
+      <p className="text-[11px] font-bold uppercase tracking-wider text-gray-600 mb-2">
+        Custom offer for this item
+      </p>
+      <p className="text-[11px] text-gray-500 mb-3">
+        Type a per-item offer amount and press Enter or click Okay to add to cart with this manual offer.
+      </p>
+      <div className="flex items-center gap-2 mb-2">
+        <div className="relative flex-1">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-blue-900">£</span>
+          <input
+            ref={manualOfferInputRef}
+            type="number"
+            min="0"
+            step="0.01"
+            className="w-full pl-7 pr-3 py-2.5 border border-gray-300 rounded-lg text-sm font-semibold text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-900"
+            placeholder="0.00"
+            value={manualOfferDialog.value}
+            onChange={(e) => {
+              const val = e.target.value;
+              setManualOfferDialog((prev) => (prev ? { ...prev, value: val } : prev));
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                applyManualOfferDialog();
+              }
+            }}
+          />
+        </div>
+        <button
+          type="button"
+          className="px-4 py-2.5 text-sm font-semibold text-white bg-blue-900 rounded-lg hover:bg-blue-800 shrink-0"
+          onClick={applyManualOfferDialog}
+        >
+          Okay
+        </button>
+      </div>
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          className="px-3 py-1.5 text-xs font-semibold text-gray-500 rounded-lg hover:bg-gray-50"
+          onClick={closeManualOfferDialog}
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+
   return mode === "modal" ? (
     <div className={wrapperClasses}>
       <div className={containerClasses}>
         {content}
+        {manualOfferDialogEl}
       </div>
     </div>
   ) : (
     <div className={containerClasses}>
       {content}
+      {manualOfferDialogEl}
     </div>
   );
 }

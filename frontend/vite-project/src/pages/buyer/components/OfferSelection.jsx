@@ -20,47 +20,7 @@ const OfferSelection = ({
   const inputRef = useRef(null);
   const didInitialFocusRef = useRef(false);
 
-  if (!variant || !offers || offers.length === 0) return null;
-
-  const headerText = offerType === 'voucher'
-    ? 'Available Voucher Valuations'
-    : 'Available Trade-In Valuations';
-
-  const ourSalePrice = referenceData?.our_sale_price;
-  const showAddToCart = Boolean(onAddToCart);
-
-  const openContextMenu = (e, index) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!onAddToCart) return;
-    const baseOffer = offers[index];
-    const basePrice = baseOffer ? parseFloat(baseOffer.price) : NaN;
-    const initialValue = !Number.isNaN(basePrice) && basePrice > 0 ? basePrice.toFixed(2) : '';
-    setContextMenu({
-      x: e.clientX,
-      y: e.clientY,
-      baseIndex: index,
-      value: initialValue
-    });
-  };
-
   const closeContextMenu = () => setContextMenu(null);
-
-  const applyManualAndAddToCart = () => {
-    if (!onAddToCart || !contextMenu) return;
-    const raw = String(contextMenu.value || '').replace(/[£,]/g, '').trim();
-    const parsed = parseFloat(raw);
-    if (Number.isNaN(parsed) || parsed <= 0) {
-      closeContextMenu();
-      return;
-    }
-    onAddToCart({
-      type: 'manual',
-      amount: parsed,
-      baseOfferId: offers[contextMenu.baseIndex]?.id ?? null,
-    });
-    closeContextMenu();
-  };
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -89,6 +49,46 @@ const OfferSelection = ({
       didInitialFocusRef.current = true;
     }
   }, [contextMenu]);
+
+  if (!variant || !offers || offers.length === 0) return null;
+
+  const headerText = offerType === 'voucher'
+    ? 'Available Voucher Valuations'
+    : 'Available Trade-In Valuations';
+
+  const ourSalePrice = referenceData?.our_sale_price;
+  const showAddToCart = Boolean(onAddToCart);
+
+  const openContextMenu = (e, index) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!onAddToCart) return;
+    const baseOffer = offers[index];
+    const basePrice = baseOffer ? parseFloat(baseOffer.price) : NaN;
+    const initialValue = !Number.isNaN(basePrice) && basePrice > 0 ? basePrice.toFixed(2) : '';
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      baseIndex: index,
+      value: initialValue
+    });
+  };
+
+  const applyManualAndAddToCart = () => {
+    if (!onAddToCart || !contextMenu) return;
+    const raw = String(contextMenu.value || '').replace(/[£,]/g, '').trim();
+    const parsed = parseFloat(raw);
+    if (Number.isNaN(parsed) || parsed <= 0) {
+      closeContextMenu();
+      return;
+    }
+    onAddToCart({
+      type: 'manual',
+      amount: parsed,
+      baseOfferId: offers[contextMenu.baseIndex]?.id ?? null,
+    });
+    closeContextMenu();
+  };
 
   return (
     <div>

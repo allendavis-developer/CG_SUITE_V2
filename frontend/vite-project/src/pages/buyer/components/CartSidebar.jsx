@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Icon, Button } from '@/components/ui/components';
 import { useNavigate } from "react-router-dom";
 import CustomerTransactionHeader from './CustomerTransactionHeader';
@@ -19,8 +19,23 @@ const CartSidebar = ({
 }) => {
   const isRepricing = mode === 'repricing';
   const [isFinalizing, setIsFinalizing] = useState(false);
+  const cartListRef = useRef(null);
+  const prevCartLengthRef = useRef(cartItems.length);
 
   const navigate = useNavigate();
+
+  // Auto-scroll to bottom when a new item is added (so user sees it was added)
+  useEffect(() => {
+    if (cartItems.length > prevCartLengthRef.current) {
+      prevCartLengthRef.current = cartItems.length;
+      requestAnimationFrame(() => {
+        const el = cartListRef.current;
+        if (el) el.scrollTop = el.scrollHeight;
+      });
+    } else {
+      prevCartLengthRef.current = cartItems.length;
+    }
+  }, [cartItems.length]);
 
   const removeItem = (id) => {
     setCartItems(cartItems.filter(item => item.id !== id));
@@ -80,6 +95,25 @@ const CartSidebar = ({
 
   const { min: offerMin, max: offerMax } = getOfferMinMax();
 
+  const getTotalOffer = () => {
+    let total = 0;
+    for (const item of cartItems) {
+      const qty = item.quantity || 1;
+      if (item.selectedOfferId === 'manual' && item.manualOffer != null) {
+        total += Number(item.manualOffer) * qty;
+      } else if (item.selectedOfferId && item.offers?.length > 0) {
+        const selected = item.offers.find(o => o.id === item.selectedOfferId);
+        if (selected) total += Number(selected.price) * qty;
+        else return null; // not all items have valid selection
+      } else {
+        return null; // item has no offer selected
+      }
+    }
+    return cartItems.length > 0 ? total : null;
+  };
+
+  const totalOffer = getTotalOffer();
+  const allItemsHaveOffer = cartItems.length > 0 && totalOffer !== null;
 
   return (
     <aside className="w-1/5 min-w-0 min-h-0 shrink-0 border-l border-blue-900/20 flex flex-col bg-white overflow-hidden">
@@ -105,7 +139,7 @@ const CartSidebar = ({
 
 
       {/* Cart Items List */}
-      <div className="flex-1 min-h-0 overflow-y-auto buyer-panel-scroll p-4 space-y-3 bg-white">
+      <div ref={cartListRef} className="flex-1 min-h-0 overflow-y-auto buyer-panel-scroll p-4 space-y-3 bg-white">
         {cartItems.length === 0 ? (
           <div className="text-center py-12">
             <Icon name={isRepricing ? 'sell' : 'shopping_cart'} className="text-4xl text-gray-300 mb-2" />
@@ -273,6 +307,21 @@ const CartSidebar = ({
                 {offerMax !== null ? `£${offerMax.toFixed(2)}` : '—'}
               </span>
             </div>
+            {allItemsHaveOffer && (
+              <div className="flex justify-between items-baseline pt-2 border-t border-blue-900/10">
+                <div className="flex flex-col">
+                  <span className="text-2xl font-black uppercase tracking-widest text-blue-900">
+                    Total Offer
+                  </span>
+                  <span className="text-[9px] text-gray-500 font-bold">
+                    {customerData.transactionType === 'store_credit' ? '(Voucher)' : '(Cash)'}
+                  </span>
+                </div>
+                <span className="text-3xl font-black text-blue-900 tabular-nums">
+                  £{totalOffer.toFixed(2)}
+                </span>
+              </div>
+            )}
           </div>
         )}
 
@@ -288,7 +337,8 @@ const CartSidebar = ({
                 customerData,
                 currentRequestId,
                 offerMin,
-                offerMax
+                offerMax,
+                totalOffer: allItemsHaveOffer ? totalOffer : null
               } 
             });
           }}

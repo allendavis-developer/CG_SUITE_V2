@@ -7,6 +7,8 @@ from rest_framework.response import Response
 from rest_framework import status
 from decimal import Decimal, InvalidOperation
 from django.db.models import OuterRef, Subquery, Max
+import os
+import logging
 import requests
 from pricing.utils.ebay_filters import extract_filters, extract_ebay_search_params, build_ebay_search_url, resolve_ebay_category
 from pricing.utils.cashconverters_filters import build_cashconverters_url, convert_facet_groups_to_filters, resolve_cashconverters_category
@@ -847,6 +849,9 @@ def cex_product_prices(request):
 # react app
 def react_app(request):
     return render(request, "react.html")
+
+
+logger = logging.getLogger(__name__)
 
 
 @api_view(['GET'])

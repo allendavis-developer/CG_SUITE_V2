@@ -1715,6 +1715,14 @@ const Negotiation = ({ mode }) => {
         const qty = modalItem.quantity || 1;
         const ourSalePrice = resolveOurSalePrice(modalItem);
 
+        const modalDisplayOffers = useVoucherOffers
+          ? (modalItem.voucherOffers || modalItem.offers)
+          : (modalItem.cashOffers || modalItem.offers);
+        const currentSelectedOffer = modalItem.selectedOfferId === 'manual' && modalItem.manualOffer
+          ? parseFloat(modalItem.manualOffer.replace(/[£,]/g, ''))
+          : modalDisplayOffers?.find(o => o.id === modalItem.selectedOfferId)?.price;
+        const hasCurrentOffer = currentSelectedOffer != null && !isNaN(currentSelectedOffer);
+
         const handleApply = (perUnitValue) => {
           if (!perUnitValue || perUnitValue <= 0) {
             showNotification("Please enter a valid positive amount.", "error");
@@ -1733,8 +1741,16 @@ const Negotiation = ({ mode }) => {
               {modalItem.title}
             </p>
             {ourSalePrice && (
-              <p className="text-[11px] text-slate-500 mb-4">
+              <p className={`text-[11px] text-slate-500 ${hasCurrentOffer ? 'mb-1' : 'mb-4'}`}>
                 Our sale price: <span className="font-bold text-purple-700">£{ourSalePrice.toFixed(2)}</span>
+              </p>
+            )}
+            {hasCurrentOffer && (
+              <p className="text-[11px] text-slate-500 mb-4">
+                Current selected offer: <span className="font-semibold" style={{ color: 'var(--brand-blue)' }}>
+                  £{currentSelectedOffer.toFixed(2)}
+                  {qty > 1 && ` per unit (£${(currentSelectedOffer * qty).toFixed(2)} total)`}
+                </span>
               </p>
             )}
 
