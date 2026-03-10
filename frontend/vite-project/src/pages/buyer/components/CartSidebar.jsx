@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Icon, Button } from '@/components/ui/components';
 import { useNavigate } from "react-router-dom";
-import CustomerTransactionHeader from './CustomerTransactionHeader';
 
 /**
  * Shopping cart sidebar component - No totals, non-selectable offers
@@ -12,7 +11,6 @@ const CartSidebar = ({
   customerData,
   currentRequestId,
   onFinalize,
-  onTransactionTypeChange,
   onItemSelect = () => {},
   selectedCartItemId = null,
   mode = 'buyer'
@@ -117,24 +115,21 @@ const CartSidebar = ({
 
   return (
     <aside className="w-1/5 min-w-0 min-h-0 shrink-0 border-l border-blue-900/20 flex flex-col bg-white overflow-hidden">
-      {isRepricing ? (
-        <div className="px-4 py-3 border-b border-blue-900/20 bg-blue-900 shadow-md shadow-blue-900/10">
-          <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-yellow-400 text-base">sell</span>
-            <div>
-              <p className="text-xs font-black uppercase tracking-wider text-white">Reprice List</p>
-              <p className="text-[10px] text-blue-200">{cartItems.length} item{cartItems.length !== 1 ? 's' : ''}</p>
-            </div>
+      <div className="px-4 py-3 border-b border-blue-900/20 bg-blue-900 shadow-md shadow-blue-900/10">
+        <div className="flex items-center gap-2">
+          <span className="material-symbols-outlined text-yellow-400 text-base">
+            {isRepricing ? 'sell' : 'shopping_cart'}
+          </span>
+          <div>
+            <p className="text-xs font-black uppercase tracking-wider text-white">
+              {isRepricing ? 'Reprice List' : 'Cart'}
+            </p>
+            <p className="text-[10px] text-blue-200">
+              {cartItems.length} item{cartItems.length !== 1 ? 's' : ''}
+            </p>
           </div>
         </div>
-      ) : (
-        <CustomerTransactionHeader
-          customer={customerData}
-          transactionType={customerData.transactionType}
-          onTransactionChange={onTransactionTypeChange}
-          containerClassName="shadow-md shadow-blue-900/10"
-        />
-      )}
+      </div>
 
 
 

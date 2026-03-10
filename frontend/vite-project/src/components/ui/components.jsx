@@ -1,7 +1,9 @@
 // components.js
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import TomSelect from 'tom-select';
 import 'tom-select/dist/css/tom-select.default.css';
+import { TRANSACTION_OPTIONS, TRANSACTION_META } from '@/utils/transactionConstants';
 
 // ==================== CORE UI COMPONENTS ====================
 
@@ -82,25 +84,61 @@ export const CardHeader = ({ title, subtitle, actions }) => (
   </div>
 );
 
-export const CustomDropdown = ({ label, value, options, onChange, labelPosition = 'left' }) => {
+export const CustomDropdown = ({ label, value, options, onChange, labelPosition = 'left', includeSelected = false }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [menuRect, setMenuRect] = useState(null);
   const dropdownRef = React.useRef(null);
+  const buttonRef = React.useRef(null);
+  const menuRef = React.useRef(null);
 
   React.useEffect(() => {
     const handleClickOutside = (event) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-        setIsOpen(false);
-      }
+      const inButton = dropdownRef.current?.contains(event.target);
+      const inMenu = menuRef.current?.contains(event.target);
+      if (!inButton && !inMenu) setIsOpen(false);
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const filteredOptions = options.filter(option => option !== value);
+  React.useEffect(() => {
+    if (isOpen && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setMenuRect({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+    } else {
+      setMenuRect(null);
+    }
+  }, [isOpen]);
+
+  const filteredOptions = includeSelected ? options : options.filter(option => option !== value);
+
+  const dropdownMenu = isOpen && filteredOptions.length > 0 && menuRect && createPortal(
+    <div
+      ref={menuRef}
+      className="fixed z-[9999] bg-white border border-gray-200 rounded-lg shadow-lg overflow-y-auto max-h-60 overflow-x-hidden"
+      style={{ top: menuRect.top, left: menuRect.left, width: menuRect.width, minWidth: 120 }}
+    >
+      {filteredOptions.map((option) => (
+        <button
+          key={option}
+          type="button"
+          onClick={() => {
+            onChange(option);
+            setIsOpen(false);
+          }}
+          className="w-full px-3 py-2.5 text-sm text-left text-gray-700 hover:bg-gray-50 transition-colors"
+        >
+          {option}
+        </button>
+      ))}
+    </div>,
+    document.body
+  );
 
   const dropdownButton = (
     <div className="relative w-full">
       <button
+        ref={buttonRef}
         type="button"
         onClick={() => setIsOpen(!isOpen)}
         className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-900 text-left flex items-center justify-between hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 transition-all"
@@ -113,24 +151,7 @@ export const CustomDropdown = ({ label, value, options, onChange, labelPosition 
           }`}
         />
       </button>
-
-      {isOpen && filteredOptions.length > 0 && (
-        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden max-h-60 overflow-y-auto">
-          {filteredOptions.map((option) => (
-            <button
-              key={option}
-              type="button"
-              onClick={() => {
-                onChange(option);
-                setIsOpen(false);
-              }}
-              className="w-full px-3 py-2.5 text-sm text-left text-gray-700 hover:bg-gray-50 transition-colors"
-            >
-              {option}
-            </button>
-          ))}
-        </div>
-      )}
+      {dropdownMenu}
     </div>
   );
 
@@ -311,25 +332,54 @@ export const Breadcrumb = ({ items }) => (
 // ==================== LAYOUT COMPONENTS ====================
 
 // Header Component
-export const Header = ({ onSearch, userName = "JD" }) => (
-  <header className="flex shrink-0 items-center justify-between whitespace-nowrap border-b border-gray-200 bg-blue-900 px-6 py-3 sticky top-0 z-50">
-    <div className="flex items-center gap-8">
+export const Header = ({
+  onSearch,
+  userName = "JD",
+  customerData = null,
+  onTransactionTypeChange = null,
+}) => {
+  const transaction = customerData
+    ? (TRANSACTION_META[customerData.transactionType] || { label: 'Unknown', className: 'text-gray-400' })
+    : null;
+
+  return (
+    <header className="flex shrink-0 items-center justify-between whitespace-nowrap border-b border-gray-200 bg-blue-900 px-6 py-3 sticky top-0 z-50">
       <div className="flex items-center gap-4 text-yellow-500">
         <div className="size-6 flex items-center justify-center bg-yellow-500 text-blue-900 rounded">
           <Icon name="currency_exchange" className="text-sm font-bold" />
         </div>
         <h2 className="text-white text-lg font-bold leading-tight tracking-tight">CashGenerator</h2>
       </div>
-    </div>
-    <div className="flex flex-1 justify-end gap-6 items-center">
-      <nav className="flex items-center gap-6">
-        <a href="/requests-overview" className="text-white/70 hover:text-white text-sm font-medium transition-colors">
-          All Requests
-        </a>
-      </nav>
-    </div>
-  </header>
-);
+      <div className="flex flex-1 justify-end gap-6 items-center">
+        {customerData?.id && customerData?.name && (
+          <div className="flex items-center gap-4 pr-6 border-r border-white/20">
+            <div className="text-right">
+              <p className="text-white font-bold text-sm">{customerData.name}</p>
+              <p className="text-white/70 text-xs">Cancel Rate: {customerData.cancelRate ?? 0}%</p>
+            </div>
+            {transaction && onTransactionTypeChange && (
+              <div className={transaction.className}>
+                <CustomDropdown
+                  value={transaction.label}
+                  options={TRANSACTION_OPTIONS.map(o => o.label)}
+                  onChange={(label) => {
+                    const selected = TRANSACTION_OPTIONS.find(o => o.label === label);
+                    if (selected) onTransactionTypeChange(selected.value);
+                  }}
+                />
+              </div>
+            )}
+          </div>
+        )}
+        <nav className="flex items-center gap-6">
+          <a href="/requests-overview" className="text-white/70 hover:text-white text-sm font-medium transition-colors">
+            All Requests
+          </a>
+        </nav>
+      </div>
+    </header>
+  );
+};
 
 // ==================== SIDEBAR COMPONENTS ====================
 

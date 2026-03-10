@@ -410,7 +410,10 @@ export default function Buyer({ mode = 'buyer' }) {
         />
       )}
 
-      <Header />
+      <Header
+        customerData={!isRepricing ? customerData : null}
+        onTransactionTypeChange={!isRepricing ? handleTransactionTypeChange : null}
+      />
       <main className="flex flex-1 min-h-0 overflow-hidden">
         <Sidebar
           onCategorySelect={handleCategorySelect}
@@ -443,7 +446,6 @@ export default function Buyer({ mode = 'buyer' }) {
         cartItems={cartItems} 
         setCartItems={setCartItems}
         customerData={customerData}
-        onTransactionTypeChange={handleTransactionTypeChange}
         currentRequestId={request?.request_id}
         onItemSelect={handleCartItemSelect}
         selectedCartItemId={selectedCartItem?.id}
