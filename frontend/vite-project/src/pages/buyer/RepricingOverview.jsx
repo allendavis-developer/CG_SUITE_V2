@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Header } from "@/components/ui/components";
+import AppHeader from "@/components/AppHeader";
 import { useNotification } from "@/contexts/NotificationContext";
 import { fetchRepricingSessionsOverview } from "@/services/api";
 
@@ -73,7 +73,7 @@ const RepricingOverview = () => {
         }
       `}</style>
 
-      <Header />
+      <AppHeader />
 
       <main className="flex flex-1 overflow-hidden h-[calc(100vh-65px)]">
         <aside className="w-64 bg-blue-900 flex flex-col shrink-0">
@@ -81,14 +81,10 @@ const RepricingOverview = () => {
             <div>
               <h3 className="text-white/40 text-[10px] font-black uppercase tracking-widest mb-4">Main Menu</h3>
               <nav className="space-y-1">
-                <a className="flex items-center gap-3 text-white/70 py-2 rounded-lg px-3 -mx-3 cursor-pointer hover:bg-white/10" onClick={() => navigate('/requests-overview')}>
-                  <span className="material-symbols-outlined text-sm text-amber-400">receipt_long</span>
-                  <span className="text-sm font-bold">Requests</span>
-                </a>
-                <a className="flex items-center gap-3 text-white py-2 bg-white/10 rounded-lg px-3 -mx-3 cursor-pointer" onClick={() => navigate('/repricing-overview')}>
+                <div className="flex items-center gap-3 text-white py-2 bg-white/10 rounded-lg px-3 -mx-3">
                   <span className="material-symbols-outlined text-sm text-amber-400">sell</span>
-                  <span className="text-sm font-bold">Repricing</span>
-                </a>
+                  <span className="text-sm font-bold">Overview</span>
+                </div>
               </nav>
             </div>
             <div className="space-y-4">

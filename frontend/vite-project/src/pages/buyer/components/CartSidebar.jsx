@@ -1,9 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Icon, Button } from '@/components/ui/components';
+import { Icon, Button, CustomDropdown } from '@/components/ui/components';
 import { useNavigate } from "react-router-dom";
+import { TRANSACTION_OPTIONS, TRANSACTION_META } from '@/utils/transactionConstants';
 
 /**
- * Shopping cart sidebar component - No totals, non-selectable offers
+ * Shopping cart sidebar component - No totals, non-selectable offers.
+ * Customer details (name, cancel rate, transaction type) are shown in the cart area for buyer mode.
  */
 const CartSidebar = ({ 
   cartItems = [], 
@@ -13,6 +15,7 @@ const CartSidebar = ({
   onFinalize,
   onItemSelect = () => {},
   selectedCartItemId = null,
+  onTransactionTypeChange = null,
   mode = 'buyer'
 }) => {
   const isRepricing = mode === 'repricing';
@@ -131,7 +134,25 @@ const CartSidebar = ({
         </div>
       </div>
 
-
+      {/* Customer details - buyer mode only */}
+      {!isRepricing && customerData && onTransactionTypeChange && (
+        <div className="px-4 py-3 border-b border-blue-900/20 bg-slate-50">
+          <div className="space-y-2">
+            <p className="text-sm font-bold text-blue-900">{customerData.name}</p>
+            <p className="text-xs text-slate-600">Cancel Rate: {customerData.cancelRate ?? 0}%</p>
+            <div className={(TRANSACTION_META[customerData.transactionType] || {}).className}>
+              <CustomDropdown
+                value={(TRANSACTION_META[customerData.transactionType] || { label: 'Unknown' }).label}
+                options={TRANSACTION_OPTIONS.map(o => o.label)}
+                onChange={(label) => {
+                  const selected = TRANSACTION_OPTIONS.find(o => o.label === label);
+                  if (selected) onTransactionTypeChange(selected.value);
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Cart Items List */}
       <div ref={cartListRef} className="flex-1 min-h-0 overflow-y-auto buyer-panel-scroll p-4 space-y-3 bg-white">

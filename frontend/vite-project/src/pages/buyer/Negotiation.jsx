@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
-import { Header } from "@/components/ui/components";
+import AppHeader from "@/components/AppHeader";
 import EbayResearchForm from "@/components/forms/EbayResearchForm";
 import CashConvertersResearchForm from "@/components/forms/CashConvertersResearchForm";
 import CustomerTransactionHeader from './components/CustomerTransactionHeader';
@@ -929,9 +929,7 @@ const Negotiation = ({ mode }) => {
       `}</style>
 
       {/* Header */}
-      <Header
-        userName={customerData.name?.split(' ').map(n => n[0]).join('') || 'JD'}
-      />
+      <AppHeader />
 
       <main className="flex flex-1 overflow-hidden h-[calc(100vh-61px)]">
         {/* Main Table Section */}

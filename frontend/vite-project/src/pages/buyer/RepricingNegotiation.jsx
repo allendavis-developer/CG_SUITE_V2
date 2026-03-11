@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { Header } from "@/components/ui/components";
+import AppHeader from "@/components/AppHeader";
 import EbayResearchForm from "@/components/forms/EbayResearchForm";
 import CashConvertersResearchForm from "@/components/forms/CashConvertersResearchForm";
 import { useNotification } from "@/contexts/NotificationContext";
@@ -347,7 +347,7 @@ const RepricingNegotiation = () => {
         .reprice-table tr:hover { background: rgba(20,69,132,0.05); }
       `}</style>
 
-      <Header />
+      <AppHeader />
 
       <main className="flex flex-1 overflow-hidden h-[calc(100vh-61px)]">
 

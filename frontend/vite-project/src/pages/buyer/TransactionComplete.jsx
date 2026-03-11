@@ -1,14 +1,16 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Header } from '@/components/ui/components'; // Assuming you have these components
+import { Button } from '@/components/ui/components';
+import AppHeader from '@/components/AppHeader';
 
 const TransactionComplete = () => {
   const navigate = useNavigate();
 
   return (
-    <div className="bg-ui-bg text-text-main min-h-screen flex flex-col items-center justify-center p-4">
-      <Header /> {/* Optionally include header if desired */}
-      <div className="bg-white rounded-lg shadow-lg p-8 max-w-md w-full text-center">
+    <div className="bg-ui-bg text-text-main min-h-screen flex flex-col">
+      <AppHeader />
+      <div className="flex-1 flex items-center justify-center p-4">
+        <div className="bg-white rounded-lg shadow-lg p-8 max-w-md w-full text-center">
         <svg
           className="mx-auto h-16 w-16 text-green-500"
           fill="none"
@@ -44,6 +46,7 @@ const TransactionComplete = () => {
         >
           Start New Request
         </Button>
+        </div>
       </div>
     </div>
   );

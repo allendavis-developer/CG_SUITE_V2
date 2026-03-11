@@ -1,0 +1,161 @@
+import React, { useEffect, useState, useMemo } from 'react';
+import AppHeader from '@/components/AppHeader';
+import LaunchpadWelcome from './LaunchpadWelcome';
+import ModuleCard from './ModuleCard';
+import DailyOverview from './DailyOverview';
+import RecentActivityTable from './RecentActivityTable';
+import { API_BASE_URL } from '@/services/api';
+
+/**
+ * Computes launchpad stats and recent transactions from requests overview data.
+ * Only COMPLETE transactions created today. Includes BUYBACK, STORE_CREDIT, and DIRECT_SALE.
+ */
+const computeLaunchpadData = (requests) => {
+  const today = new Date().toDateString();
+
+  const todayComplete = (requests || []).filter(
+    (r) =>
+      r.current_status === 'COMPLETE' &&
+      r.created_at &&
+      new Date(r.created_at).toDateString() === today
+  );
+
+  let totalBoughtValue = 0;
+  let totalSales = 0;
+
+  const transactions = todayComplete.map((r) => {
+    const amount = Number(r.negotiated_grand_total_gbp) || 0;
+    const isBuy = r.intent === 'BUYBACK' || r.intent === 'STORE_CREDIT';
+    const isSale = r.intent === 'DIRECT_SALE';
+
+    if (isBuy) totalBoughtValue += amount;
+    if (isSale) totalSales += amount;
+
+    return {
+      request_id: r.request_id,
+      customer_name: r.customer_details?.name || 'Unknown',
+      intent: r.intent,
+      amount,
+    };
+  });
+
+  return {
+    totalBoughtValue,
+    totalSales,
+    transactions,
+    totalCount: transactions.length,
+  };
+};
+
+/**
+ * System Launchpad - main entry page with module cards, daily overview, and recent activity.
+ * Matches MainContent styling (primary, accent, cards, tables).
+ */
+const LaunchpadPage = () => {
+  const [requests, setRequests] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const fetchRequests = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch(`${API_BASE_URL}/requests/overview/`);
+        if (!res.ok) throw new Error('Failed to fetch requests');
+        const data = await res.json();
+        setRequests(data);
+      } catch (err) {
+        console.error('[Launchpad] Failed to fetch requests:', err);
+        setError(err.message);
+        setRequests([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchRequests();
+  }, []);
+
+  const { totalBoughtValue, totalSales, transactions, totalCount } =
+    useMemo(() => computeLaunchpadData(requests), [requests]);
+
+  return (
+    <div className="relative flex h-auto min-h-screen w-full flex-col overflow-x-hidden bg-ui-bg dark:bg-slate-900 text-slate-900 dark:text-slate-100">
+      <div className="layout-container flex h-full grow flex-col">
+        <AppHeader />
+
+        <main className="flex-1 px-6 md:px-20 lg:px-40 py-8">
+          <div className="max-w-[1200px] mx-auto">
+            <LaunchpadWelcome />
+
+            {/* Module Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-10">
+              <ModuleCard
+                icon="shopping_cart_checkout"
+                title="Buying Module"
+                description="Manage and process all trade-in transactions, inventory acquisitions, and vendor settlements in one place."
+                route="/buyer"
+                buttonLabel="Open Buying Module"
+              />
+              <ModuleCard
+                icon="analytics"
+                title="Repricing Module"
+                description="Analyze real-time market trends, competitor data, and update product pricing dynamically across all channels."
+                route="/repricing"
+                buttonLabel="Open Repricing Module"
+              />
+              <ModuleCard
+                icon="summarize"
+                title="Reports"
+                description="View request overview and repricing history. Access detailed reports for transactions and pricing sessions."
+                route="/reports"
+                buttonLabel="Open Reports"
+              />
+            </div>
+
+            {/* Daily Overview */}
+            {loading ? (
+              <section className="mb-10">
+                <div className="flex items-center justify-center py-12 text-slate-500">
+                  <span className="material-symbols-outlined animate-spin text-2xl mr-2">
+                    progress_activity
+                  </span>
+                  Loading overview…
+                </div>
+              </section>
+            ) : error ? (
+              <section className="mb-10">
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-amber-800">
+                  <p className="font-medium">Could not load overview data</p>
+                  <p className="text-sm mt-1">{error}</p>
+                </div>
+              </section>
+            ) : (
+              <DailyOverview
+                totalBoughtValue={totalBoughtValue}
+                totalSales={totalSales}
+              />
+            )}
+
+            {/* Recent Activity */}
+            {loading ? (
+              <section>
+                <div className="flex items-center justify-center py-12 text-slate-500">
+                  Loading recent activity…
+                </div>
+              </section>
+            ) : (
+              <RecentActivityTable
+                transactions={transactions}
+                totalCount={totalCount}
+              />
+            )}
+          </div>
+        </main>
+      </div>
+    </div>
+  );
+};
+
+export default LaunchpadPage;

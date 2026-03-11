@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Header } from "@/components/ui/components";
+import AppHeader from "@/components/AppHeader";
 import EbayResearchForm from "@/components/forms/EbayResearchForm";
 import CashConvertersResearchForm from "@/components/forms/CashConvertersResearchForm";
 import { useNotification } from "@/contexts/NotificationContext";
@@ -74,7 +74,7 @@ const RepricingSessionView = () => {
         }
       `}</style>
 
-      <Header />
+      <AppHeader />
 
       <main className="flex flex-1 overflow-hidden h-[calc(100vh-61px)]">
         <section className="flex-1 bg-white flex flex-col overflow-hidden">

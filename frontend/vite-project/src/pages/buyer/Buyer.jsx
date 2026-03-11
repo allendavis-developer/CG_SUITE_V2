@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Header, Sidebar } from '@/components/ui/components';
+import { Sidebar } from '@/components/ui/components';
+import AppHeader from '@/components/AppHeader';
 import CustomerIntakeModal from "@/components/modals/CustomerIntakeModal.jsx";
 import QuickRepriceModal from "@/components/modals/QuickRepriceModal.jsx";
 import MainContent from '@/pages/buyer/components/MainContent';
@@ -471,10 +472,7 @@ export default function Buyer({ mode = 'buyer' }) {
         />
       )}
 
-      <Header
-        customerData={!isRepricing ? customerData : null}
-        onTransactionTypeChange={!isRepricing ? handleTransactionTypeChange : null}
-      />
+      <AppHeader />
       <main className="flex flex-1 min-h-0 overflow-hidden">
         <Sidebar
           onCategorySelect={handleCategorySelect}
@@ -511,6 +509,7 @@ export default function Buyer({ mode = 'buyer' }) {
         currentRequestId={request?.request_id}
         onItemSelect={handleCartItemSelect}
         selectedCartItemId={selectedCartItem?.id}
+        onTransactionTypeChange={!isRepricing ? handleTransactionTypeChange : null}
         mode={mode}
       />
 

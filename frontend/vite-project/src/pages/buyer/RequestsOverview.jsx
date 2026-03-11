@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useNotification } from '@/contexts/NotificationContext';
 import { API_BASE_URL } from '@/services/api';
-import { Header, Icon, CustomDropdown } from '@/components/ui/components';
+import { Icon, CustomDropdown } from '@/components/ui/components';
+import AppHeader from '@/components/AppHeader';
 import { formatIntent, getFilterTitle } from '@/utils/transactionConstants';
 
 const RequestsOverview = () => {
@@ -155,7 +156,7 @@ const RequestsOverview = () => {
       `}</style>
 
       {/* Header */}
-      <Header />
+      <AppHeader />
 
       <main className="flex flex-1 overflow-hidden h-[calc(100vh-65px)]">
         {/* Sidebar */}
