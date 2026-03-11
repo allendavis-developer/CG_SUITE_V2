@@ -891,6 +891,75 @@ class RequestItem(models.Model):
     class Meta:
         db_table = "buying_request_item"
 
+
+class RepricingSession(models.Model):
+    repricing_session_id = models.AutoField(primary_key=True)
+    cart_key = models.CharField(max_length=255, blank=True, default="", db_index=True)
+    item_count = models.PositiveIntegerField(default=0)
+    barcode_count = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = "pricing_repricing_session"
+        ordering = ["-created_at"]
+
+
+class RepricingSessionItem(models.Model):
+    repricing_session_item_id = models.AutoField(primary_key=True)
+    repricing_session = models.ForeignKey(
+        RepricingSession,
+        on_delete=models.CASCADE,
+        related_name="items"
+    )
+    item_identifier = models.CharField(max_length=100, blank=True, default="")
+    title = models.CharField(max_length=255, blank=True, default="")
+    quantity = models.PositiveIntegerField(default=1)
+    barcode = models.CharField(max_length=255, db_index=True)
+    stock_barcode = models.CharField(max_length=255, blank=True, default="", db_index=True)
+    old_retail_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0.00"))]
+    )
+    new_retail_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0.00"))]
+    )
+    cex_sell_at_repricing = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0.00"))]
+    )
+    our_sale_price_at_repricing = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0.00"))]
+    )
+    raw_data = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="eBay research data used for repricing"
+    )
+    cash_converters_data = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Cash Converters research data used for repricing"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "pricing_repricing_session_item"
+        ordering = ["repricing_session_item_id"]
+
 class RequestStatus(models.TextChoices):
     QUOTE = "QUOTE"
     BOOKED_FOR_TESTING = "BOOKED_FOR_TESTING"

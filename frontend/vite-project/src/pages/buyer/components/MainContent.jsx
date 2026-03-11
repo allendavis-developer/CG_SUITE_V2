@@ -1158,15 +1158,15 @@ const MainContent = ({
 
             {isRepricing ? (
               variant && (
-                <div className="flex justify-end pt-2">
-                  <button
+                <div className="flex justify-end pt-4">
+                  <Button
+                    variant="primary"
+                    icon="sell"
+                    className="px-6 py-3 font-bold uppercase tracking-tight"
                     onClick={() => handleAddToCart(null)}
-                    className="flex items-center gap-2 px-8 py-3 rounded-xl text-sm font-bold text-blue-900 transition-all hover:opacity-90 active:scale-[0.98]"
-                    style={{ background: 'var(--brand-orange, #f7b918)', boxShadow: '0 4px 12px rgba(247,185,24,0.3)' }}
                   >
-                    <span className="material-symbols-outlined text-base">sell</span>
                     Add to Reprice List
-                  </button>
+                  </Button>
                 </div>
               )
             ) : isLoadingOffers ? (

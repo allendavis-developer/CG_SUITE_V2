@@ -1,7 +1,7 @@
 # serializers.py
 from rest_framework import serializers
-from .models_v2 import ( ProductCategory, Product, Variant, Attribute, AttributeValue, Customer, Request, RequestItem, RequestStatus, 
-    RequestStatusHistory, Variant, RequestIntent )
+from .models_v2 import ( ProductCategory, Product, Variant, Attribute, AttributeValue, Customer, Request, RequestItem, RequestStatus,
+    RequestStatusHistory, Variant, RequestIntent, RepricingSession, RepricingSessionItem )
 
 
 class ProductCategorySerializer(serializers.ModelSerializer):
@@ -198,3 +198,40 @@ class RequestSerializer(serializers.ModelSerializer):
         if value not in [choice[0] for choice in RequestIntent.choices]:
             raise serializers.ValidationError(f"Invalid intent. Must be one of: {', '.join([c[0] for c in RequestIntent.choices])}")
         return value
+
+
+class RepricingSessionItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RepricingSessionItem
+        fields = [
+            'repricing_session_item_id',
+            'item_identifier',
+            'title',
+            'quantity',
+            'barcode',
+            'stock_barcode',
+            'old_retail_price',
+            'new_retail_price',
+            'cex_sell_at_repricing',
+            'our_sale_price_at_repricing',
+            'raw_data',
+            'cash_converters_data',
+            'created_at',
+        ]
+        read_only_fields = ['repricing_session_item_id', 'created_at']
+
+
+class RepricingSessionSerializer(serializers.ModelSerializer):
+    items = RepricingSessionItemSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = RepricingSession
+        fields = [
+            'repricing_session_id',
+            'cart_key',
+            'item_count',
+            'barcode_count',
+            'created_at',
+            'items',
+        ]
+        read_only_fields = ['repricing_session_id', 'created_at']

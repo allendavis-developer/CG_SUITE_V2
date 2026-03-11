@@ -192,43 +192,44 @@ const CartSidebar = ({
                 </Button>
               </div>
 
-              {/* Quantity Controls - only buttons/input stop propagation so clicking "Qty:" label selects item */}
-              <div className="mt-3 flex items-center gap-2">
-                <span className="text-xs text-gray-500 font-medium">Qty:</span>
-                <div className="flex items-center border border-blue-900/20 rounded-md overflow-hidden">
-                  <Button
-                    variant="ghost"
-                    className="h-7 w-7 p-0 min-w-0 rounded-none hover:bg-blue-50"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      decrementQuantity(item.id);
-                    }}
-                  >
-                    <Icon name="remove" className="text-sm text-blue-900" />
-                  </Button>
-                  <input
-                    type="number"
-                    min="1"
-                    value={item.quantity || 1}
-                    onChange={(e) => {
-                      const value = parseInt(e.target.value) || 1;
-                      updateQuantity(item.id, value);
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                    className="w-12 h-7 text-center text-sm font-semibold text-blue-900 border-x border-blue-900/20 focus:outline-none focus:bg-blue-50"
-                  />
-                  <Button
-                    variant="ghost"
-                    className="h-7 w-7 p-0 min-w-0 rounded-none hover:bg-blue-50"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      incrementQuantity(item.id);
-                    }}
-                  >
-                    <Icon name="add" className="text-sm text-blue-900" />
-                  </Button>
+              {!isRepricing && (
+                <div className="mt-3 flex items-center gap-2">
+                  <span className="text-xs text-gray-500 font-medium">Qty:</span>
+                  <div className="flex items-center border border-blue-900/20 rounded-md overflow-hidden">
+                    <Button
+                      variant="ghost"
+                      className="h-7 w-7 p-0 min-w-0 rounded-none hover:bg-blue-50"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        decrementQuantity(item.id);
+                      }}
+                    >
+                      <Icon name="remove" className="text-sm text-blue-900" />
+                    </Button>
+                    <input
+                      type="number"
+                      min="1"
+                      value={item.quantity || 1}
+                      onChange={(e) => {
+                        const value = parseInt(e.target.value) || 1;
+                        updateQuantity(item.id, value);
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-12 h-7 text-center text-sm font-semibold text-blue-900 border-x border-blue-900/20 focus:outline-none focus:bg-blue-50"
+                    />
+                    <Button
+                      variant="ghost"
+                      className="h-7 w-7 p-0 min-w-0 rounded-none hover:bg-blue-50"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        incrementQuantity(item.id);
+                      }}
+                    >
+                      <Icon name="add" className="text-sm text-blue-900" />
+                    </Button>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Read-only Offers Display — hidden in repricing mode */}
               {!isRepricing && (item.offers?.length > 0 || (item.manualOffer && item.selectedOfferId === 'manual')) && (

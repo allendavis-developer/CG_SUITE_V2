@@ -375,6 +375,9 @@ export const Header = ({
           <a href="/requests-overview" className="text-white/70 hover:text-white text-sm font-medium transition-colors">
             All Requests
           </a>
+          <a href="/repricing-overview" className="text-white/70 hover:text-white text-sm font-medium transition-colors">
+            Repricing History
+          </a>
         </nav>
       </div>
     </header>
@@ -443,7 +446,7 @@ export const RecentItem = ({ image, title, sku, onClick }) => (
 
 
 // Sidebar Component
-export const Sidebar = ({ onCategorySelect, onAddFromCeX, isCeXLoading }) => {
+export const Sidebar = ({ onCategorySelect, onAddFromCeX, isCeXLoading, onQuickReprice }) => {
   const [categories, setCategories] = useState([]);
   const [expandedCategories, setExpandedCategories] = useState([]);
   const [filterText, setFilterText] = useState('');
@@ -597,17 +600,30 @@ export const Sidebar = ({ onCategorySelect, onAddFromCeX, isCeXLoading }) => {
         <div className="space-y-1">
           {filteredCategories.map((cat) => renderCategory(cat))}
         </div>
-        {onAddFromCeX && (
-          <div className="mt-4 pt-4 border-t border-white/10">
-            <button
-              type="button"
-              onClick={onAddFromCeX}
-              disabled={isCeXLoading}
-              className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-400 font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed border border-yellow-500/30"
-            >
-              <Icon name="add_link" className="text-sm" />
-              {isCeXLoading ? 'Waiting for CeX listing…' : 'Add from CeX'}
-            </button>
+        {(onAddFromCeX || onQuickReprice) && (
+          <div className="mt-4 pt-4 border-t border-white/10 space-y-2">
+            {onAddFromCeX && (
+              <button
+                type="button"
+                onClick={onAddFromCeX}
+                disabled={isCeXLoading}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-400 font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed border border-yellow-500/30"
+              >
+                <Icon name="add_link" className="text-sm" />
+                {isCeXLoading ? 'Waiting for CeX listing…' : 'Add from CeX'}
+              </button>
+            )}
+            {onQuickReprice && (
+              <button
+                type="button"
+                onClick={onQuickReprice}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-yellow-500 hover:bg-yellow-400 text-blue-900 font-bold text-sm transition-colors border border-yellow-400 shadow-md shadow-yellow-500/20"
+                title="Quick Reprice is for games only"
+              >
+                <Icon name="bolt" className="text-sm" />
+                Quick Reprice (Games)
+              </button>
+            )}
           </div>
         )}
       </div>

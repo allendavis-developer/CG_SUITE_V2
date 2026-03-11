@@ -15,11 +15,12 @@ from pricing.utils.cashconverters_filters import build_cashconverters_url, conve
 
 from .models_v2 import ( ProductCategory, Product, Variant, Customer,
 Request, RequestItem, RequestStatus, RequestStatusHistory,
-Customer, Variant, RequestIntent
+Customer, Variant, RequestIntent, RepricingSession, RepricingSessionItem
 )
 
 from .serializers import ( RequestSerializer, RequestItemSerializer, CustomerSerializer,
-ProductCategorySerializer, ProductSerializer, CustomerSerializer, VariantMarketStatsSerializer
+ProductCategorySerializer, ProductSerializer, CustomerSerializer, VariantMarketStatsSerializer,
+RepricingSessionSerializer
 )
 
 
@@ -37,6 +38,15 @@ def _resolve_cex_sku_to_variant(item_payload):
         item_payload['variant'] = v.variant_id
     except Variant.DoesNotExist:
         pass
+
+
+def _decimal_or_none(value, field_name):
+    if value in (None, ""):
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, TypeError):
+        raise ValueError(f"Invalid format for {field_name}")
 
 
 @api_view(['GET'])
@@ -327,6 +337,83 @@ def requests_overview_list(request):
         ))
         
     serializer = RequestSerializer(requests, many=True)
+    return Response(serializer.data)
+
+
+@api_view(['GET', 'POST'])
+def repricing_sessions_view(request):
+    if request.method == 'GET':
+        sessions = RepricingSession.objects.prefetch_related('items').order_by('-created_at')
+        serializer = RepricingSessionSerializer(sessions, many=True)
+        return Response(serializer.data)
+
+    items_data = request.data.get('items_data') or []
+    cart_key = (request.data.get('cart_key') or '').strip()
+
+    if not isinstance(items_data, list) or len(items_data) == 0:
+        return Response(
+            {"error": "items_data must be a non-empty list"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    unique_item_ids = {
+        str(item.get('item_identifier') or item.get('itemId') or '').strip()
+        for item in items_data
+        if (item.get('item_identifier') or item.get('itemId'))
+    }
+
+    with transaction.atomic():
+        session = RepricingSession.objects.create(
+            cart_key=cart_key,
+            item_count=len(unique_item_ids),
+            barcode_count=len(items_data),
+        )
+
+        for idx, item_data in enumerate(items_data):
+            barcode = (item_data.get('barcode') or '').strip()
+            if not barcode:
+                transaction.set_rollback(True)
+                return Response(
+                    {"error": f"items_data[{idx}].barcode is required"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            try:
+                RepricingSessionItem.objects.create(
+                    repricing_session=session,
+                    item_identifier=str(item_data.get('item_identifier') or item_data.get('itemId') or '').strip(),
+                    title=(item_data.get('title') or '').strip(),
+                    quantity=max(1, int(item_data.get('quantity') or 1)),
+                    barcode=barcode,
+                    stock_barcode=(item_data.get('stock_barcode') or '').strip(),
+                    old_retail_price=_decimal_or_none(item_data.get('old_retail_price'), 'old_retail_price'),
+                    new_retail_price=_decimal_or_none(item_data.get('new_retail_price'), 'new_retail_price'),
+                    cex_sell_at_repricing=_decimal_or_none(item_data.get('cex_sell_at_repricing'), 'cex_sell_at_repricing'),
+                    our_sale_price_at_repricing=_decimal_or_none(item_data.get('our_sale_price_at_repricing'), 'our_sale_price_at_repricing'),
+                    raw_data=item_data.get('raw_data') or {},
+                    cash_converters_data=item_data.get('cash_converters_data') or {},
+                )
+            except ValueError as exc:
+                transaction.set_rollback(True)
+                return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            except (TypeError, ValueError):
+                transaction.set_rollback(True)
+                return Response(
+                    {"error": f"Invalid quantity for items_data[{idx}]"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+    serializer = RepricingSessionSerializer(session)
+    return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+@api_view(['GET'])
+def repricing_session_detail(request, repricing_session_id):
+    session = get_object_or_404(
+        RepricingSession.objects.prefetch_related('items'),
+        repricing_session_id=repricing_session_id
+    )
+    serializer = RepricingSessionSerializer(session)
     return Response(serializer.data)
 
 
@@ -955,6 +1042,89 @@ def product_variants(request):
         "attributes": attributes,
         "dependencies": dependencies
     })
+
+
+@api_view(['POST'])
+def quick_reprice_lookup(request):
+    """
+    POST: Look up variants by cex_sku to quickly populate the repricer.
+    Accepts barcode pairs: cex_sku (numeric) + nospos_barcode.
+    Falls back to the live CeX API when a sku is not in our database.
+
+    Body: { "pairs": [ { "cex_sku": "...", "nospos_barcode": "..." }, ... ] }
+    Returns: { "found": [...], "not_found": [...] }
+    """
+    pairs = request.data.get('pairs', [])
+    if not isinstance(pairs, list) or not pairs:
+        return Response(
+            {"error": "pairs must be a non-empty list"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    found = []
+    not_found = []
+
+    for pair in pairs:
+        cex_sku = str(pair.get('cex_sku') or '').strip()
+        nospos_barcode = str(pair.get('nospos_barcode') or '').strip()
+
+        if not cex_sku:
+            continue
+
+        try:
+            variant = Variant.objects.select_related(
+                'product__category', 'condition_grade'
+            ).get(cex_sku=cex_sku)
+
+            cex_box = _fetch_cex_box_detail(cex_sku)
+            if cex_box:
+                cex_sale_price = float(cex_box.get('sellPrice') or variant.current_price_gbp)
+                title = cex_box.get('boxName') or variant.product.name
+            else:
+                cex_sale_price = float(variant.current_price_gbp)
+                title = variant.product.name
+
+            target_sell_price = variant.get_target_sell_price()
+            if target_sell_price is not None and float(variant.current_price_gbp) > 0:
+                multiplier = float(target_sell_price) / float(variant.current_price_gbp)
+                our_sale_price = round(cex_sale_price * multiplier, 2)
+            else:
+                our_sale_price = round(cex_sale_price * 0.85, 2)
+
+            found.append({
+                'cex_sku': cex_sku,
+                'nospos_barcode': nospos_barcode,
+                'variant_id': variant.variant_id,
+                'title': title,
+                'subtitle': variant.title,
+                'condition': variant.condition_grade.code,
+                'category_name': variant.product.category.name,
+                'cex_sale_price': cex_sale_price,
+                'our_sale_price': our_sale_price,
+                'in_db': True,
+            })
+
+        except Variant.DoesNotExist:
+            cex_box = _fetch_cex_box_detail(cex_sku)
+            if cex_box:
+                cex_sale_price = float(cex_box.get('sellPrice') or 0)
+                our_sale_price = round(cex_sale_price * 0.85, 2)
+                found.append({
+                    'cex_sku': cex_sku,
+                    'nospos_barcode': nospos_barcode,
+                    'variant_id': None,
+                    'title': cex_box.get('boxName') or cex_sku,
+                    'subtitle': cex_box.get('categoryName') or '',
+                    'condition': '',
+                    'category_name': cex_box.get('superCatName') or '',
+                    'cex_sale_price': cex_sale_price,
+                    'our_sale_price': our_sale_price,
+                    'in_db': False,
+                })
+            else:
+                not_found.append(cex_sku)
+
+    return Response({'found': found, 'not_found': not_found})
 
 
 @api_view(['GET'])

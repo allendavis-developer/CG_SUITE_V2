@@ -12,6 +12,7 @@ import TinyModal from "@/components/ui/TinyModal";
  * @param {Function} setItems - State setter for items
  * @param {Function} onClose - Called when modal is dismissed (clears modal state in parent)
  * @param {boolean} [useResearchSuggestedPrice=false] - When true (Negotiation), apply/keep also updates useResearchSuggestedPrice
+ * @param {string} [priceLabel='Our Sale Price'] - Label used in the modal copy
  */
 export default function SalePriceConfirmModal({
   modalState,
@@ -19,6 +20,7 @@ export default function SalePriceConfirmModal({
   setItems,
   onClose,
   useResearchSuggestedPrice = false,
+  priceLabel = "Our Sale Price",
 }) {
   if (!modalState) return null;
 
@@ -75,7 +77,7 @@ export default function SalePriceConfirmModal({
   };
 
   return (
-    <TinyModal title="Update Our Sale Price?" onClose={keepOldPrice}>
+    <TinyModal title={`Update ${priceLabel}?`} onClose={keepOldPrice}>
       <p className="text-xs font-semibold mb-1" style={{ color: "var(--brand-blue)" }}>
         {item.title}
       </p>
@@ -124,7 +126,7 @@ export default function SalePriceConfirmModal({
       </div>
 
       <p className="text-[11px] text-slate-600 mb-4">
-        Do you want to update <span className="font-semibold">Our Sale Price</span> to this new value?
+        Do you want to update <span className="font-semibold">{priceLabel}</span> to this new value?
       </p>
 
       <div className="flex gap-2">

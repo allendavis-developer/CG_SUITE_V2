@@ -26,6 +26,10 @@ urlpatterns = [
     path('api/requests/<int:request_id>/cancel/', v2.cancel_request, name='cancel_request'),
     path('api/requests/<int:request_id>/update-intent/', v2.update_request_intent, name='update_request_intent'),
     path('api/request-items/<int:request_item_id>/update-raw/', v2.update_request_item_raw_data, name='update_request_item_raw_data'),
+    path('api/quick-reprice/lookup/', v2.quick_reprice_lookup, name='quick_reprice_lookup'),
+    path('api/repricing-sessions/', v2.repricing_sessions_view, name='repricing_sessions'),
+    path('api/repricing-sessions/overview/', v2.repricing_sessions_view, name='repricing_sessions_overview'),
+    path('api/repricing-sessions/<int:repricing_session_id>/', v2.repricing_session_detail, name='repricing_session_detail'),
     re_path(r'^(?:.*)/?$', v2.react_app, name='react_app_catchall'),
 
 

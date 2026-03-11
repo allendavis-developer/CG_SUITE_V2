@@ -7,6 +7,10 @@ import { useNotification } from "@/contexts/NotificationContext";
 import SalePriceConfirmModal from "@/components/modals/SalePriceConfirmModal";
 import TinyModal from "@/components/ui/TinyModal";
 import { maybeShowSalePriceConfirm } from "./utils/researchCompletionHelpers";
+import { clearLastRepricingResult, getLastRepricingResult, openNospos } from "@/services/extensionClient";
+import { saveRepricingSession } from "@/services/api";
+import { getCartKey, loadRepricingProgress, saveRepricingProgress, clearRepricingProgress } from "@/utils/repricingProgress";
+import { getEditableSalePriceState, resolveRepricingSalePrice } from "./utils/repricingDisplay";
 
 // ─── Right-click context menu (remove only) ────────────────────────────────
 const ContextMenu = ({ x, y, onClose, onRemove }) => {
@@ -69,17 +73,6 @@ const buildInitialSearchQuery = (item) =>
   item?.title ||
   undefined;
 
-// Resolve our sale price for an item (repricing: ourSalePrice or ebay suggested)
-const resolveOurSalePrice = (item) => {
-  if (item?.ourSalePrice !== undefined && item.ourSalePrice !== null && item.ourSalePrice !== '') {
-    return Number(item.ourSalePrice);
-  }
-  if (item?.ebayResearchData?.stats?.suggestedPrice != null) {
-    return Number(item.ebayResearchData.stats.suggestedPrice);
-  }
-  return null;
-};
-
 // ─── Main component ────────────────────────────────────────────────────────────
 const RepricingNegotiation = () => {
   const navigate = useNavigate();
@@ -96,17 +89,44 @@ const RepricingNegotiation = () => {
   const [barcodeModal, setBarcodeModal] = useState(null); // { item } | null
   const [barcodeInput, setBarcodeInput] = useState('');
 
+  // Progress: completedBarcodes { [itemId]: number[] } (indices), completedItems string[]
+  const [completedBarcodes, setCompletedBarcodes] = useState({});
+  const [completedItems, setCompletedItems] = useState([]);
+
   // Sale price confirm after research (shared with Negotiation)
   const [salePriceConfirmModal, setSalePriceConfirmModal] = useState(null); // { itemId, oldPricePerUnit, newPricePerUnit, source }
 
   // Research modal state
   const [researchItem, setResearchItem] = useState(null);
   const [cashConvertersResearchItem, setCashConvertersResearchItem] = useState(null);
+  const [isRepricingFinished, setIsRepricingFinished] = useState(false);
 
   // Right-click context menu
   const [contextMenu, setContextMenu] = useState(null); // { x, y, item }
 
   const hasInitialized = useRef(false);
+  const hasSavedCompletionRef = useRef(false);
+
+  const persistCompletedRepricing = async (payload) => {
+    if (!payload?.cart_key || payload.cart_key !== activeCartKey || hasSavedCompletionRef.current) return false;
+    hasSavedCompletionRef.current = true;
+    try {
+      await saveRepricingSession(payload);
+      clearRepricingProgress(activeCartKey);
+      try {
+        await clearLastRepricingResult();
+      } catch {
+        // Ignore extension cleanup failures after save succeeds.
+      }
+      setIsRepricingFinished(true);
+      showNotification("Repricing is done and has been saved.", "success");
+      return true;
+    } catch (err) {
+      hasSavedCompletionRef.current = false;
+      showNotification(err?.message || "Repricing finished but could not be saved.", "error");
+      return false;
+    }
+  };
 
   useEffect(() => {
     if (hasInitialized.current) return;
@@ -118,11 +138,91 @@ const RepricingNegotiation = () => {
     }
 
     setItems(cartItems.map(item => ({ ...item })));
+    const cartKey = getCartKey(cartItems);
+    const saved = cartKey ? loadRepricingProgress(cartKey) : null;
+    if (saved) {
+      setBarcodes(saved.barcodes);
+      setCompletedBarcodes(saved.completedBarcodes);
+      setCompletedItems(saved.completedItems);
+    } else {
+      // Pre-populate barcodes from nosposBarcode set by Quick Reprice
+      const prePopulated = {};
+      for (const item of cartItems) {
+        if (item.nosposBarcode) {
+          prePopulated[item.id] = [item.nosposBarcode];
+        }
+      }
+      if (Object.keys(prePopulated).length > 0) {
+        setBarcodes(prePopulated);
+      }
+    }
     setIsLoading(false);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Derived state ────────────────────────────────────────────────────────────
+  // ── Derived state (must be before useEffects that use it) ─────────────────────
   const activeItems = items.filter(i => !i.isRemoved);
+  const activeCartKey = getCartKey(activeItems);
+
+  useEffect(() => {
+    if (activeCartKey && (Object.keys(barcodes).length > 0 || Object.keys(completedBarcodes).length > 0 || completedItems.length > 0)) {
+      saveRepricingProgress(activeCartKey, { barcodes, completedBarcodes, completedItems });
+    }
+  }, [barcodes, completedBarcodes, completedItems, activeCartKey]);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.data?.type === "REPRICING_PROGRESS" && e.data.payload) {
+        const { cartKey: msgCartKey, completedBarcodes: cb, completedItems: ci } = e.data.payload;
+        if (msgCartKey && msgCartKey === activeCartKey) {
+          setCompletedBarcodes(cb || {});
+          setCompletedItems(ci || []);
+        }
+      }
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, [activeCartKey]);
+
+  useEffect(() => {
+    const handler = async (e) => {
+      if (e.data?.type !== "REPRICING_COMPLETE" || !e.data.payload) return;
+      await persistCompletedRepricing(e.data.payload);
+    };
+
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, [activeCartKey, showNotification]);
+
+  useEffect(() => {
+    if (!activeCartKey) return;
+
+    let cancelled = false;
+
+    const checkForCompletedResult = async () => {
+      try {
+        const response = await getLastRepricingResult();
+        if (cancelled || !response?.ok || !response.payload) return;
+        await persistCompletedRepricing(response.payload);
+      } catch {
+        // Ignore polling failures if extension is unavailable.
+      }
+    };
+
+    checkForCompletedResult();
+    window.addEventListener("focus", checkForCompletedResult);
+    document.addEventListener("visibilitychange", checkForCompletedResult);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", checkForCompletedResult);
+      document.removeEventListener("visibilitychange", checkForCompletedResult);
+    };
+  }, [activeCartKey]);
+
+  useEffect(() => {
+    hasSavedCompletionRef.current = false;
+  }, [activeCartKey]);
+
   const allItemsHaveBarcodes =
     activeItems.length > 0 &&
     activeItems.every(i => (barcodes[i.id] || []).length > 0);
@@ -145,7 +245,7 @@ const RepricingNegotiation = () => {
         currentItem,
         researchItem,
         setSalePriceConfirmModal,
-        resolveOurSalePrice,
+        resolveRepricingSalePrice,
         'ebay'
       );
     }
@@ -164,22 +264,36 @@ const RepricingNegotiation = () => {
         currentItem,
         cashConvertersResearchItem,
         setSalePriceConfirmModal,
-        resolveOurSalePrice,
+        resolveRepricingSalePrice,
         'cashConverters'
       );
     }
     setCashConvertersResearchItem(null);
   };
 
-  const handleProceed = () => {
+  const handleProceed = async () => {
     for (const item of activeItems) {
       if (!(barcodes[item.id] || []).length) {
         showNotification(`Add at least one barcode for: ${item.title || 'Unknown Item'}`, 'error');
         return;
       }
     }
-    showNotification("Repricing completed successfully!", 'success');
-    navigate("/repricing");
+    showNotification("Opening NoSpos…", 'info');
+    try {
+      const repricingData = activeItems.map((item) => ({
+        itemId: item.id,
+        title: item.title || "",
+        salePrice: resolveRepricingSalePrice(item),
+        ourSalePriceAtRepricing: resolveRepricingSalePrice(item),
+        cexSellAtRepricing: item.cexSellPrice ?? null,
+        raw_data: item.ebayResearchData || {},
+        cash_converters_data: item.cashConvertersResearchData || {},
+        barcodes: barcodes[item.id] || []
+      }));
+      await openNospos(repricingData, { completedBarcodes, completedItems, cartKey: activeCartKey });
+    } catch (err) {
+      showNotification(err?.message || "Could not open NoSpos", "error");
+    }
   };
 
   // ── Loading state ─────────────────────────────────────────────────────────────
@@ -283,10 +397,9 @@ const RepricingNegotiation = () => {
             <table className="w-full reprice-table border-collapse text-left">
               <thead>
                 <tr>
-                  <th className="w-12 text-center">Qty</th>
                   <th className="min-w-[220px]">Item Name &amp; Attributes</th>
                   <th className="w-24">CeX Sell</th>
-                  <th className="w-28">Our Sale Price</th>
+                  <th className="w-28">New Sale Price</th>
                   <th className="w-36">eBay Price</th>
                   <th className="w-36">Cash Converters</th>
                   <th className="w-44">Barcodes</th>
@@ -295,34 +408,22 @@ const RepricingNegotiation = () => {
 
               <tbody className="text-xs">
                 {items.map((item, index) => {
-                  const quantity = item.quantity || 1;
                   const ebayData = item.ebayResearchData;
                   const ccData = item.cashConvertersResearchData;
                   const cexOutOfStock = item.cexOutOfStock || item.cexProductData?.isOutOfStock || false;
                   const itemBarcodes = barcodes[item.id] || [];
                   const hasBarcodes = itemBarcodes.length > 0;
 
-                  // Our Sale Price — same logic as Negotiation.jsx
-                  const perUnitOurPrice =
-                    item.ourSalePrice === '' ? null :
-                    (item.ourSalePrice !== undefined && item.ourSalePrice !== null && item.ourSalePrice !== ''
-                      ? Number(item.ourSalePrice)
-                      : (item.ebayResearchData?.stats?.suggestedPrice != null
-                          ? Number(item.ebayResearchData.stats.suggestedPrice)
-                          : null));
-                  const totalOurPrice =
-                    perUnitOurPrice != null && !Number.isNaN(perUnitOurPrice)
-                      ? perUnitOurPrice * quantity
-                      : null;
-                  const isEditingRowTotal = item.ourSalePriceInput !== undefined;
-                  const ourSalePriceDisplayValue = isEditingRowTotal
-                    ? item.ourSalePriceInput
-                    : (totalOurPrice != null && !Number.isNaN(totalOurPrice) ? totalOurPrice.toFixed(2) : '');
+                  const {
+                    perUnitSalePrice,
+                    totalSalePrice,
+                    isEditingRowTotal,
+                    displayValue: salePriceDisplayValue,
+                  } = getEditableSalePriceState(item);
 
                   const handleOurSalePriceBlur = () => {
-                    const raw = (item.ourSalePriceInput ?? ourSalePriceDisplayValue).replace(/[£,]/g, '').trim();
+                    const raw = (item.ourSalePriceInput ?? salePriceDisplayValue).replace(/[£,]/g, '').trim();
                     const parsedTotal = parseFloat(raw);
-                    const safeQty = quantity || 1;
                     setItems(prev => prev.map(i => {
                       if (i.id !== item.id) return i;
                       const next = { ...i };
@@ -331,7 +432,7 @@ const RepricingNegotiation = () => {
                         next.ourSalePrice = '';
                         return next;
                       }
-                      next.ourSalePrice = (parsedTotal / safeQty).toFixed(2);
+                      next.ourSalePrice = parsedTotal.toFixed(2);
                       return next;
                     }));
                   };
@@ -346,21 +447,6 @@ const RepricingNegotiation = () => {
                         setContextMenu({ x: e.clientX, y: e.clientY, item });
                       }}
                     >
-                      {/* Qty */}
-                      <td className="text-center">
-                        <input
-                          className="w-12 text-center border rounded px-1 py-0.5 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-[#144584]"
-                          type="number"
-                          min="1"
-                          value={quantity}
-                          onChange={(e) => {
-                            const parsed = parseInt(e.target.value, 10);
-                            const safe = Number.isNaN(parsed) || parsed <= 0 ? 1 : parsed;
-                            setItems(prev => prev.map(i => i.id === item.id ? { ...i, quantity: safe } : i));
-                          }}
-                        />
-                      </td>
-
                       {/* Item Name & Attributes */}
                       <td>
                         <div
@@ -394,28 +480,23 @@ const RepricingNegotiation = () => {
                                 rel="noopener noreferrer"
                                 className="underline decoration-dotted"
                               >
-                                £{(item.cexSellPrice * quantity).toFixed(2)}
+                                £{item.cexSellPrice.toFixed(2)}
                               </a>
                             ) : (
-                              <div>£{(item.cexSellPrice * quantity).toFixed(2)}</div>
-                            )}
-                            {quantity > 1 && (
-                              <div className="text-[9px] opacity-70">
-                                (£{item.cexSellPrice.toFixed(2)} × {quantity})
-                              </div>
+                              <div>£{item.cexSellPrice.toFixed(2)}</div>
                             )}
                           </div>
                         ) : '—'}
                       </td>
 
-                      {/* Our Sale Price — editable, same behaviour as negotiate mode */}
+                      {/* New Sale Price — editable */}
                       <td className="font-medium text-purple-700">
                         <div>
                           <input
                             className="w-full border-0 text-xs font-semibold text-center px-3 py-2 focus:outline-none focus:ring-0 bg-white rounded"
                             placeholder="£0.00"
                             type="text"
-                            value={ourSalePriceDisplayValue}
+                            value={salePriceDisplayValue}
                             onChange={(e) => {
                               const value = e.target.value.replace(/[£,]/g, '').trim();
                               setItems(prev =>
@@ -424,22 +505,16 @@ const RepricingNegotiation = () => {
                             }}
                             onBlur={handleOurSalePriceBlur}
                             onFocus={() => {
-                              if (item.ourSalePriceInput === undefined && ourSalePriceDisplayValue !== '') {
+                              if (item.ourSalePriceInput === undefined && salePriceDisplayValue !== '') {
                                 setItems(prev =>
-                                  prev.map(i => i.id === item.id ? { ...i, ourSalePriceInput: ourSalePriceDisplayValue } : i)
+                                  prev.map(i => i.id === item.id ? { ...i, ourSalePriceInput: salePriceDisplayValue } : i)
                                 );
                               }
                             }}
                           />
-                          {!isEditingRowTotal && totalOurPrice != null && !Number.isNaN(totalOurPrice) && (
+                          {!isEditingRowTotal && totalSalePrice != null && !Number.isNaN(totalSalePrice) && (
                             <div className="text-[9px] opacity-70 mt-0.5">
-                              £{totalOurPrice.toFixed(2)}
-                              {quantity > 1 && (
-                                <span>
-                                  {` (£${perUnitOurPrice != null && !Number.isNaN(perUnitOurPrice)
-                                    ? perUnitOurPrice.toFixed(2) : '0.00'} × ${quantity})`}
-                                </span>
-                              )}
+                              £{totalSalePrice.toFixed(2)}
                             </div>
                           )}
                         </div>
@@ -450,12 +525,7 @@ const RepricingNegotiation = () => {
                         {ebayData?.stats?.median ? (
                           <div className="flex items-center justify-between gap-2">
                             <div className="text-[13px] font-medium" style={{ color: '#144584' }}>
-                              <div>£{(Number(ebayData.stats.median) * quantity).toFixed(2)}</div>
-                              {quantity > 1 && (
-                                <div className="text-[9px] opacity-70">
-                                  (£{Number(ebayData.stats.median).toFixed(2)} × {quantity})
-                                </div>
-                              )}
+                              <div>£{Number(ebayData.stats.median).toFixed(2)}</div>
                             </div>
                             <button
                               className="flex items-center justify-center size-7 rounded transition-colors shrink-0"
@@ -486,12 +556,7 @@ const RepricingNegotiation = () => {
                         {ccData?.stats?.median ? (
                           <div className="flex items-center justify-between gap-2">
                             <div className="text-[13px] font-medium" style={{ color: '#144584' }}>
-                              <div>£{(Number(ccData.stats.median) * quantity).toFixed(2)}</div>
-                              {quantity > 1 && (
-                                <div className="text-[9px] opacity-70">
-                                  (£{Number(ccData.stats.median).toFixed(2)} × {quantity})
-                                </div>
-                              )}
+                              <div>£{Number(ccData.stats.median).toFixed(2)}</div>
                             </div>
                             <button
                               className="flex items-center justify-center size-7 rounded transition-colors shrink-0"
@@ -522,7 +587,9 @@ const RepricingNegotiation = () => {
                         <button
                           className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-all w-full ${
                             hasBarcodes
-                              ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                              ? completedItems.includes(item.id)
+                                ? 'border-emerald-400 bg-emerald-100 text-emerald-800'
+                                : 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
                               : 'border-red-300 bg-red-50 text-red-600 hover:bg-red-100'
                           }`}
                           onClick={() => { setBarcodeModal({ item }); setBarcodeInput(''); }}
@@ -531,9 +598,12 @@ const RepricingNegotiation = () => {
                           <span className="material-symbols-outlined text-[14px]">barcode</span>
                           <span className="flex-1 text-left">
                             {hasBarcodes
-                              ? `${itemBarcodes.length} barcode${itemBarcodes.length !== 1 ? 's' : ''}`
+                              ? `${(completedBarcodes[item.id] || []).length}/${itemBarcodes.length} barcode${itemBarcodes.length !== 1 ? 's' : ''}`
                               : 'Add barcodes'}
                           </span>
+                          {completedItems.includes(item.id) && (
+                            <span className="material-symbols-outlined text-[14px] text-emerald-600">check_circle</span>
+                          )}
                           {!hasBarcodes && (
                             <span className="material-symbols-outlined text-[14px] text-red-500">error</span>
                           )}
@@ -543,8 +613,8 @@ const RepricingNegotiation = () => {
                   );
                 })}
 
-                <tr className="h-10 opacity-50"><td colSpan="7"></td></tr>
-                <tr className="h-10 opacity-50"><td colSpan="7"></td></tr>
+                <tr className="h-10 opacity-50"><td colSpan="6"></td></tr>
+                <tr className="h-10 opacity-50"><td colSpan="6"></td></tr>
               </tbody>
             </table>
           </div>
@@ -580,17 +650,20 @@ const RepricingNegotiation = () => {
               <div className="space-y-2">
                 {activeItems.map(i => {
                   const count = (barcodes[i.id] || []).length;
+                  const done = (completedBarcodes[i.id] || []).length;
+                  const itemComplete = completedItems.includes(i.id);
                   return (
                     <div key={i.id} className="flex items-center justify-between gap-2">
-                      <span className="text-xs truncate flex-1" style={{ color: '#64748b' }}>
+                      <span className="text-xs truncate flex-1 flex items-center gap-1" style={{ color: '#64748b' }}>
+                        {itemComplete && <span className="material-symbols-outlined text-emerald-600 text-[14px]">check_circle</span>}
                         {i.title}
                       </span>
                       <span
                         className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                          count > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'
+                          itemComplete ? 'bg-emerald-200 text-emerald-800' : count > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'
                         }`}
                       >
-                        {count > 0 ? `${count} barcode${count !== 1 ? 's' : ''}` : 'missing'}
+                        {count > 0 ? `${done}/${count} barcode${count !== 1 ? 's' : ''}` : 'missing'}
                       </span>
                     </div>
                   );
@@ -606,7 +679,7 @@ const RepricingNegotiation = () => {
           >
             <button
               className={`w-full font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 group active:scale-[0.98] ${
-                !allItemsHaveBarcodes ? 'opacity-50 cursor-not-allowed' : ''
+                !allItemsHaveBarcodes || isRepricingFinished ? 'opacity-50 cursor-not-allowed' : ''
               }`}
               style={{
                 background: '#f7b918',
@@ -614,16 +687,25 @@ const RepricingNegotiation = () => {
                 boxShadow: '0 10px 15px -3px rgba(247,185,24,0.3)'
               }}
               onClick={handleProceed}
-              disabled={!allItemsHaveBarcodes}
+              disabled={!allItemsHaveBarcodes || isRepricingFinished}
             >
-              <span className="text-base uppercase tracking-tight">Proceed with Repricing</span>
-              <span className="material-symbols-outlined text-xl group-hover:translate-x-1 transition-transform">
-                arrow_forward
+              <span className="text-base uppercase tracking-tight">
+                {isRepricingFinished ? 'Repricing Finished' : 'Proceed with Repricing'}
               </span>
+              {!isRepricingFinished && (
+                <span className="material-symbols-outlined text-xl group-hover:translate-x-1 transition-transform">
+                  arrow_forward
+                </span>
+              )}
             </button>
-            {!allItemsHaveBarcodes && (
+            {!allItemsHaveBarcodes && !isRepricingFinished && (
               <p className="text-[10px] text-center text-red-600 font-semibold -mt-2">
                 Add barcodes to all items to proceed
+              </p>
+            )}
+            {isRepricingFinished && (
+              <p className="text-[10px] text-center text-emerald-700 font-semibold -mt-2">
+                Repricing finished
               </p>
             )}
           </div>
@@ -646,6 +728,7 @@ const RepricingNegotiation = () => {
         setItems={setItems}
         onClose={() => setSalePriceConfirmModal(null)}
         useResearchSuggestedPrice={false}
+        priceLabel="New Sale Price"
       />
 
       {/* ── Barcode Modal ──────────────────────────────────────────────────────── */}
@@ -678,23 +761,29 @@ const RepricingNegotiation = () => {
 
             {itemBarcodes.length > 0 ? (
               <div className="space-y-1.5 mb-4 max-h-40 overflow-y-auto">
-                {itemBarcodes.map((code, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg bg-gray-50 border border-gray-200"
-                  >
-                    <span className="text-xs font-mono font-semibold" style={{ color: '#144584' }}>
-                      {code}
-                    </span>
-                    <button
-                      onClick={() => removeBarcode(code)}
-                      className="text-red-400 hover:text-red-600 transition-colors"
-                      title="Remove barcode"
+                {itemBarcodes.map((code, idx) => {
+                  const isComplete = (completedBarcodes[modalItem.id] || []).includes(idx);
+                  return (
+                    <div
+                      key={idx}
+                      className={`flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg border ${
+                        isComplete ? 'bg-emerald-50 border-emerald-200' : 'bg-gray-50 border-gray-200'
+                      }`}
                     >
-                      <span className="material-symbols-outlined text-[16px]">close</span>
-                    </button>
-                  </div>
-                ))}
+                      <span className="text-xs font-mono font-semibold flex items-center gap-2" style={{ color: '#144584' }}>
+                        {isComplete && <span className="material-symbols-outlined text-emerald-600 text-[16px]">check_circle</span>}
+                        {code}
+                      </span>
+                      <button
+                        onClick={() => removeBarcode(code)}
+                        className="text-red-400 hover:text-red-600 transition-colors"
+                        title="Remove barcode"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">close</span>
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             ) : (
               <p className="text-xs text-slate-400 italic mb-4">No barcodes added yet.</p>

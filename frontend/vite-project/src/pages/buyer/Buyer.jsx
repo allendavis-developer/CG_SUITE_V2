@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Header, Sidebar } from '@/components/ui/components';
 import CustomerIntakeModal from "@/components/modals/CustomerIntakeModal.jsx";
+import QuickRepriceModal from "@/components/modals/QuickRepriceModal.jsx";
 import MainContent from '@/pages/buyer/components/MainContent';
 import CartSidebar from '@/pages/buyer/components/CartSidebar';
 import { useLocation } from 'react-router-dom';
@@ -42,6 +43,9 @@ export default function Buyer({ mode = 'buyer' }) {
   // CeX Add from listing flow (waits for user to go to product-detail page)
   const [cexLoading, setCexLoading] = useState(false);
   const [cexProductData, setCexProductData] = useState(null);
+
+  // Quick Reprice modal
+  const [isQuickRepriceOpen, setIsQuickRepriceOpen] = useState(false);
 
   // Restore cart state on navigation
   useEffect(() => {
@@ -200,6 +204,48 @@ export default function Buyer({ mode = 'buyer' }) {
     setCexProductData(null);
   };
 
+  /**
+   * Called by QuickRepriceModal when the user confirms adding items.
+   * Converts the lookup results into cart items and adds them to the reprice list.
+   */
+  const handleQuickRepriceAddItems = (foundItems) => {
+    let addedCount = 0;
+    for (const result of foundItems) {
+      const cartItem = {
+        id: crypto.randomUUID?.() ?? `cart-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        title: result.title,
+        subtitle: result.subtitle || result.condition || '',
+        offers: [],
+        cashOffers: [],
+        voucherOffers: [],
+        quantity: 1,
+        variantId: result.variant_id ?? null,
+        cexSku: result.cex_sku,
+        category: result.category_name || '',
+        categoryObject: result.category_name
+          ? { name: result.category_name, path: [result.category_name] }
+          : null,
+        condition: result.condition || '',
+        ourSalePrice: result.our_sale_price ?? null,
+        cexSellPrice: result.cex_sale_price ?? null,
+        nosposBarcode: result.nospos_barcode || '',
+        isCustomCeXItem: !result.in_db,
+        offerType: 'cash',
+        selectedOfferId: null,
+        ebayResearchData: null,
+        cashConvertersResearchData: null,
+        referenceData: null,
+        request_item_id: null,
+      };
+      addToCart(cartItem);
+      addedCount++;
+    }
+    showNotification(
+      `${addedCount} item${addedCount !== 1 ? 's' : ''} added to reprice list`,
+      'success'
+    );
+  };
+
   const handleCategorySelect = async (category) => {
     // Start a new models request; any older in-flight responses will be ignored
     const requestId = ++modelsRequestIdRef.current;
@@ -272,7 +318,9 @@ export default function Buyer({ mode = 'buyer' }) {
     );
 
     if (isExistingItem) {
-      if (sameOffer) {
+      if (isRepricing) {
+        notificationMessage = `${item.title} is already in the reprice list`;
+      } else if (sameOffer) {
         const newQuantity = (existingItem.quantity || 1) + 1;
         notificationMessage = `Quantity increased to ${newQuantity} for ${item.title}`;
       } else {
@@ -282,18 +330,24 @@ export default function Buyer({ mode = 'buyer' }) {
       notificationMessage = `${item.title} added to cart`;
     }
 
-    // Update cart state
     setCartItems((prev) => {
       const existingIndex = findExistingItemIndex(prev);
       if (existingIndex === -1) {
         return [...prev, item];
       }
-
+    
       const updatedItems = [...prev];
       const existing = updatedItems[existingIndex];
       const sameSelectedOffer = (existing.selectedOfferId ?? null) === (item.selectedOfferId ?? null);
-
-      if (sameSelectedOffer) {
+    
+      if (isRepricing) {
+        updatedItems[existingIndex] = {
+          ...existing,
+          ...item,
+          id: existing.id,
+          quantity: 1
+        };
+      } else if (sameSelectedOffer) {
         updatedItems[existingIndex] = {
           ...existing,
           quantity: (existing.quantity || 1) + 1
@@ -410,6 +464,13 @@ export default function Buyer({ mode = 'buyer' }) {
         />
       )}
 
+      {isQuickRepriceOpen && (
+        <QuickRepriceModal
+          onClose={() => setIsQuickRepriceOpen(false)}
+          onAddItems={handleQuickRepriceAddItems}
+        />
+      )}
+
       <Header
         customerData={!isRepricing ? customerData : null}
         onTransactionTypeChange={!isRepricing ? handleTransactionTypeChange : null}
@@ -417,8 +478,9 @@ export default function Buyer({ mode = 'buyer' }) {
       <main className="flex flex-1 min-h-0 overflow-hidden">
         <Sidebar
           onCategorySelect={handleCategorySelect}
-          onAddFromCeX={handleAddFromCeX}
+          onAddFromCeX={!isRepricing ? handleAddFromCeX : null}
           isCeXLoading={cexLoading}
+          onQuickReprice={isRepricing ? () => setIsQuickRepriceOpen(true) : null}
         />
         <MainContent 
           selectedCategory={selectedCategory} 

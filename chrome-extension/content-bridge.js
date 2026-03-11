@@ -21,6 +21,14 @@
       }, '*');
       sendResponse({ ok: true });
     }
+    if (msg.type === 'REPRICING_PROGRESS_TO_PAGE') {
+      window.postMessage({ type: 'REPRICING_PROGRESS', payload: msg.payload }, '*');
+      sendResponse({ ok: true });
+    }
+    if (msg.type === 'REPRICING_COMPLETE_TO_PAGE') {
+      window.postMessage({ type: 'REPRICING_COMPLETE', payload: msg.payload }, '*');
+      sendResponse({ ok: true });
+    }
     return true;
   });
 
@@ -35,10 +43,10 @@
       requestId,
       payload: message
     }, (bridgeResponse) => {
-      // For startWaitingForData and startRefine we don't resolve here; the listing page will send SCRAPED_DATA later and background will send EXTENSION_RESPONSE_TO_PAGE to this tab.
-      if (message.action === 'startWaitingForData' || message.action === 'startRefine') {
+      // For startWaitingForData, startRefine, and openNosposAndWait we don't resolve here; the target page will send data/ready later and background will send EXTENSION_RESPONSE_TO_PAGE to this tab.
+      if (message.action === 'startWaitingForData' || message.action === 'startRefine' || message.action === 'openNosposAndWait') {
         if (typeof console !== 'undefined') {
-          console.log('[CG Suite content-bridge] startWaitingForData/startRefine – not posting response; waiting for listing page to send data');
+          console.log('[CG Suite content-bridge] startWaitingForData/startRefine/openNosposAndWait – not posting response; waiting for target page');
         }
         return;
       }

@@ -11,6 +11,8 @@
     "tabGroups"
   ],
   "host_permissions": [
+    "https://nospos.com/*",
+    "https://*.nospos.com/*",
     "https://www.ebay.co.uk/*",
     "https://ebay.co.uk/*",
     "https://www.cashconverters.co.uk/*",
@@ -44,6 +46,11 @@
     {
       "matches": ["https://uk.webuy.com/*", "https://www.webuy.com/*"],
       "js": ["content-listings.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://nospos.com/*", "https://*.nospos.com/*"],
+      "js": ["content-nospos.js"],
       "run_at": "document_idle"
     }
   ]

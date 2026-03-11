@@ -461,3 +461,72 @@ export const updateRequestItemRawData = async (requestItemId, rawData) => {
     return null;
   }
 };
+
+/**
+ * Save a completed repricing session.
+ * Payload shape mirrors the saved repricing snapshot emitted by the extension.
+ */
+export const saveRepricingSession = async (payload) => {
+  if (!payload) return null;
+
+  const res = await fetch(`${API_BASE_URL}/repricing-sessions/`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRFToken': getCSRFToken()
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || 'Failed to save repricing session');
+  }
+
+  return res.json();
+};
+
+export const fetchRepricingSessionsOverview = async () => {
+  const res = await fetch(`${API_BASE_URL}/repricing-sessions/overview/`);
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || 'Failed to fetch repricing sessions');
+  }
+  return res.json();
+};
+
+/**
+ * Quick Reprice: look up variants by cex_sku + nospos_barcode pairs.
+ * @param {Array<{cex_sku: string, nospos_barcode: string}>} pairs
+ * @returns {Promise<{found: Array, not_found: Array}>}
+ */
+export const quickRepriceLookup = async (pairs) => {
+  if (!pairs || !pairs.length) return { found: [], not_found: [] };
+
+  const res = await fetch(`${API_BASE_URL}/quick-reprice/lookup/`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRFToken': getCSRFToken()
+    },
+    body: JSON.stringify({ pairs })
+  });
+
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || 'Quick reprice lookup failed');
+  }
+
+  return res.json();
+};
+
+export const fetchRepricingSessionDetail = async (repricingSessionId) => {
+  if (!repricingSessionId) return null;
+
+  const res = await fetch(`${API_BASE_URL}/repricing-sessions/${repricingSessionId}/`);
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || 'Failed to fetch repricing session detail');
+  }
+  return res.json();
+};
