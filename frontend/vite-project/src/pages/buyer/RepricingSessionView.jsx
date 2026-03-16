@@ -6,6 +6,7 @@ import CashConvertersResearchForm from "@/components/forms/CashConvertersResearc
 import { useNotification } from "@/contexts/NotificationContext";
 import { fetchRepricingSessionDetail } from "@/services/api";
 import { formatMoney, getResearchMedian } from "./utils/repricingDisplay";
+import { TableCheckbox } from "@/components/ui/components";
 
 const RepricingSessionView = () => {
   const navigate = useNavigate();
@@ -15,6 +16,7 @@ const RepricingSessionView = () => {
   const [loading, setLoading] = useState(true);
   const [researchItem, setResearchItem] = useState(null);
   const [cashConvertersResearchItem, setCashConvertersResearchItem] = useState(null);
+  const [selectedItemIds, setSelectedItemIds] = useState(new Set());
 
   const hasSavedState = (data) => !!(data && typeof data === "object" && Object.keys(data).length > 0);
 
@@ -40,6 +42,45 @@ const RepricingSessionView = () => {
   }
 
   if (!session) return null;
+
+  const getNosposId = (stockUrl) => {
+    if (!stockUrl) return "";
+    try {
+      const url = new URL(stockUrl);
+      const parts = url.pathname.split("/").filter(Boolean);
+      const idx = parts.indexOf("stock");
+      if (idx !== -1 && parts[idx + 1]) {
+        return parts[idx + 1];
+      }
+      return "";
+    } catch {
+      return "";
+    }
+  };
+
+  const handlePrintNewBarcodes = () => {
+    const items = session.items || [];
+    const hasSelection = selectedItemIds && selectedItemIds.size > 0;
+
+    const ids = Array.from(
+      new Set(
+        items
+          .filter((item) =>
+            !hasSelection || selectedItemIds.has(item.repricing_session_item_id)
+          )
+          .map((item) => getNosposId(item.stock_url))
+          .filter((id) => id && id.trim() !== "")
+      )
+    );
+
+    if (!ids.length) {
+      return;
+    }
+
+    const stockIdsParam = encodeURIComponent(ids.join(","));
+    const url = `https://nospos.com/print/barcode?stock_ids=${stockIdsParam}`;
+    window.open(url, "_blank", "noopener");
+  };
 
   return (
     <div className="bg-ui-bg text-text-main min-h-screen flex flex-col text-sm overflow-hidden">
@@ -99,9 +140,20 @@ const RepricingSessionView = () => {
                 </div>
               </div>
 
-              <div className="text-right">
-                <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Session ID</p>
-                <p className="text-lg font-bold" style={{ color: 'var(--brand-blue)' }}>#{session.repricing_session_id}</p>
+              <div className="flex items-center gap-4">
+                <button
+                  type="button"
+                  onClick={handlePrintNewBarcodes}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-xs uppercase tracking-wide transition-all hover:shadow-md"
+                  style={{ backgroundColor: 'var(--brand-blue)', color: 'white', border: 'none' }}
+                >
+                  <span className="material-symbols-outlined text-base">print</span>
+                  {selectedItemIds.size > 0 ? "Print Selected Barcodes" : "Print All Barcodes"}
+                </button>
+                <div className="text-right">
+                  <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Session ID</p>
+                  <p className="text-lg font-bold" style={{ color: 'var(--brand-blue)' }}>#{session.repricing_session_id}</p>
+                </div>
               </div>
             </div>
           </div>
@@ -110,9 +162,36 @@ const RepricingSessionView = () => {
             <table className="w-full spreadsheet-table border-collapse text-left">
               <thead>
                 <tr>
+                  <th className="w-8">
+                    <TableCheckbox
+                      aria-label="Select all rows"
+                      checked={
+                        (session.items || []).length > 0 &&
+                        selectedItemIds.size === (session.items || []).length
+                      }
+                      indeterminate={
+                        selectedItemIds.size > 0 &&
+                        selectedItemIds.size < (session.items || []).length
+                      }
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedItemIds(
+                            new Set(
+                              (session.items || []).map(
+                                (item) => item.repricing_session_item_id
+                              )
+                            )
+                          );
+                        } else {
+                          setSelectedItemIds(new Set());
+                        }
+                      }}
+                    />
+                  </th>
                   <th className="min-w-[220px]">Item</th>
                   <th className="w-40">Typed Barcode</th>
                   <th className="w-40">Stock Barcode</th>
+                  <th className="w-28">NoSpos ID</th>
                   <th className="w-28">Old Retail</th>
                   <th className="w-28">New Sale Price</th>
                   <th className="w-28">CeX Sell</th>
@@ -124,12 +203,46 @@ const RepricingSessionView = () => {
                 {(session.items || []).map((item) => (
                   <tr key={item.repricing_session_item_id}>
                     <td>
+                      <TableCheckbox
+                        aria-label="Select row"
+                        checked={selectedItemIds.has(item.repricing_session_item_id)}
+                        onChange={(e) => {
+                          setSelectedItemIds((prev) => {
+                            const next = new Set(prev);
+                            if (e.target.checked) {
+                              next.add(item.repricing_session_item_id);
+                            } else {
+                              next.delete(item.repricing_session_item_id);
+                            }
+                            return next;
+                          });
+                        }}
+                      />
+                    </td>
+                    <td>
                       <div className="font-bold text-[13px]" style={{ color: 'var(--brand-blue)' }}>{item.title || 'N/A'}</div>
                     </td>
                     <td className="font-mono font-semibold">{item.barcode}</td>
                     <td className="font-mono font-semibold">{item.stock_barcode || item.barcode || 'N/A'}</td>
+                    <td className="font-mono font-semibold">
+                      {item.stock_url ? (
+                        <a
+                          href={item.stock_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="underline decoration-dotted"
+                          title={item.stock_url}
+                        >
+                          {getNosposId(item.stock_url) || '—'}
+                        </a>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
                     <td className="font-semibold">{formatMoney(item.old_retail_price)}</td>
-                    <td className="font-semibold text-emerald-700">{formatMoney(item.new_retail_price ?? item.our_sale_price_at_repricing)}</td>
+                    <td className="font-semibold text-emerald-700">
+                      {formatMoney(item.new_retail_price ?? item.our_sale_price_at_repricing)}
+                    </td>
                     <td className="font-semibold text-blue-800">{formatMoney(item.cex_sell_at_repricing)}</td>
                     <td>
                       <div className="flex items-center justify-between gap-2">

@@ -43,8 +43,8 @@ export default function App() {
       <RepricingProgressListener />
       <Routes>
         <Route path="/" element={<Home />} />
-        <Route path="/buyer" element={<Buyer />} />
-        <Route path="/repricing" element={<Buyer mode="repricing" />} />
+        <Route path="/buyer" element={<Buyer key="buyer" />} />
+        <Route path="/repricing" element={<Buyer key="repricing" mode="repricing" />} />
         <Route path="/reports" element={<ReportsPage />} />
         {/* Route for new negotiations. When navigating from /buyer, state will be passed. */}
         <Route path="/negotiation" element={<Negotiation mode="negotiate" />} />

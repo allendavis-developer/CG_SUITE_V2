@@ -16,6 +16,7 @@ const MarketComparisonsTable = ({
   setCashConvertersModalOpen,
   readOnly = false,
   cexSku: explicitCexSku = null,
+  hideBuyInPrice = false, // true in repricing workflow – only show sale prices
 }) => {
   const hasEbayResearch = Boolean(ebayData?.searchTerm || ebayData?.lastSearchedTerm);
   const hasCashConvertersResearch = Boolean(cashConvertersData?.searchTerm || cashConvertersData?.lastSearchedTerm);
@@ -55,7 +56,7 @@ const MarketComparisonsTable = ({
             <th className="p-4">Market Sale Price</th>
             <th className="p-4 bg-yellow-500/10 border-x border-yellow-500/20">OUR SALE PRICE</th>
             <th className="p-4 text-xs font-semibold text-gray-700">Method</th>
-            <th className="p-4">Buy-in Price (Cash)</th>
+            {!hideBuyInPrice && <th className="p-4">Buy-in Price (Cash)</th>}
             <th className="p-4 text-right">Action</th>
           </tr>
         </thead>
@@ -93,24 +94,26 @@ const MarketComparisonsTable = ({
                 {referenceData?.percentage_used ? `${referenceData.percentage_used}%` : '—'}
               </td>
 
-              <td className="p-4 font-bold text-blue-900">
-                {cexBuyPrice != null ? (
-                  cexUrl ? (
-                    <a
-                      href={cexUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-700 underline decoration-dotted"
-                    >
-                      {formatGBP(cexBuyPrice)}
-                    </a>
+              {!hideBuyInPrice && (
+                <td className="p-4 font-bold text-blue-900">
+                  {cexBuyPrice != null ? (
+                    cexUrl ? (
+                      <a
+                        href={cexUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-700 underline decoration-dotted"
+                      >
+                        {formatGBP(cexBuyPrice)}
+                      </a>
+                    ) : (
+                      formatGBP(cexBuyPrice)
+                    )
                   ) : (
-                    formatGBP(cexBuyPrice)
-                  )
-                ) : (
-                  '—'
-                )}
-              </td>
+                    '—'
+                  )}
+                </td>
+              )}
               <td className="p-4 text-right">
                 <span className="text-emerald-600 inline-flex items-center gap-1 text-xs font-bold">
                   <Icon name="check_circle" className="text-xs" /> Live
@@ -130,7 +133,7 @@ const MarketComparisonsTable = ({
 
               <td className="p-4 text-gray-700 font-semibold text-sm">—</td>
 
-              <td className="p-4 italic text-gray-600/60">—</td>
+              {!hideBuyInPrice && <td className="p-4 italic text-gray-600/60">—</td>}
               <td className="p-4 text-right text-xs text-gray-600/60">—</td>
             </tr>
           )}
@@ -148,16 +151,18 @@ const MarketComparisonsTable = ({
                 Based on {ebayData.listings.length} sold listings
               </td>
 
-              <td className="p-4 font-bold text-blue-900">
-                {(() => {
-                  const buyOffers = ebayData.buyOffers || [];
-                  if (buyOffers.length === 0) return '—';
-                  const prices = buyOffers.map(o => o.price);
-                  const min = Math.min(...prices);
-                  const max = Math.max(...prices);
-                  return min === max ? formatGBP(min) : `${formatGBP(min)} - ${formatGBP(max)}`;
-                })()}
-              </td>
+              {!hideBuyInPrice && (
+                <td className="p-4 font-bold text-blue-900">
+                  {(() => {
+                    const buyOffers = ebayData.buyOffers || [];
+                    if (buyOffers.length === 0) return '—';
+                    const prices = buyOffers.map(o => o.price);
+                    const min = Math.min(...prices);
+                    const max = Math.max(...prices);
+                    return min === max ? formatGBP(min) : `${formatGBP(min)} - ${formatGBP(max)}`;
+                  })()}
+                </td>
+              )}
               <td className="p-4">
                 {!readOnly && (
                   <div className="flex justify-end">
@@ -184,7 +189,7 @@ const MarketComparisonsTable = ({
 
               <td className="p-4 text-gray-700 font-semibold text-sm">—</td>
 
-              <td className="p-4 italic text-gray-600/60">—</td>
+              {!hideBuyInPrice && <td className="p-4 italic text-gray-600/60">—</td>}
               <td className="p-4">
                 {!readOnly && (
                   <div className="flex justify-end">
@@ -218,17 +223,19 @@ const MarketComparisonsTable = ({
                 Based on {cashConvertersData.listings?.length || 0} listings
               </td>
 
-              <td className="p-4 font-bold text-blue-900">
-                {(() => {
-                  const buyOffers = cashConvertersData.buyOffers || [];
-                  if (buyOffers.length === 0) return '—';
-                  const prices = buyOffers.map(o => o.price).filter(p => p != null);
-                  if (prices.length === 0) return '—';
-                  const min = Math.min(...prices);
-                  const max = Math.max(...prices);
-                  return min === max ? formatGBP(min) : `${formatGBP(min)} - ${formatGBP(max)}`;
-                })()}
-              </td>
+              {!hideBuyInPrice && (
+                <td className="p-4 font-bold text-blue-900">
+                  {(() => {
+                    const buyOffers = cashConvertersData.buyOffers || [];
+                    if (buyOffers.length === 0) return '—';
+                    const prices = buyOffers.map(o => o.price).filter(p => p != null);
+                    if (prices.length === 0) return '—';
+                    const min = Math.min(...prices);
+                    const max = Math.max(...prices);
+                    return min === max ? formatGBP(min) : `${formatGBP(min)} - ${formatGBP(max)}`;
+                  })()}
+                </td>
+              )}
               <td className="p-4">
                 {!readOnly && (
                   <div className="flex justify-end">
@@ -255,7 +262,7 @@ const MarketComparisonsTable = ({
 
               <td className="p-4 text-gray-700 font-semibold text-sm">—</td>
 
-              <td className="p-4 italic text-gray-600/60">—</td>
+              {!hideBuyInPrice && <td className="p-4 italic text-gray-600/60">—</td>}
               <td className="p-4">
                 {!readOnly && (
                   <div className="flex justify-end">

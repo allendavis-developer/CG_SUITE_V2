@@ -386,6 +386,8 @@ export default function ResearchFormShell({
   onAddToCartWithOffer = null, // When set (e.g. eBay page), clicking an offer adds with that offer; 4th "Add to Cart" adds with no offer. Called with (offerIndex) where offerIndex is 0, 1, 2, or null.
   onResetSearch = null,
   enableRightClickManualOffer = false, // When true (eBay page mode), right-click on offer opens manual-offer dialog
+  addActionLabel = "Add to Cart",
+  hideOfferCards = false, // When true (e.g. repricing), hide the three offer cards and only show the single add action
 }) {
   // Get current price range (latest in history, or null for full view)
   const currentPriceRange = drillHistory.length > 0 ? drillHistory[drillHistory.length - 1] : null;
@@ -759,15 +761,16 @@ export default function ResearchFormShell({
 
   // MEMOIZED BUY OFFERS DISPLAY with manual offer card and optional "Add to Cart" per-offer flow
   const BuyOffersDisplay = useMemo(() => {
-    if (!buyOffers.length && !showManualOffer) return null;
+    const useAddWithOfferFlow = Boolean(onAddToCartWithOffer && !readOnly);
+    if (hideOfferCards && !useAddWithOfferFlow) return null;
+    if (!hideOfferCards && !buyOffers.length && !showManualOffer) return null;
 
     const offerLabels = ["1st Cash Offer", "2nd Cash Offer", "3rd Cash Offer"];
-    const useAddWithOfferFlow = Boolean(onAddToCartWithOffer && !readOnly);
-    const showRightClickManual = enableRightClickManualOffer && useAddWithOfferFlow;
+    const showRightClickManual = enableRightClickManualOffer && useAddWithOfferFlow && !hideOfferCards;
 
     return (
       <div className="flex flex-wrap items-center gap-4">
-        {buyOffers.map(({ price }, idx) => (
+        {!hideOfferCards && buyOffers.map(({ price }, idx) => (
           <div
             key={idx}
             onContextMenu={
@@ -800,13 +803,13 @@ export default function ResearchFormShell({
             onClick={() => onAddToCartWithOffer(null)}
             className="flex items-center justify-center px-4 py-2 rounded-lg bg-yellow-500 hover:bg-yellow-400 cursor-pointer border-2 border-yellow-500 hover:border-yellow-400 text-blue-900 shadow-md shadow-yellow-500/10 hover:shadow-lg transition-all duration-150 ease-out"
           >
-            <Icon name="add_shopping_cart" className="text-blue-900 text-lg mr-2" />
-            <span className="text-blue-900 font-extrabold text-sm uppercase">Add to Cart</span>
+            <Icon name={addActionLabel === 'Add to Reprice List' ? 'sell' : 'add_shopping_cart'} className="text-blue-900 text-lg mr-2" />
+            <span className="text-blue-900 font-extrabold text-sm uppercase">{addActionLabel}</span>
           </div>
         )}
         
-        {/* Manual Offer Card - styled like the other offers, with inline input */}
-        {showManualOffer && onManualOfferChange && (
+        {/* Manual Offer Card - styled like the other offers, with inline input (hidden when hideOfferCards) */}
+        {!hideOfferCards && showManualOffer && onManualOfferChange && (
           <div
             onClick={handleManualOfferCardClick}
             className={`
@@ -875,7 +878,7 @@ export default function ResearchFormShell({
         )}
       </div>
     );
-  }, [buyOffers, showManualOffer, selectedOfferIndex, manualOffer, manualOfferMargin, onManualOfferChange, readOnly, handleOfferClick, handleManualOfferCardClick, handleManualOfferChange, onAddToCartWithOffer, formatStat, enableRightClickManualOffer, openManualOfferDialog]);
+  }, [buyOffers, showManualOffer, selectedOfferIndex, manualOffer, manualOfferMargin, onManualOfferChange, readOnly, handleOfferClick, handleManualOfferCardClick, handleManualOfferChange, onAddToCartWithOffer, formatStat, enableRightClickManualOffer, openManualOfferDialog, hideOfferCards, addActionLabel]);
 
   const content = (
     <>
@@ -927,7 +930,7 @@ export default function ResearchFormShell({
               disabled={readOnly}
             >
               <Icon name="add_shopping_cart" className="text-sm" />
-              Add to Cart
+              {addActionLabel}
             </Button>
           )}
         </div>

@@ -7,48 +7,89 @@ import MainContent from '@/pages/buyer/components/MainContent';
 import CartSidebar from '@/pages/buyer/components/CartSidebar';
 import { useLocation } from 'react-router-dom';
 import { useNotification } from '@/contexts/NotificationContext';
+import { loadSnapshot, saveSnapshot } from '@/pages/buyer/buyerPageStore';
 
 import { fetchProductModels, updateRequestItemRawData, fetchRequestDetail, fetchCeXProductPrices } from '@/services/api';
 import { getDataFromListingPage } from '@/services/extensionClient';
 import { mapTransactionTypeToIntent } from '@/utils/transactionConstants';
 
+function getInitialSnapshot(mode) {
+  return loadSnapshot(mode);
+}
+
 export default function Buyer({ mode = 'buyer' }) {
   const isRepricing = mode === 'repricing';
   const location = useLocation();
   const { showNotification } = useNotification();
-  
-  const [selectedCategory, setSelectedCategory] = useState(null);
-  const [availableModels, setAvailableModels] = useState([]);
-  const [selectedModel, setSelectedModel] = useState(null);
-  const [isLoadingModels, setIsLoadingModels] = useState(false);
-  
-  const [cartItems, setCartItems] = useState([]);
-  const [isCustomerModalOpen, setCustomerModalOpen] = useState(!isRepricing);
-  const [selectedCartItem, setSelectedCartItem] = useState(null); // Track selected cart item
 
-  const [customerData, setCustomerData] = useState({
+  const initialSnapshotRef = useRef(null);
+  if (initialSnapshotRef.current === null) {
+    initialSnapshotRef.current = getInitialSnapshot(mode);
+  }
+  const snap = initialSnapshotRef.current;
+
+  const [selectedCategory, setSelectedCategory] = useState(() => snap.selectedCategory ?? null);
+  const [availableModels, setAvailableModels] = useState(() => snap.availableModels ?? []);
+  const [selectedModel, setSelectedModel] = useState(() => snap.selectedModel ?? null);
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
+
+  const [cartItems, setCartItems] = useState(() => snap.cartItems ?? []);
+  const [isCustomerModalOpen, setCustomerModalOpen] = useState(() =>
+    snap.isCustomerModalOpen !== undefined ? snap.isCustomerModalOpen : !isRepricing
+  );
+  const [selectedCartItem, setSelectedCartItem] = useState(null);
+
+  const [customerData, setCustomerData] = useState(() => snap.customerData ?? {
     id: null,
     name: 'No Customer Selected',
     cancelRate: 0,
     transactionType: 'sale'
   });
 
-  const [intent, setIntent] = useState(null); // intent must be set when customer is selected
+  const [intent, setIntent] = useState(() => snap.intent ?? null);
   const [request, setRequest] = useState(null);
   const modelsRequestIdRef = useRef(0);
-  
-  // Confirmation dialog state
+
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [pendingTransactionType, setPendingTransactionType] = useState(null);
 
-  // CeX Add from listing flow (waits for user to go to product-detail page)
   const [cexLoading, setCexLoading] = useState(false);
-  const [cexProductData, setCexProductData] = useState(null);
+  const [cexProductData, setCexProductData] = useState(() => snap.cexProductData ?? null);
 
-  // Quick Reprice modal
   const [isQuickRepriceOpen, setIsQuickRepriceOpen] = useState(false);
 
-  // Restore cart state on navigation
+  const persistRef = useRef(null);
+  persistRef.current = {
+    selectedCategory,
+    availableModels,
+    selectedModel,
+    cartItems,
+    selectedCartItemId: selectedCartItem?.id ?? null,
+    customerData,
+    intent,
+    requestId: request?.request_id ?? null,
+    isCustomerModalOpen,
+    cexProductData,
+  };
+
+  useEffect(() => {
+    return () => {
+      if (persistRef.current) saveSnapshot(mode, persistRef.current);
+    };
+  }, [mode]);
+
+  useEffect(() => {
+    const s = initialSnapshotRef.current;
+    if (s?.selectedCartItemId && Array.isArray(s.cartItems) && s.cartItems.length > 0) {
+      const found = s.cartItems.find((i) => i.id === s.selectedCartItemId);
+      if (found) setSelectedCartItem(found);
+    }
+    if (s?.requestId) {
+      fetchRequestDetail(s.requestId).then((data) => data && setRequest(data)).catch(() => {});
+    }
+  }, []);
+
+  // Restore cart state on navigation (e.g. from repricing-negotiation with preserveCart)
   useEffect(() => {
     if (location.state?.preserveCart) {
       if (location.state.cartItems) setCartItems(location.state.cartItems);
@@ -269,7 +310,30 @@ export default function Buyer({ mode = 'buyer' }) {
     }
   };
 
+  const handleItemAddedToCart = () => {
+    setSelectedCategory(null);
+    setSelectedModel(null);
+    setSelectedCartItem(null);
+  };
+
+  const updateCartItemOffers = (cartItemId, updatedOfferData) => {
+    setCartItems(prev => prev.map(item =>
+      item.id === cartItemId ? { ...item, ...updatedOfferData } : item
+    ));
+    setSelectedCartItem(prev =>
+      prev?.id === cartItemId ? { ...prev, ...updatedOfferData } : prev
+    );
+  };
+
   const addToCart = (item) => {
+    // Force-new items bypass duplicate detection and are always appended
+    if (item.forceNew) {
+      const { forceNew: _, ...cleanItem } = item;
+      setCartItems(prev => [...prev, cleanItem]);
+      setTimeout(() => showNotification(`${cleanItem.title} added to cart as a new item`, 'success'), 0);
+      return;
+    }
+
     // Helper function to find existing item index
     const findExistingItemIndex = (items) => {
       return items.findIndex(cartItem => {
@@ -476,7 +540,7 @@ export default function Buyer({ mode = 'buyer' }) {
       <main className="flex flex-1 min-h-0 overflow-hidden">
         <Sidebar
           onCategorySelect={handleCategorySelect}
-          onAddFromCeX={!isRepricing ? handleAddFromCeX : null}
+          onAddFromCeX={handleAddFromCeX}
           isCeXLoading={cexLoading}
           onQuickReprice={isRepricing ? () => setIsQuickRepriceOpen(true) : null}
         />
@@ -489,6 +553,7 @@ export default function Buyer({ mode = 'buyer' }) {
           addToCart={addToCart}
           updateCartItemEbayData={updateCartItemEbayData}
           updateCartItemCashConvertersData={updateCartItemCashConvertersData}
+          updateCartItemOffers={updateCartItemOffers}
           customerData={customerData}
           intent={intent}
           setIntent={setIntent}
@@ -500,6 +565,7 @@ export default function Buyer({ mode = 'buyer' }) {
           setCexProductData={setCexProductData}
           onClearCeXProduct={handleClearCeXProduct}
           onDeselectCartItem={() => setSelectedCartItem(null)}
+          onItemAddedToCart={handleItemAddedToCart}
           mode={mode}
         />
       <CartSidebar 

@@ -386,6 +386,7 @@ def repricing_sessions_view(request):
                     quantity=max(1, int(item_data.get('quantity') or 1)),
                     barcode=barcode,
                     stock_barcode=(item_data.get('stock_barcode') or '').strip(),
+                    stock_url=(item_data.get('stock_url') or '').strip(),
                     old_retail_price=_decimal_or_none(item_data.get('old_retail_price'), 'old_retail_price'),
                     new_retail_price=_decimal_or_none(item_data.get('new_retail_price'), 'new_retail_price'),
                     cex_sell_at_repricing=_decimal_or_none(item_data.get('cex_sell_at_repricing'), 'cex_sell_at_repricing'),

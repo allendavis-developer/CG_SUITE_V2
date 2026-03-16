@@ -30,6 +30,8 @@ function EbayResearchForm({
   marketComparisonContext = null,
   resetDrillOnOpen = false,
   onAddNewItem = null,
+  addActionLabel = 'Add to Cart',
+  hideOfferCards = false,
 }) {
   const [step, setStep] = useState(savedState?.listings?.length ? 'cards' : 'get-data');
   const [listings, setListings] = useState(() => ensureListingIds(savedState?.listings ?? []));
@@ -364,6 +366,8 @@ function EbayResearchForm({
       onClearAllExclusions={!readOnly ? handleClearAllExclusions : undefined}
       onAddNewItem={onAddNewItem}
       onResetSearch={!readOnly ? handleResetSearch : null}
+      addActionLabel={addActionLabel}
+      hideOfferCards={hideOfferCards}
     />
     </>
   );

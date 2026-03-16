@@ -210,6 +210,7 @@ class RepricingSessionItemSerializer(serializers.ModelSerializer):
             'quantity',
             'barcode',
             'stock_barcode',
+            'stock_url',
             'old_retail_price',
             'new_retail_price',
             'cex_sell_at_repricing',

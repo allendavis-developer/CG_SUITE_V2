@@ -916,6 +916,12 @@ class RepricingSessionItem(models.Model):
     quantity = models.PositiveIntegerField(default=1)
     barcode = models.CharField(max_length=255, db_index=True)
     stock_barcode = models.CharField(max_length=255, blank=True, default="", db_index=True)
+    stock_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="",
+        help_text="Link to the stock page in NoSPos / stock system"
+    )
     old_retail_price = models.DecimalField(
         max_digits=10,
         decimal_places=2,

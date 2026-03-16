@@ -36,6 +36,7 @@ const MainContent = ({
   addToCart,
   updateCartItemEbayData,
   updateCartItemCashConvertersData,
+  updateCartItemOffers,
   customerData,
   intent,
   request,
@@ -46,6 +47,7 @@ const MainContent = ({
   setCexProductData = null,
   onClearCeXProduct = null,
   onDeselectCartItem = null,
+  onItemAddedToCart = null,
   mode = 'buyer'
 }) => {
   const isRepricing = mode === 'repricing';
@@ -66,6 +68,8 @@ const MainContent = ({
   const [savedCashConvertersState, setSavedCashConvertersState] = useState(null);
   const [isCeXEbayModalOpen, setCeXEbayModalOpen] = useState(false);
   const [isCeXCashConvertersModalOpen, setCeXCashConvertersModalOpen] = useState(false);
+  const [pendingDuplicateItem, setPendingDuplicateItem] = useState(null);
+  const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
 
   const {
     attributes,
@@ -312,6 +316,88 @@ const MainContent = ({
   };
 
 
+  const buildCartItem = (selectedOfferIdForItem, manualOfferPerUnit) => {
+    const selectedVariant = variants.find(v => v.cex_sku === variant);
+    const normalizedOffers = offers.map(o => ({
+      id: o.id,
+      title: o.title,
+      price: Number(o.price)
+    }));
+    const cashOffers = referenceData?.cash_offers?.map(o => ({
+      id: o.id,
+      title: o.title,
+      price: Number(o.price)
+    })) || [];
+    const voucherOffers = referenceData?.voucher_offers?.map(o => ({
+      id: o.id,
+      title: o.title,
+      price: Number(o.price)
+    })) || [];
+
+    return {
+      id: crypto.randomUUID?.() ?? `cart-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      title: selectedModel.name,
+      subtitle:
+        selectedVariant?.title ||
+        Object.values(attributeValues).filter(v => v).join(' / ') ||
+        'Standard',
+      offers: normalizedOffers,
+      cashOffers,
+      voucherOffers,
+      quantity: 1,
+      variantId: selectedVariant?.variant_id,
+      category: selectedCategory?.name,
+      categoryObject: selectedCategory,
+      model: selectedModel?.name,
+      condition: attributeValues.condition || selectedVariant?.condition,
+      color: attributeValues.color || selectedVariant?.color,
+      storage: attributeValues.storage || selectedVariant?.storage,
+      network: attributeValues.network || selectedVariant?.network,
+      attributeValues: { ...attributeValues },
+      ourSalePrice: ourSalePrice ? Number(ourSalePrice) : null,
+      cexSellPrice: referenceData?.cex_sale_price ? Number(referenceData.cex_sale_price) : null,
+      cexBuyPrice: referenceData?.cex_tradein_cash ? Number(referenceData.cex_tradein_cash) : null,
+      cexVoucherPrice: referenceData?.cex_tradein_voucher ? Number(referenceData.cex_tradein_voucher) : null,
+      cexOutOfStock: referenceData?.cex_out_of_stock ?? false,
+      cexSku: selectedVariant?.cex_sku ?? null,
+      cexUrl: selectedVariant?.cex_sku ? `https://uk.webuy.com/product-detail?id=${selectedVariant.cex_sku}` : null,
+      ebayResearchData: savedEbayState || null,
+      cashConvertersResearchData: savedCashConvertersState || null,
+      referenceData,
+      request_item_id: null,
+      offerType: useVoucherOffers ? 'voucher' : 'cash',
+      selectedOfferId: selectedOfferIdForItem,
+      manualOffer: manualOfferPerUnit != null ? manualOfferPerUnit.toFixed(2) : null,
+    };
+  };
+
+  const handleDuplicateIncreaseQty = () => {
+    setShowDuplicateDialog(false);
+    const cartItem = pendingDuplicateItem;
+    setPendingDuplicateItem(null);
+    // Use the existing item's selected offer so Buyer.jsx increments quantity
+    const existingItem = cartItems.find(ci => ci.variantId === cartItem.variantId);
+    addToCart({ ...cartItem, selectedOfferId: existingItem?.selectedOfferId ?? cartItem.selectedOfferId });
+    onItemAddedToCart?.();
+  };
+
+  const handleDuplicateAddNew = async () => {
+    setShowDuplicateDialog(false);
+    const cartItem = pendingDuplicateItem;
+    setPendingDuplicateItem(null);
+    try {
+      const requestItemId = await createOrAppendRequestItem({
+        variantId: cartItem.variantId,
+        rawData: cartItem.ebayResearchData
+      });
+      cartItem.request_item_id = requestItemId;
+    } catch (err) {
+      console.error('Failed to create request item for new separate item:', err);
+    }
+    addToCart({ ...cartItem, forceNew: true });
+    onItemAddedToCart?.();
+  };
+
   const handleAddToCart = async (offerArg) => {
     if (!selectedModel || !variant) {
       alert('Please select a variant');
@@ -337,90 +423,33 @@ const MainContent = ({
       const offerId = offerArg;
       selectedOfferIdForItem = isRepricing ? null : (offerId === undefined ? (offers[0]?.id ?? null) : offerId);
     }
-    const selectedVariant = variants.find(v => v.cex_sku === variant);
 
-    // Get the currently displayed offers (based on transaction type)
-    const normalizedOffers = offers.map(o => ({
-      id: o.id,
-      title: o.title,
-      price: Number(o.price)
-    }));
-
-    // Store both cash and voucher offers for flexibility in negotiation
-      const cashOffers = referenceData?.cash_offers?.map(o => ({
-        id: o.id,
-        title: o.title,
-        price: Number(o.price)
-      })) || [];
-
-      const voucherOffers = referenceData?.voucher_offers?.map(o => ({
-        id: o.id,
-        title: o.title,
-        price: Number(o.price)
-      })) || [];
-
-    const variantId = selectedVariant?.variant_id;
+    const cartItem = buildCartItem(selectedOfferIdForItem, manualOfferPerUnit);
     const isDuplicateCeXItem = cartItems.some(
-      (ci) => !ci.isCustomEbayItem && !ci.isCustomCashConvertersItem && ci.variantId === variantId
+      (ci) => !ci.isCustomEbayItem && !ci.isCustomCashConvertersItem && ci.variantId === cartItem.variantId
     );
-
-    const cartItem = {
-      id: crypto.randomUUID?.() ?? `cart-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      title: selectedModel.name,
-      subtitle:
-        selectedVariant?.title ||
-        Object.values(attributeValues).filter(v => v).join(' / ') ||
-        'Standard',
-      offers: normalizedOffers,
-      cashOffers: cashOffers,
-      voucherOffers: voucherOffers,
-      quantity: 1,
-      variantId,
-      category: selectedCategory?.name,
-      categoryObject: selectedCategory,
-      model: selectedModel?.name,
-      condition: attributeValues.condition || selectedVariant?.condition,
-      color: attributeValues.color || selectedVariant?.color,
-      storage: attributeValues.storage || selectedVariant?.storage,
-      network: attributeValues.network || selectedVariant?.network,
-      attributeValues: { ...attributeValues },
-      
-      ourSalePrice: ourSalePrice ? Number(ourSalePrice) : null,
-      cexSellPrice: referenceData?.cex_sale_price ? Number(referenceData.cex_sale_price) : null,
-      cexBuyPrice: referenceData?.cex_tradein_cash ? Number(referenceData.cex_tradein_cash) : null,
-      cexVoucherPrice: referenceData?.cex_tradein_voucher ? Number(referenceData.cex_tradein_voucher) : null,
-      cexOutOfStock: referenceData?.cex_out_of_stock ?? false,
-      cexSku: selectedVariant?.cex_sku ?? null,
-      cexUrl: selectedVariant?.cex_sku ? `https://uk.webuy.com/product-detail?id=${selectedVariant.cex_sku}` : null,
-      ebayResearchData: savedEbayState || null,
-      cashConvertersResearchData: savedCashConvertersState || null,
-      referenceData: referenceData,
-      request_item_id: null,
-      offerType: useVoucherOffers ? 'voucher' : 'cash',
-      selectedOfferId: selectedOfferIdForItem,
-      manualOffer: manualOfferPerUnit != null ? manualOfferPerUnit.toFixed(2) : null,
-    };
 
     try {
       if (isRepricing) {
-        // No backend request in repricing mode — just add to the reprice list
         addToCart(cartItem);
+        onItemAddedToCart?.();
       } else if (isDuplicateCeXItem) {
-        addToCart(cartItem);
+        // Show popup asking whether to increase qty or add as separate item
+        setPendingDuplicateItem(cartItem);
+        setShowDuplicateDialog(true);
       } else {
         const requestItemId = await createOrAppendRequestItem({
           variantId: cartItem.variantId,
           rawData: cartItem.ebayResearchData
         });
-
         cartItem.request_item_id = requestItemId;
         addToCart(cartItem);
+        onItemAddedToCart?.();
       }
     } catch (err) {
       console.error('Failed to add item to request:', err);
       alert('Failed to add item to request. Check console for details.');
     }
-
   };
 
   const handleEbayResearchComplete = useCallback(async (data) => {
@@ -603,6 +632,29 @@ const MainContent = ({
     }
   };
 
+  // True when the user has clicked a regular (non-custom) cart item to view it
+  const isViewingCartItem = Boolean(selectedCartItem) &&
+    !selectedCartItem?.isCustomEbayItem &&
+    !selectedCartItem?.isCustomCashConvertersItem &&
+    !selectedCartItem?.isCustomCeXItem;
+
+  const handleOfferPriceChange = useCallback((offerId, newPrice) => {
+    if (!selectedCartItem || !updateCartItemOffers) return;
+    const updateArr = (arr) => (arr || []).map(o =>
+      o.id === offerId ? { ...o, price: Number(newPrice) } : o
+    );
+    updateCartItemOffers(selectedCartItem.id, {
+      offers: updateArr(selectedCartItem.offers),
+      cashOffers: updateArr(selectedCartItem.cashOffers),
+      voucherOffers: updateArr(selectedCartItem.voucherOffers),
+    });
+  }, [selectedCartItem, updateCartItemOffers]);
+
+  const handleSelectedOfferChange = useCallback((offerId) => {
+    if (!selectedCartItem || !updateCartItemOffers) return;
+    updateCartItemOffers(selectedCartItem.id, { selectedOfferId: offerId });
+  }, [selectedCartItem, updateCartItemOffers]);
+
   // CeX product from "Add from CeX" flow – use normal MainContent layout (no config/condition)
   if (cexProductData) {
     const useVoucherOffers = customerData?.transactionType === 'store_credit';
@@ -721,7 +773,12 @@ const MainContent = ({
                   <Icon name="close" />
                 </button>
               )}
-              <Button variant="primary" icon="add_shopping_cart" className="px-8 py-4 text-base font-bold" onClick={handleAddCeXToCart}>
+              <Button
+                variant="primary"
+                icon={isRepricing ? 'sell' : 'add_shopping_cart'}
+                className="px-8 py-4 text-base font-bold"
+                onClick={handleAddCeXToCart}
+              >
                 {isRepricing ? 'Add to Reprice List' : 'Add to Cart'}
               </Button>
             </div>
@@ -773,9 +830,10 @@ const MainContent = ({
             cashConvertersData={cexProductData.cashConvertersResearchData || null}
             setCashConvertersModalOpen={setCexProductData ? () => setCeXCashConvertersModalOpen(true) : () => {}}
             cexSku={cexProductData.id}
+            hideBuyInPrice={isRepricing}
           />
 
-          {offers.length > 0 && (
+          {!isRepricing && offers.length > 0 && (
             <OfferSelection
               variant="cex"
               offers={offers}
@@ -948,8 +1006,9 @@ const MainContent = ({
             setCashConvertersModalOpen={() => {}}
             readOnly={true}
             cexSku={selectedCartItem.cexProductData?.id}
+            hideBuyInPrice={isRepricing}
           />
-          {displayOffers.length > 0 && (
+          {!isRepricing && displayOffers.length > 0 && (
             <OfferSelection variant="cex" offers={displayOffers} referenceData={refWithOurSale} offerType={useVoucherOffers ? 'voucher' : 'cash'} />
           )}
         </div>
@@ -985,6 +1044,8 @@ const MainContent = ({
               showManualOffer={false}
               resetDrillOnOpen={true}
               onAddNewItem={onDeselectCartItem}
+              addActionLabel={isRepricing ? 'Add to Reprice List' : 'Add to Cart'}
+              hideOfferCards={isRepricing}
             />
           ) : (
             <div className="text-center py-12">
@@ -1120,6 +1181,8 @@ const MainContent = ({
             savedState={savedEbayState}
             initialHistogramState={false}
             showManualOffer={false}
+            addActionLabel={isRepricing ? 'Add to Reprice List' : 'Add to Cart'}
+            hideOfferCards={isRepricing}
           />
         </div>
       )}
@@ -1153,6 +1216,7 @@ const MainContent = ({
                 cashConvertersData={cashConvertersData}
                 setCashConvertersModalOpen={setCashConvertersModalOpen}
                 cexSku={variant}
+                hideBuyInPrice={isRepricing}
               />
             )}
 
@@ -1176,6 +1240,17 @@ const MainContent = ({
                   Loading {useVoucherOffers ? 'voucher' : 'cash'} offers...
                 </span>
               </div>
+            ) : isViewingCartItem ? (
+              <OfferSelection
+                variant={variant}
+                offers={offers}
+                referenceData={referenceData}
+                offerType={useVoucherOffers ? 'voucher' : 'cash'}
+                initialSelectedOfferId={selectedCartItem?.selectedOfferId ?? null}
+                editMode={true}
+                onOfferPriceChange={handleOfferPriceChange}
+                onSelectedOfferChange={handleSelectedOfferChange}
+              />
             ) : (
               <OfferSelection
                 variant={variant}
@@ -1270,6 +1345,47 @@ const MainContent = ({
             />
           )}
         </>
+      )}
+
+      {showDuplicateDialog && pendingDuplicateItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-2xl shadow-2xl p-7 w-full max-w-sm border border-gray-200">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="bg-yellow-500/10 p-2 rounded-lg">
+                <span className="material-symbols-outlined text-yellow-600 text-xl">inventory_2</span>
+              </div>
+              <h2 className="text-base font-extrabold text-gray-900">Item Already in Cart</h2>
+            </div>
+            <p className="text-sm text-gray-600 mb-6">
+              <span className="font-semibold text-gray-900">{pendingDuplicateItem.title}</span> is already in your cart. What would you like to do?
+            </p>
+            <div className="flex flex-col gap-3">
+              <button
+                type="button"
+                onClick={handleDuplicateIncreaseQty}
+                className="w-full px-4 py-3 bg-blue-900 text-white rounded-xl font-bold hover:bg-blue-800 transition-colors flex items-center justify-center gap-2"
+              >
+                <span className="material-symbols-outlined text-lg">add_circle</span>
+                Increase Quantity
+              </button>
+              <button
+                type="button"
+                onClick={handleDuplicateAddNew}
+                className="w-full px-4 py-3 border-2 border-blue-900 text-blue-900 rounded-xl font-bold hover:bg-blue-50 transition-colors flex items-center justify-center gap-2"
+              >
+                <span className="material-symbols-outlined text-lg">add_box</span>
+                Add as Separate Item
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowDuplicateDialog(false); setPendingDuplicateItem(null); }}
+                className="w-full px-4 py-2 text-gray-500 rounded-xl font-medium hover:bg-gray-50 transition-colors text-sm"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </section>
   );

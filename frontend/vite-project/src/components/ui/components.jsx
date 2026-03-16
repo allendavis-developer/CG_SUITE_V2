@@ -798,6 +798,54 @@ export const CartItem = ({ title, subtitle, price, isHighlighted, onRemove }) =>
   </div>
 );
 
+// ==================== TABLE CHECKBOX ====================
+
+/**
+ * Styled checkbox for use inside table rows and headers.
+ * Matches the brand-blue / yellow system palette.
+ *
+ * Props: checked, onChange, indeterminate (for header "select-all"), aria-label
+ */
+export const TableCheckbox = ({ checked, onChange, indeterminate = false, 'aria-label': ariaLabel }) => {
+  const ref = React.useRef(null);
+
+  React.useEffect(() => {
+    if (ref.current) {
+      ref.current.indeterminate = indeterminate;
+    }
+  }, [indeterminate]);
+
+  return (
+    <label className="inline-flex items-center justify-center cursor-pointer group">
+      <input
+        ref={ref}
+        type="checkbox"
+        checked={checked}
+        onChange={onChange}
+        aria-label={ariaLabel}
+        className="sr-only"
+      />
+      <span
+        className={`
+          flex items-center justify-center w-4 h-4 transition-all
+          ${checked || indeterminate
+            ? 'bg-[#144584] border-2 border-[#144584]'
+            : 'bg-white border-2 border-black group-hover:border-[#144584]'}
+        `}
+      >
+        {checked && !indeterminate && (
+          <svg viewBox="0 0 10 8" className="w-2.5 h-2.5 text-white fill-none stroke-current stroke-[1.5]">
+            <polyline points="1 4 3.5 6.5 9 1" />
+          </svg>
+        )}
+        {indeterminate && (
+          <span className="block w-2 h-0.5 bg-white rounded" />
+        )}
+      </span>
+    </label>
+  );
+};
+
 export const Modal = ({ open, onClose, children }) => {
   if (!open) return null;
   return (

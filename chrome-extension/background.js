@@ -469,6 +469,7 @@ function applyVerifiedBarcodeCompletion(data) {
       quantity: item.quantity || 1,
       barcode: pendingCompletion.barcode || '',
       stock_barcode: pendingCompletion.stockBarcode || '',
+      stock_url: pendingCompletion.stockUrl || '',
       old_retail_price: pendingCompletion.oldRetailPrice || null,
       new_retail_price: item.salePrice != null ? String(item.salePrice) : null,
       cex_sell_at_repricing: item.cexSellAtRepricing != null ? String(item.cexSellAtRepricing) : null,
@@ -613,7 +614,8 @@ async function handleNosposStockEditReady(message, sender) {
         barcodeIndex: next.barcodeIndex,
         barcode: next.barcode,
         oldRetailPrice: message.oldRetailPrice || '',
-        stockBarcode: message.stockBarcode || ''
+        stockBarcode: message.stockBarcode || '',
+        stockUrl: sender.tab?.url || ''
       }
     }
   });

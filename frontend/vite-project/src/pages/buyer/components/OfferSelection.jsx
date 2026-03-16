@@ -7,18 +7,37 @@ import { formatGBP, calculateMargin } from '@/utils/helpers';
  * When onAddToCart is provided: clicking an offer adds with that offer selected;
  * Add to Cart button adds with no offer selected.
  * Right-click on an offer card opens a context menu to pick an offer and add to cart on Enter.
+ * When editMode is true: shows editable price inputs; hides Add to Cart card.
  */
 const OfferSelection = ({
   variant,
   offers = [],
   referenceData,
   offerType = 'cash',
-  onAddToCart = null
+  onAddToCart = null,
+  initialSelectedOfferId = null,
+  editMode = false,
+  onOfferPriceChange = null,
+  onSelectedOfferChange = null,
 }) => {
+  const [selectedOfferId, setSelectedOfferId] = useState(initialSelectedOfferId);
+  const [localPrices, setLocalPrices] = useState({});
   const [contextMenu, setContextMenu] = useState(null); // { x, y, baseIndex, value }
   const menuRef = useRef(null);
   const inputRef = useRef(null);
   const didInitialFocusRef = useRef(false);
+
+  // Sync selected offer when external value changes (e.g. loading a cart item)
+  useEffect(() => {
+    setSelectedOfferId(initialSelectedOfferId);
+  }, [initialSelectedOfferId]);
+
+  // Sync local editable prices when offers change
+  useEffect(() => {
+    const prices = {};
+    offers.forEach(o => { prices[o.id] = String(o.price); });
+    setLocalPrices(prices);
+  }, [offers]);
 
   const closeContextMenu = () => setContextMenu(null);
 
@@ -57,7 +76,12 @@ const OfferSelection = ({
     : 'Available Trade-In Valuations';
 
   const ourSalePrice = referenceData?.our_sale_price;
-  const showAddToCart = Boolean(onAddToCart);
+  const showAddToCart = Boolean(onAddToCart) && !editMode;
+
+  const handleOfferClick = (offerId) => {
+    setSelectedOfferId(offerId);
+    onAddToCart?.(offerId);
+  };
 
   const openContextMenu = (e, index) => {
     e.preventDefault();
@@ -90,17 +114,92 @@ const OfferSelection = ({
     closeContextMenu();
   };
 
+  const commitPriceChange = (offerId) => {
+    if (!onOfferPriceChange) return;
+    const raw = String(localPrices[offerId] || '').replace(/[£,]/g, '').trim();
+    const parsed = parseFloat(raw);
+    if (!Number.isNaN(parsed) && parsed > 0) {
+      onOfferPriceChange(offerId, parsed);
+    }
+  };
+
+  const gridCols = showAddToCart ? 'grid-cols-4' : 'grid-cols-3';
+
   return (
     <div>
       <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">
         {headerText}
       </h3>
 
-      <div className={`grid gap-4 ${showAddToCart ? 'grid-cols-4' : 'grid-cols-3'}`}>
+      <div className={`grid gap-4 ${gridCols}`}>
         {offers.map((offer, index) => {
+          const displayPrice = editMode
+            ? parseFloat(localPrices[offer.id] ?? offer.price)
+            : parseFloat(offer.price);
           const recalculatedMargin = ourSalePrice
-            ? calculateMargin(offer.price, ourSalePrice)
+            ? calculateMargin(displayPrice, ourSalePrice)
             : null;
+          const isHighlighted = offer.id === selectedOfferId;
+
+          if (editMode) {
+            return (
+              <div
+                key={offer.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => {
+                  setSelectedOfferId(offer.id);
+                  onSelectedOfferChange?.(offer.id);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setSelectedOfferId(offer.id);
+                    onSelectedOfferChange?.(offer.id);
+                  }
+                }}
+                className={`
+                  p-6 rounded-xl bg-white text-center relative overflow-hidden border-2 cursor-pointer
+                  transition-all duration-200 ease-out
+                  ${isHighlighted
+                    ? 'border-blue-900 ring-2 ring-blue-900 ring-offset-2 ring-offset-white shadow-xl shadow-blue-900/10 scale-[1.03]'
+                    : 'border-blue-900/40 hover:border-blue-900/70'
+                  }
+                `}
+              >
+                <div className={`absolute top-0 left-0 w-full ${isHighlighted ? 'h-1.5 bg-yellow-500' : 'h-1 bg-yellow-500/60'}`} />
+                <h4 className="text-[10px] font-black uppercase text-blue-900 mb-3 tracking-wider">
+                  {offer.title}
+                </h4>
+                <div className="relative mb-3" onClick={(e) => e.stopPropagation()}>
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-lg font-bold text-blue-900">£</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    className="w-full pl-7 pr-3 py-2 border-2 border-blue-900/30 rounded-lg text-lg font-extrabold text-blue-900 text-center focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-900"
+                    value={localPrices[offer.id] ?? offer.price}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setLocalPrices(prev => ({ ...prev, [offer.id]: val }));
+                    }}
+                    onBlur={() => commitPriceChange(offer.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        commitPriceChange(offer.id);
+                        e.target.blur();
+                      }
+                    }}
+                  />
+                </div>
+                <div className="flex items-center justify-center gap-1.5">
+                  <span className="text-[10px] font-bold text-gray-500 uppercase">Margin</span>
+                  <span className="text-xs font-extrabold text-yellow-500">{recalculatedMargin}%</span>
+                </div>
+              </div>
+            );
+          }
 
           return (
             <div
@@ -111,8 +210,8 @@ const OfferSelection = ({
                 title={offer.title}
                 price={formatGBP(parseFloat(offer.price))}
                 margin={recalculatedMargin}
-                isHighlighted={false}
-                onClick={onAddToCart ? () => onAddToCart(offer.id) : null}
+                isHighlighted={isHighlighted}
+                onClick={onAddToCart ? () => handleOfferClick(offer.id) : null}
               />
             </div>
           );

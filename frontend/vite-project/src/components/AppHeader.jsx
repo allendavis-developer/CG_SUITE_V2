@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 
 /**
@@ -7,10 +7,8 @@ import { Link, useLocation } from 'react-router-dom';
  * - Buy icon → Buying Module
  * - Repricing icon → Repricing Module
  * - Reports icon → Reports
- * - Search
  */
 const AppHeader = () => {
-  const [searchValue, setSearchValue] = useState('');
   const location = useLocation();
 
   const NavIcon = ({ to, icon, label, tooltip }) => (
@@ -63,20 +61,6 @@ const AppHeader = () => {
             tooltip="Reports"
           />
         </div>
-
-        <label className="hidden md:flex flex-col min-w-72 h-10">
-          <div className="flex w-full flex-1 items-stretch rounded-lg h-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-            <div className="text-slate-500 flex items-center justify-center pl-4">
-              <span className="material-symbols-outlined text-xl">search</span>
-            </div>
-            <input
-              className="form-input flex w-full min-w-0 flex-1 border-none bg-transparent focus:outline-0 focus:ring-0 h-full placeholder:text-slate-500 px-4 pl-2 text-sm font-normal"
-              placeholder="Search transactions, customers, or items..."
-              value={searchValue}
-              onChange={(e) => setSearchValue(e.target.value)}
-            />
-          </div>
-        </label>
       </div>
     </header>
   );

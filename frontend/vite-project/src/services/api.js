@@ -496,7 +496,7 @@ export const fetchRepricingSessionsOverview = async () => {
 };
 
 /**
- * Quick Reprice: look up variants by cex_sku + nospos_barcode pairs.
+ * Quick Reprice: look up variants by game_sku + nospos_barcode pairs.
  * @param {Array<{cex_sku: string, nospos_barcode: string}>} pairs
  * @returns {Promise<{found: Array, not_found: Array}>}
  */

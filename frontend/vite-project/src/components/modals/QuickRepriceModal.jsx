@@ -2,13 +2,15 @@ import React, { useState, useRef, useEffect } from 'react';
 import { quickRepriceLookup } from '@/services/api';
 
 /**
- * Parses a block of barcode text into cex_sku / nospos_barcode pairs.
+ * Parses a block of barcode text into game_sku / nospos_barcode pairs.
  *
  * Rules:
  *  - Lines are trimmed and blanks are ignored.
- *  - The first barcode in each pair MUST be all-numeric (cex_sku).
- *  - The second barcode in each pair is the nospos barcode.
- *  - If consecutive numerics appear, each starts a new pair (nospos treated as empty).
+ *  - NoSpos barcodes start with "bb" (case-insensitive).
+ *  - Any line that does NOT start with "bb" is treated as a Game SKU.
+ *  - If a Game SKU is immediately followed by a "bb" line, they form a pair.
+ *  - If consecutive Game SKUs appear, each starts a new pair (nospos treated as empty).
+ *  - Orphan "bb" lines (no preceding Game SKU) are skipped.
  */
 function parseBarcodeText(text) {
   const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
@@ -17,14 +19,14 @@ function parseBarcodeText(text) {
 
   while (i < lines.length) {
     const line = lines[i];
-    if (/^\d+$/.test(line)) {
-      const cex_sku = line;
+    if (!line.toLowerCase().startsWith('bb')) {
+      const game_sku = line;
       const next = lines[i + 1];
-      if (next && !/^\d+$/.test(next)) {
-        pairs.push({ cex_sku, nospos_barcode: next });
+      if (next && next.toLowerCase().startsWith('bb')) {
+        pairs.push({ cex_sku: game_sku, nospos_barcode: next });
         i += 2;
       } else {
-        pairs.push({ cex_sku, nospos_barcode: '' });
+        pairs.push({ cex_sku: game_sku, nospos_barcode: '' });
         i += 1;
       }
     } else {
@@ -112,9 +114,9 @@ const QuickRepriceModal = ({ onClose, onAddItems }) => {
                 <p className="text-xs text-blue-700 leading-relaxed">
                   Enter barcodes for <span className="font-semibold">games only</span>, one per line in pairs:<br />
                   <span className="font-mono font-bold">1234567890</span>
-                  <span className="text-blue-500"> ← CeX SKU (all numbers)</span><br />
-                  <span className="font-mono font-bold">AB12CD345</span>
-                  <span className="text-blue-500"> ← NoSpos barcode</span>
+                  <span className="text-blue-500"> ← Game SKU</span><br />
+                  <span className="font-mono font-bold">BB12CD345</span>
+                  <span className="text-blue-500"> ← NoSpos barcode (starts with BB)</span>
                 </p>
               </div>
 
