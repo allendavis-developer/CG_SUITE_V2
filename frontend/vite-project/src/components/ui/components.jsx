@@ -446,7 +446,7 @@ export const RecentItem = ({ image, title, sku, onClick }) => (
 
 
 // Sidebar Component
-export const Sidebar = ({ onCategorySelect, onAddFromCeX, isCeXLoading, onQuickReprice }) => {
+export const Sidebar = ({ onCategorySelect, onAddFromCeX, isCeXLoading, onQuickReprice, onResetBuy, customerData, onTransactionTypeChange }) => {
   const [categories, setCategories] = useState([]);
   const [expandedCategories, setExpandedCategories] = useState([]);
   const [filterText, setFilterText] = useState('');
@@ -561,8 +561,133 @@ export const Sidebar = ({ onCategorySelect, onAddFromCeX, isCeXLoading, onQuickR
     );
   };
 
+  // Helper: rate pill
+  const RatePill = ({ label, value, raw, goodHigh }) => {
+    if (!value) return null;
+    const pct = parseFloat(value);
+    const isGood = goodHigh ? pct >= 50 : pct < 5;
+    return (
+      <div className={`flex flex-col items-center gap-0.5 rounded-lg border px-2 py-1.5 ${
+        isGood ? 'bg-emerald-900/40 border-emerald-500/40' : 'bg-red-900/40 border-red-400/40'
+      }`} title={raw || value}>
+        <span className={`text-sm font-black leading-none ${isGood ? 'text-emerald-300' : 'text-red-300'}`}>{value}</span>
+        <span className="text-[9px] font-bold uppercase tracking-wide text-white/50">{label}</span>
+      </div>
+    );
+  };
+
+  const hasCustomer = customerData && customerData.name && customerData.name !== 'No Customer Selected';
+  const transaction = customerData ? (TRANSACTION_META[customerData.transactionType] || { label: 'Unknown', className: '' }) : null;
+
   return (
     <aside className="buyer-sidebar w-1/5 min-w-0 min-h-0 shrink-0 border-r border-blue-900/10 flex flex-col bg-blue-900 overflow-hidden">
+
+      {/* ── Customer panel ── */}
+      {customerData && (
+        <div className="shrink-0 border-b border-white/10">
+          {hasCustomer ? (
+            <div className="p-3 space-y-2">
+              {/* Name + transaction type */}
+              <div>
+                <p className="text-xs font-black text-white leading-tight truncate">{customerData.name}</p>
+                {onTransactionTypeChange ? (
+                  <div className={`mt-1 ${transaction.className}`}>
+                    <CustomDropdown
+                      value={transaction.label}
+                      options={TRANSACTION_OPTIONS.map(o => o.label)}
+                      onChange={(label) => {
+                        const selected = TRANSACTION_OPTIONS.find(o => o.label === label);
+                        if (selected) onTransactionTypeChange(selected.value);
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <span className={`text-xs font-semibold ${transaction.className}`}>{transaction.label}</span>
+                )}
+              </div>
+              {/* Dates with day counts */}
+              {(() => {
+                const parseDate = (s) => {
+                  if (!s) return null;
+                  const d = new Date(s.replace(',', ''));
+                  return isNaN(d.getTime()) ? null : d;
+                };
+                const daysAgo = (d) => d ? Math.floor((Date.now() - d.getTime()) / 86400000) : null;
+                const ltDate  = parseDate(customerData.lastTransacted);
+                const jDate   = parseDate(customerData.joined);
+                const ltDays  = daysAgo(ltDate);
+                const jDays   = daysAgo(jDate);
+                return (
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {customerData.lastTransacted && (
+                      <div className="bg-white/5 rounded-lg px-2 py-1.5">
+                        <p className="text-[9px] font-bold uppercase tracking-wider text-white/30 mb-0.5">Last Transacted</p>
+                        <p className="text-xs font-bold text-white/80 leading-tight">{customerData.lastTransacted.split(',')[0]}</p>
+                        {ltDays !== null && (
+                          <p className={`text-sm font-black leading-tight mt-0.5 ${ltDays <= 14 ? 'text-amber-400' : 'text-white/50'}`}>
+                            {ltDays}d ago
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {customerData.joined && (
+                      <div className="bg-white/5 rounded-lg px-2 py-1.5">
+                        <p className="text-[9px] font-bold uppercase tracking-wider text-white/30 mb-0.5">Joined</p>
+                        <p className="text-xs font-bold text-white/80 leading-tight">{customerData.joined.split(',')[0]}</p>
+                        {jDays !== null && (
+                          <p className="text-sm font-black text-white/50 leading-tight mt-0.5">
+                            {jDays >= 365 ? `${Math.floor(jDays / 365)}y` : `${jDays}d`} ago
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Buying & Sales counts */}
+              {(customerData.buyingCount || customerData.salesCount) && (
+                <div className="grid grid-cols-2 gap-1.5">
+                  {customerData.buyingCount && (
+                    <div className="bg-white/5 rounded-lg px-2 py-1.5 flex items-center gap-2">
+                      <span className="material-symbols-outlined text-yellow-400 text-base">file_present</span>
+                      <div>
+                        <p className="text-lg font-black text-white leading-none">{customerData.buyingCount}</p>
+                        <p className="text-[9px] font-bold uppercase tracking-wider text-white/30">Buys</p>
+                      </div>
+                    </div>
+                  )}
+                  {customerData.salesCount && (
+                    <div className="bg-white/5 rounded-lg px-2 py-1.5 flex items-center gap-2">
+                      <span className="material-symbols-outlined text-blue-300 text-base">shopping_cart</span>
+                      <div>
+                        <p className="text-lg font-black text-white leading-none">{customerData.salesCount}</p>
+                        <p className="text-[9px] font-bold uppercase tracking-wider text-white/30">Sales</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Rate pills */}
+              {(customerData.buyBackRate || customerData.renewRate || customerData.cancelRateStr || customerData.faultyRate) && (
+                <div className="grid grid-cols-2 gap-1">
+                  <RatePill label="Buy Back" value={customerData.buyBackRate}    raw={customerData.buyBackRateRaw}  goodHigh />
+                  <RatePill label="Renew"    value={customerData.renewRate}      raw={customerData.renewRateRaw}    goodHigh />
+                  <RatePill label="Cancel"   value={customerData.cancelRateStr}  raw={customerData.cancelRateRaw}   goodHigh />
+                  <RatePill label="Faulty"   value={customerData.faultyRate}     raw={customerData.faultyRateRaw}   goodHigh={false} />
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="px-3 py-2.5 flex items-center gap-2">
+              <span className="material-symbols-outlined text-white/30 text-base">person_off</span>
+              <p className="text-xs text-white/40 font-semibold">No customer selected</p>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="p-4 shrink-0">
         <h3 className="text-xs font-bold uppercase tracking-wider text-white/50 mb-3 px-2">
           Device Categories
@@ -600,8 +725,19 @@ export const Sidebar = ({ onCategorySelect, onAddFromCeX, isCeXLoading, onQuickR
         <div className="space-y-1">
           {filteredCategories.map((cat) => renderCategory(cat))}
         </div>
-        {(onAddFromCeX || onQuickReprice) && (
+        {(onAddFromCeX || onQuickReprice || onResetBuy) && (
           <div className="mt-4 pt-4 border-t border-white/10 space-y-2">
+            {onResetBuy && (
+              <button
+                type="button"
+                onClick={onResetBuy}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-white/10 hover:bg-white/20 text-white font-semibold text-sm transition-colors border border-white/20"
+                title="Clear cart, customer, and start fresh"
+              >
+                <Icon name="refresh" className="text-sm" />
+                New Buy
+              </button>
+            )}
             {onAddFromCeX && (
               <button
                 type="button"

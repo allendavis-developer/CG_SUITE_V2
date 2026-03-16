@@ -17,6 +17,8 @@
   const STOCK_SEARCH_PAGE = '/stock/search';
   const STOCK_SEARCH_PAGE_PATTERN = /^\/stock\/search(?:\/index)?\/?$/i;
   const STOCK_EDIT_PAGE_PATTERN = /^\/stock\/\d+\/edit\/?$/i;
+  const CUSTOMER_SEARCH_PAGE_PATTERN = /^\/customers(?:\/|\?|$)/i;
+  const CUSTOMER_DETAIL_PAGE_PATTERN = /^\/customer\/\d+\/view\/?/i;
 
   function isOnLoginPage() {
     try {
@@ -59,11 +61,694 @@
     }
   }
 
+  function isOnCustomerSearchPage() {
+    try {
+      return CUSTOMER_SEARCH_PAGE_PATTERN.test(window.location.pathname || '/');
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function isOnCustomerDetailPage() {
+    try {
+      return CUSTOMER_DETAIL_PAGE_PATTERN.test(window.location.pathname || '/');
+    } catch (e) {
+      return false;
+    }
+  }
+
   function sendPageReady() {
     if (!isOnNosposDomain()) return;
     if (isOnLoginPage()) return;
+    if (isOnCustomerSearchPage()) return;  // has its own flow
+    if (isOnCustomerDetailPage()) return;  // has its own flow
 
     chrome.runtime.sendMessage({ type: 'NOSPOS_PAGE_READY' }).catch(function () {});
+  }
+
+  // ── Customer Search Panel (shown on /customers) ────────────────────────────
+
+  function showCustomerSearchPanel(requestId) {
+    if (document.getElementById('cg-suite-customer-panel')) return;
+
+    var panel = document.createElement('div');
+    panel.id = 'cg-suite-customer-panel';
+    panel.innerHTML =
+      '<div style="position:fixed;top:50%;right:0;transform:translateY(-50%);z-index:2147483647;' +
+        'background:#1e3a8a;color:white;padding:28px 32px;border-radius:18px 0 0 18px;' +
+        'box-shadow:-8px 8px 32px rgba(0,0,0,0.45);font-family:system-ui,sans-serif;' +
+        'min-width:320px;max-width:400px;">' +
+        '<p style="margin:0 0 8px 0;font-weight:800;font-size:20px;">Customer Lookup</p>' +
+        '<p style="margin:0 0 20px 0;font-size:14px;opacity:0.85;line-height:1.5;">' +
+          'Search for the customer below. When you open their profile, we\'ll take it from there.' +
+        '</p>' +
+        '<button id="cg-suite-customer-cancel" style="width:100%;padding:12px 20px;background:transparent;' +
+          'color:#e5e7eb;border:1px solid rgba(248,250,252,0.5);border-radius:9999px;' +
+          'font-weight:600;cursor:pointer;font-size:15px;">Cancel</button>' +
+      '</div>';
+    document.body.appendChild(panel);
+
+    var cancelBtn = document.getElementById('cg-suite-customer-cancel');
+    if (cancelBtn) {
+      cancelBtn.addEventListener('click', function () {
+        chrome.runtime.sendMessage({ type: 'NOSPOS_CUSTOMER_DONE', requestId: requestId, cancelled: true }).catch(function () {});
+        panel.remove();
+      });
+    }
+  }
+
+  function onCustomerSearchPageLoad() {
+    chrome.runtime.sendMessage({ type: 'NOSPOS_CUSTOMER_SEARCH_READY' }, function (response) {
+      if (response && response.ok && response.requestId) {
+        showCustomerSearchPanel(response.requestId);
+      }
+    });
+  }
+
+  // ── Customer Detail Modal (shown on /customer/{id}/view) ───────────────────
+
+  function esc(str) {
+    return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  // Count digit-by-digit mismatches between two phone numbers.
+  // Only meaningful when both strings have the same number of digits.
+  function phoneDigitMismatches(a, b) {
+    var da = (a || '').replace(/\D/g, '');
+    var db = (b || '').replace(/\D/g, '');
+    if (da.length !== db.length) return Infinity; // different length = clearly different
+    var mismatches = 0;
+    for (var i = 0; i < da.length; i++) {
+      if (da[i] !== db[i]) mismatches++;
+    }
+    return mismatches;
+  }
+
+  function scrapeProfilePicture() {
+    var el = document.querySelector('.card-image.profile-picture');
+    if (!el) return null;
+    var m = (el.style.backgroundImage || '').match(/url\(['"]?([^'")\s]+)['"]?\)/);
+    return m ? m[1] : null;
+  }
+
+  function scrapeCustomerStats() {
+    var stats = {};
+    var details = document.querySelectorAll('.card-content .detail-view .detail');
+    details.forEach(function (row) {
+      var key   = ((row.querySelector('strong') || {}).textContent || '').trim();
+      var valEl = row.querySelector('span');
+      var value = valEl ? valEl.textContent.trim() : '';
+      // Tooltip raw text (e.g. "226 of 294 Bought Back") lives on an inner span
+      var innerSpan = row.querySelector('span span[data-original-title], span span[title]');
+      var raw = innerSpan
+        ? (innerSpan.getAttribute('data-original-title') || innerSpan.getAttribute('title') || '')
+        : '';
+      switch (key) {
+        case 'Last Transacted': stats.lastTransacted = value; break;
+        case 'Joined':          stats.joined         = value; break;
+        case 'Buy Back Rate':   stats.buyBackRate  = value; stats.buyBackRateRaw  = raw; break;
+        case 'Renew Rate':      stats.renewRate    = value; stats.renewRateRaw    = raw; break;
+        case 'Cancel Rate':     stats.cancelRate   = value; stats.cancelRateRaw   = raw; break;
+        case 'Faulty Rate':     stats.faultyRate   = value; stats.faultyRateRaw   = raw; break;
+      }
+    });
+
+    // Scrape buying and sales transaction counts from nav widget badges
+    var navLinks = document.querySelectorAll('#w0 .nav-pills li a, .nav-pills li a');
+    navLinks.forEach(function (a) {
+      var badge = a.querySelector('.badge');
+      if (!badge) return;
+      var href = (a.getAttribute('href') || '');
+      if (/\/buying\b/.test(href)) stats.buyingCount = (badge.textContent || '').trim();
+      if (/\/sales\b/.test(href))  stats.salesCount  = (badge.textContent || '').trim();
+    });
+
+    return stats;
+  }
+
+  function daysSince(dateStr) {
+    if (!dateStr) return null;
+    // "6 Mar 2026, 14:59:00" → remove comma so Date can parse it
+    var d = new Date(dateStr.replace(',', ''));
+    if (isNaN(d.getTime())) return null;
+    return Math.floor((Date.now() - d.getTime()) / 86400000);
+  }
+
+  function scrapeCustomerChanges() {
+    var rows = document.querySelectorAll('#changes-tab tbody tr');
+    var changes = [];
+    rows.forEach(function (tr) {
+      var cells = tr.querySelectorAll('td');
+      if (cells.length < 6) return;
+      changes.push({
+        id:        (cells[0].textContent || '').trim(),
+        field:     (cells[1].textContent || '').trim(),
+        oldValue:  (cells[2].textContent || '').trim(),
+        newValue:  (cells[3].textContent || '').trim(),
+        changedAt: (cells[4].textContent || '').trim(),
+        changedBy: (cells[5].textContent || '').trim(),
+      });
+    });
+    return changes;
+  }
+
+  function scrapeCustomerForm() {
+    function val(sel) { var el = document.querySelector(sel); return el ? (el.value || '').trim() : ''; }
+    function isChecked(sel) { var el = document.querySelector(sel); return !!(el && el.checked); }
+    var stats = scrapeCustomerStats();
+    return Object.assign({
+      profilePicture: scrapeProfilePicture(),
+      forename:       val('#customer-forename'),
+      surname:        val('#customer-surname'),
+      postcode:       val('#customer-postcode'),
+      address1:       val('#customer-address1'),
+      address2:       val('#customer-address2'),
+      town:           val('#customer-address3'),
+      county:         val('#customer-address4'),
+      mobile:         val('#customer-mobile'),
+      homePhone:      val('#customer-home_phone'),
+      email:          val('#customer-email'),
+      dob:            val('#customer-dob'),
+      gender:         val('#customer-gender'),
+      emailMarketing: isChecked('#customer-email_marketing_ok'),
+      smsMarketing:   isChecked('#customer-sms_marketing_ok'),
+      mailMarketing:  isChecked('#customer-direct_mail_ok'),
+    }, stats);
+  }
+
+  function updateNosposField(selector, value) {
+    var el = document.querySelector(selector);
+    if (!el || el.value === value) return;
+    el.value = value;
+    el.dispatchEvent(new Event('input',  { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  function tryAutoSaveNospos() {
+    var btn =
+      document.querySelector('button[type="submit"].btn-primary') ||
+      document.querySelector('input[type="submit"].btn-primary') ||
+      Array.from(document.querySelectorAll('button[type="submit"], input[type="submit"]'))
+        .find(function (b) { return /save|update/i.test((b.textContent || b.value || '')); });
+    if (btn) btn.click();
+  }
+
+  // ── field builders ────────────────────────────────────────────────────────
+
+  var INPUT_BASE = 'width:100%;padding:9px 12px;border:1.5px solid #e5e7eb;border-radius:8px;' +
+    'font-size:14px;font-family:system-ui,sans-serif;color:#111827;background:#f9fafb;box-sizing:border-box;';
+
+  var LABEL_BASE = 'font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#6b7280;';
+
+  function field(id, label, value, type) {
+    return '<div style="display:flex;flex-direction:column;gap:5px;">' +
+      '<label for="' + id + '" style="' + LABEL_BASE + '">' + esc(label) + '</label>' +
+      '<input type="' + (type || 'text') + '" id="' + id + '" value="' + esc(value) +
+        '" style="' + INPUT_BASE + '" />' +
+    '</div>';
+  }
+
+  // Empty field with amber "please enter" styling
+  function emptyField(id, label, placeholder) {
+    return '<div style="display:flex;flex-direction:column;gap:5px;">' +
+      '<label for="' + id + '" style="' + LABEL_BASE + 'color:#92400e;">' +
+        esc(label) + ' <span style="color:#f59e0b;">*</span></label>' +
+      '<input type="text" id="' + id + '" value="" placeholder="' + esc(placeholder || 'Enter value…') + '" style="' +
+        INPUT_BASE + 'border-color:#fcd34d;background:#fffbeb;" />' +
+      '<div id="' + id + '-warn" style="display:none;font-size:12px;color:#b45309;font-weight:600;' +
+        'padding:6px 10px;background:#fef3c7;border-radius:6px;border:1px solid #fcd34d;"></div>' +
+    '</div>';
+  }
+
+  function genderSelect(currentVal) {
+    var opts = [['0','Unknown'],['1','Male'],['2','Female'],['3','Other']];
+    return '<div style="display:flex;flex-direction:column;gap:5px;">' +
+      '<label for="cg-field-gender" style="' + LABEL_BASE + '">Gender</label>' +
+      '<select id="cg-field-gender" style="' + INPUT_BASE + '">' +
+      opts.map(function(o) {
+        return '<option value="' + o[0] + '"' + (o[0] === currentVal ? ' selected' : '') + '>' + esc(o[1]) + '</option>';
+      }).join('') +
+      '</select></div>';
+  }
+
+  function checkbox(id, label, checked) {
+    return '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:500;color:#374151;padding:6px 0;">' +
+      '<input type="checkbox" id="' + id + '"' + (checked ? ' checked' : '') +
+        ' style="width:16px;height:16px;accent-color:#1e3a8a;cursor:pointer;" />' +
+      esc(label) + '</label>';
+  }
+
+  function sectionHeader(label, color) {
+    return '<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.1em;' +
+      'color:' + (color || '#1e3a8a') + ';padding-bottom:8px;border-bottom:2px solid ' +
+      (color ? '#fde68a' : '#dbeafe') + ';margin-bottom:14px;">' + esc(label) + '</div>';
+  }
+
+  function grid2(a, b) {
+    return '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">' + a + (b || '') + '</div>';
+  }
+
+  function showCustomerDetailModal(requestId) {
+    if (document.getElementById('cg-suite-customer-modal')) return;
+
+    var searchPanel = document.getElementById('cg-suite-customer-panel');
+    if (searchPanel) searchPanel.remove();
+
+    var d       = scrapeCustomerForm();
+    var changes = scrapeCustomerChanges();
+
+    var days          = daysSince(d.lastTransacted);
+    var recentWarning = days !== null && days <= 14;
+
+    // ── stat pill helper ────────────────────────────────────────────────────────
+    function statPill(label, value, raw, goodHigh) {
+      if (!value) return '';
+      var pct = parseFloat(value);
+      var isGood = goodHigh ? pct >= 50 : pct < 5;
+      var bg    = isGood ? '#f0fdf4' : '#fff1f2';
+      var color = isGood ? '#166534' : '#9f1239';
+      var border= isGood ? '#bbf7d0' : '#fecdd3';
+      return '<div style="display:flex;flex-direction:column;align-items:center;gap:3px;' +
+        'background:' + bg + ';border:1.5px solid ' + border + ';border-radius:10px;padding:8px 14px;min-width:0;">' +
+        '<span style="font-size:18px;font-weight:900;color:' + color + ';">' + esc(value) + '</span>' +
+        '<span style="font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.07em;">' + esc(label) + '</span>' +
+        (raw ? '<span style="font-size:10px;color:#9ca3af;margin-top:1px;">' + esc(raw) + '</span>' : '') +
+        '</div>';
+    }
+
+    var hasStats = d.buyBackRate || d.renewRate || d.cancelRate || d.faultyRate;
+
+    var overlay = document.createElement('div');
+    overlay.id = 'cg-suite-customer-modal';
+    overlay.style.cssText =
+      'position:fixed;inset:0;z-index:2147483647;background:rgba(15,23,42,0.7);' +
+      'backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);' +
+      'display:flex;align-items:center;justify-content:center;pointer-events:auto;padding:24px;';
+
+    overlay.innerHTML =
+      '<div id="cg-modal-card" style="background:white;border-radius:20px;width:100%;max-width:700px;' +
+        'max-height:92vh;display:flex;flex-direction:column;' +
+        'box-shadow:0 32px 80px rgba(0,0,0,0.5);font-family:system-ui,sans-serif;overflow:hidden;">' +
+
+        // Header
+        '<div style="background:#1e3a8a;padding:20px 28px 0;flex-shrink:0;">' +
+          '<div style="display:flex;align-items:center;gap:14px;padding-bottom:16px;">' +
+            '<div>' +
+              '<p style="margin:0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:rgba(255,255,255,0.6);">CG Suite</p>' +
+              '<h2 style="margin:2px 0 0;font-size:18px;font-weight:800;color:white;">' + esc((d.forename + ' ' + d.surname).trim() || 'Customer Profile') + '</h2>' +
+            '</div>' +
+          '</div>' +
+          // Tab bar
+          '<div style="display:flex;gap:0;">' +
+            '<button id="cg-tab-details" style="padding:9px 20px;background:white;color:#1e3a8a;border:none;' +
+              'font-weight:800;font-size:13px;cursor:pointer;border-radius:10px 10px 0 0;font-family:system-ui,sans-serif;">' +
+              'Details</button>' +
+            '<button id="cg-tab-changes" style="padding:9px 20px;background:rgba(255,255,255,0.15);color:rgba(255,255,255,0.7);border:none;' +
+              'font-weight:700;font-size:13px;cursor:pointer;border-radius:10px 10px 0 0;font-family:system-ui,sans-serif;">' +
+              'Changes' + (changes.length ? ' <span style="background:#facc15;color:#1e3a8a;border-radius:20px;padding:1px 7px;font-size:11px;">' + changes.length + '</span>' : '') +
+            '</button>' +
+          '</div>' +
+        '</div>' +
+
+        // ── Details pane ────────────────────────────────────────────────────────
+        '<div id="cg-pane-details" style="overflow-y:auto;padding:24px 28px;flex:1;">' +
+
+          // ── Last transacted info bar ────────────────────────────────────────
+          (d.lastTransacted
+            ? '<div style="background:#f0f9ff;border:1.5px solid #bae6fd;border-radius:10px;' +
+              'padding:10px 14px;margin-bottom:18px;font-size:12px;color:#0369a1;font-weight:600;">' +
+              'Last transacted: ' + esc(d.lastTransacted) +
+              (days !== null ? ' (' + days + ' day' + (days === 1 ? '' : 's') + ' ago)' : '') +
+              '</div>'
+            : ''
+          ) +
+
+          // ── Transaction stats ───────────────────────────────────────────────
+          (hasStats
+            ? '<div style="margin-bottom:20px;">' +
+              sectionHeader('Transaction History') +
+              // Transaction counts row
+              ((d.buyingCount || d.salesCount)
+                ? '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">' +
+                  (d.buyingCount
+                    ? '<div style="background:#f0f9ff;border:1.5px solid #bae6fd;border-radius:10px;padding:10px 14px;display:flex;align-items:center;gap:10px;">' +
+                      '<span style="font-size:18px;font-weight:900;color:#0369a1;">B</span>' +
+                      '<div><p style="margin:0;font-size:22px;font-weight:900;color:#0c4a6e;line-height:1;">' + esc(d.buyingCount) + '</p>' +
+                      '<p style="margin:0;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:#7dd3fc;">Buying Transactions</p></div>' +
+                      '</div>'
+                    : '') +
+                  (d.salesCount
+                    ? '<div style="background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:10px;padding:10px 14px;display:flex;align-items:center;gap:10px;">' +
+                      '<span style="font-size:18px;font-weight:900;color:#166534;">S</span>' +
+                      '<div><p style="margin:0;font-size:22px;font-weight:900;color:#14532d;line-height:1;">' + esc(d.salesCount) + '</p>' +
+                      '<p style="margin:0;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:#86efac;">Sales Transactions</p></div>' +
+                      '</div>'
+                    : '') +
+                  '</div>'
+                : '') +
+              '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;">' +
+                statPill('Buy Back',  d.buyBackRate, d.buyBackRateRaw, true)  +
+                statPill('Renew',     d.renewRate,   d.renewRateRaw,   true)  +
+                statPill('Cancel',    d.cancelRate,  d.cancelRateRaw,  true)  +
+                statPill('Faulty',    d.faultyRate,  d.faultyRateRaw,  false) +
+              '</div></div>'
+            : ''
+          ) +
+
+          // ── Photo + Verify inputs side by side ──
+          '<div style="display:flex;gap:18px;align-items:flex-start;' +
+            'background:#fffbeb;border:1.5px solid #fcd34d;border-radius:12px;padding:16px 18px;margin-bottom:20px;">' +
+
+            // Photo
+            (d.profilePicture
+              ? '<img src="' + esc(d.profilePicture) + '" style="width:160px;flex-shrink:0;' +
+                'height:auto;border-radius:10px;display:block;object-fit:contain;" />'
+              : '<div style="width:160px;flex-shrink:0;height:200px;background:#dbeafe;border-radius:10px;' +
+                'display:flex;align-items:center;justify-content:center;">' +
+                '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#93c5fd" stroke-width="1.5">' +
+                '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>' +
+                '</svg></div>'
+            ) +
+
+            // Verify inputs
+            '<div style="flex:1;min-width:0;">' +
+              '<div style="display:flex;align-items:center;gap:6px;margin-bottom:' + (recentWarning ? '8px' : '12px') + ';">' +
+                '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>' +
+                '<span style="font-size:11px;font-weight:700;color:#92400e;text-transform:uppercase;letter-spacing:0.06em;">Enter from your own knowledge</span>' +
+              '</div>' +
+              (recentWarning
+                ? '<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:8px;' +
+                  'padding:8px 12px;margin-bottom:12px;font-size:12px;color:#166534;font-weight:600;' +
+                  'display:flex;align-items:center;gap:7px;">' +
+                  '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5">' +
+                  '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>' +
+                  'Last transaction was ' + days + ' day' + (days === 1 ? '' : 's') + ' ago — you can skip these fields and press OK.' +
+                  '</div>'
+                : ''
+              ) +
+              grid2(
+                emptyField('cg-field-mobile',   'Mobile Phone',   'Type the number you know'),
+                emptyField('cg-field-email',     'Email Address',  'Type the address you know')
+              ) +
+              '<div style="margin-top:10px;">' +
+              grid2(
+                emptyField('cg-field-postcode',  'Postcode',       'Type the postcode you know'),
+                emptyField('cg-field-address1',  'Address Line 1', 'Type the address you know')
+              ) + '</div>' +
+            '</div>' +
+
+          '</div>' +
+
+          // Personal
+          sectionHeader('Personal Details') +
+          grid2(
+            field('cg-field-forename', 'Forename', d.forename),
+            field('cg-field-surname',  'Surname',  d.surname)
+          ) +
+          '<div style="margin-top:12px;">' +
+          grid2(
+            field('cg-field-dob', 'Date of Birth', d.dob, 'date'),
+            genderSelect(d.gender)
+          ) + '</div>' +
+
+          // Address (non-sensitive fields)
+          '<div style="margin-top:20px;">' + sectionHeader('Additional Address') + '</div>' +
+          grid2(
+            field('cg-field-address2', 'Address Line 2', d.address2),
+            // Town has a required-warn div appended
+            '<div style="display:flex;flex-direction:column;gap:5px;">' +
+              '<label for="cg-field-town" style="' + LABEL_BASE + 'color:#92400e;">Town <span style="color:#f59e0b;">*</span></label>' +
+              '<input type="text" id="cg-field-town" value="' + esc(d.town) + '" placeholder="Required" style="' + INPUT_BASE + 'border-color:' + (d.town ? '#e5e7eb' : '#fcd34d') + ';background:' + (d.town ? '#f9fafb' : '#fffbeb') + ';" />' +
+              '<div id="cg-field-town-warn" style="display:none;font-size:12px;color:#b45309;font-weight:600;padding:6px 10px;background:#fef3c7;border-radius:6px;border:1px solid #fcd34d;"></div>' +
+            '</div>'
+          ) +
+          '<div style="margin-top:12px;">' +
+          field('cg-field-county', 'County', d.county) +
+          '</div>' +
+
+          // Marketing
+          '<div style="margin-top:20px;">' + sectionHeader('Marketing Preferences') + '</div>' +
+          '<div style="display:flex;gap:20px;flex-wrap:wrap;">' +
+            checkbox('cg-field-email-mkt', 'Email Marketing', d.emailMarketing) +
+            checkbox('cg-field-sms-mkt',   'SMS Marketing',   d.smsMarketing) +
+            checkbox('cg-field-mail-mkt',  'Mail Marketing',  d.mailMarketing) +
+          '</div>' +
+
+        '</div>' + // end details pane
+
+        // ── Changes pane ─────────────────────────────────────────────────────
+        '<div id="cg-pane-changes" style="display:none;overflow-y:auto;padding:24px 28px;flex:1;">' +
+          (changes.length === 0
+            ? '<p style="text-align:center;color:#9ca3af;font-size:13px;padding:40px 0;">No changes recorded.</p>'
+            : '<table style="width:100%;border-collapse:collapse;font-size:12px;">' +
+              '<thead><tr style="border-bottom:2px solid #e5e7eb;">' +
+                '<th style="text-align:left;padding:6px 8px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.07em;color:#6b7280;">Field</th>' +
+                '<th style="text-align:left;padding:6px 8px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.07em;color:#6b7280;">Old</th>' +
+                '<th style="text-align:left;padding:6px 8px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.07em;color:#6b7280;">New</th>' +
+                '<th style="text-align:left;padding:6px 8px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.07em;color:#6b7280;">Changed</th>' +
+                '<th style="text-align:left;padding:6px 8px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.07em;color:#6b7280;">By</th>' +
+              '</tr></thead>' +
+              '<tbody>' +
+              changes.map(function (c, i) {
+                var bg = i % 2 === 0 ? '#ffffff' : '#f9fafb';
+                return '<tr style="border-bottom:1px solid #f3f4f6;background:' + bg + ';">' +
+                  '<td style="padding:7px 8px;font-weight:700;color:#1e3a8a;">' + esc(c.field) + '</td>' +
+                  '<td style="padding:7px 8px;color:#6b7280;font-family:monospace;">' + esc(c.oldValue || '—') + '</td>' +
+                  '<td style="padding:7px 8px;color:#111827;font-family:monospace;font-weight:600;">' + esc(c.newValue || '—') + '</td>' +
+                  '<td style="padding:7px 8px;color:#6b7280;white-space:nowrap;">' + esc(c.changedAt) + '</td>' +
+                  '<td style="padding:7px 8px;color:#374151;font-weight:600;">' + esc(c.changedBy) + '</td>' +
+                  '</tr>';
+              }).join('') +
+              '</tbody></table>'
+          ) +
+        '</div>' + // end changes pane
+
+        // Footer
+        '<div style="padding:16px 28px;border-top:1px solid #f3f4f6;display:flex;gap:12px;' +
+          'justify-content:flex-end;align-items:center;background:#fafafa;flex-shrink:0;">' +
+          '<button id="cg-customer-cancel" style="padding:10px 20px;background:transparent;' +
+            'color:#6b7280;border:1.5px solid #e5e7eb;border-radius:10px;font-weight:600;' +
+            'cursor:pointer;font-size:14px;font-family:system-ui,sans-serif;">Cancel</button>' +
+          '<button id="cg-customer-use" style="padding:10px 28px;background:#facc15;' +
+            'color:#1e3a8a;border:none;border-radius:10px;font-weight:800;cursor:pointer;' +
+            'font-size:14px;font-family:system-ui,sans-serif;box-shadow:0 4px 12px rgba(250,204,21,0.4);">' +
+            'OK</button>' +
+        '</div>' + // end footer
+
+      '</div>'; // end modal card
+
+    document.body.appendChild(overlay);
+
+    // ── Tab switching ─────────────────────────────────────────────────────────
+    var tabDetails   = document.getElementById('cg-tab-details');
+    var tabChanges   = document.getElementById('cg-tab-changes');
+    var paneDetails  = document.getElementById('cg-pane-details');
+    var paneChanges  = document.getElementById('cg-pane-changes');
+
+    function activateTab(tab) {
+      var isDetails = tab === 'details';
+      tabDetails.style.background  = isDetails ? 'white' : 'rgba(255,255,255,0.15)';
+      tabDetails.style.color        = isDetails ? '#1e3a8a' : 'rgba(255,255,255,0.7)';
+      tabChanges.style.background  = !isDetails ? 'white' : 'rgba(255,255,255,0.15)';
+      tabChanges.style.color        = !isDetails ? '#1e3a8a' : 'rgba(255,255,255,0.7)';
+      paneDetails.style.display    = isDetails ? '' : 'none';
+      paneChanges.style.display    = !isDetails ? '' : 'none';
+    }
+
+    tabDetails.addEventListener('click', function () { activateTab('details'); });
+    tabChanges.addEventListener('click', function () { activateTab('changes'); });
+
+    var phoneWarningAcknowledged = false;
+
+    function getFieldVal(id) {
+      var el = document.getElementById(id);
+      return el ? (el.value || '').trim() : '';
+    }
+
+    function showFieldWarn(id, msg) {
+      var w = document.getElementById(id + '-warn');
+      if (w) { w.textContent = msg; w.style.display = msg ? 'block' : 'none'; }
+    }
+
+    var useBtn = document.getElementById('cg-customer-use');
+
+    document.getElementById('cg-customer-use').addEventListener('click', function () {
+      var enteredPhone   = getFieldVal('cg-field-mobile');
+      var enteredEmail   = getFieldVal('cg-field-email');
+      var enteredPost    = getFieldVal('cg-field-postcode');
+      var enteredAddr1   = getFieldVal('cg-field-address1');
+
+      // Town is required
+      var enteredTown = getFieldVal('cg-field-town');
+      if (!enteredTown) {
+        showFieldWarn('cg-field-town', 'Town is required before you can continue.');
+        document.getElementById('cg-field-town').style.borderColor = '#f59e0b';
+        document.getElementById('cg-field-town').focus();
+        return;
+      }
+      showFieldWarn('cg-field-town', '');
+
+      // Phone typo check: same digit count but 1-2 differ = likely typo
+      if (!phoneWarningAcknowledged && enteredPhone && d.mobile && enteredPhone !== d.mobile) {
+        var dist = phoneDigitMismatches(enteredPhone, d.mobile);
+        if (dist >= 1 && dist <= 2) {
+          showFieldWarn('cg-field-mobile',
+            'This looks very similar to what\'s on NoSpos (' + d.mobile + '). Are you sure it\'s correct? Press OK again to confirm.');
+          phoneWarningAcknowledged = true;
+          return;
+        }
+      }
+      showFieldWarn('cg-field-mobile', '');
+
+      // ── Collect all final values from modal ───────────────────────────────
+      var finalForename  = getFieldVal('cg-field-forename');
+      var finalSurname   = getFieldVal('cg-field-surname');
+      var finalDob       = getFieldVal('cg-field-dob');
+      var finalGender    = getFieldVal('cg-field-gender');
+      var finalAddr2     = getFieldVal('cg-field-address2');
+      var finalCounty    = getFieldVal('cg-field-county');
+      var finalEmailMkt  = !!(document.getElementById('cg-field-email-mkt') && document.getElementById('cg-field-email-mkt').checked);
+      var finalSmsMkt    = !!(document.getElementById('cg-field-sms-mkt')   && document.getElementById('cg-field-sms-mkt').checked);
+      var finalMailMkt   = !!(document.getElementById('cg-field-mail-mkt')  && document.getElementById('cg-field-mail-mkt').checked);
+
+      // ── Sync every changed field back to nospos ───────────────────────────
+      function updateNosposCheckbox(sel, value) {
+        var el = document.querySelector(sel);
+        if (!el || el.checked === value) return;
+        el.checked = value;
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+
+      if (finalForename  !== d.forename)   updateNosposField('#customer-forename',   finalForename);
+      if (finalSurname   !== d.surname)    updateNosposField('#customer-surname',     finalSurname);
+      if (enteredPhone   && enteredPhone   !== d.mobile)    updateNosposField('#customer-mobile',    enteredPhone);
+      if (d.homePhone    && enteredPhone   !== d.homePhone) updateNosposField('#customer-home_phone', enteredPhone);
+      if (enteredEmail   && enteredEmail   !== d.email)     updateNosposField('#customer-email',      enteredEmail);
+      if (enteredPost    && enteredPost    !== d.postcode)  updateNosposField('#customer-postcode',   enteredPost);
+      if (enteredAddr1   && enteredAddr1   !== d.address1)  updateNosposField('#customer-address1',   enteredAddr1);
+      if (finalAddr2     !== d.address2)   updateNosposField('#customer-address2',   finalAddr2);
+      if (enteredTown    !== d.town)       updateNosposField('#customer-address3',   enteredTown);
+      if (finalCounty    !== d.county)     updateNosposField('#customer-address4',   finalCounty);
+      if (finalDob       !== d.dob)        updateNosposField('#customer-dob',         finalDob);
+      if (finalGender    !== d.gender)     updateNosposField('#customer-gender',      finalGender);
+      updateNosposCheckbox('#customer-email_marketing_ok', finalEmailMkt);
+      updateNosposCheckbox('#customer-sms_marketing_ok',   finalSmsMkt);
+      updateNosposCheckbox('#customer-direct_mail_ok',     finalMailMkt);
+
+      // ── Build changes log (fields the user explicitly updated) ────────────
+      var changes = [];
+      if (enteredPhone && enteredPhone !== d.mobile)   changes.push({ field: 'Phone',      from: d.mobile,   to: enteredPhone });
+      if (enteredEmail && enteredEmail !== d.email)    changes.push({ field: 'Email',      from: d.email,    to: enteredEmail });
+      if (enteredPost  && enteredPost  !== d.postcode) changes.push({ field: 'Postcode',   from: d.postcode, to: enteredPost  });
+      if (enteredAddr1 && enteredAddr1 !== d.address1) changes.push({ field: 'Address 1',  from: d.address1, to: enteredAddr1 });
+      if (enteredTown  !== d.town)                     changes.push({ field: 'Town',        from: d.town,     to: enteredTown  });
+
+      var customer = {
+        forename:       finalForename,
+        surname:        finalSurname,
+        dob:            finalDob,
+        gender:         finalGender,
+        mobile:         enteredPhone || d.mobile,
+        homePhone:      d.homePhone,
+        email:          enteredEmail || d.email,
+        address1:       enteredAddr1 || d.address1,
+        address2:       finalAddr2,
+        town:           enteredTown,
+        county:         finalCounty,
+        postcode:       enteredPost  || d.postcode,
+        emailMarketing: finalEmailMkt,
+        smsMarketing:   finalSmsMkt,
+        mailMarketing:  finalMailMkt,
+        // Transaction history stats
+        lastTransacted:    d.lastTransacted,
+        joined:            d.joined,
+        buyBackRate:       d.buyBackRate,
+        buyBackRateRaw:    d.buyBackRateRaw,
+        renewRate:         d.renewRate,
+        renewRateRaw:      d.renewRateRaw,
+        cancelRate:        d.cancelRate,
+        cancelRateRaw:     d.cancelRateRaw,
+        faultyRate:        d.faultyRate,
+        faultyRateRaw:     d.faultyRateRaw,
+        buyingCount:       d.buyingCount,
+        salesCount:        d.salesCount,
+      };
+      customer.name    = (customer.forename + ' ' + customer.surname).trim();
+      customer.phone   = customer.mobile || customer.homePhone;
+      customer.address = [customer.address1, customer.address2, customer.town, customer.county, customer.postcode].filter(Boolean).join(', ');
+
+      // Find the nospos Save button
+      var saveBtn = document.querySelector('.card-footer .btn-blue') ||
+        document.querySelector('.card-footer button');
+
+      if (!saveBtn) {
+        // No save button found — send directly without saving
+        chrome.runtime.sendMessage({ type: 'NOSPOS_CUSTOMER_DONE', requestId: requestId, cancelled: false, customer: customer, changes: changes }).catch(function () {});
+        overlay.remove();
+        return;
+      }
+
+      // Store data in sessionStorage so we can retrieve it after the page reloads
+      try {
+        sessionStorage.setItem('cgCustomerPending', JSON.stringify({ requestId: requestId, customer: customer, changes: changes }));
+      } catch (e) {}
+
+      // Show saving state
+      useBtn.textContent = 'Saving…';
+      useBtn.disabled = true;
+      useBtn.style.opacity = '0.7';
+
+      // If nospos doesn't reload within 8 s, assume save failed
+      var saveTimeout = setTimeout(function () {
+        try { sessionStorage.removeItem('cgCustomerPending'); } catch (e) {}
+        useBtn.textContent = 'OK';
+        useBtn.disabled = false;
+        useBtn.style.opacity = '1';
+        var footer = useBtn.closest('div');
+        if (footer) {
+          var errMsg = document.createElement('p');
+          errMsg.style.cssText = 'margin:8px 0 0;font-size:12px;color:#dc2626;font-weight:600;text-align:right;';
+          errMsg.textContent = 'Save failed — check for errors on the form above.';
+          footer.appendChild(errMsg);
+        }
+      }, 8000);
+
+      window.addEventListener('beforeunload', function () { clearTimeout(saveTimeout); });
+
+      saveBtn.click();
+    });
+
+    document.getElementById('cg-customer-cancel').addEventListener('click', function () {
+      overlay.remove();
+      window.location.href = '/customers';
+    });
+  }
+
+  function onCustomerDetailPageLoad() {
+    // After a successful nospos save the page reloads — pick up the stored data
+    var pending = null;
+    try {
+      var raw = sessionStorage.getItem('cgCustomerPending');
+      if (raw) { pending = JSON.parse(raw); sessionStorage.removeItem('cgCustomerPending'); }
+    } catch (e) {}
+
+    if (pending && pending.requestId) {
+      chrome.runtime.sendMessage({
+        type: 'NOSPOS_CUSTOMER_DONE',
+        requestId: pending.requestId,
+        cancelled: false,
+        customer: pending.customer,
+        changes: pending.changes || []
+      }).catch(function () {});
+      return; // don't show the modal again
+    }
+
+    // Normal flow: show modal
+    chrome.runtime.sendMessage({ type: 'NOSPOS_CUSTOMER_DETAIL_READY' }, function (response) {
+      if (response && response.ok && response.requestId) {
+        showCustomerDetailModal(response.requestId);
+      }
+    });
   }
 
   function fillStockSearchInput(firstBarcode) {
@@ -180,24 +865,24 @@
   function onLoad() {
     sendPageLoaded();
 
-    if (document.readyState === 'complete') {
+    function handlePageType() {
       if (isOnStockSearchPage()) {
         onStockSearchPageLoad();
       } else if (isOnStockEditPage()) {
         onStockEditPageLoad();
+      } else if (isOnCustomerDetailPage()) {
+        onCustomerDetailPageLoad();
+      } else if (isOnCustomerSearchPage()) {
+        onCustomerSearchPageLoad();
       } else {
         sendPageReady();
       }
+    }
+
+    if (document.readyState === 'complete') {
+      handlePageType();
     } else {
-      window.addEventListener('load', function () {
-        if (isOnStockSearchPage()) {
-          onStockSearchPageLoad();
-        } else if (isOnStockEditPage()) {
-          onStockEditPageLoad();
-        } else {
-          sendPageReady();
-        }
-      }, { once: true });
+      window.addEventListener('load', handlePageType, { once: true });
     }
   }
 

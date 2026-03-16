@@ -403,6 +403,51 @@ export const createCustomer = async (customerData) => {
 };
 
 /**
+ * Find an existing customer by phone or name, or create a new one.
+ * Phone number is the primary key — if a customer with that phone exists, return it.
+ * Falls back to matching by name. Creates if nothing is found.
+ * @param {object} customerData - { name, phone_number?, email?, address? }
+ */
+export const getOrCreateCustomer = async (customerData) => {
+  if (!customerData || !customerData.name) return null;
+
+  // Search by phone number first (most unique)
+  if (customerData.phone_number) {
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/customers/?search=${encodeURIComponent(customerData.phone_number)}`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const results = Array.isArray(data) ? data : (data.results ?? []);
+        const match = results.find(
+          (c) => c.phone_number === customerData.phone_number
+        );
+        if (match) return match;
+      }
+    } catch (_) { /* fall through */ }
+  }
+
+  // Fallback: search by name
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/customers/?search=${encodeURIComponent(customerData.name)}`
+    );
+    if (res.ok) {
+      const data = await res.json();
+      const results = Array.isArray(data) ? data : (data.results ?? []);
+      const match = results.find(
+        (c) => c.name?.toLowerCase() === customerData.name.toLowerCase()
+      );
+      if (match) return match;
+    }
+  } catch (_) { /* fall through */ }
+
+  // Not found — create
+  return createCustomer(customerData);
+};
+
+/**
  * Update an existing customer
  * @param {number} customerId
  * @param {object} updates - { name?, phone?, email?, address? }

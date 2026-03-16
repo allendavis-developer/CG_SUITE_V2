@@ -12,7 +12,7 @@ function getStorageKey(mode) {
   return mode === 'repricing' ? STORE_KEYS.repricing : STORE_KEYS.buyer;
 }
 
-const defaultSnapshot = () => ({
+export const defaultSnapshot = () => ({
   selectedCategory: null,
   availableModels: [],
   selectedModel: null,
@@ -46,6 +46,18 @@ export function loadSnapshot(mode) {
 }
 
 /**
+ * Clear persisted snapshot for the given mode (resets to defaults).
+ * @param {string} mode - 'buyer' | 'repricing'
+ */
+export function clearSnapshot(mode) {
+  try {
+    sessionStorage.removeItem(getStorageKey(mode));
+  } catch (e) {
+    console.warn('[buyerPageStore] clear failed', e);
+  }
+}
+
+/**
  * Save a snapshot for the given mode.
  * @param {string} mode - 'buyer' | 'repricing'
  * @param {Object} snapshot - Plain object with state to persist (see defaultSnapshot).
@@ -58,14 +70,10 @@ export function saveSnapshot(mode, snapshot) {
       selectedModel: snapshot.selectedModel,
       cartItems: snapshot.cartItems || [],
       selectedCartItemId: snapshot.selectedCartItemId ?? null,
+      // Persist full customerData object so the sidebar's enriched stats
+      // (joined, lastTransacted, rates, counts, etc.) survive module switches.
       customerData: snapshot.customerData
-        ? {
-            id: snapshot.customerData.id,
-            name: snapshot.customerData.name,
-            cancelRate: snapshot.customerData.cancelRate ?? 0,
-            transactionType: snapshot.customerData.transactionType ?? 'sale',
-            isNewCustomer: snapshot.customerData.isNewCustomer,
-          }
+        ? { ...defaultSnapshot().customerData, ...snapshot.customerData }
         : defaultSnapshot().customerData,
       intent: snapshot.intent ?? null,
       requestId: snapshot.requestId ?? null,

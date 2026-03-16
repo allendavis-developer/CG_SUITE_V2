@@ -638,6 +638,20 @@ const MainContent = ({
     !selectedCartItem?.isCustomCashConvertersItem &&
     !selectedCartItem?.isCustomCeXItem;
 
+  const handleAttributeChangeWithDeselect = useCallback((...args) => {
+    if (isViewingCartItem && typeof onDeselectCartItem === 'function') {
+      onDeselectCartItem();
+    }
+    handleAttributeChange(...args);
+  }, [handleAttributeChange, isViewingCartItem, onDeselectCartItem]);
+
+  const setVariantWithDeselect = useCallback((nextVariant) => {
+    if (isViewingCartItem && typeof onDeselectCartItem === 'function') {
+      onDeselectCartItem();
+    }
+    setVariant(nextVariant);
+  }, [isViewingCartItem, onDeselectCartItem, setVariant]);
+
   const handleOfferPriceChange = useCallback((offerId, newPrice) => {
     if (!selectedCartItem || !updateCartItemOffers) return;
     const updateArr = (arr) => (arr || []).map(o =>
@@ -773,14 +787,6 @@ const MainContent = ({
                   <Icon name="close" />
                 </button>
               )}
-              <Button
-                variant="primary"
-                icon={isRepricing ? 'sell' : 'add_shopping_cart'}
-                className="px-8 py-4 text-base font-bold"
-                onClick={handleAddCeXToCart}
-              >
-                {isRepricing ? 'Add to Reprice List' : 'Add to Cart'}
-              </Button>
             </div>
           </div>
         </div>
@@ -1194,10 +1200,10 @@ const MainContent = ({
               attributes={attributes}
               attributeValues={attributeValues}
               variants={variants}
-              handleAttributeChange={handleAttributeChange}
+              handleAttributeChange={handleAttributeChangeWithDeselect}
               setAllAttributeValues={setAllAttributeValues}
               variant={variant}
-              setVariant={setVariant}
+              setVariant={setVariantWithDeselect}
               variantImageUrl={
                 referenceData?.cex_image_urls?.large ||
                 referenceData?.cex_image_urls?.medium ||

@@ -174,6 +174,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'NOSPOS_CUSTOMER_SEARCH_READY') {
+    handleNosposCustomerSearchReady(message, sender)
+      .then(r => sendResponse(r || { ok: false }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+
+  if (message.type === 'NOSPOS_CUSTOMER_DETAIL_READY') {
+    handleNosposCustomerDetailReady(message, sender)
+      .then(r => sendResponse(r || { ok: false }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+
+  if (message.type === 'NOSPOS_CUSTOMER_DONE') {
+    handleNosposCustomerDone(message, sender)
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+
   return false;
 });
 
@@ -224,7 +245,7 @@ async function handleBridgeForward(message, sender) {
     // Skip openNospos entries – we never close the NoSpos tab (user needs it to log in).
     const pending = await getPending();
     for (const [reqId, entry] of Object.entries(pending)) {
-      if (entry.appTabId === appTabId && entry.type !== 'openNospos') {
+      if (entry.appTabId === appTabId && entry.type !== 'openNospos' && entry.type !== 'openNosposCustomerIntake' && entry.type !== 'openNosposCustomerIntakeWaiting') {
         const listingTabId = entry.listingTabId;
         delete pending[reqId];
         await setPending(pending);
@@ -239,6 +260,21 @@ async function handleBridgeForward(message, sender) {
         break;
       }
     }
+    return { ok: true };
+  }
+
+  // Open nospos.com for customer intake – same flow as openNosposAndWait (waits for user to log in)
+  // but does not navigate to /stock/search; user stays on nospos.com to look up customer data.
+  if (payload.action === 'openNosposForCustomerIntake') {
+    const url = 'https://nospos.com';
+    const newTab = await chrome.tabs.create({ url });
+    await putTabInYellowGroup(newTab.id);
+
+    const pending = await getPending();
+    pending[requestId] = { appTabId: appTabId || null, listingTabId: newTab.id, type: 'openNosposCustomerIntake' };
+    await setPending(pending);
+
+    console.log('[CG Suite] openNosposForCustomerIntake – waiting for user to land on nospos.com', { requestId, listingTabId: newTab.id });
     return { ok: true };
   }
 
@@ -415,14 +451,87 @@ async function handleNosposPageReady(message, sender) {
 
   const pending = await getPending();
   for (const [requestId, entry] of Object.entries(pending)) {
-    if (entry.type === 'openNospos' && entry.listingTabId === tabId) {
+    if (entry.listingTabId !== tabId) continue;
+    if (entry.type === 'openNospos') {
       // Navigate to stock search; keep pending so content script can get repricingData and fill first barcode
       await chrome.tabs.update(tabId, { url: 'https://nospos.com/stock/search' });
       console.log('[CG Suite] NOSPOS_PAGE_READY – navigating to /stock/search', { requestId });
       return;
     }
+    if (entry.type === 'openNosposCustomerIntake') {
+      // First time landing on nospos after opening the tab — user is now logged in.
+      // Navigate to /customers and mark as waiting.
+      pending[requestId] = { ...entry, type: 'openNosposCustomerIntakeWaiting' };
+      await setPending(pending);
+      await chrome.tabs.update(tabId, { url: 'https://nospos.com/customers' });
+      console.log('[CG Suite] NOSPOS_PAGE_READY – customer intake: navigating to /customers', { requestId });
+      return;
+    }
+    if (entry.type === 'openNosposCustomerIntakeWaiting') {
+      // The user logged in and was bounced back to the home page (or some other nospos page)
+      // instead of /customers. Re-navigate them there.
+      await chrome.tabs.update(tabId, { url: 'https://nospos.com/customers' });
+      console.log('[CG Suite] NOSPOS_PAGE_READY – re-navigating to /customers after post-login redirect', { requestId });
+      return;
+    }
   }
   console.log('[CG Suite] NOSPOS_PAGE_READY – no matching pending request for tab', tabId);
+}
+
+async function handleNosposCustomerSearchReady(message, sender) {
+  const tabId = sender.tab?.id;
+  if (tabId == null) return { ok: false };
+
+  const pending = await getPending();
+  for (const [requestId, entry] of Object.entries(pending)) {
+    if (entry.listingTabId === tabId && entry.type === 'openNosposCustomerIntakeWaiting') {
+      console.log('[CG Suite] NOSPOS_CUSTOMER_SEARCH_READY – returning requestId to content script', { requestId });
+      return { ok: true, requestId };
+    }
+  }
+  return { ok: false };
+}
+
+async function handleNosposCustomerDetailReady(message, sender) {
+  const tabId = sender.tab?.id;
+  if (tabId == null) return { ok: false };
+
+  const pending = await getPending();
+  for (const [requestId, entry] of Object.entries(pending)) {
+    if (entry.listingTabId === tabId && entry.type === 'openNosposCustomerIntakeWaiting') {
+      console.log('[CG Suite] NOSPOS_CUSTOMER_DETAIL_READY – user on customer detail page, returning requestId', { requestId });
+      return { ok: true, requestId };
+    }
+  }
+  return { ok: false };
+}
+
+async function handleNosposCustomerDone(message, sender) {
+  const { requestId, cancelled } = message;
+  if (!requestId) return;
+
+  const pending = await getPending();
+  const entry = pending[requestId];
+  if (!entry) return;
+
+  delete pending[requestId];
+  await setPending(pending);
+
+  if (entry.appTabId) {
+    chrome.tabs.sendMessage(entry.appTabId, {
+      type: 'EXTENSION_RESPONSE_TO_PAGE',
+      requestId,
+      response: cancelled
+        ? { ok: false, cancelled: true }
+        : { ok: true, customer: message.customer || null, changes: message.changes || [] }
+    }).catch(() => {});
+    await focusAppTab(entry.appTabId);
+  }
+  // Close the NoSpos tab now that the flow is complete
+  if (entry.listingTabId != null) {
+    await chrome.tabs.remove(entry.listingTabId).catch(() => {});
+  }
+  console.log('[CG Suite] NOSPOS_CUSTOMER_DONE – resolved app promise, focused app tab, closed nospos tab', { requestId, cancelled });
 }
 
 function findNextBarcode(repricingData, completedBarcodes, completedItems) {

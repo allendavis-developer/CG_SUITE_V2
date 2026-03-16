@@ -43,10 +43,10 @@
       requestId,
       payload: message
     }, (bridgeResponse) => {
-      // For startWaitingForData, startRefine, and openNosposAndWait we don't resolve here; the target page will send data/ready later and background will send EXTENSION_RESPONSE_TO_PAGE to this tab.
-      if (message.action === 'startWaitingForData' || message.action === 'startRefine' || message.action === 'openNosposAndWait') {
+      // For these actions we don't resolve here; the target page will send data/ready later and background will send EXTENSION_RESPONSE_TO_PAGE to this tab.
+      if (message.action === 'startWaitingForData' || message.action === 'startRefine' || message.action === 'openNosposAndWait' || message.action === 'openNosposForCustomerIntake') {
         if (typeof console !== 'undefined') {
-          console.log('[CG Suite content-bridge] startWaitingForData/startRefine/openNosposAndWait – not posting response; waiting for target page');
+          console.log('[CG Suite content-bridge] deferred action – not posting response; waiting for target page', message.action);
         }
         return;
       }

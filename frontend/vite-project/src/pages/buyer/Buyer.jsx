@@ -7,7 +7,7 @@ import MainContent from '@/pages/buyer/components/MainContent';
 import CartSidebar from '@/pages/buyer/components/CartSidebar';
 import { useLocation } from 'react-router-dom';
 import { useNotification } from '@/contexts/NotificationContext';
-import { loadSnapshot, saveSnapshot } from '@/pages/buyer/buyerPageStore';
+import { loadSnapshot, saveSnapshot, clearSnapshot, defaultSnapshot } from '@/pages/buyer/buyerPageStore';
 
 import { fetchProductModels, updateRequestItemRawData, fetchRequestDetail, fetchCeXProductPrices } from '@/services/api';
 import { getDataFromListingPage } from '@/services/extensionClient';
@@ -57,6 +57,7 @@ export default function Buyer({ mode = 'buyer' }) {
   const [cexProductData, setCexProductData] = useState(() => snap.cexProductData ?? null);
 
   const [isQuickRepriceOpen, setIsQuickRepriceOpen] = useState(false);
+  const [resetKey, setResetKey] = useState(0);
 
   const persistRef = useRef(null);
   persistRef.current = {
@@ -162,12 +163,26 @@ export default function Buyer({ mode = 'buyer' }) {
     // Map the transaction type to the Django intent
     const mappedIntent = mapTransactionTypeToIntent(customerInfo.transactionType);
 
+    const c = customerInfo.customer || {};
     setCustomerData({
       id: customerInfo.id,
       name: customerInfo.customerName,
       cancelRate: customerInfo.cancelRate || 0,
       transactionType: customerInfo.transactionType || 'sale',
       isNewCustomer: customerInfo.isNewCustomer ?? false,
+      // NoSpos stat fields
+      joined:          c.joined          || null,
+      lastTransacted:  c.lastTransacted  || null,
+      buyBackRate:     c.buyBackRate     || null,
+      buyBackRateRaw:  c.buyBackRateRaw  || null,
+      renewRate:       c.renewRate       || null,
+      renewRateRaw:    c.renewRateRaw    || null,
+      cancelRateStr:   c.cancelRate      || null,  // string e.g. "86%"
+      cancelRateRaw:   c.cancelRateRaw   || null,
+      faultyRate:      c.faultyRate      || null,
+      faultyRateRaw:   c.faultyRateRaw   || null,
+      buyingCount:     c.buyingCount     || null,
+      salesCount:      c.salesCount      || null,
     });
 
     setIntent(mappedIntent);
@@ -244,6 +259,36 @@ export default function Buyer({ mode = 'buyer' }) {
 
   const handleClearCeXProduct = () => {
     setCexProductData(null);
+  };
+
+  /**
+   * Reset the entire buying module state: clear cart, customer, category, request, etc.
+   * Persists the cleared state so it survives navigation.
+   */
+  const handleResetBuy = () => {
+    const defaults = defaultSnapshot();
+    clearSnapshot(mode);
+    saveSnapshot(mode, { ...defaults, isCustomerModalOpen: !isRepricing });
+
+    setSelectedCategory(null);
+    setAvailableModels([]);
+    setSelectedModel(null);
+    setCartItems([]);
+    setSelectedCartItem(null);
+    setCustomerData(defaults.customerData);
+    setIntent(null);
+    setRequest(null);
+    setCustomerModalOpen(!isRepricing);
+    setCexProductData(null);
+    setShowConfirmDialog(false);
+    setPendingTransactionType(null);
+    setIsQuickRepriceOpen(false);
+    setCexLoading(false);
+    setResetKey(k => k + 1);
+
+    // Update ref so persist on unmount uses clean state
+    initialSnapshotRef.current = { ...defaults, isCustomerModalOpen: !isRepricing };
+    showNotification('Buying module reset', 'success');
   };
 
   /**
@@ -524,6 +569,7 @@ export default function Buyer({ mode = 'buyer' }) {
 
       {!isRepricing && (
         <CustomerIntakeModal
+          key={resetKey}
           open={isCustomerModalOpen}
           onClose={handleCustomerSelected}
         />
@@ -543,6 +589,9 @@ export default function Buyer({ mode = 'buyer' }) {
           onAddFromCeX={handleAddFromCeX}
           isCeXLoading={cexLoading}
           onQuickReprice={isRepricing ? () => setIsQuickRepriceOpen(true) : null}
+          onResetBuy={isRepricing ? null : handleResetBuy}
+          customerData={isRepricing ? null : customerData}
+          onTransactionTypeChange={isRepricing ? null : handleTransactionTypeChange}
         />
         <MainContent 
           selectedCategory={selectedCategory} 

@@ -77,6 +77,26 @@ export async function openUrl(url) {
 
 /**
  * Open nospos.com in a new tab via the Chrome extension and wait for the user to land on the main site.
+ * Reuses the same flow as openNospos: extension opens nospos.com, content script waits until user is
+ * logged in (not on login page) before sending NOSPOS_PAGE_READY. For customer intake we do not
+ * navigate to /stock/search – user stays on nospos.com to look up customer data.
+ */
+export async function openNosposForCustomerIntake() {
+  try {
+    return await sendMessage({
+      action: 'openNosposForCustomerIntake'
+    });
+  } catch (err) {
+    if (typeof window !== 'undefined') {
+      window.open('https://nospos.com', '_blank', 'noopener,noreferrer');
+      return { ok: true };
+    }
+    throw err;
+  }
+}
+
+/**
+ * Open nospos.com in a new tab via the Chrome extension and wait for the user to land on the main site.
  * If the user lands on a login page, waits for them to log in and redirect to nospos.com.
  * Resolves when the user is on nospos.com (either directly or after login).
  * Then navigates to /stock/search and fills the first item's first barcode.
