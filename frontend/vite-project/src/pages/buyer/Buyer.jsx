@@ -90,6 +90,17 @@ export default function Buyer({ mode = 'buyer' }) {
     }
   }, []);
 
+  // Keep selectedCartItem in sync with cartItems when the cart is updated (e.g. transaction type
+  // effect creates new object refs). Without this, clicking a DB item can wrongly deselect because
+  // selectedCartItem points to a stale ref while the clicked item is a new ref with the same id.
+  useEffect(() => {
+    if (!selectedCartItem?.id || !cartItems.length) return;
+    const current = cartItems.find((i) => i.id === selectedCartItem.id);
+    if (current && current !== selectedCartItem) {
+      setSelectedCartItem(current);
+    }
+  }, [cartItems, selectedCartItem?.id]);
+
   // Restore cart state on navigation (e.g. from repricing-negotiation with preserveCart)
   useEffect(() => {
     if (location.state?.preserveCart) {
@@ -481,13 +492,7 @@ export default function Buyer({ mode = 'buyer' }) {
   };
 
   const handleCartItemSelect = async (item) => {
-    // If clicking the same item, deselect it
-    if (selectedCartItem?.id === item.id) {
-      setSelectedCartItem(null);
-      return;
-    }
-
-    // Set immediately so the sidebar highlights the item and MainContent renders right away
+    // Always select immediately; cart clicks should open the item rather than toggling it off.
     setSelectedCartItem(item);
 
     // eBay and CeX items don't use variants – skip models fetch for instant display
@@ -498,6 +503,15 @@ export default function Buyer({ mode = 'buyer' }) {
     }
 
     if (item.categoryObject) {
+      const sameCategory =
+        selectedCategory?.name === item.categoryObject.name &&
+        JSON.stringify(selectedCategory?.path || []) === JSON.stringify(item.categoryObject.path || []);
+
+      if (sameCategory && availableModels.length > 0) {
+        setSelectedCategory(item.categoryObject);
+        return;
+      }
+
       const requestId = ++modelsRequestIdRef.current;
       setSelectedCategory(item.categoryObject);
       setIsLoadingModels(true);

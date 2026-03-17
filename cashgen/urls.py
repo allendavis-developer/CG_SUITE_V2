@@ -8,6 +8,7 @@ urlpatterns = [
 
     # new frontend rewrite api calls needed
     path('api/product-categories/', v2.categories_list, name='product-categories'),
+    path('api/all-categories/', v2.all_categories_flat, name='all-categories'),
     path("api/ebay/filters/", v2.get_ebay_filters, name="api-get-ebay-filters"),
     path("api/cashconverters/filters/", v2.get_cashconverters_filters, name="api-get-cashconverters-filters"),
     path("api/cashconverters/results/", v2.get_cashconverters_results, name="api-get-cashconverters-results"),
@@ -30,6 +31,8 @@ urlpatterns = [
     path('api/repricing-sessions/', v2.repricing_sessions_view, name='repricing_sessions'),
     path('api/repricing-sessions/overview/', v2.repricing_sessions_view, name='repricing_sessions_overview'),
     path('api/repricing-sessions/<int:repricing_session_id>/', v2.repricing_session_detail, name='repricing_session_detail'),
+    path('api/pricing-rules/', v2.pricing_rules_view, name='pricing_rules'),
+    path('api/pricing-rules/<int:rule_id>/', v2.pricing_rule_detail, name='pricing_rule_detail'),
     re_path(r'^(?:.*)/?$', v2.react_app, name='react_app_catchall'),
 
 

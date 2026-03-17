@@ -9,6 +9,7 @@ import TransactionComplete from "./pages/buyer/TransactionComplete";
 import RequestsOverview from "./pages/buyer/RequestsOverview";
 import LaunchpadPage from "./pages/launchpad/LaunchpadPage";
 import ReportsPage from "./pages/reports/ReportsPage";
+import PricingRulesPage from "./pages/pricing/PricingRulesPage";
 import { REPRICING_PROGRESS_KEY } from "./utils/repricingProgress";
 
 function RepricingProgressListener() {
@@ -54,7 +55,8 @@ export default function App() {
         {/* Route for viewing existing requests in a read-only negotiation interface */}
         <Route path="/requests/:requestId/view" element={<Negotiation mode="view" />} />
         <Route path="/transaction-complete" element={<TransactionComplete />} />
-        <Route path="/requests-overview" element={<RequestsOverview />} /> {/* Route for the requests overview page */}
+        <Route path="/requests-overview" element={<RequestsOverview />} />
+        <Route path="/pricing-rules" element={<PricingRulesPage />} />
       </Routes>
     </BrowserRouter>
   );

@@ -60,6 +60,12 @@ const AppHeader = () => {
             label="Reports"
             tooltip="Reports"
           />
+          <NavIcon
+            to="/pricing-rules"
+            icon="tune"
+            label="Pricing Rules"
+            tooltip="Pricing Rules"
+          />
         </div>
       </div>
     </header>

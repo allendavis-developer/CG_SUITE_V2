@@ -185,18 +185,18 @@ class VariantStatusAdmin(admin.ModelAdmin):
 @admin.register(PricingRule)
 class PricingRuleAdmin(admin.ModelAdmin):
     list_display = (
-        'get_scope', 
-        'movement_class', 
-        'sell_price_multiplier', 
-        'is_global_default'
+        'get_scope',
+        'sell_price_multiplier',
+        'first_offer_pct_of_cex',
+        'is_global_default',
     )
-    list_filter = ('movement_class', 'is_global_default', 'category', 'product')
+    list_filter = ('is_global_default', 'category', 'product')
     search_fields = ('product__name', 'category__name')
-    ordering = ('movement_class', 'product', 'category')
+    ordering = ('product', 'category')
 
     fieldsets = (
         (None, {
-            'fields': ('movement_class', 'sell_price_multiplier', 'is_global_default')
+            'fields': ('sell_price_multiplier', 'first_offer_pct_of_cex', 'is_global_default')
         }),
         ('Scope', {
             'fields': ('product', 'category'),

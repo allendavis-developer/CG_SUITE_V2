@@ -167,17 +167,11 @@ class ConditionGrade(models.Model):
         return self.code
 
 
-class MovementClass(models.TextChoices):
-    FAST = 'FAST', 'Fast mover'
-    MEDIUM = 'MEDIUM', 'Medium mover'
-    SLOW = 'SLOW', 'Slow mover'
-    UNKNOWN = 'UNKNOWN', 'Unknown'
-
-
 class PricingRule(models.Model):
     """
-    Determines what % of CeX sale price we should sell at
-    based on movement class and scope.
+    Determines what % of CeX sale price we should sell at, and optionally
+    what % of the CeX trade-in price to use for the First Offer.
+    Scoped to a specific product, category, or as the global default.
     """
 
     pricing_rule_id = models.AutoField(primary_key=True)
@@ -203,48 +197,46 @@ class PricingRule(models.Model):
         help_text="Fallback rule if no product or category rule exists"
     )
 
-    movement_class = models.CharField(
-        max_length=20,
-        choices=MovementClass.choices,
-        db_index=True
-    )
-
     sell_price_multiplier = models.DecimalField(
         max_digits=5,
         decimal_places=2,
         validators=[MinValueValidator(Decimal('0.00'))]
     )
 
+    first_offer_pct_of_cex = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text=(
+            "% of the CeX trade-in price offered as the First Offer. "
+            "E.g. 90 means offer_1 = cex_tradein * 0.90. "
+            "Leave blank to use the default (same absolute margin as CeX)."
+        )
+    )
+
     class Meta:
         db_table = 'pricing_rule'
-        indexes = [
-            models.Index(fields=['product', 'movement_class']),
-            models.Index(fields=['category', 'movement_class']),
-            models.Index(fields=['is_global_default', 'movement_class']),
-        ]
         constraints = [
-            # Product-level uniqueness
+            # One rule per product
             models.UniqueConstraint(
-                fields=['product', 'movement_class'],
+                fields=['product'],
                 condition=models.Q(product__isnull=False),
-                name='uniq_product_movement_rule'
+                name='uniq_product_rule'
             ),
-
-            # Category-level uniqueness
+            # One rule per category
             models.UniqueConstraint(
-                fields=['category', 'movement_class'],
+                fields=['category'],
                 condition=models.Q(category__isnull=False),
-                name='uniq_category_movement_rule'
+                name='uniq_category_rule'
             ),
-
-            # One global default per movement class
+            # At most one global default
             models.UniqueConstraint(
-                fields=['movement_class'],
+                fields=['is_global_default'],
                 condition=models.Q(is_global_default=True),
-                name='uniq_global_default_movement_rule'
+                name='uniq_global_default_rule'
             ),
-
-            # Valid scope rule
+            # Must have a valid scope
             models.CheckConstraint(
                 condition=(
                     models.Q(product__isnull=False) |
@@ -257,9 +249,9 @@ class PricingRule(models.Model):
 
     def __str__(self):
         if self.is_global_default:
-            return f"GLOBAL - {self.movement_class} @ {self.sell_price_multiplier}"
+            return f"GLOBAL @ {self.sell_price_multiplier}"
         target = self.product.name if self.product else self.category.name
-        return f"{target} - {self.movement_class} @ {self.sell_price_multiplier}"
+        return f"{target} @ {self.sell_price_multiplier}"
 
 
 class Variant(models.Model):
@@ -352,59 +344,26 @@ class Variant(models.Model):
             models.Index(fields=['current_price_gbp']),
         ]
 
-    def get_movement_class(self):
-        if not self.current_price_gbp or not self.tradein_cash:
-            return MovementClass.UNKNOWN
-
-        margin = (
-            (self.current_price_gbp - self.tradein_cash)
-            / self.current_price_gbp
-        )
-
-        if margin > Decimal('0.50'):
-            return MovementClass.SLOW
-        elif margin >= Decimal('0.40'):
-            return MovementClass.MEDIUM
-        else:
-            return MovementClass.FAST
-        
-    def get_target_sell_price(self):
-        movement = self.get_movement_class()
-
-        if movement == MovementClass.UNKNOWN:
-            return None
-
+    def get_applicable_rule(self):
+        """Return the most-specific PricingRule that applies to this variant, or None."""
         # 1️⃣ Product-level rule
-        rule = PricingRule.objects.filter(
-            product=self.product,
-            movement_class=movement
-        ).first()
-
+        rule = PricingRule.objects.filter(product=self.product).first()
         if rule:
-            return (self.current_price_gbp * rule.sell_price_multiplier).quantize(
-                Decimal('0.01')
-            )
+            return rule
 
         # 2️⃣ Category-level rules (walk up the tree)
         for category in self.product.category.iter_ancestors():
-            rule = PricingRule.objects.filter(
-                category=category,
-                movement_class=movement
-            ).first()
+            rule = PricingRule.objects.filter(category=category).first()
             if rule:
-                return (self.current_price_gbp * rule.sell_price_multiplier).quantize(
-                    Decimal('0.01')
-                )
+                return rule
 
         # 3️⃣ Global default
-        rule = PricingRule.objects.filter(
-            is_global_default=True,
-            movement_class=movement
-        ).first()
+        return PricingRule.objects.filter(is_global_default=True).first()
 
-        if not rule:
+    def get_target_sell_price(self):
+        rule = self.get_applicable_rule()
+        if rule is None:
             return None
-
         return (self.current_price_gbp * rule.sell_price_multiplier).quantize(
             Decimal('0.01')
         )

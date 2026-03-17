@@ -104,6 +104,31 @@ async function clearLastRepricingResult() {
   await chrome.storage.local.remove('cgNosposLastRepricingResult');
 }
 
+async function failNosposRequestAndCloseTab(requestId, entry, message) {
+  const pending = await getPending();
+  if (pending[requestId]) {
+    delete pending[requestId];
+    await setPending(pending);
+  }
+
+  if (entry?.type === 'openNospos') {
+    await clearNosposRepricingState(entry.listingTabId);
+  }
+
+  if (entry?.appTabId != null) {
+    chrome.tabs.sendMessage(entry.appTabId, {
+      type: 'EXTENSION_RESPONSE_TO_PAGE',
+      requestId,
+      error: message || 'You must be logged into NoSpos to continue.'
+    }).catch(() => {});
+    await focusAppTab(entry.appTabId);
+  }
+
+  if (entry?.listingTabId != null) {
+    await chrome.tabs.remove(entry.listingTabId).catch(() => {});
+  }
+}
+
 async function focusAppTab(appTabId) {
   if (!appTabId) return;
   const appTab = await chrome.tabs.get(appTabId).catch(() => null);
@@ -169,6 +194,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === 'NOSPOS_PAGE_LOADED') {
     handleNosposPageLoaded(message, sender)
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+
+  if (message.type === 'NOSPOS_LOGIN_REQUIRED') {
+    handleNosposLoginRequired(message, sender)
       .then(() => sendResponse({ ok: true }))
       .catch(() => sendResponse({ ok: false }));
     return true;
@@ -317,6 +349,8 @@ async function handleBridgeForward(message, sender) {
         ...merged,
         awaitingStockSelection: false,
         currentBarcode: '',
+        skippedBarcodes: {},
+        ambiguousBarcodes: [],
         justSaved: false,
         verifyRetries: 0,
         done: false,
@@ -478,6 +512,28 @@ async function handleNosposPageReady(message, sender) {
   console.log('[CG Suite] NOSPOS_PAGE_READY – no matching pending request for tab', tabId);
 }
 
+async function handleNosposLoginRequired(message, sender) {
+  const tabId = sender.tab?.id;
+  if (tabId == null) return;
+
+  const pending = await getPending();
+  const loginUrl = message?.url || '';
+  const errorMessage = 'You must be logged into NoSpos to continue.';
+
+  for (const [requestId, entry] of Object.entries(pending)) {
+    if (entry.listingTabId !== tabId) continue;
+    if (entry.type !== 'openNospos' && entry.type !== 'openNosposCustomerIntake' && entry.type !== 'openNosposCustomerIntakeWaiting') {
+      continue;
+    }
+
+    await failNosposRequestAndCloseTab(requestId, entry, errorMessage);
+    console.log('[CG Suite] NOSPOS_LOGIN_REQUIRED – closed tab and failed request', { requestId, tabId, loginUrl, type: entry.type });
+    return;
+  }
+
+  console.log('[CG Suite] NOSPOS_LOGIN_REQUIRED – no matching pending request for tab', tabId, loginUrl);
+}
+
 async function handleNosposCustomerSearchReady(message, sender) {
   const tabId = sender.tab?.id;
   if (tabId == null) return { ok: false };
@@ -534,13 +590,14 @@ async function handleNosposCustomerDone(message, sender) {
   console.log('[CG Suite] NOSPOS_CUSTOMER_DONE – resolved app promise, focused app tab, closed nospos tab', { requestId, cancelled });
 }
 
-function findNextBarcode(repricingData, completedBarcodes, completedItems) {
+function findNextBarcode(repricingData, completedBarcodes, completedItems, skippedBarcodes = {}) {
   for (let i = 0; i < repricingData.length; i++) {
     const item = repricingData[i];
     if (completedItems.includes(item?.itemId)) continue;
     const done = completedBarcodes[item?.itemId] || [];
+    const skipped = skippedBarcodes[item?.itemId] || [];
     for (let j = 0; j < (item?.barcodes?.length || 0); j++) {
-      if (done.includes(j)) continue;
+      if (done.includes(j) || skipped.includes(j)) continue;
       const barcode = (item.barcodes[j] || '').trim();
       if (barcode) return { itemIndex: i, barcodeIndex: j, barcode };
     }
@@ -591,6 +648,70 @@ function applyVerifiedBarcodeCompletion(data) {
   return { completedBarcodes, completedItems, verifiedChanges };
 }
 
+function markBarcodeAsAmbiguous(data, next) {
+  if (!data || !next) return data;
+
+  const item = (data.repricingData || [])[next.itemIndex];
+  const itemId = item?.itemId;
+  if (itemId == null) return data;
+
+  const skippedBarcodes = { ...(data.skippedBarcodes || {}) };
+  if (!skippedBarcodes[itemId]) skippedBarcodes[itemId] = [];
+  if (!skippedBarcodes[itemId].includes(next.barcodeIndex)) {
+    skippedBarcodes[itemId] = [...skippedBarcodes[itemId], next.barcodeIndex];
+  }
+
+  const ambiguousBarcodes = [...(data.ambiguousBarcodes || [])];
+  const alreadyTracked = ambiguousBarcodes.some(
+    (entry) => String(entry?.itemId) === String(itemId) && entry?.barcodeIndex === next.barcodeIndex
+  );
+
+  if (!alreadyTracked) {
+    ambiguousBarcodes.push({
+      itemId,
+      itemTitle: item?.title || '',
+      barcodeIndex: next.barcodeIndex,
+      barcode: next.barcode
+    });
+  }
+
+  return {
+    ...data,
+    skippedBarcodes,
+    ambiguousBarcodes,
+    awaitingStockSelection: false,
+    currentBarcode: '',
+    verifyRetries: 0
+  };
+}
+
+function buildRepricingCompletionPayload(data) {
+  const verifiedChanges = [...(data?.verifiedChanges || [])];
+  const ambiguousBarcodes = [...(data?.ambiguousBarcodes || [])];
+
+  return {
+    cart_key: data?.cartKey || '',
+    item_count: [...new Set(verifiedChanges.map((item) => item.item_identifier).filter(Boolean))].length,
+    barcode_count: verifiedChanges.length,
+    items_data: verifiedChanges,
+    ambiguous_barcodes: ambiguousBarcodes
+  };
+}
+
+async function finalizeNosposRepricing(data, tabId) {
+  const finalPayload = buildRepricingCompletionPayload(data);
+  if (finalPayload.barcode_count > 0 || finalPayload.ambiguous_barcodes.length > 0) {
+    await setLastRepricingResult(finalPayload);
+    await sendRepricingComplete(data?.appTabId, finalPayload);
+  }
+  await clearNosposRepricingState(tabId);
+  await focusAppTab(data?.appTabId);
+  if (tabId != null) {
+    await chrome.tabs.remove(tabId).catch(() => {});
+  }
+  return finalPayload;
+}
+
 async function handleNosposStockSearchReady(message, sender) {
   const tabId = sender.tab?.id;
   if (tabId == null) return { ok: false };
@@ -615,6 +736,8 @@ async function handleNosposStockSearchReady(message, sender) {
           nosposTabId: tabId,
           awaitingStockSelection: false,
           currentBarcode: '',
+          skippedBarcodes: {},
+          ambiguousBarcodes: [],
           justSaved: false,
           verifyRetries: 0,
           done: false,
@@ -638,35 +761,41 @@ async function handleNosposStockSearchReady(message, sender) {
     repricingData = [],
     completedBarcodes = {},
     completedItems = [],
-    appTabId,
-    cartKey,
     awaitingStockSelection,
     currentBarcode
   } = data;
-  const next = findNextBarcode(repricingData, completedBarcodes, completedItems);
+  const next = findNextBarcode(repricingData, completedBarcodes, completedItems, data.skippedBarcodes || {});
 
   if (!next) {
-    // All barcodes are already done (e.g. session recovery). Build a final payload
-    // from verifiedChanges if we haven't already saved one, then close the tab.
-    const alreadySaved = await getLastRepricingResult();
-    if (!alreadySaved && data.verifiedChanges && data.verifiedChanges.length > 0) {
-      const finalPayload = {
-        cart_key: data.cartKey || '',
-        item_count: [...new Set(data.verifiedChanges.map(i => i.item_identifier).filter(Boolean))].length,
-        barcode_count: data.verifiedChanges.length,
-        items_data: data.verifiedChanges
-      };
-      await setLastRepricingResult(finalPayload);
-      await sendRepricingComplete(appTabId, finalPayload);
-    }
-    await clearNosposRepricingState(tabId);
-    await focusAppTab(appTabId);
-    if (tabId != null) await chrome.tabs.remove(tabId).catch(() => {});
+    await finalizeNosposRepricing(data, tabId);
     return { ok: false };
   }
 
   if (awaitingStockSelection && currentBarcode === next.barcode) {
-    return { ok: true, waitingForNavigation: true };
+    const ambiguousData = markBarcodeAsAmbiguous(data, next);
+    const nextAfterSkip = findNextBarcode(
+      ambiguousData.repricingData || [],
+      ambiguousData.completedBarcodes || {},
+      ambiguousData.completedItems || [],
+      ambiguousData.skippedBarcodes || {}
+    );
+
+    if (!nextAfterSkip) {
+      await finalizeNosposRepricing(ambiguousData, tabId);
+      return { ok: false };
+    }
+
+    await chrome.storage.session.set({
+      cgNosposRepricingData: {
+        ...ambiguousData,
+        nosposTabId: tabId,
+        awaitingStockSelection: true,
+        currentBarcode: nextAfterSkip.barcode,
+        verifyRetries: 0
+      }
+    });
+
+    return { ok: true, firstBarcode: nextAfterSkip.barcode, skippedPreviousBarcode: true };
   }
 
   await chrome.storage.session.set({
@@ -692,7 +821,7 @@ async function handleNosposStockEditReady(message, sender) {
   if (data.justSaved) return { ok: false, waitingForVerification: true };
 
   const { repricingData = [], appTabId, completedBarcodes = {}, completedItems = [], cartKey, nosposTabId } = data;
-  const next = findNextBarcode(repricingData, completedBarcodes, completedItems);
+  const next = findNextBarcode(repricingData, completedBarcodes, completedItems, data.skippedBarcodes || {});
   if (!next) return { ok: false };
 
   const item = repricingData[next.itemIndex];
@@ -783,22 +912,24 @@ async function handleNosposPageLoaded(message, sender) {
           appTabId: data.appTabId
         }
       });
-      const done = findNextBarcode(data.repricingData || [], completedBarcodes, completedItems) == null;
+      const done = findNextBarcode(
+        data.repricingData || [],
+        completedBarcodes,
+        completedItems,
+        data.skippedBarcodes || {}
+      ) == null;
 
       if (done) {
-        const finalPayload = {
-          cart_key: data.cartKey || '',
-          item_count: [...new Set(verifiedChanges.map((item) => item.item_identifier).filter(Boolean))].length,
-          barcode_count: verifiedChanges.length,
-          items_data: verifiedChanges
-        };
-        await setLastRepricingResult(finalPayload);
-        await sendRepricingComplete(data.appTabId, finalPayload);
-        await clearNosposRepricingState(tabId);
-        await focusAppTab(data.appTabId);
-        if (tabId) {
-          await chrome.tabs.remove(tabId).catch(() => {});
-        }
+        await finalizeNosposRepricing(
+          {
+            ...verifiedData,
+            completedBarcodes,
+            completedItems,
+            verifiedChanges,
+            pendingCompletion: null
+          },
+          tabId
+        );
       } else {
         await chrome.storage.session.set({
           cgNosposRepricingData: {

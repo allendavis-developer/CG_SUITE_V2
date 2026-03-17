@@ -15,7 +15,8 @@ from pricing.utils.cashconverters_filters import build_cashconverters_url, conve
 
 from .models_v2 import ( ProductCategory, Product, Variant, Customer,
 Request, RequestItem, RequestStatus, RequestStatusHistory,
-Customer, Variant, RequestIntent, RepricingSession, RepricingSessionItem
+Customer, Variant, RequestIntent, RepricingSession, RepricingSessionItem,
+PricingRule
 )
 
 from .serializers import ( RequestSerializer, RequestItemSerializer, CustomerSerializer,
@@ -55,6 +56,50 @@ def categories_list(request):
     categories = ProductCategory.objects.filter(parent_category__isnull=True)
     serializer = ProductCategorySerializer(categories, many=True)
     return Response(serializer.data)
+
+
+@api_view(['GET'])
+def all_categories_flat(request):
+    """
+    Return every category as a flat list, each with a 'path' label showing
+    the full ancestry (e.g. "Electronics > Games > PlayStation").
+    Ordered depth-first so children follow their parent.
+    """
+    all_cats = list(
+        ProductCategory.objects
+        .select_related('parent_category')
+        .order_by('parent_category_id', 'name')
+    )
+
+    # Build a lookup and children map
+    by_id = {c.category_id: c for c in all_cats}
+    children_map = {}
+    roots = []
+    for c in all_cats:
+        pid = c.parent_category_id
+        if pid is None:
+            roots.append(c)
+        else:
+            children_map.setdefault(pid, []).append(c)
+
+    result = []
+
+    def walk(cat, ancestors):
+        path = ' > '.join(ancestors + [cat.name])
+        result.append({
+            'category_id': cat.category_id,
+            'name': cat.name,
+            'path': path,
+            'depth': len(ancestors),
+            'parent_category_id': cat.parent_category_id,
+        })
+        for child in children_map.get(cat.category_id, []):
+            walk(child, ancestors + [cat.name])
+
+    for root in roots:
+        walk(root, [])
+
+    return Response(result)
 
 
 @api_view(['GET', 'POST'])
@@ -789,6 +834,14 @@ def variant_prices(request):
         percentage_used = 85.0
         our_sale_price = cex_sale_price * 0.85
 
+    # Resolve first_offer_pct from the applicable pricing rule
+    applicable_rule = variant.get_applicable_rule()
+    first_offer_pct = (
+        float(applicable_rule.first_offer_pct_of_cex)
+        if applicable_rule and applicable_rule.first_offer_pct_of_cex is not None
+        else None
+    )
+
     # --- Calculation Helpers ---
     def calculate_margin_percentage(offer_price, sale_price):
         if sale_price <= 0: return 0
@@ -798,21 +851,22 @@ def variant_prices(request):
     def generate_offer_set(cex_reference_buy_price, prefix):
         """
         Generates First, Second, and Third offers based on a CeX reference price.
-        Logic: 
-        - Third: Match CeX
-        - First: Match CeX absolute margin
-        - Second: Midpoint
+        - Third: Match CeX trade-in price exactly
+        - First: If first_offer_pct is set, use (cex_reference_buy_price * pct/100);
+                 otherwise use the same absolute margin as CeX (our_sale_price - cex_abs_margin)
+        - Second: Midpoint between First and Third
         """
-        # Absolute margin CeX makes on this item
-        cex_abs_margin = cex_sale_price - cex_reference_buy_price
-        
-        # 1. First Offer: Same absolute margin at our (usually lower) sale price
-        offer_1 = max(our_sale_price - cex_abs_margin, 0)
-        
-        # 3. Third Offer: Match CeX trade-in price exactly
+        # Third Offer: Match CeX trade-in price exactly
         offer_3 = cex_reference_buy_price
-        
-        # 2. Second Offer: Midpoint
+
+        # First Offer
+        if first_offer_pct is not None:
+            offer_1 = max(cex_reference_buy_price * (first_offer_pct / 100.0), 0)
+        else:
+            cex_abs_margin = cex_sale_price - cex_reference_buy_price
+            offer_1 = max(our_sale_price - cex_abs_margin, 0)
+
+        # Second Offer: Midpoint
         offer_2 = (offer_1 + offer_3) / 2
 
         return [
@@ -848,6 +902,7 @@ def variant_prices(request):
         "cex_based_sale_price": round(our_sale_price, 2),
         "percentage_used": percentage_used,
         "cex_out_of_stock": cex_out_of_stock,
+        "first_offer_pct_of_cex": first_offer_pct,
     }
     if image_urls:
         reference_data["cex_image_urls"] = {
@@ -890,8 +945,21 @@ def cex_product_prices(request):
     cex_tradein_cash = float(tradein_cash or 0)
     cex_tradein_voucher = float(tradein_voucher or 0)
 
-    percentage_used = 85.0
-    our_sale_price = cex_sale_price * 0.85
+    # Look up global default rule for sell price multiplier and first offer pct
+    global_rule = PricingRule.objects.filter(is_global_default=True).first()
+
+    if global_rule:
+        percentage_used = round(float(global_rule.sell_price_multiplier) * 100, 2)
+        our_sale_price = cex_sale_price * float(global_rule.sell_price_multiplier)
+        first_offer_pct = (
+            float(global_rule.first_offer_pct_of_cex)
+            if global_rule.first_offer_pct_of_cex is not None
+            else None
+        )
+    else:
+        percentage_used = 85.0
+        our_sale_price = cex_sale_price * 0.85
+        first_offer_pct = None
 
     def calculate_margin_percentage(offer_price, sale_price):
         if sale_price <= 0:
@@ -900,9 +968,12 @@ def cex_product_prices(request):
         return round((margin_amount / sale_price) * 100, 1)
 
     def generate_offer_set(cex_reference_buy_price, prefix):
-        cex_abs_margin = cex_sale_price - cex_reference_buy_price
-        offer_1 = max(our_sale_price - cex_abs_margin, 0)
         offer_3 = cex_reference_buy_price
+        if first_offer_pct is not None:
+            offer_1 = max(cex_reference_buy_price * (first_offer_pct / 100.0), 0)
+        else:
+            cex_abs_margin = cex_sale_price - cex_reference_buy_price
+            offer_1 = max(our_sale_price - cex_abs_margin, 0)
         offer_2 = (offer_1 + offer_3) / 2
         return [
             {"id": f"{prefix}_1", "title": "First Offer", "price": round(offer_1, 2), "margin": calculate_margin_percentage(offer_1, our_sale_price)},
@@ -918,7 +989,8 @@ def cex_product_prices(request):
         "cex_tradein_cash": cex_tradein_cash,
         "cex_tradein_voucher": cex_tradein_voucher,
         "cex_based_sale_price": round(our_sale_price, 2),
-        "percentage_used": percentage_used
+        "percentage_used": percentage_used,
+        "first_offer_pct_of_cex": first_offer_pct,
     }
     image_url = data.get('image_url') or data.get('image')
     if image_url:
@@ -932,6 +1004,126 @@ def cex_product_prices(request):
     }
     logger.info("[CG Suite] cex_product_prices response: %s", response_data)
     return Response(response_data)
+
+
+def _serialize_pricing_rule(rule):
+    return {
+        "id": rule.pricing_rule_id,
+        "is_global_default": rule.is_global_default,
+        "category": (
+            {"id": rule.category.category_id, "name": rule.category.name}
+            if rule.category else None
+        ),
+        "product": (
+            {"id": rule.product.product_id, "name": rule.product.name}
+            if rule.product else None
+        ),
+        "sell_price_multiplier": float(rule.sell_price_multiplier),
+        "first_offer_pct_of_cex": (
+            float(rule.first_offer_pct_of_cex)
+            if rule.first_offer_pct_of_cex is not None else None
+        ),
+    }
+
+
+@api_view(['GET', 'POST'])
+def pricing_rules_view(request):
+    """List all pricing rules or create a new one."""
+    if request.method == 'GET':
+        rules = (
+            PricingRule.objects
+            .select_related('category', 'product')
+            .order_by('-is_global_default', 'category__name', 'product__name')
+        )
+        return Response([_serialize_pricing_rule(r) for r in rules])
+
+    # POST — create
+    data = request.data
+    try:
+        multiplier = Decimal(str(data['sell_price_multiplier']))
+    except (KeyError, InvalidOperation):
+        return Response({"error": "sell_price_multiplier is required and must be a number"}, status=400)
+
+    is_global_default = bool(data.get('is_global_default', False))
+    category_id = data.get('category_id')
+    product_id = data.get('product_id')
+
+    if not is_global_default and not category_id and not product_id:
+        return Response({"error": "One of is_global_default, category_id, or product_id is required"}, status=400)
+
+    first_offer_pct = data.get('first_offer_pct_of_cex')
+    if first_offer_pct is not None:
+        try:
+            first_offer_pct = Decimal(str(first_offer_pct))
+        except InvalidOperation:
+            return Response({"error": "first_offer_pct_of_cex must be a number"}, status=400)
+
+    kwargs = {
+        'sell_price_multiplier': multiplier,
+        'first_offer_pct_of_cex': first_offer_pct,
+        'is_global_default': is_global_default,
+    }
+
+    if category_id:
+        try:
+            kwargs['category'] = ProductCategory.objects.get(pk=category_id)
+        except ProductCategory.DoesNotExist:
+            return Response({"error": "Category not found"}, status=404)
+
+    if product_id:
+        try:
+            kwargs['product'] = Product.objects.get(pk=product_id)
+        except Product.DoesNotExist:
+            return Response({"error": "Product not found"}, status=404)
+
+    try:
+        rule = PricingRule.objects.create(**kwargs)
+    except Exception as e:
+        return Response({"error": str(e)}, status=400)
+
+    return Response(_serialize_pricing_rule(rule), status=status.HTTP_201_CREATED)
+
+
+@api_view(['GET', 'PATCH', 'DELETE'])
+def pricing_rule_detail(request, rule_id):
+    """Retrieve, update, or delete a single pricing rule."""
+    try:
+        rule = PricingRule.objects.select_related('category', 'product').get(pk=rule_id)
+    except PricingRule.DoesNotExist:
+        return Response({"error": "Pricing rule not found"}, status=404)
+
+    if request.method == 'GET':
+        return Response(_serialize_pricing_rule(rule))
+
+    if request.method == 'DELETE':
+        rule.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    # PATCH
+    data = request.data
+
+    if 'sell_price_multiplier' in data:
+        try:
+            rule.sell_price_multiplier = Decimal(str(data['sell_price_multiplier']))
+        except InvalidOperation:
+            return Response({"error": "sell_price_multiplier must be a number"}, status=400)
+
+    if 'first_offer_pct_of_cex' in data:
+        val = data['first_offer_pct_of_cex']
+        if val is None or val == '':
+            rule.first_offer_pct_of_cex = None
+        else:
+            try:
+                rule.first_offer_pct_of_cex = Decimal(str(val))
+            except InvalidOperation:
+                return Response({"error": "first_offer_pct_of_cex must be a number"}, status=400)
+
+    try:
+        rule.save()
+    except Exception as e:
+        return Response({"error": str(e)}, status=400)
+
+    return Response(_serialize_pricing_rule(rule))
 
 
 # react app

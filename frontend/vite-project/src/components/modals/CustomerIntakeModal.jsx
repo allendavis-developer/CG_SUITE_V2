@@ -1,8 +1,10 @@
 import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { createCustomer, getOrCreateCustomer } from "@/services/api";
 import { openNosposForCustomerIntake } from "@/services/extensionClient";
 
 export default function CustomerIntakeModal({ open = true, onClose }) {
+  const navigate = useNavigate();
   const [customerType, setCustomerType] = useState("existing"); // "existing" | "new"
   const [transactionType, setTransactionType] = useState("buyback");
   const [error, setError] = useState(null);
@@ -140,6 +142,14 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
               </p>
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => navigate("/")}
+            className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-white/20"
+          >
+            <span className="material-symbols-outlined text-lg">arrow_back</span>
+            Launchpad
+          </button>
         </header>
 
         {/* New vs Existing Toggle */}

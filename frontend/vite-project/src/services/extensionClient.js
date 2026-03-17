@@ -82,17 +82,9 @@ export async function openUrl(url) {
  * navigate to /stock/search – user stays on nospos.com to look up customer data.
  */
 export async function openNosposForCustomerIntake() {
-  try {
-    return await sendMessage({
-      action: 'openNosposForCustomerIntake'
-    });
-  } catch (err) {
-    if (typeof window !== 'undefined') {
-      window.open('https://nospos.com', '_blank', 'noopener,noreferrer');
-      return { ok: true };
-    }
-    throw err;
-  }
+  return sendMessage({
+    action: 'openNosposForCustomerIntake'
+  });
 }
 
 /**
@@ -105,21 +97,13 @@ export async function openNosposForCustomerIntake() {
  * @param {{ completedBarcodes?: Record<string,number[]>, completedItems?: string[], cartKey?: string }} progress - Progress so we can resume
  */
 export async function openNospos(repricingData, progress = {}) {
-  try {
-    return await sendMessage({
-      action: 'openNosposAndWait',
-      repricingData: repricingData || [],
-      completedBarcodes: progress.completedBarcodes || {},
-      completedItems: progress.completedItems || [],
-      cartKey: progress.cartKey || ''
-    });
-  } catch (err) {
-    if (typeof window !== 'undefined') {
-      window.open('https://nospos.com', '_blank', 'noopener,noreferrer');
-      return { ok: true };
-    }
-    throw err;
-  }
+  return sendMessage({
+    action: 'openNosposAndWait',
+    repricingData: repricingData || [],
+    completedBarcodes: progress.completedBarcodes || {},
+    completedItems: progress.completedItems || [],
+    cartKey: progress.cartKey || ''
+  });
 }
 
 export async function getLastRepricingResult() {

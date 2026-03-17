@@ -575,3 +575,60 @@ export const fetchRepricingSessionDetail = async (repricingSessionId) => {
   }
   return res.json();
 };
+
+// ─── Pricing Rules ────────────────────────────────────────────────────────────
+
+export const fetchPricingRules = async () => {
+  const res = await fetch(`${API_BASE_URL}/pricing-rules/`);
+  if (!res.ok) throw new Error('Failed to fetch pricing rules');
+  return res.json();
+};
+
+export const createPricingRule = async (data) => {
+  const res = await fetch(`${API_BASE_URL}/pricing-rules/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to create pricing rule');
+  }
+  return res.json();
+};
+
+export const updatePricingRule = async (id, data) => {
+  const res = await fetch(`${API_BASE_URL}/pricing-rules/${id}/`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to update pricing rule');
+  }
+  return res.json();
+};
+
+export const deletePricingRule = async (id) => {
+  const res = await fetch(`${API_BASE_URL}/pricing-rules/${id}/`, {
+    method: 'DELETE',
+    headers: { 'X-CSRFToken': getCSRFToken() },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to delete pricing rule');
+  }
+};
+
+export const fetchCategories = async () => {
+  const res = await fetch(`${API_BASE_URL}/product-categories/`);
+  if (!res.ok) throw new Error('Failed to fetch categories');
+  return res.json();
+};
+
+export const fetchAllCategoriesFlat = async () => {
+  const res = await fetch(`${API_BASE_URL}/all-categories/`);
+  if (!res.ok) throw new Error('Failed to fetch categories');
+  return res.json();
+};

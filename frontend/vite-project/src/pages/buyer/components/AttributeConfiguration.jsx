@@ -15,13 +15,14 @@ const AttributeConfiguration = ({
   setAllAttributeValues,
   variant,
   setVariant,
+  onUserSetVariant = setVariant,
   variantImageUrl
 }) => {
   const [selectedViaDropdown, setSelectedViaDropdown] = useState(false);
 
   const handleReset = () => {
     setSelectedViaDropdown(false);
-    setVariant(null);
+    onUserSetVariant(null);
     const clearedValues = attributes.reduce((acc, attr) => {
       acc[attr.code] = ''; 
       return acc;
@@ -107,7 +108,7 @@ const AttributeConfiguration = ({
   const selectVariant = (v) => {
     if (!v) return;
     setSelectedViaDropdown(true);
-    setVariant(v.cex_sku);
+    onUserSetVariant(v.cex_sku);
     if (setAllAttributeValues) {
       setAllAttributeValues(v.attribute_values);
     } else {

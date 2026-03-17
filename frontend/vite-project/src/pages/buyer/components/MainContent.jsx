@@ -215,6 +215,72 @@ const MainContent = ({
     }
   }, [selectedCartItem, availableModels]);
 
+  // Restore the saved cart item state immediately so a clicked DB item opens straight into edit mode.
+  useEffect(() => {
+    if (!selectedCartItem) {
+      return;
+    }
+
+    if (
+      selectedCartItem.isCustomEbayItem ||
+      selectedCartItem.isCustomCashConvertersItem ||
+      selectedCartItem.isCustomCeXItem
+    ) {
+      return;
+    }
+
+    const modelToSet = availableModels.find(m => m.name === selectedCartItem.model);
+    if (modelToSet && selectedModel?.product_id !== modelToSet.product_id) {
+      setSelectedModel(modelToSet);
+    }
+
+    if (attributes.length > 0 && selectedCartItem.attributeValues) {
+      setAllAttributeValues(selectedCartItem.attributeValues);
+    }
+
+    if (variants.length > 0 && selectedCartItem.cexSku) {
+      setVariant(selectedCartItem.cexSku);
+    }
+
+    if (selectedCartItem.ebayResearchData) {
+      setSavedEbayState(selectedCartItem.ebayResearchData);
+      setEbayData(selectedCartItem.ebayResearchData);
+    }
+
+    if (selectedCartItem.cashConvertersResearchData) {
+      setSavedCashConvertersState(selectedCartItem.cashConvertersResearchData);
+      setCashConvertersData(selectedCartItem.cashConvertersResearchData);
+    }
+
+    if (selectedCartItem.referenceData) {
+      setReferenceData(selectedCartItem.referenceData);
+
+      const displayOffers = useVoucherOffers
+        ? selectedCartItem.voucherOffers || selectedCartItem.offers
+        : selectedCartItem.cashOffers || selectedCartItem.offers;
+
+      if (displayOffers) {
+        setOffers(displayOffers);
+      }
+    }
+
+    setOurSalePrice(
+      selectedCartItem.ourSalePrice != null
+        ? selectedCartItem.ourSalePrice.toString()
+        : ''
+    );
+  }, [
+    selectedCartItem,
+    availableModels,
+    selectedModel?.product_id,
+    setSelectedModel,
+    attributes,
+    variants,
+    setAllAttributeValues,
+    setVariant,
+    useVoucherOffers
+  ]);
+
   // Step 2: Set variant and attributes once variants are loaded
   useEffect(() => {
     if (!selectedCartItem || !variants || variants.length === 0) {
@@ -654,8 +720,9 @@ const MainContent = ({
 
   const handleOfferPriceChange = useCallback((offerId, newPrice) => {
     if (!selectedCartItem || !updateCartItemOffers) return;
+    const normalizedPrice = Number(Number(newPrice).toFixed(2));
     const updateArr = (arr) => (arr || []).map(o =>
-      o.id === offerId ? { ...o, price: Number(newPrice) } : o
+      o.id === offerId ? { ...o, price: normalizedPrice } : o
     );
     updateCartItemOffers(selectedCartItem.id, {
       offers: updateArr(selectedCartItem.offers),
@@ -1015,7 +1082,16 @@ const MainContent = ({
             hideBuyInPrice={isRepricing}
           />
           {!isRepricing && displayOffers.length > 0 && (
-            <OfferSelection variant="cex" offers={displayOffers} referenceData={refWithOurSale} offerType={useVoucherOffers ? 'voucher' : 'cash'} />
+            <OfferSelection
+              variant="cex"
+              offers={displayOffers}
+              referenceData={refWithOurSale}
+              offerType={useVoucherOffers ? 'voucher' : 'cash'}
+              initialSelectedOfferId={selectedCartItem?.selectedOfferId ?? null}
+              editMode={true}
+              onOfferPriceChange={handleOfferPriceChange}
+              onSelectedOfferChange={handleSelectedOfferChange}
+            />
           )}
         </div>
       </section>
@@ -1024,6 +1100,12 @@ const MainContent = ({
 
   // Special handling for selected eBay cart items
   if (selectedCartItem?.isCustomEbayItem) {
+    const useVoucherOffers = customerData?.transactionType === 'store_credit';
+    const displayOffers = useVoucherOffers ? (selectedCartItem.voucherOffers || []) : (selectedCartItem.cashOffers || []);
+    const offerReferenceData = selectedCartItem.ourSalePrice != null
+      ? { our_sale_price: selectedCartItem.ourSalePrice }
+      : null;
+
     return (
       <section className="buyer-main-content w-3/5 min-w-0 min-h-0 flex-1 bg-white flex flex-col overflow-y-auto buyer-panel-scroll">
         <div className="flex items-center px-8 bg-gray-50 border-b border-gray-200 sticky top-0 z-40">
@@ -1038,7 +1120,19 @@ const MainContent = ({
           </div>
         </div>
         
-        <div className="p-8">
+        <div className="p-8 space-y-8">
+          {!isRepricing && displayOffers.length > 0 && (
+            <OfferSelection
+              variant="ebay"
+              offers={displayOffers}
+              referenceData={offerReferenceData}
+              offerType={useVoucherOffers ? 'voucher' : 'cash'}
+              initialSelectedOfferId={selectedCartItem?.selectedOfferId ?? null}
+              editMode={true}
+              onOfferPriceChange={handleOfferPriceChange}
+              onSelectedOfferChange={handleSelectedOfferChange}
+            />
+          )}
           {selectedCartItem.ebayResearchData ? (
             <EbayResearchForm
               key={selectedCartItem.id}
@@ -1051,7 +1145,7 @@ const MainContent = ({
               resetDrillOnOpen={true}
               onAddNewItem={onDeselectCartItem}
               addActionLabel={isRepricing ? 'Add to Reprice List' : 'Add to Cart'}
-              hideOfferCards={isRepricing}
+              hideOfferCards={true}
             />
           ) : (
             <div className="text-center py-12">
@@ -1203,7 +1297,8 @@ const MainContent = ({
               handleAttributeChange={handleAttributeChangeWithDeselect}
               setAllAttributeValues={setAllAttributeValues}
               variant={variant}
-              setVariant={setVariantWithDeselect}
+              setVariant={setVariant}
+              onUserSetVariant={setVariantWithDeselect}
               variantImageUrl={
                 referenceData?.cex_image_urls?.large ||
                 referenceData?.cex_image_urls?.medium ||

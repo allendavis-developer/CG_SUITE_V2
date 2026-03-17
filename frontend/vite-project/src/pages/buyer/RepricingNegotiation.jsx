@@ -73,6 +73,22 @@ const buildInitialSearchQuery = (item) =>
   item?.title ||
   undefined;
 
+const buildSessionSavePayload = (payload) => ({
+  cart_key: payload?.cart_key || "",
+  item_count: payload?.item_count || 0,
+  barcode_count: payload?.barcode_count || 0,
+  items_data: Array.isArray(payload?.items_data) ? payload.items_data : [],
+});
+
+const buildAmbiguousBarcodeEntries = (payload) =>
+  (Array.isArray(payload?.ambiguous_barcodes) ? payload.ambiguous_barcodes : []).map((entry) => ({
+    itemId: entry?.itemId,
+    itemTitle: entry?.itemTitle || "Unknown Item",
+    barcodeIndex: entry?.barcodeIndex,
+    oldBarcode: entry?.barcode || "",
+    replacementBarcode: "",
+  }));
+
 // ─── Main component ────────────────────────────────────────────────────────────
 const RepricingNegotiation = () => {
   const navigate = useNavigate();
@@ -100,29 +116,53 @@ const RepricingNegotiation = () => {
   const [researchItem, setResearchItem] = useState(null);
   const [cashConvertersResearchItem, setCashConvertersResearchItem] = useState(null);
   const [isRepricingFinished, setIsRepricingFinished] = useState(false);
+  const [ambiguousBarcodeModal, setAmbiguousBarcodeModal] = useState(null);
 
   // Right-click context menu
   const [contextMenu, setContextMenu] = useState(null); // { x, y, item }
 
   const hasInitialized = useRef(false);
-  const hasSavedCompletionRef = useRef(false);
+  const lastHandledCompletionRef = useRef("");
 
   const persistCompletedRepricing = async (payload) => {
-    if (!payload?.cart_key || payload.cart_key !== activeCartKey || hasSavedCompletionRef.current) return false;
-    hasSavedCompletionRef.current = true;
+    if (!payload?.cart_key || payload.cart_key !== activeCartKey) return false;
+
+    const fingerprint = JSON.stringify(payload);
+    if (lastHandledCompletionRef.current === fingerprint) return false;
+    lastHandledCompletionRef.current = fingerprint;
+
+    const savePayload = buildSessionSavePayload(payload);
+    const ambiguousEntries = buildAmbiguousBarcodeEntries(payload);
+
     try {
-      await saveRepricingSession(payload);
-      clearRepricingProgress(activeCartKey);
+      if (savePayload.barcode_count > 0) {
+        await saveRepricingSession(savePayload);
+        clearRepricingProgress(activeCartKey);
+      }
       try {
         await clearLastRepricingResult();
       } catch {
-        // Ignore extension cleanup failures after save succeeds.
+        // Ignore extension cleanup failures after handling succeeds.
       }
+
       setIsRepricingFinished(true);
-      showNotification("Repricing is done and has been saved.", "success");
+
+      if (ambiguousEntries.length > 0) {
+        setAmbiguousBarcodeModal({ entries: ambiguousEntries, isRetrying: false });
+        if (savePayload.barcode_count > 0) {
+          showNotification("Saved the repriced items. Some barcodes need to be more specific.", "warning");
+        } else {
+          showNotification("No items were repriced. Enter more specific barcodes to retry.", "warning");
+        }
+      } else if (savePayload.barcode_count > 0) {
+        showNotification("Repricing is done and has been saved.", "success");
+      } else {
+        showNotification("No items were repriced.", "info");
+      }
+
       return true;
     } catch (err) {
-      hasSavedCompletionRef.current = false;
+      lastHandledCompletionRef.current = "";
       showNotification(err?.message || "Repricing finished but could not be saved.", "error");
       return false;
     }
@@ -220,7 +260,7 @@ const RepricingNegotiation = () => {
   }, [activeCartKey]);
 
   useEffect(() => {
-    hasSavedCompletionRef.current = false;
+    lastHandledCompletionRef.current = "";
   }, [activeCartKey]);
 
   const allItemsHaveBarcodes =
@@ -280,6 +320,7 @@ const RepricingNegotiation = () => {
     }
     showNotification("Opening NoSpos…", 'info');
     try {
+      lastHandledCompletionRef.current = "";
       const repricingData = activeItems.map((item) => ({
         itemId: item.id,
         title: item.title || "",
@@ -293,6 +334,72 @@ const RepricingNegotiation = () => {
       await openNospos(repricingData, { completedBarcodes, completedItems, cartKey: activeCartKey });
     } catch (err) {
       showNotification(err?.message || "Could not open NoSpos", "error");
+    }
+  };
+
+  const handleCloseAmbiguousBarcodeModal = () => {
+    setAmbiguousBarcodeModal(null);
+  };
+
+  const handleAmbiguousBarcodeChange = (index, value) => {
+    setAmbiguousBarcodeModal((prev) => {
+      if (!prev) return prev;
+      const entries = prev.entries.map((entry, entryIndex) =>
+        entryIndex === index ? { ...entry, replacementBarcode: value } : entry
+      );
+      return { ...prev, entries };
+    });
+  };
+
+  const handleRetryAmbiguousBarcodes = async () => {
+    if (!ambiguousBarcodeModal) return;
+
+    const retryEntries = ambiguousBarcodeModal.entries
+      .map((entry) => ({ ...entry, replacementBarcode: entry.replacementBarcode.trim() }))
+      .filter((entry) => entry.replacementBarcode);
+
+    if (!retryEntries.length) {
+      showNotification("Type at least one more specific barcode before retrying.", "error");
+      return;
+    }
+
+    const retryItemsById = new Map();
+    for (const entry of retryEntries) {
+      const item = items.find((candidate) => String(candidate.id) === String(entry.itemId));
+      if (!item) continue;
+
+      if (!retryItemsById.has(item.id)) {
+        retryItemsById.set(item.id, {
+          itemId: item.id,
+          title: item.title || "",
+          salePrice: resolveRepricingSalePrice(item),
+          ourSalePriceAtRepricing: resolveRepricingSalePrice(item),
+          cexSellAtRepricing: item.cexSellPrice ?? null,
+          raw_data: item.ebayResearchData || {},
+          cash_converters_data: item.cashConvertersResearchData || {},
+          barcodes: []
+        });
+      }
+
+      retryItemsById.get(item.id).barcodes.push(entry.replacementBarcode);
+    }
+
+    const retryData = Array.from(retryItemsById.values()).filter((item) => item.barcodes.length > 0);
+    if (!retryData.length) {
+      showNotification("Couldn't prepare any retry barcodes.", "error");
+      return;
+    }
+
+    setAmbiguousBarcodeModal((prev) => (prev ? { ...prev, isRetrying: true } : prev));
+    try {
+      lastHandledCompletionRef.current = "";
+      await clearLastRepricingResult().catch(() => {});
+      await openNospos(retryData, { completedBarcodes: {}, completedItems: [], cartKey: activeCartKey });
+      setAmbiguousBarcodeModal(null);
+      showNotification("Retrying the more specific barcodes in NoSpos…", "info");
+    } catch (err) {
+      setAmbiguousBarcodeModal((prev) => (prev ? { ...prev, isRetrying: false } : prev));
+      showNotification(err?.message || "Could not retry those barcodes.", "error");
     }
   };
 
@@ -730,6 +837,88 @@ const RepricingNegotiation = () => {
         useResearchSuggestedPrice={false}
         priceLabel="New Sale Price"
       />
+
+      {ambiguousBarcodeModal && (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={handleCloseAmbiguousBarcodeModal} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden">
+            <div className="px-6 py-5 border-b" style={{ borderColor: 'rgba(20,69,132,0.15)' }}>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-[11px] font-black uppercase tracking-wider" style={{ color: '#144584' }}>
+                    Specific Barcodes Required
+                  </p>
+                  <p className="text-sm mt-1" style={{ color: '#475569' }}>
+                    These barcodes only opened the stock search page, so NoSpos could not jump straight to a stock item.
+                    Type more specific barcodes, then retry only those rows.
+                  </p>
+                </div>
+                <button onClick={handleCloseAmbiguousBarcodeModal} className="text-slate-400 hover:text-slate-600 transition-colors">
+                  <span className="material-symbols-outlined text-[20px]">close</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="px-6 py-5 space-y-4 overflow-y-auto max-h-[55vh]">
+              {ambiguousBarcodeModal.entries.map((entry, index) => (
+                <div key={`${entry.itemId}-${entry.barcodeIndex}-${index}`} className="rounded-xl border p-4" style={{ borderColor: 'rgba(20,69,132,0.15)', background: '#f8fafc' }}>
+                  <p className="text-sm font-bold mb-2" style={{ color: '#144584' }}>
+                    {entry.itemTitle}
+                  </p>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-wider mb-1" style={{ color: '#64748b' }}>
+                        Old Typed Barcode
+                      </p>
+                      <div className="px-3 py-2 rounded-lg border text-sm font-mono bg-white" style={{ borderColor: 'rgba(20,69,132,0.15)', color: '#144584' }}>
+                        {entry.oldBarcode || '—'}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-wider mb-1" style={{ color: '#64748b' }}>
+                        More Specific Barcode
+                      </p>
+                      <input
+                        className="w-full px-3 py-2 border rounded-lg text-sm font-mono focus:outline-none focus:ring-2"
+                        style={{ borderColor: 'rgba(20,69,132,0.3)', color: '#144584' }}
+                        type="text"
+                        placeholder="Type a more specific barcode"
+                        value={entry.replacementBarcode}
+                        onChange={(e) => handleAmbiguousBarcodeChange(index, e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="px-6 py-4 border-t flex items-center justify-between gap-3" style={{ borderColor: 'rgba(20,69,132,0.15)', background: '#f8fafc' }}>
+              <p className="text-xs" style={{ color: '#64748b' }}>
+                Clicking outside skips these for now and keeps them out of repricing history.
+              </p>
+              <div className="flex items-center gap-3">
+                <button
+                  className="px-4 py-2 rounded-lg text-sm font-semibold border"
+                  style={{ borderColor: 'rgba(20,69,132,0.2)', color: '#144584', background: 'white' }}
+                  onClick={handleCloseAmbiguousBarcodeModal}
+                >
+                  Close
+                </button>
+                <button
+                  className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+                    ambiguousBarcodeModal.isRetrying ? 'opacity-70 cursor-wait' : ''
+                  }`}
+                  style={{ background: '#f7b918', color: '#144584' }}
+                  onClick={handleRetryAmbiguousBarcodes}
+                  disabled={ambiguousBarcodeModal.isRetrying}
+                >
+                  {ambiguousBarcodeModal.isRetrying ? 'Retrying…' : 'Retry Typed Barcodes'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Barcode Modal ──────────────────────────────────────────────────────── */}
       {barcodeModal && (() => {

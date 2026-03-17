@@ -20,6 +20,11 @@ const OfferSelection = ({
   onOfferPriceChange = null,
   onSelectedOfferChange = null,
 }) => {
+  const formatPriceInput = (value) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed.toFixed(2) : '';
+  };
+
   const [selectedOfferId, setSelectedOfferId] = useState(initialSelectedOfferId);
   const [localPrices, setLocalPrices] = useState({});
   const [contextMenu, setContextMenu] = useState(null); // { x, y, baseIndex, value }
@@ -35,7 +40,7 @@ const OfferSelection = ({
   // Sync local editable prices when offers change
   useEffect(() => {
     const prices = {};
-    offers.forEach(o => { prices[o.id] = String(o.price); });
+    offers.forEach(o => { prices[o.id] = formatPriceInput(o.price); });
     setLocalPrices(prices);
   }, [offers]);
 
@@ -119,7 +124,9 @@ const OfferSelection = ({
     const raw = String(localPrices[offerId] || '').replace(/[£,]/g, '').trim();
     const parsed = parseFloat(raw);
     if (!Number.isNaN(parsed) && parsed > 0) {
-      onOfferPriceChange(offerId, parsed);
+      const normalized = Number(parsed.toFixed(2));
+      setLocalPrices(prev => ({ ...prev, [offerId]: normalized.toFixed(2) }));
+      onOfferPriceChange(offerId, normalized);
     }
   };
 
@@ -178,7 +185,7 @@ const OfferSelection = ({
                     min="0"
                     step="0.01"
                     className="w-full pl-7 pr-3 py-2 border-2 border-blue-900/30 rounded-lg text-lg font-extrabold text-blue-900 text-center focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-900"
-                    value={localPrices[offer.id] ?? offer.price}
+                    value={localPrices[offer.id] ?? formatPriceInput(offer.price)}
                     onChange={(e) => {
                       const val = e.target.value;
                       setLocalPrices(prev => ({ ...prev, [offer.id]: val }));

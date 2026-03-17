@@ -19,6 +19,7 @@
   const STOCK_EDIT_PAGE_PATTERN = /^\/stock\/\d+\/edit\/?$/i;
   const CUSTOMER_SEARCH_PAGE_PATTERN = /^\/customers(?:\/|\?|$)/i;
   const CUSTOMER_DETAIL_PAGE_PATTERN = /^\/customer\/\d+\/view\/?/i;
+  const FORCED_LOGIN_PATHS = new Set(['/site/standard-login', '/twofactor/authenticate']);
 
   function isOnLoginPage() {
     try {
@@ -38,6 +39,16 @@
     try {
       const host = (window.location.hostname || '').toLowerCase();
       return host === 'nospos.com' || host.endsWith('.nospos.com');
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function isForcedLoginRedirectPage() {
+    try {
+      if (!isOnNosposDomain()) return false;
+      const path = (window.location.pathname || '/').toLowerCase().replace(/\/+$/, '') || '/';
+      return FORCED_LOGIN_PATHS.has(path);
     } catch (e) {
       return false;
     }
@@ -84,6 +95,14 @@
     if (isOnCustomerDetailPage()) return;  // has its own flow
 
     chrome.runtime.sendMessage({ type: 'NOSPOS_PAGE_READY' }).catch(function () {});
+  }
+
+  function sendLoginRequired() {
+    if (!isForcedLoginRedirectPage()) return;
+    chrome.runtime.sendMessage({
+      type: 'NOSPOS_LOGIN_REQUIRED',
+      url: window.location.href
+    }).catch(function () {});
   }
 
   // ── Customer Search Panel (shown on /customers) ────────────────────────────
@@ -863,9 +882,13 @@
   });
 
   function onLoad() {
+    sendLoginRequired();
     sendPageLoaded();
 
     function handlePageType() {
+      if (isForcedLoginRedirectPage()) {
+        return;
+      }
       if (isOnStockSearchPage()) {
         onStockSearchPageLoad();
       } else if (isOnStockEditPage()) {
