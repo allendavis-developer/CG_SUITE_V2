@@ -23,6 +23,27 @@ import { formatGBP } from '@/utils/helpers';
 
 /** Single top-level "eBay" category – selecting eBay goes straight to search, not eBay subcategories */
 const EBAY_TOP_LEVEL_CATEGORY = { name: 'eBay', path: ['eBay'] };
+const VARIANT_SELECTIONS_STORAGE_PREFIX = 'buyerMainContentVariantSelections';
+
+const loadPersistedVariantSelections = (mode) => {
+  try {
+    const raw = sessionStorage.getItem(`${VARIANT_SELECTIONS_STORAGE_PREFIX}:${mode}`);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+};
+
+const savePersistedVariantSelections = (mode, selections) => {
+  try {
+    sessionStorage.setItem(
+      `${VARIANT_SELECTIONS_STORAGE_PREFIX}:${mode}`,
+      JSON.stringify(selections)
+    );
+  } catch (err) {
+    console.warn('[MainContent] Failed to persist variant selections:', err);
+  }
+};
 
 /**
  * Main content area component
@@ -70,6 +91,12 @@ const MainContent = ({
   const [isCeXCashConvertersModalOpen, setCeXCashConvertersModalOpen] = useState(false);
   const [pendingDuplicateItem, setPendingDuplicateItem] = useState(null);
   const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
+  const persistedVariantSelectionsRef = React.useRef(null);
+  const [hydratedSelectionKey, setHydratedSelectionKey] = useState(null);
+
+  if (persistedVariantSelectionsRef.current === null) {
+    persistedVariantSelectionsRef.current = loadPersistedVariantSelections(mode);
+  }
 
   const {
     attributes,
@@ -83,6 +110,9 @@ const MainContent = ({
 
   const isEbayCategory = selectedCategory?.path?.some(p => p.toLowerCase() === 'ebay') ||
                         selectedCategory?.name?.toLowerCase() === 'ebay';
+  const variantSelectionKey = !isEbayCategory && selectedModel?.product_id
+    ? `${selectedModel.product_id}`
+    : null;
 
   // Reset state when category changes
   useEffect(() => {
@@ -131,6 +161,120 @@ const MainContent = ({
 
     loadVariants();
   }, [selectedModel]);
+
+  useEffect(() => {
+    setHydratedSelectionKey(null);
+  }, [variantSelectionKey]);
+
+  useEffect(() => {
+    if (
+      !variantSelectionKey ||
+      hydratedSelectionKey === variantSelectionKey ||
+      selectedCartItem ||
+      isEbayCategory ||
+      cexProductData
+    ) {
+      return;
+    }
+
+    // Wait for both attributes and variants so we don't get overwritten by useProductAttributes or cleared by AttributeConfiguration
+    if (!selectedModel?.product_id || attributes.length === 0 || variants.length === 0) {
+      return;
+    }
+
+    const savedSelection = persistedVariantSelectionsRef.current?.[variantSelectionKey];
+    if (savedSelection?.attributeValues && Object.keys(savedSelection.attributeValues).length > 0) {
+      setAllAttributeValues(savedSelection.attributeValues);
+    }
+    if (savedSelection?.variant) {
+      setVariant(savedSelection.variant);
+    }
+
+    setHydratedSelectionKey(variantSelectionKey);
+  }, [
+    attributes.length,
+    cexProductData,
+    hydratedSelectionKey,
+    isEbayCategory,
+    selectedCartItem,
+    selectedModel?.product_id,
+    setAllAttributeValues,
+    setVariant,
+    variantSelectionKey,
+    variants.length
+  ]);
+
+  useEffect(() => {
+    // Don't save when viewing a cart item or in special flows
+    if (
+      !variantSelectionKey ||
+      selectedCartItem ||
+      isEbayCategory ||
+      cexProductData
+    ) {
+      return;
+    }
+
+    // Only persist when user has actually selected a variant (avoids overwriting with empty on mount)
+    if (!variant) {
+      return;
+    }
+
+    const nextSelection = {
+      attributeValues,
+      variant: variant || ''
+    };
+    const previousSelection = persistedVariantSelectionsRef.current?.[variantSelectionKey];
+    const prevAttributes = JSON.stringify(previousSelection?.attributeValues || {});
+    const nextAttributes = JSON.stringify(attributeValues || {});
+
+    if (previousSelection?.variant === nextSelection.variant && prevAttributes === nextAttributes) {
+      return;
+    }
+
+    const nextSelections = {
+      ...(persistedVariantSelectionsRef.current || {}),
+      [variantSelectionKey]: nextSelection
+    };
+
+    persistedVariantSelectionsRef.current = nextSelections;
+    savePersistedVariantSelections(mode, nextSelections);
+  }, [
+    attributeValues,
+    cexProductData,
+    isEbayCategory,
+    mode,
+    selectedCartItem,
+    variant,
+    variantSelectionKey
+  ]);
+
+  // Save variant selection on unmount (e.g. when navigating to Pricing Rules and back)
+  useEffect(() => {
+    return () => {
+      if (
+        variantSelectionKey &&
+        !selectedCartItem &&
+        !isEbayCategory &&
+        !cexProductData &&
+        variant
+      ) {
+        const nextSelections = {
+          ...(persistedVariantSelectionsRef.current || {}),
+          [variantSelectionKey]: { attributeValues, variant }
+        };
+        savePersistedVariantSelections(mode, nextSelections);
+      }
+    };
+  }, [
+    attributeValues,
+    cexProductData,
+    isEbayCategory,
+    mode,
+    selectedCartItem,
+    variant,
+    variantSelectionKey
+  ]);
 
   // Load offers when variant changes - now transaction-type aware
   useEffect(() => {
