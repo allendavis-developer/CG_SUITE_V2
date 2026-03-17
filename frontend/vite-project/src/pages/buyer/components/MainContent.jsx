@@ -45,6 +45,14 @@ const savePersistedVariantSelections = (mode, selections) => {
   }
 };
 
+const getPersistedVariantForKey = (selections, key) => {
+  const savedSelection = selections?.[key];
+  if (typeof savedSelection === 'string') {
+    return savedSelection;
+  }
+  return savedSelection?.variant || '';
+};
+
 /**
  * Main content area component
  */
@@ -182,12 +190,18 @@ const MainContent = ({
       return;
     }
 
-    const savedSelection = persistedVariantSelectionsRef.current?.[variantSelectionKey];
-    if (savedSelection?.attributeValues && Object.keys(savedSelection.attributeValues).length > 0) {
-      setAllAttributeValues(savedSelection.attributeValues);
-    }
-    if (savedSelection?.variant) {
-      setVariant(savedSelection.variant);
+    const savedVariant = getPersistedVariantForKey(
+      persistedVariantSelectionsRef.current,
+      variantSelectionKey
+    );
+    const matchedVariant = savedVariant
+      ? variants.find((item) => item.cex_sku === savedVariant)
+      : null;
+
+    if (matchedVariant) {
+      // Re-apply the variant's own attribute values so the dropdowns rebuild naturally.
+      setAllAttributeValues(matchedVariant.attribute_values || {});
+      setVariant(matchedVariant.cex_sku);
     }
 
     setHydratedSelectionKey(variantSelectionKey);
@@ -205,9 +219,10 @@ const MainContent = ({
   ]);
 
   useEffect(() => {
-    // Don't save when viewing a cart item or in special flows
+    // Don't save when viewing a cart item or in special flows.
     if (
       !variantSelectionKey ||
+      hydratedSelectionKey !== variantSelectionKey ||
       selectedCartItem ||
       isEbayCategory ||
       cexProductData
@@ -215,33 +230,26 @@ const MainContent = ({
       return;
     }
 
-    // Only persist when user has actually selected a variant (avoids overwriting with empty on mount)
-    if (!variant) {
+    const previousVariant = getPersistedVariantForKey(
+      persistedVariantSelectionsRef.current,
+      variantSelectionKey
+    );
+    if (previousVariant === (variant || '')) {
       return;
     }
 
-    const nextSelection = {
-      attributeValues,
-      variant: variant || ''
-    };
-    const previousSelection = persistedVariantSelectionsRef.current?.[variantSelectionKey];
-    const prevAttributes = JSON.stringify(previousSelection?.attributeValues || {});
-    const nextAttributes = JSON.stringify(attributeValues || {});
-
-    if (previousSelection?.variant === nextSelection.variant && prevAttributes === nextAttributes) {
-      return;
+    const nextSelections = { ...(persistedVariantSelectionsRef.current || {}) };
+    if (variant) {
+      nextSelections[variantSelectionKey] = variant;
+    } else {
+      delete nextSelections[variantSelectionKey];
     }
-
-    const nextSelections = {
-      ...(persistedVariantSelectionsRef.current || {}),
-      [variantSelectionKey]: nextSelection
-    };
 
     persistedVariantSelectionsRef.current = nextSelections;
     savePersistedVariantSelections(mode, nextSelections);
   }, [
-    attributeValues,
     cexProductData,
+    hydratedSelectionKey,
     isEbayCategory,
     mode,
     selectedCartItem,
@@ -254,21 +262,24 @@ const MainContent = ({
     return () => {
       if (
         variantSelectionKey &&
+        hydratedSelectionKey === variantSelectionKey &&
         !selectedCartItem &&
         !isEbayCategory &&
-        !cexProductData &&
-        variant
+        !cexProductData
       ) {
-        const nextSelections = {
-          ...(persistedVariantSelectionsRef.current || {}),
-          [variantSelectionKey]: { attributeValues, variant }
-        };
+        const nextSelections = { ...(persistedVariantSelectionsRef.current || {}) };
+        if (variant) {
+          nextSelections[variantSelectionKey] = variant;
+        } else {
+          delete nextSelections[variantSelectionKey];
+        }
+        persistedVariantSelectionsRef.current = nextSelections;
         savePersistedVariantSelections(mode, nextSelections);
       }
     };
   }, [
-    attributeValues,
     cexProductData,
+    hydratedSelectionKey,
     isEbayCategory,
     mode,
     selectedCartItem,
