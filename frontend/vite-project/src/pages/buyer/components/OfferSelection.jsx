@@ -19,6 +19,7 @@ const OfferSelection = ({
   editMode = false,
   onOfferPriceChange = null,
   onSelectedOfferChange = null,
+  syncKey = null,
 }) => {
   const formatPriceInput = (value) => {
     const parsed = Number(value);
@@ -31,18 +32,33 @@ const OfferSelection = ({
   const menuRef = useRef(null);
   const inputRef = useRef(null);
   const didInitialFocusRef = useRef(false);
+  // Track which input (by offer id) currently has focus so we never clobber it mid-type.
+  const focusedOfferIdRef = useRef(null);
+  // Track the last syncKey we initialised prices for, so we reset when the item changes.
+  const lastSyncKeyRef = useRef(null);
 
   // Sync selected offer when external value changes (e.g. loading a cart item)
   useEffect(() => {
     setSelectedOfferId(initialSelectedOfferId);
   }, [initialSelectedOfferId]);
 
-  // Sync local editable prices when offers change
+  // Initialise / reset local editable prices when the item context changes or offers first load.
+  // Never overwrite a price that is currently being typed (focused).
   useEffect(() => {
-    const prices = {};
-    offers.forEach(o => { prices[o.id] = formatPriceInput(o.price); });
-    setLocalPrices(prices);
-  }, [offers]);
+    const itemChanged = syncKey !== lastSyncKeyRef.current;
+    if (editMode) {
+      lastSyncKeyRef.current = syncKey;
+    }
+    setLocalPrices(prev => {
+      const next = { ...prev };
+      offers.forEach(o => {
+        // Skip the focused input unless the item itself changed, to preserve in-progress typing.
+        if (!itemChanged && editMode && focusedOfferIdRef.current === o.id) return;
+        next[o.id] = formatPriceInput(o.price);
+      });
+      return next;
+    });
+  }, [offers, editMode, syncKey]);
 
   const closeContextMenu = () => setContextMenu(null);
 
@@ -186,15 +202,14 @@ const OfferSelection = ({
                     step="0.01"
                     className="w-full pl-7 pr-3 py-2 border-2 border-blue-900/30 rounded-lg text-lg font-extrabold text-blue-900 text-center focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-900"
                     value={localPrices[offer.id] ?? formatPriceInput(offer.price)}
+                    onFocus={() => { focusedOfferIdRef.current = offer.id; }}
                     onChange={(e) => {
-                      const val = e.target.value;
-                      setLocalPrices(prev => ({ ...prev, [offer.id]: val }));
-                      const parsed = parseFloat(String(val).replace(/[£,]/g, '').trim());
-                      if (!Number.isNaN(parsed) && parsed > 0) {
-                        onOfferPriceChange?.(offer.id, Number(parsed.toFixed(2)));
-                      }
+                      setLocalPrices(prev => ({ ...prev, [offer.id]: e.target.value }));
                     }}
-                    onBlur={(e) => commitPriceChange(offer.id, e.target.value)}
+                    onBlur={(e) => {
+                      focusedOfferIdRef.current = null;
+                      commitPriceChange(offer.id, e.target.value);
+                    }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         e.preventDefault();

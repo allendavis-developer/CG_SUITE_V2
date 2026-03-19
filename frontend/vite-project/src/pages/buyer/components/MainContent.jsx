@@ -1042,6 +1042,7 @@ const MainContent = ({
               offerType={useVoucherOffers ? 'voucher' : 'cash'}
               initialSelectedOfferId={selectedCartItem?.selectedOfferId ?? null}
               editMode={true}
+              syncKey={`${selectedCartItem?.id ?? 'cex'}:${useVoucherOffers ? 'voucher' : 'cash'}`}
               onOfferPriceChange={handleOfferPriceChange}
               onSelectedOfferChange={handleSelectedOfferChange}
             />
@@ -1374,6 +1375,7 @@ const MainContent = ({
               offerType={useVoucherOffers ? 'voucher' : 'cash'}
               initialSelectedOfferId={selectedCartItem?.selectedOfferId ?? null}
               editMode={true}
+              syncKey={`${selectedCartItem?.id ?? 'ebay'}:${useVoucherOffers ? 'voucher' : 'cash'}`}
               onOfferPriceChange={handleOfferPriceChange}
               onSelectedOfferChange={handleSelectedOfferChange}
             />
@@ -1589,11 +1591,16 @@ const MainContent = ({
             ) : isViewingCartItem ? (
               <OfferSelection
                 variant={variant}
-                offers={offers}
+                offers={
+                  useVoucherOffers
+                    ? (selectedCartItem.voucherOffers?.length ? selectedCartItem.voucherOffers : offers)
+                    : (selectedCartItem.cashOffers?.length ? selectedCartItem.cashOffers : offers)
+                }
                 referenceData={referenceData}
                 offerType={useVoucherOffers ? 'voucher' : 'cash'}
                 initialSelectedOfferId={selectedCartItem?.selectedOfferId ?? null}
                 editMode={true}
+                syncKey={`${selectedCartItem?.id ?? variant ?? 'item'}:${useVoucherOffers ? 'voucher' : 'cash'}`}
                 onOfferPriceChange={handleOfferPriceChange}
                 onSelectedOfferChange={handleSelectedOfferChange}
               />
