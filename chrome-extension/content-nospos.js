@@ -399,7 +399,7 @@
     var changes = scrapeCustomerChanges();
 
     var days          = daysSince(d.lastTransacted);
-    var recentWarning = days !== null && days <= 14;
+    var recentWarning = days !== null && days >= 0 && days <= 14;
 
     // ── stat pill helper ────────────────────────────────────────────────────────
     function statPill(label, value, raw, goodHigh) {
@@ -513,9 +513,14 @@
 
             // Verify inputs
             '<div style="flex:1;min-width:0;">' +
-              '<div style="display:flex;align-items:center;gap:6px;margin-bottom:' + (recentWarning ? '8px' : '12px') + ';">' +
-                '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>' +
-                '<span style="font-size:11px;font-weight:700;color:#92400e;text-transform:uppercase;letter-spacing:0.06em;">Enter from your own knowledge</span>' +
+              '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:' + (recentWarning ? '8px' : '12px') + ';">' +
+                '<div style="display:flex;align-items:center;gap:6px;min-width:0;">' +
+                  '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>' +
+                  '<span style="font-size:11px;font-weight:700;color:#92400e;text-transform:uppercase;letter-spacing:0.06em;">Enter from your own knowledge</span>' +
+                '</div>' +
+                '<button id="cg-customer-bypass" type="button" style="padding:8px 14px;background:white;' +
+                  'color:#166534;border:1px solid #86efac;border-radius:9999px;font-weight:700;' +
+                  'cursor:pointer;font-size:12px;font-family:system-ui,sans-serif;white-space:nowrap;">Bypass</button>' +
               '</div>' +
               (recentWarning
                 ? '<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:8px;' +
@@ -610,9 +615,6 @@
           '<button id="cg-customer-cancel" style="padding:10px 20px;background:transparent;' +
             'color:#6b7280;border:1.5px solid #e5e7eb;border-radius:10px;font-weight:600;' +
             'cursor:pointer;font-size:14px;font-family:system-ui,sans-serif;">Cancel</button>' +
-          '<button id="cg-customer-bypass" style="padding:9px 16px;background:transparent;' +
-            'color:#6b7280;border:1px solid #d1d5db;border-radius:8px;font-weight:600;' +
-            'cursor:pointer;font-size:12px;font-family:system-ui,sans-serif;">Bypass</button>' +
           '<button id="cg-customer-use" style="padding:10px 28px;background:#facc15;' +
             'color:#1e3a8a;border:none;border-radius:10px;font-weight:800;cursor:pointer;' +
             'font-size:14px;font-family:system-ui,sans-serif;box-shadow:0 4px 12px rgba(250,204,21,0.4);">' +
@@ -785,6 +787,14 @@
     }
 
     function proceedWithCustomerData(bypassReason) {
+      if (bypassReason && !recentWarning) {
+        var manualReason = window.prompt('Reason?');
+        if (manualReason == null) return;
+        manualReason = (manualReason || '').trim();
+        if (!manualReason) return;
+        bypassReason = manualReason;
+      }
+
       var enteredPhone   = getFieldVal('cg-field-mobile');
       var enteredEmail   = getFieldVal('cg-field-email');
       var enteredPost    = getFieldVal('cg-field-postcode');
@@ -965,12 +975,12 @@
       proceedWithCustomerData();
     });
 
-    document.getElementById('cg-customer-bypass').addEventListener('click', function () {
-      var reason = window.prompt('Reason?');
-      if (reason != null && (reason = (reason || '').trim())) {
-        proceedWithCustomerData(reason);
-      }
-    });
+    var bypassBtn = document.getElementById('cg-customer-bypass');
+    if (bypassBtn) {
+      bypassBtn.addEventListener('click', function () {
+        proceedWithCustomerData('14 days ago');
+      });
+    }
 
     document.getElementById('cg-customer-cancel').addEventListener('click', function () {
       overlay.remove();
