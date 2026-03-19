@@ -142,7 +142,7 @@ const AttributeConfiguration = ({
     setSelectedViaDropdown(false);
 
     // Manual edits should branch from the changed dropdown:
-    // clear later dropdowns and let the user reselect instead of auto-refilling.
+    // preserve still-valid later values, but clear from the first invalid one onward.
     onUserSetVariant(null);
     handleAttributeChange(code, value);
   };

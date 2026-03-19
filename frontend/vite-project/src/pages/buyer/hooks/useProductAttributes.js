@@ -163,13 +163,41 @@ export const useProductAttributes = (productId, variants) => {
 
   const handleAttributeChange = (code, value) => {
     const changedAttrIndex = attributes.findIndex(a => a.code === code);
-    
+    if (changedAttrIndex === -1) return;
+
     const newValues = { ...attributeValues, [code]: value };
+    let shouldClearRemaining = false;
 
     attributes.forEach((attr, index) => {
-      if (index > changedAttrIndex) {
-        newValues[attr.code] = '';
+      if (index <= changedAttrIndex) {
+        return;
       }
+
+      if (shouldClearRemaining) {
+        newValues[attr.code] = '';
+        return;
+      }
+
+      const options = getRenderableOptionsForAttribute(
+        attributes,
+        newValues,
+        variants,
+        attr,
+        index
+      );
+      const currentValue = newValues[attr.code];
+
+      // Preserve downstream selections only while they are still valid in order.
+      if (options.length === 0) {
+        return;
+      }
+
+      if (currentValue && options.includes(currentValue)) {
+        return;
+      }
+
+      newValues[attr.code] = '';
+      shouldClearRemaining = true;
     });
 
     setAttributeValues(newValues);
