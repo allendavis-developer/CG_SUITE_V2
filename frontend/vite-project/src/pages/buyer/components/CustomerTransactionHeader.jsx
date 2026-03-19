@@ -28,7 +28,7 @@ const CustomerTransactionHeader = ({
         <span className="text-blue-900/40">•</span>
 
         <div className={transaction.className}>
-          {readOnly ? ( // Conditional rendering based on readOnly prop
+          {readOnly ? (
             <span className="text-sm font-semibold">{transaction.label}</span>
           ) : (
             <CustomDropdown
@@ -42,6 +42,17 @@ const CustomerTransactionHeader = ({
           )}
         </div>
       </div>
+
+      {customer.bypassReason && (
+        <div className="mt-2 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 border border-amber-200 w-fit">
+          <span className="material-symbols-outlined text-amber-500 text-sm">info</span>
+          <p className="text-xs font-semibold text-amber-700">
+            {customer.bypassReason === "Within 14 days of last transaction"
+              ? `Customer data not updated — ${customer.bypassReason}`
+              : `Customer data was not updated because: ${customer.bypassReason}`}
+          </p>
+        </div>
+      )}
     </div>
   );
 };

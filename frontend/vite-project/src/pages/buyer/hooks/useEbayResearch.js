@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { scrapeEbay } from '@/services/extensionClient';
+import { roundSalePrice } from '@/utils/helpers';
 
 const BASIC_FILTER_OPTIONS = [
   "Used",
@@ -116,8 +117,7 @@ function calculateStats(listingsData) {
     ? (sortedPrices[mid - 1] + sortedPrices[mid]) / 2
     : sortedPrices[mid];
 
-  // Suggested sale price: £1 below median
-  const suggestedPrice = Math.max(median - 1, 0);
+  const suggestedPrice = roundSalePrice(Math.max(median - 1, 0));
 
   return {
     average,

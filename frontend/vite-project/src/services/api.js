@@ -1,72 +1,73 @@
 import { getCSRFToken } from '../utils/helpers';
 
-export const API_BASE_URL = 'http://127.0.0.1:8000/api';
+const API_BASE = '/api';
 
-/**
- * Fetch product models for a given category
- */
+/** Public base for same-origin API URLs (used by a few pages that call `fetch` directly). */
+export const API_BASE_URL = API_BASE;
+
+async function apiFetch(path, options = {}) {
+  const { method = 'GET', body, keepalive } = options;
+  const headers = {};
+  if (body) headers['Content-Type'] = 'application/json';
+  if (method !== 'GET') headers['X-CSRFToken'] = getCSRFToken();
+
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers,
+    ...(body ? { body: JSON.stringify(body) } : {}),
+    ...(keepalive ? { keepalive } : {}),
+  });
+
+  if (!res.ok) {
+    let errorMessage = `Request failed (${res.status})`;
+    try {
+      const errData = await res.json();
+      errorMessage = errData.error || errData.detail || errData.phone_number?.[0] || errData.name?.[0] || errData.email?.[0] || errorMessage;
+    } catch {
+      try { await res.text(); } catch {}
+    }
+    throw new Error(errorMessage);
+  }
+
+  if (res.status === 204 || method === 'DELETE') return null;
+  return res.json();
+}
+
+// ─── Products ──────────────────────────────────────────────────────────────────
+
 export const fetchProductModels = async (category) => {
   if (!category?.id) return [];
-
   try {
-    const res = await fetch(`/api/products/?category_id=${category.id}`);
-    if (!res.ok) throw new Error('Network response was not ok');
-    const data = await res.json();
-
-    return data.map((p) => ({ 
-      model_id: p.product_id, 
-      name: p.name,
-      product_id: p.product_id 
-    }));
+    const data = await apiFetch(`/products/?category_id=${category.id}`);
+    return data.map((p) => ({ model_id: p.product_id, name: p.name, product_id: p.product_id }));
   } catch (err) {
     console.error('Error fetching product models:', err);
     return [];
   }
 };
 
-/**
- * Fetch competitor statistics for a SKU
- */
 export const fetchCompetitorStats = async (cexSku) => {
   if (!cexSku) return [];
-
-  const res = await fetch(`/api/market-stats/?sku=${cexSku}`);
-  if (!res.ok) throw new Error('Failed to fetch market stats');
-
-  const data = await res.json();
-
-  return [
-    {
-      platform: data.platform,
-      salePrice: Number(data.sale_price_gbp),
-      buyPrice: Number(data.tradein_cash_gbp),
-      voucherPrice: Number(data.tradein_voucher_gbp),
-      verified: true,
-      outOfStock: data.cex_out_of_stock,
-      lastUpdated: data.last_updated
-    }
-  ];
+  const data = await apiFetch(`/market-stats/?sku=${cexSku}`);
+  return [{
+    platform: data.platform,
+    salePrice: Number(data.sale_price_gbp),
+    buyPrice: Number(data.tradein_cash_gbp),
+    voucherPrice: Number(data.tradein_voucher_gbp),
+    verified: true,
+    outOfStock: data.cex_out_of_stock,
+    lastUpdated: data.last_updated,
+  }];
 };
 
-/**
- * Fetch product attributes and variants
- */
 export const fetchAttributes = async (productId) => {
   if (!productId) return null;
-
   try {
-    const res = await fetch(`${API_BASE_URL}/product-variants/?product_id=${productId}`);
-    if (!res.ok) throw new Error('Network response was not ok');
-    const data = await res.json();
-
+    const data = await apiFetch(`/product-variants/?product_id=${productId}`);
     return {
-      attributes: data.attributes.map(attr => ({
-        name: attr.label,
-        code: attr.code,
-        values: attr.values
-      })),
+      attributes: data.attributes.map((a) => ({ name: a.label, code: a.code, values: a.values })),
       dependencies: data.dependencies,
-      variants: data.variants
+      variants: data.variants,
     };
   } catch (err) {
     console.error('Error fetching attributes:', err);
@@ -74,602 +75,196 @@ export const fetchAttributes = async (productId) => {
   }
 };
 
-/**
- * Fetch variant prices and offers
- */
 export const fetchVariantPrices = async (sku) => {
-  if (!sku) return { 
-    cash_offers: [], 
-    voucher_offers: [], 
-    referenceData: null 
-  };
-
+  if (!sku) return { cash_offers: [], voucher_offers: [], referenceData: null };
   try {
-    const res = await fetch(`/api/variant-prices/?sku=${sku}`);
-    if (!res.ok) throw new Error('Failed to fetch offers');
-    
-    const data = await res.json();
-    return {
-      cash_offers: data.cash_offers || [],
-      voucher_offers: data.voucher_offers || [],
-      referenceData: data.reference_data
-    };
+    const data = await apiFetch(`/variant-prices/?sku=${sku}`);
+    return { cash_offers: data.cash_offers || [], voucher_offers: data.voucher_offers || [], referenceData: data.reference_data };
   } catch (err) {
     console.error('Error fetching offers:', err);
-    return { 
-      cash_offers: [], 
-      voucher_offers: [], 
-      referenceData: null 
-    };
+    return { cash_offers: [], voucher_offers: [], referenceData: null };
   }
 };
 
-/**
- * Fetch offers for a CeX product from scraped page data (no variant).
- * Sends sell_price, tradein_cash, tradein_voucher to backend for calculation.
- */
 export const fetchCeXProductPrices = async (cexData) => {
-  if (!cexData) {
-    console.log('[CG Suite] fetchCeXProductPrices: no cexData');
-    return { cash_offers: [], voucher_offers: [], referenceData: null };
-  }
-
-  const body = {
-    sell_price: cexData.sellPrice,
-    tradein_cash: cexData.tradeInCash,
-    tradein_voucher: cexData.tradeInVoucher,
-    title: cexData.title,
-    category: cexData.category,
-    image: cexData.image,
-    image_url: cexData.image,
-    sku: cexData.id
-  };
-  console.log('[CG Suite] fetchCeXProductPrices: POST body', body);
-
+  if (!cexData) return { cash_offers: [], voucher_offers: [], referenceData: null };
   try {
-    const res = await fetch('/api/cex-product-prices/', {
+    const data = await apiFetch('/cex-product-prices/', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRFToken': getCSRFToken()
+      body: {
+        sell_price: cexData.sellPrice,
+        tradein_cash: cexData.tradeInCash,
+        tradein_voucher: cexData.tradeInVoucher,
+        title: cexData.title,
+        category: cexData.category,
+        image: cexData.image,
+        image_url: cexData.image,
+        sku: cexData.id,
       },
-      body: JSON.stringify(body)
     });
-    const data = await res.json();
-    console.log('[CG Suite] fetchCeXProductPrices: response status', res.status, 'data', data);
-
-    if (!res.ok) throw new Error(data?.detail || 'Failed to fetch CeX offers');
-    return {
-      cash_offers: data.cash_offers || [],
-      voucher_offers: data.voucher_offers || [],
-      referenceData: data.reference_data
-    };
+    return { cash_offers: data.cash_offers || [], voucher_offers: data.voucher_offers || [], referenceData: data.reference_data };
   } catch (err) {
     console.error('[CG Suite] fetchCeXProductPrices error:', err);
     return { cash_offers: [], voucher_offers: [], referenceData: null };
   }
 };
-/* ------------------------- Request APIs ------------------------- */
 
-/**
- * Create a new request
- * @param {object} requestData - { customer_id, intent, item }
- */
+// ─── Requests ──────────────────────────────────────────────────────────────────
+
 export const createRequest = async (requestData) => {
   if (!requestData) return null;
-
-  try {
-    const res = await fetch(`${API_BASE_URL}/requests/`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRFToken': getCSRFToken()
-      },
-      body: JSON.stringify(requestData)
-    });
-
-    if (!res.ok) {
-      // Try to parse as JSON first, fall back to text if it fails
-      let errorMessage = 'Failed to create request';
-      try {
-        const errData = await res.json();
-        errorMessage = errData.error || errorMessage;
-      } catch (parseErr) {
-        // If JSON parsing fails, get the text (likely HTML error page)
-        const errorText = await res.text();
-        console.error('Server returned non-JSON response:', errorText.substring(0, 500));
-        errorMessage = `Server error (${res.status})`;
-      }
-      throw new Error(errorMessage);
-    }
-
-    return await res.json();
-  } catch (err) {
-    console.error('Error creating request:', err);
-    throw err; // Re-throw instead of returning null so the caller can handle it
-  }
+  return apiFetch('/requests/', { method: 'POST', body: requestData });
 };
 
-/**
- * Add an item to an existing request
- * @param {number} requestId
- * @param {object} itemData - { variant, expectation_gbp, notes, raw_data }
- * @returns {Promise<{ request_item_id: number }>}
- */
 export const addRequestItem = async (requestId, itemData) => {
-  if (!requestId || !itemData) {
-    throw new Error('Request ID and item data are required');
-  }
-
-  const res = await fetch(`${API_BASE_URL}/requests/${requestId}/items/`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-CSRFToken': getCSRFToken()
-    },
-    body: JSON.stringify(itemData)
-  });
-
-  if (!res.ok) {
-    let errorMessage = 'Failed to add request item';
-    try {
-      const errData = await res.json();
-      errorMessage = errData.error || errorMessage;
-    } catch {
-      errorMessage = `Server error (${res.status})`;
-    }
-    throw new Error(errorMessage);
-  }
-
-  const data = await res.json();
-  if (!data?.request_item_id) {
-    throw new Error('Invalid response: missing request_item_id');
-  }
+  if (!requestId || !itemData) throw new Error('Request ID and item data are required');
+  const data = await apiFetch(`/requests/${requestId}/items/`, { method: 'POST', body: itemData });
+  if (!data?.request_item_id) throw new Error('Invalid response: missing request_item_id');
   return data;
 };
 
-/**
- * Fetch full details of a request (including items and status history)
- * @param {number} requestId
- */
 export const fetchRequestDetail = async (requestId) => {
   if (!requestId) return null;
-
   try {
-    const res = await fetch(`${API_BASE_URL}/requests/${requestId}/`);
-    if (!res.ok) throw new Error('Failed to fetch request detail');
-
-    return await res.json(); // { request_id, items: [...], status_history: [...], ... }
+    return await apiFetch(`/requests/${requestId}/`);
   } catch (err) {
     console.error('Error fetching request detail:', err);
     return null;
   }
 };
 
-/**
- * Finish a request (moves it to BOOKED_FOR_TESTING)
- * @param {number} requestId
- */
 export const finishRequest = async (requestId, payload) => {
-  if (!requestId || !payload) {
-    console.error("finishRequest requires a requestId and a payload.");
-    return null;
-  }
-
-  try {
-    const res = await fetch(`${API_BASE_URL}/requests/${requestId}/finish/`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRFToken': getCSRFToken()
-      },
-      body: JSON.stringify(payload)
-    });
-
-    if (!res.ok) {
-      let errorMessage = 'Failed to finish request';
-      try {
-        const errData = await res.json();
-        errorMessage = errData.error || errorMessage;
-      } catch (parseErr) {
-        const errorText = await res.text();
-        console.error('Server returned non-JSON response:', errorText.substring(0, 500));
-        errorMessage = `Server error (${res.status})`;
-      }
-      throw new Error(errorMessage);
-    }
-
-    return await res.json(); // { request_id, status, items_count }
-  } catch (err) {
-    console.error('Error finishing request:', err);
-    throw err; // Re-throw the error
-  }
+  if (!requestId || !payload) throw new Error('Request ID and payload required');
+  return apiFetch(`/requests/${requestId}/finish/`, { method: 'POST', body: payload });
 };
 
-/**
- * Save quote draft (negotiation data) without completing the request.
- * Keeps status as QUOTE, "request not completed". Use when closing tab.
- * @param {number} requestId
- * @param {object} payload - same shape as finishRequest (items_data, overall_expectation_gbp, etc.)
- * @param {{ keepalive?: boolean }} options - use keepalive: true for beforeunload (request survives page unload)
- */
 export const saveQuoteDraft = async (requestId, payload, { keepalive = false } = {}) => {
   if (!requestId || !payload) return null;
-
-  const body = JSON.stringify({ ...payload, request_not_completed: true });
-
-  const res = await fetch(`${API_BASE_URL}/requests/${requestId}/finish/`, {
+  return apiFetch(`/requests/${requestId}/finish/`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-CSRFToken': getCSRFToken()
-    },
-    body,
-    keepalive
+    body: { ...payload, request_not_completed: true },
+    keepalive,
   });
-
-  if (!res.ok) {
-    const errData = await res.json().catch(() => ({}));
-    throw new Error(errData.error || 'Failed to save quote draft');
-  }
-  return res.json();
 };
 
-/**
- * Cancel a request
- * @param {number} requestId
- */
 export const cancelRequest = async (requestId) => {
   if (!requestId) return null;
-
   try {
-    const res = await fetch(`${API_BASE_URL}/requests/${requestId}/cancel/`, {
-      method: 'POST',
-      headers: {
-        'X-CSRFToken': getCSRFToken()
-      }
-    });
-
-    if (!res.ok) {
-      const errData = await res.json();
-      throw new Error(errData.error || 'Failed to cancel request');
-    }
-
-    return await res.json(); // { request_id, status }
+    return await apiFetch(`/requests/${requestId}/cancel/`, { method: 'POST' });
   } catch (err) {
     console.error('Error cancelling request:', err);
     return null;
   }
 };
 
-
-/**
- * Update the intent of a request
- * @param {number} requestId
- * @param {string} intent - new intent value
- */
 export const updateRequestIntent = async (requestId, intent) => {
   if (!requestId || !intent) return null;
-
   try {
-    const res = await fetch(`${API_BASE_URL}/requests/${requestId}/update-intent/`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRFToken': getCSRFToken()
-      },
-      body: JSON.stringify({ intent })
-    });
-
-    if (!res.ok) {
-      const errData = await res.json();
-      throw new Error(errData.error || 'Failed to update request intent');
-    }
-
-    return await res.json(); // { request_id, intent }
+    return await apiFetch(`/requests/${requestId}/update-intent/`, { method: 'POST', body: { intent } });
   } catch (err) {
     console.error('Error updating request intent:', err);
     return null;
   }
 };
 
-/**
- * Create a new customer
- * @param {object} customerData - { name, phone_number?, email?, address? }
- */
-export const createCustomer = async (customerData) => {
-  if (!customerData || !customerData.name) return null;
+// ─── Request Items ─────────────────────────────────────────────────────────────
 
-  try {
-    const res = await fetch(`${API_BASE_URL}/customers/`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRFToken': getCSRFToken()
-      },
-      body: JSON.stringify(customerData)
-    });
-
-    if (!res.ok) {
-      const errData = await res.json();
-      throw new Error(errData.phone_number?.[0] || errData.name?.[0] || 'Failed to create customer');
-    }
-
-    return await res.json();
-  } catch (err) {
-    console.error('Error creating customer:', err);
-    throw err;
-  }
-};
-
-/**
- * Find an existing customer by phone or name, or create a new one.
- * Phone number is the primary key — if a customer with that phone exists, return it.
- * Falls back to matching by name. Creates if nothing is found.
- * @param {object} customerData - { name, phone_number?, email?, address? }
- */
-export const getOrCreateCustomer = async (customerData) => {
-  if (!customerData || !customerData.name) return null;
-
-  // Search by phone number first (most unique)
-  if (customerData.phone_number) {
-    try {
-      const res = await fetch(
-        `${API_BASE_URL}/customers/?search=${encodeURIComponent(customerData.phone_number)}`
-      );
-      if (res.ok) {
-        const data = await res.json();
-        const results = Array.isArray(data) ? data : (data.results ?? []);
-        const match = results.find(
-          (c) => c.phone_number === customerData.phone_number
-        );
-        if (match) return match;
-      }
-    } catch (_) { /* fall through */ }
-  }
-
-  // Fallback: search by name
-  try {
-    const res = await fetch(
-      `${API_BASE_URL}/customers/?search=${encodeURIComponent(customerData.name)}`
-    );
-    if (res.ok) {
-      const data = await res.json();
-      const results = Array.isArray(data) ? data : (data.results ?? []);
-      const match = results.find(
-        (c) => c.name?.toLowerCase() === customerData.name.toLowerCase()
-      );
-      if (match) return match;
-    }
-  } catch (_) { /* fall through */ }
-
-  // Not found — create
-  return createCustomer(customerData);
-};
-
-/**
- * Update an existing customer
- * @param {number} customerId
- * @param {object} updates - { name?, phone?, email?, address? }
- */
-export const updateCustomer = async (customerId, updates) => {
-  if (!customerId || !updates) return null;
-
-  try {
-    const res = await fetch(`${API_BASE_URL}/customers/${customerId}/`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRFToken': getCSRFToken()
-      },
-      body: JSON.stringify(updates)
-    });
-
-    if (!res.ok) {
-      const errData = await res.json();
-      throw new Error(errData.phone_number?.[0] || errData.email?.[0] || 'Failed to update customer');
-    }
-
-    return await res.json();
-  } catch (err) {
-    console.error('Error updating customer:', err);
-    throw err;
-  }
-};
-
-/**
- * Delete a request item (only allowed for QUOTE requests)
- * @param {number} requestItemId
- */
 export const deleteRequestItem = async (requestItemId) => {
   if (!requestItemId) return;
-
-  const res = await fetch(`${API_BASE_URL}/request-items/${requestItemId}/`, {
-    method: 'DELETE',
-    headers: { 'X-CSRFToken': getCSRFToken() },
-  });
-
-  if (!res.ok) {
-    const errData = await res.json().catch(() => ({}));
-    throw new Error(errData.error || 'Failed to remove item from quote');
-  }
+  await apiFetch(`/request-items/${requestItemId}/`, { method: 'DELETE' });
 };
 
-/**
- * Update selected offer for a request item (only allowed for QUOTE requests)
- * @param {number} requestItemId
- * @param {object} data - { selected_offer_id?, manual_offer_gbp?, manual_offer_used? }
- */
 export const updateRequestItemOffer = async (requestItemId, data) => {
   if (!requestItemId || !data) return;
-
-  const res = await fetch(`${API_BASE_URL}/request-items/${requestItemId}/update-offer/`, {
-    method: 'PATCH',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-CSRFToken': getCSRFToken()
-    },
-    body: JSON.stringify(data)
-  });
-
-  if (!res.ok) {
-    const errData = await res.json().catch(() => ({}));
-    throw new Error(errData.error || 'Failed to update offer selection');
-  }
+  await apiFetch(`/request-items/${requestItemId}/update-offer/`, { method: 'PATCH', body: data });
 };
 
-/**
- * Update research payload fields for a request item
- * @param {number} requestItemId
- * @param {object} data - supports raw_data and/or cash_converters_data
- */
 export const updateRequestItemRawData = async (requestItemId, data) => {
-  if (!requestItemId || !data || typeof data !== 'object') return null;
-
+  if (!requestItemId || !data) return null;
   try {
-    const res = await fetch(`${API_BASE_URL}/request-items/${requestItemId}/update-raw/`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRFToken': getCSRFToken()
-      },
-      body: JSON.stringify(data)
-    });
-
-    if (!res.ok) {
-      const errData = await res.json();
-      throw new Error(errData.error || 'Failed to update request item raw data');
-    }
-
-    return await res.json();
+    return await apiFetch(`/request-items/${requestItemId}/update-raw/`, { method: 'POST', body: data });
   } catch (err) {
     console.error('Error updating request item raw data:', err);
     return null;
   }
 };
 
-/**
- * Save a completed repricing session.
- * Payload shape mirrors the saved repricing snapshot emitted by the extension.
- */
+// ─── Customers ─────────────────────────────────────────────────────────────────
+
+export const createCustomer = async (customerData) => {
+  if (!customerData?.name) return null;
+  return apiFetch('/customers/', { method: 'POST', body: customerData });
+};
+
+export const getOrCreateCustomer = async (customerData) => {
+  if (!customerData?.name) return null;
+  if (customerData.phone_number) {
+    try {
+      const data = await apiFetch(`/customers/?search=${encodeURIComponent(customerData.phone_number)}`);
+      const results = Array.isArray(data) ? data : (data.results ?? []);
+      const match = results.find((c) => c.phone_number === customerData.phone_number);
+      if (match) return match;
+    } catch {}
+  }
+  try {
+    const data = await apiFetch(`/customers/?search=${encodeURIComponent(customerData.name)}`);
+    const results = Array.isArray(data) ? data : (data.results ?? []);
+    const match = results.find((c) => c.name?.toLowerCase() === customerData.name.toLowerCase());
+    if (match) return match;
+  } catch {}
+  return createCustomer(customerData);
+};
+
+export const updateCustomer = async (customerId, updates) => {
+  if (!customerId || !updates) return null;
+  return apiFetch(`/customers/${customerId}/`, { method: 'PATCH', body: updates });
+};
+
+// ─── Repricing ─────────────────────────────────────────────────────────────────
+
 export const saveRepricingSession = async (payload) => {
   if (!payload) return null;
+  return apiFetch('/repricing-sessions/', { method: 'POST', body: payload });
+};
 
-  const res = await fetch(`${API_BASE_URL}/repricing-sessions/`, {
+export const createRepricingSessionDraft = async ({ cart_key, item_count, session_data }) => {
+  return apiFetch('/repricing-sessions/', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-CSRFToken': getCSRFToken()
-    },
-    body: JSON.stringify(payload)
+    body: { cart_key, item_count, session_data },
   });
+};
 
-  if (!res.ok) {
-    const errData = await res.json().catch(() => ({}));
-    throw new Error(errData.error || 'Failed to save repricing session');
-  }
-
-  return res.json();
+export const updateRepricingSession = async (sessionId, updates, { keepalive = false } = {}) => {
+  if (!sessionId) return null;
+  return apiFetch(`/repricing-sessions/${sessionId}/`, {
+    method: 'PATCH',
+    body: updates,
+    keepalive,
+  });
 };
 
 export const fetchRepricingSessionsOverview = async () => {
-  const res = await fetch(`${API_BASE_URL}/repricing-sessions/overview/`);
-  if (!res.ok) {
-    const errData = await res.json().catch(() => ({}));
-    throw new Error(errData.error || 'Failed to fetch repricing sessions');
-  }
-  return res.json();
+  return apiFetch('/repricing-sessions/overview/');
 };
 
-/**
- * Quick Reprice: look up variants by game_sku + nospos_barcode pairs.
- * @param {Array<{cex_sku: string, nospos_barcode: string}>} pairs
- * @returns {Promise<{found: Array, not_found: Array}>}
- */
 export const quickRepriceLookup = async (pairs) => {
-  if (!pairs || !pairs.length) return { found: [], not_found: [] };
-
-  const res = await fetch(`${API_BASE_URL}/quick-reprice/lookup/`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-CSRFToken': getCSRFToken()
-    },
-    body: JSON.stringify({ pairs })
-  });
-
-  if (!res.ok) {
-    const errData = await res.json().catch(() => ({}));
-    throw new Error(errData.error || 'Quick reprice lookup failed');
-  }
-
-  return res.json();
+  if (!pairs?.length) return { found: [], not_found: [] };
+  return apiFetch('/quick-reprice/lookup/', { method: 'POST', body: { pairs } });
 };
 
-export const fetchRepricingSessionDetail = async (repricingSessionId) => {
-  if (!repricingSessionId) return null;
-
-  const res = await fetch(`${API_BASE_URL}/repricing-sessions/${repricingSessionId}/`);
-  if (!res.ok) {
-    const errData = await res.json().catch(() => ({}));
-    throw new Error(errData.error || 'Failed to fetch repricing session detail');
-  }
-  return res.json();
+export const fetchRepricingSessionDetail = async (id) => {
+  if (!id) return null;
+  return apiFetch(`/repricing-sessions/${id}/`);
 };
 
-// ─── Pricing Rules ────────────────────────────────────────────────────────────
+// ─── Pricing Rules ─────────────────────────────────────────────────────────────
 
-export const fetchPricingRules = async () => {
-  const res = await fetch(`${API_BASE_URL}/pricing-rules/`);
-  if (!res.ok) throw new Error('Failed to fetch pricing rules');
-  return res.json();
-};
+export const fetchPricingRules = () => apiFetch('/pricing-rules/');
+export const createPricingRule = (data) => apiFetch('/pricing-rules/', { method: 'POST', body: data });
+export const updatePricingRule = (id, data) => apiFetch(`/pricing-rules/${id}/`, { method: 'PATCH', body: data });
+export const deletePricingRule = (id) => apiFetch(`/pricing-rules/${id}/`, { method: 'DELETE' });
 
-export const createPricingRule = async (data) => {
-  const res = await fetch(`${API_BASE_URL}/pricing-rules/`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || 'Failed to create pricing rule');
-  }
-  return res.json();
-};
+// ─── Categories ────────────────────────────────────────────────────────────────
 
-export const updatePricingRule = async (id, data) => {
-  const res = await fetch(`${API_BASE_URL}/pricing-rules/${id}/`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || 'Failed to update pricing rule');
-  }
-  return res.json();
-};
-
-export const deletePricingRule = async (id) => {
-  const res = await fetch(`${API_BASE_URL}/pricing-rules/${id}/`, {
-    method: 'DELETE',
-    headers: { 'X-CSRFToken': getCSRFToken() },
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || 'Failed to delete pricing rule');
-  }
-};
-
-export const fetchCategories = async () => {
-  const res = await fetch(`${API_BASE_URL}/product-categories/`);
-  if (!res.ok) throw new Error('Failed to fetch categories');
-  return res.json();
-};
-
-export const fetchAllCategoriesFlat = async () => {
-  const res = await fetch(`${API_BASE_URL}/all-categories/`);
-  if (!res.ok) throw new Error('Failed to fetch categories');
-  return res.json();
-};
+export const fetchCategories = () => apiFetch('/product-categories/');
+export const fetchAllCategoriesFlat = () => apiFetch('/all-categories/');

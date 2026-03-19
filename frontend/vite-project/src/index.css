@@ -29,7 +29,8 @@
     --chart-3: oklch(0.646 0.222 41.116);
     --chart-4: oklch(0.553 0.195 38.402);
     --chart-5: oklch(0.47 0.157 37.304);
-    --radius: 0.625rem;
+    /* UI corner radius — single knob. Tailwind `rounded-sm`…`rounded-4xl` and shadcn use tokens derived in @theme from this value. */
+    --radius: 0.3125rem;
     --sidebar: oklch(0.985 0 0);
     --sidebar-foreground: oklch(0.145 0 0);
     --sidebar-primary: oklch(0.646 0.222 41.116);
@@ -132,7 +133,7 @@
   /* Custom scrollbar styles */
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-track { background: #f1f5f9; }
-  ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+  ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: var(--radius-md); }
   ::-webkit-scrollbar-thumb:hover { background: #144584; }
 
   /* Material symbols font size */
@@ -147,11 +148,11 @@
 .buyer-panel-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
 .buyer-panel-scroll::-webkit-scrollbar-track {
   background: #f1f5f9;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 .buyer-panel-scroll::-webkit-scrollbar-thumb {
   background: #94a3b8;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 .buyer-panel-scroll::-webkit-scrollbar-thumb:hover {
   background: #64748b;
@@ -165,7 +166,7 @@
 }
 .buyer-sidebar .buyer-panel-scroll::-webkit-scrollbar-thumb {
   background: rgba(96, 165, 250, 0.5);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 .buyer-sidebar .buyer-panel-scroll::-webkit-scrollbar-thumb:hover {
   background: rgba(147, 197, 253, 0.7);
@@ -190,7 +191,7 @@
     background: #fff !important;
     background-image: none !important;
     border: 1px solid #e5e7eb !important;
-    border-radius: 0.5rem !important;
+    border-radius: var(--radius-lg) !important;
     padding: 0.625rem 0.75rem !important;
     box-shadow: none !important;
     min-height: 2.5rem;
@@ -218,7 +219,7 @@
   }
   .searchable-dropdown-match .ts-dropdown {
     border: 1px solid #e5e7eb !important;
-    border-radius: 0.5rem !important;
+    border-radius: var(--radius-lg) !important;
     box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
     margin-top: 0.25rem !important;
     background: #fff !important;

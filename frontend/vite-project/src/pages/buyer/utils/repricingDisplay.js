@@ -1,3 +1,5 @@
+import { roundSalePrice } from '@/utils/helpers';
+
 export const formatMoney = (value) => {
   const num = value == null ? null : Number(value);
   return num == null || Number.isNaN(num) ? "—" : `£${num.toFixed(2)}`;
@@ -10,10 +12,16 @@ export const getResearchMedian = (data) => {
 
 export const resolveRepricingSalePrice = (item) => {
   if (item?.ourSalePrice !== undefined && item.ourSalePrice !== null && item.ourSalePrice !== '') {
-    return Number(item.ourSalePrice);
+    const n = Number(item.ourSalePrice);
+    return Number.isFinite(n) && n > 0 ? roundSalePrice(n) : null;
   }
   if (item?.ebayResearchData?.stats?.suggestedPrice != null) {
-    return Number(item.ebayResearchData.stats.suggestedPrice);
+    const n = Number(item.ebayResearchData.stats.suggestedPrice);
+    return Number.isFinite(n) ? roundSalePrice(n) : null;
+  }
+  if (item?.cashConvertersResearchData?.stats?.suggestedPrice != null) {
+    const n = Number(item.cashConvertersResearchData.stats.suggestedPrice);
+    return Number.isFinite(n) ? roundSalePrice(n) : null;
   }
   return null;
 };

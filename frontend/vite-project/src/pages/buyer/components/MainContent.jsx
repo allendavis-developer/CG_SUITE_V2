@@ -1,28 +1,23 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import {
-  Icon,
-  Button,
-  Tab,
-  Breadcrumb,
-  SearchableDropdown
-} from '@/components/ui/components';
-
-import EbayResearchForm from "@/components/forms/EbayResearchForm.jsx";
-import CashConvertersResearchForm from "@/components/forms/CashConvertersResearchForm.jsx";
+import { Icon, Button, Tab, Breadcrumb, SearchableDropdown } from '@/components/ui/components';
+import EbayResearchForm from '@/components/forms/EbayResearchForm.jsx';
+import CashConvertersResearchForm from '@/components/forms/CashConvertersResearchForm.jsx';
 import EmptyState from './EmptyState';
 import ProductSelection from './ProductSelection';
 import AttributeConfiguration from './AttributeConfiguration';
 import MarketComparisonsTable from './MarketComparisonsTable';
 import OfferSelection from './OfferSelection';
+import CexProductView from './CexProductView';
+import EbayCartItemView from './EbayCartItemView';
+import CashConvertersCartItemView from './CashConvertersCartItemView';
 
 import { useProductAttributes } from '@/pages/buyer/hooks/useProductAttributes';
 import { fetchVariantPrices } from '@/services/api';
-import { createRequest, addRequestItem, updateRequestItemRawData } from '@/services/api';
 import { mapTransactionTypeToIntent } from '@/utils/transactionConstants';
+import { roundOfferPrice, roundSalePrice, toVoucherOfferPrice, formatOfferPrice } from '@/utils/helpers';
+import useAppStore, { useCartItems, useSelectedCartItem, useIsRepricing, useUseVoucherOffers } from '@/store/useAppStore';
+import { useNotification } from '@/contexts/NotificationContext';
 
-import { formatGBP, roundOfferPrice, toVoucherOfferPrice, formatOfferPrice } from '@/utils/helpers';
-
-/** Single top-level "eBay" category – selecting eBay goes straight to search, not eBay subcategories */
 const EBAY_TOP_LEVEL_CATEGORY = { name: 'eBay', path: ['eBay'] };
 const VARIANT_SELECTIONS_STORAGE_PREFIX = 'buyerMainContentVariantSelections';
 
@@ -30,59 +25,32 @@ const loadPersistedVariantSelections = (mode) => {
   try {
     const raw = sessionStorage.getItem(`${VARIANT_SELECTIONS_STORAGE_PREFIX}:${mode}`);
     return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
+  } catch { return {}; }
 };
-
 const savePersistedVariantSelections = (mode, selections) => {
-  try {
-    sessionStorage.setItem(
-      `${VARIANT_SELECTIONS_STORAGE_PREFIX}:${mode}`,
-      JSON.stringify(selections)
-    );
-  } catch (err) {
-    console.warn('[MainContent] Failed to persist variant selections:', err);
-  }
+  try { sessionStorage.setItem(`${VARIANT_SELECTIONS_STORAGE_PREFIX}:${mode}`, JSON.stringify(selections)); } catch {}
 };
-
 const getPersistedVariantForKey = (selections, key) => {
-  const savedSelection = selections?.[key];
-  if (typeof savedSelection === 'string') {
-    return savedSelection;
-  }
-  return savedSelection?.variant || '';
+  const saved = selections?.[key];
+  return typeof saved === 'string' ? saved : (saved?.variant || '');
 };
 
-/**
- * Main content area component
- */
-const MainContent = ({ 
-  selectedCategory, 
-  availableModels, 
-  selectedModel, 
-  setSelectedModel, 
-  isLoadingModels = false,
-  addToCart,
-  updateCartItemEbayData,
-  updateCartItemCashConvertersData,
-  updateCartItemOffers,
-  customerData,
-  intent,
-  request,
-  setRequest,
-  selectedCartItem = null,
-  cartItems = [],  // Used to detect duplicates and avoid creating extra request items
-  cexProductData = null,
-  setCexProductData = null,
-  onClearCeXProduct = null,
-  onDeselectCartItem = null,
-  onItemAddedToCart = null,
-  mode = 'buyer'
-}) => {
-  const isRepricing = mode === 'repricing';
-  // Determine if we should use voucher offers based on transaction type
-  const useVoucherOffers = customerData?.transactionType === 'store_credit';
+const MainContent = ({ mode = 'buyer' }) => {
+  const isRepricing = useIsRepricing();
+  const useVoucherOffers = useUseVoucherOffers();
+  const selectedCartItem = useSelectedCartItem();
+
+  const {
+    selectedCategory, availableModels, selectedModel, setSelectedModel, isLoadingModels,
+    customerData, intent, request,
+    cexProductData, setCexProductData, clearCexProduct,
+    addToCart, updateCartItemOffers, updateCartItemResearchData,
+    createOrAppendRequestItem, onItemAddedToCart, deselectCartItem,
+  } = useAppStore();
+
+  const cartItems = useCartItems();
+
+  const { showNotification } = useNotification();
   
   const [activeTab, setActiveTab] = useState('info');
   const [variants, setVariants] = useState([]);
@@ -107,525 +75,165 @@ const MainContent = ({
     persistedVariantSelectionsRef.current = loadPersistedVariantSelections(mode);
   }
 
-  const {
-    attributes,
-    attributeValues,
-    dependencies,
-    variant,
-    setVariant,
-    handleAttributeChange,
-    setAllAttributeValues
-  } = useProductAttributes(selectedModel?.product_id, variants);
+  const { attributes, attributeValues, variant, setVariant, handleAttributeChange, setAllAttributeValues } =
+    useProductAttributes(selectedModel?.product_id, variants);
 
-  const isEbayCategory = selectedCategory?.path?.some(p => p.toLowerCase() === 'ebay') ||
-                        selectedCategory?.name?.toLowerCase() === 'ebay';
-  const variantSelectionKey = !isEbayCategory && selectedModel?.product_id
-    ? `${selectedModel.product_id}`
-    : null;
-  const resolveVariantFromCartItem = useCallback((cartItem) => {
-    if (!cartItem || variants.length === 0) {
-      return null;
-    }
+  const isEbayCategory = selectedCategory?.path?.some((p) => p.toLowerCase() === 'ebay') || selectedCategory?.name?.toLowerCase() === 'ebay';
+  const variantSelectionKey = !isEbayCategory && selectedModel?.product_id ? `${selectedModel.product_id}` : null;
 
-    return variants.find((candidate) =>
-      (cartItem.variantId != null && String(candidate.variant_id) === String(cartItem.variantId)) ||
-      (cartItem.cexSku && candidate.cex_sku === cartItem.cexSku)
+  const resolveVariantFromCartItem = useCallback(
+    (cartItem) => {
+      if (!cartItem || variants.length === 0) return null;
+      return variants.find((c) =>
+        (cartItem.variantId != null && String(c.variant_id) === String(cartItem.variantId)) ||
+        (cartItem.cexSku && c.cex_sku === cartItem.cexSku)
     ) || null;
-  }, [variants]);
+    },
+    [variants]
+  );
 
-  // Reset state when category changes
+  // Reset on category change
   useEffect(() => {
     setVariants([]);
-    if (isEbayCategory) {
-      setActiveTab('research');
-    } else {
-      setActiveTab('info');
-    }
+    setActiveTab(isEbayCategory ? 'research' : 'info');
   }, [selectedCategory, isEbayCategory]);
 
-  // When deselecting a cart item, clear research state so we show empty "get data" form for new items
+  // Clear research when deselecting cart item
   useEffect(() => {
     if (!selectedCartItem) {
-      if (isEbayCategory) {
-        setSavedEbayState(null);
-        setEbayData(null);
-      }
-      const isCCCategory = selectedCategory?.path?.some(p => p.toLowerCase() === 'cash converters') ||
-                           selectedCategory?.name?.toLowerCase() === 'cash converters';
-      if (isCCCategory) {
-        setSavedCashConvertersState(null);
-        setCashConvertersData(null);
-      }
+      if (isEbayCategory) { setSavedEbayState(null); setEbayData(null); }
+      const isCC = selectedCategory?.path?.some((p) => p.toLowerCase() === 'cash converters') || selectedCategory?.name?.toLowerCase() === 'cash converters';
+      if (isCC) { setSavedCashConvertersState(null); setCashConvertersData(null); }
     }
   }, [selectedCartItem, isEbayCategory, selectedCategory]);
 
-  // Load variants when attributes are loaded
+  // Load variants
   useEffect(() => {
+    if (!selectedModel?.product_id) { setVariants([]); return; }
     const loadVariants = async () => {
-      if (!selectedModel?.product_id) {
-        setVariants([]);
-        return;
-      }
-
       try {
-        const res = await fetch(`http://127.0.0.1:8000/api/product-variants/?product_id=${selectedModel.product_id}`);
-        if (!res.ok) throw new Error('Network response was not ok');
+        const res = await fetch(`/api/product-variants/?product_id=${selectedModel.product_id}`);
+        if (!res.ok) throw new Error('Network error');
         const data = await res.json();
         setVariants(data.variants || []);
-      } catch (err) {
-        console.error('Error fetching variants:', err);
-        setVariants([]);
-      }
+      } catch { setVariants([]); }
     };
-
     loadVariants();
   }, [selectedModel]);
 
-  useEffect(() => {
-    setHydratedSelectionKey(null);
-  }, [variantSelectionKey]);
+  // Variant selection persistence
+  useEffect(() => { setHydratedSelectionKey(null); }, [variantSelectionKey]);
 
   useEffect(() => {
-    if (
-      !variantSelectionKey ||
-      hydratedSelectionKey === variantSelectionKey ||
-      selectedCartItem ||
-      isEbayCategory ||
-      cexProductData
-    ) {
-      return;
-    }
-
-    // Wait for both attributes and variants so we don't get overwritten by useProductAttributes or cleared by AttributeConfiguration
-    if (!selectedModel?.product_id || attributes.length === 0 || variants.length === 0) {
-      return;
-    }
-
-    const savedVariant = getPersistedVariantForKey(
-      persistedVariantSelectionsRef.current,
-      variantSelectionKey
-    );
-    const matchedVariant = savedVariant
-      ? variants.find((item) => item.cex_sku === savedVariant)
-      : null;
-
-    if (matchedVariant) {
-      // Re-apply the variant's own attribute values so the dropdowns rebuild naturally.
-      setAllAttributeValues(matchedVariant.attribute_values || {});
-      setVariant(matchedVariant.cex_sku);
-    }
-
+    if (!variantSelectionKey || hydratedSelectionKey === variantSelectionKey || selectedCartItem || isEbayCategory || cexProductData) return;
+    if (!selectedModel?.product_id || attributes.length === 0 || variants.length === 0) return;
+    const savedVariant = getPersistedVariantForKey(persistedVariantSelectionsRef.current, variantSelectionKey);
+    const matched = savedVariant ? variants.find((v) => v.cex_sku === savedVariant) : null;
+    if (matched) { setAllAttributeValues(matched.attribute_values || {}); setVariant(matched.cex_sku); }
     setHydratedSelectionKey(variantSelectionKey);
-  }, [
-    attributes.length,
-    cexProductData,
-    hydratedSelectionKey,
-    isEbayCategory,
-    selectedCartItem,
-    selectedModel?.product_id,
-    setAllAttributeValues,
-    setVariant,
-    variantSelectionKey,
-    variants.length
-  ]);
+  }, [attributes.length, cexProductData, hydratedSelectionKey, isEbayCategory, selectedCartItem, selectedModel?.product_id, setAllAttributeValues, setVariant, variantSelectionKey, variants.length]);
 
   useEffect(() => {
-    // Don't save when viewing a cart item or in special flows.
-    if (
-      !variantSelectionKey ||
-      hydratedSelectionKey !== variantSelectionKey ||
-      selectedCartItem ||
-      isEbayCategory ||
-      cexProductData
-    ) {
-      return;
-    }
+    if (!variantSelectionKey || hydratedSelectionKey !== variantSelectionKey || selectedCartItem || isEbayCategory || cexProductData) return;
+    const prev = getPersistedVariantForKey(persistedVariantSelectionsRef.current, variantSelectionKey);
+    if (prev === (variant || '')) return;
+    const next = { ...(persistedVariantSelectionsRef.current || {}) };
+    if (variant) next[variantSelectionKey] = variant; else delete next[variantSelectionKey];
+    persistedVariantSelectionsRef.current = next;
+    savePersistedVariantSelections(mode, next);
+  }, [cexProductData, hydratedSelectionKey, isEbayCategory, mode, selectedCartItem, variant, variantSelectionKey]);
 
-    const previousVariant = getPersistedVariantForKey(
-      persistedVariantSelectionsRef.current,
-      variantSelectionKey
-    );
-    if (previousVariant === (variant || '')) {
-      return;
-    }
-
-    const nextSelections = { ...(persistedVariantSelectionsRef.current || {}) };
-    if (variant) {
-      nextSelections[variantSelectionKey] = variant;
-    } else {
-      delete nextSelections[variantSelectionKey];
-    }
-
-    persistedVariantSelectionsRef.current = nextSelections;
-    savePersistedVariantSelections(mode, nextSelections);
-  }, [
-    cexProductData,
-    hydratedSelectionKey,
-    isEbayCategory,
-    mode,
-    selectedCartItem,
-    variant,
-    variantSelectionKey
-  ]);
-
-  // Save variant selection on unmount (e.g. when navigating to Pricing Rules and back)
+  // Load offers when variant changes
   useEffect(() => {
-    return () => {
-      if (
-        variantSelectionKey &&
-        hydratedSelectionKey === variantSelectionKey &&
-        !selectedCartItem &&
-        !isEbayCategory &&
-        !cexProductData
-      ) {
-        const nextSelections = { ...(persistedVariantSelectionsRef.current || {}) };
-        if (variant) {
-          nextSelections[variantSelectionKey] = variant;
-        } else {
-          delete nextSelections[variantSelectionKey];
-        }
-        persistedVariantSelectionsRef.current = nextSelections;
-        savePersistedVariantSelections(mode, nextSelections);
-      }
-    };
-  }, [
-    cexProductData,
-    hydratedSelectionKey,
-    isEbayCategory,
-    mode,
-    selectedCartItem,
-    variant,
-    variantSelectionKey
-  ]);
-
-  // Load offers when variant changes - now transaction-type aware
-  useEffect(() => {
-    if (!variant) {
-      setOffers([]);
-      setReferenceData(null);
-      setOurSalePrice('');
-      setEbayData(null);
-      setSavedEbayState(null);
-      setCashConvertersData(null);
-      setSavedCashConvertersState(null);
-      return;
-    }
-
-    const loadOffers = async () => {
+    if (!variant) { setOffers([]); setReferenceData(null); setOurSalePrice(''); setEbayData(null); setSavedEbayState(null); setCashConvertersData(null); setSavedCashConvertersState(null); return; }
+    const load = async () => {
       setIsLoadingOffers(true);
-      
       try {
         const data = await fetchVariantPrices(variant);
-        
-        // Select appropriate offers based on transaction type for display
-        const selectedOffers = useVoucherOffers ? data.voucher_offers : data.cash_offers;
-        setOffers(selectedOffers);
-        
-        // Store the full data for later use
+        setOffers(useVoucherOffers ? data.voucher_offers : data.cash_offers);
+        const cexBased = data.referenceData?.cex_based_sale_price;
         setReferenceData({
           ...data.referenceData,
           cash_offers: data.cash_offers,
           voucher_offers: data.voucher_offers,
-          our_sale_price: data.referenceData?.cex_based_sale_price || null
+          our_sale_price: cexBased != null && Number.isFinite(Number(cexBased)) ? roundSalePrice(Number(cexBased)) : null,
         });
-        
-        if (data.referenceData && data.referenceData.cex_based_sale_price) {
-          setOurSalePrice(data.referenceData.cex_based_sale_price.toString());
+        if (cexBased != null && Number.isFinite(Number(cexBased))) {
+          setOurSalePrice(String(roundSalePrice(Number(cexBased))));
         }
-        
-      } catch (err) {
-        console.error('Error fetching offers:', err);
-        setOffers([]);
-        setReferenceData(null);
-        setOurSalePrice('');
-      } finally {
-        setIsLoadingOffers(false);
-      }
+      } catch { setOffers([]); setReferenceData(null); setOurSalePrice(''); }
+      finally { setIsLoadingOffers(false); }
     };
+    load();
+  }, [variant, useVoucherOffers]);
 
-    loadOffers();
-  }, [variant, useVoucherOffers]); // Add useVoucherOffers to dependencies
-
-  // Step 1: Set model when cart item is selected
+  // Restore cart item state (model, variant, research)
   useEffect(() => {
-    if (!selectedCartItem) {
-      return;
-    }
-
-    // Skip eBay-only items (they have no variant)
+    if (!selectedCartItem) return;
     if (selectedCartItem.isCustomEbayItem) {
-      // For eBay items, restore the eBay research data and switch to research tab
-      if (selectedCartItem.ebayResearchData) {
-        setSavedEbayState(selectedCartItem.ebayResearchData);
-        setEbayData(selectedCartItem.ebayResearchData);
-        setActiveTab('research');
-      }
+      if (selectedCartItem.ebayResearchData) { setSavedEbayState(selectedCartItem.ebayResearchData); setEbayData(selectedCartItem.ebayResearchData); setActiveTab('research'); }
       return;
     }
-
-    // Skip Cash Converters-only items (they have no variant)
     if (selectedCartItem.isCustomCashConvertersItem) {
-      if (selectedCartItem.cashConvertersResearchData) {
-        setSavedCashConvertersState(selectedCartItem.cashConvertersResearchData);
-        setCashConvertersData(selectedCartItem.cashConvertersResearchData);
-        setActiveTab('research');
-      }
+      if (selectedCartItem.cashConvertersResearchData) { setSavedCashConvertersState(selectedCartItem.cashConvertersResearchData); setCashConvertersData(selectedCartItem.cashConvertersResearchData); setActiveTab('research'); }
       return;
     }
-
-    // Find and set the model (this will trigger variants to load)
-    const modelToSet = availableModels.find(m => m.name === selectedCartItem.model);
-    if (modelToSet) {
-      // Always set the model to ensure variants reload, even if it's the same model
-      setSelectedModel(modelToSet);
-    }
-  }, [selectedCartItem, availableModels]);
-
-  // Restore the saved cart item state immediately so a clicked DB item opens straight into edit mode.
-  useEffect(() => {
-    if (!selectedCartItem) {
-      return;
-    }
-
-    if (
-      selectedCartItem.isCustomEbayItem ||
-      selectedCartItem.isCustomCashConvertersItem ||
-      selectedCartItem.isCustomCeXItem
-    ) {
-      return;
-    }
-
-    const modelToSet = availableModels.find(m => m.name === selectedCartItem.model);
-    if (modelToSet && selectedModel?.product_id !== modelToSet.product_id) {
-      setSelectedModel(modelToSet);
-    }
-
-    const matchedVariant = resolveVariantFromCartItem(selectedCartItem);
-
-    if (matchedVariant?.attribute_values) {
-      setAllAttributeValues(matchedVariant.attribute_values);
-    } else if (attributes.length > 0 && selectedCartItem.attributeValues) {
-      setAllAttributeValues(selectedCartItem.attributeValues);
-    }
-
-    if (matchedVariant?.cex_sku) {
-      setVariant(matchedVariant.cex_sku);
-    } else if (variants.length > 0 && selectedCartItem.cexSku) {
-      setVariant(selectedCartItem.cexSku);
-    }
-
-    if (selectedCartItem.ebayResearchData) {
-      setSavedEbayState(selectedCartItem.ebayResearchData);
-      setEbayData(selectedCartItem.ebayResearchData);
-    }
-
-    if (selectedCartItem.cashConvertersResearchData) {
-      setSavedCashConvertersState(selectedCartItem.cashConvertersResearchData);
-      setCashConvertersData(selectedCartItem.cashConvertersResearchData);
-    }
-
+    const modelToSet = availableModels.find((m) => m.name === selectedCartItem.model);
+    if (modelToSet && selectedModel?.product_id !== modelToSet.product_id) setSelectedModel(modelToSet);
+    const matched = resolveVariantFromCartItem(selectedCartItem);
+    if (matched?.attribute_values) setAllAttributeValues(matched.attribute_values);
+    else if (attributes.length > 0 && selectedCartItem.attributeValues) setAllAttributeValues(selectedCartItem.attributeValues);
+    if (matched?.cex_sku) setVariant(matched.cex_sku);
+    else if (variants.length > 0 && selectedCartItem.cexSku) setVariant(selectedCartItem.cexSku);
+    if (selectedCartItem.ebayResearchData) { setSavedEbayState(selectedCartItem.ebayResearchData); setEbayData(selectedCartItem.ebayResearchData); }
+    if (selectedCartItem.cashConvertersResearchData) { setSavedCashConvertersState(selectedCartItem.cashConvertersResearchData); setCashConvertersData(selectedCartItem.cashConvertersResearchData); }
     if (selectedCartItem.referenceData) {
       setReferenceData(selectedCartItem.referenceData);
-
-      const displayOffers = useVoucherOffers
-        ? selectedCartItem.voucherOffers || selectedCartItem.offers
-        : selectedCartItem.cashOffers || selectedCartItem.offers;
-
-      if (displayOffers) {
-        setOffers(displayOffers);
-      }
+      const display = useVoucherOffers ? (selectedCartItem.voucherOffers || selectedCartItem.offers) : (selectedCartItem.cashOffers || selectedCartItem.offers);
+      if (display) setOffers(display);
     }
-
     setOurSalePrice(
-      selectedCartItem.ourSalePrice != null
-        ? selectedCartItem.ourSalePrice.toString()
+      selectedCartItem.ourSalePrice != null && Number.isFinite(Number(selectedCartItem.ourSalePrice))
+        ? String(roundSalePrice(Number(selectedCartItem.ourSalePrice)))
         : ''
     );
-  }, [
-    selectedCartItem,
-    availableModels,
-    selectedModel?.product_id,
-    setSelectedModel,
-    attributes,
-    variants,
-    setAllAttributeValues,
-    setVariant,
-    useVoucherOffers,
-    resolveVariantFromCartItem
-  ]);
+  }, [selectedCartItem, availableModels, selectedModel?.product_id, setSelectedModel, attributes, variants, setAllAttributeValues, setVariant, useVoucherOffers, resolveVariantFromCartItem]);
 
-  // Step 2: Set variant and attributes once variants are loaded
+  // Variant + attribute restore from cart item (when variants load)
   useEffect(() => {
-    if (!selectedCartItem || !variants || variants.length === 0) {
-      return;
-    }
-
-    // Skip eBay-only items
-    if (selectedCartItem.isCustomEbayItem) {
-      return;
-    }
-
-    // Skip Cash Converters-only items
-    if (selectedCartItem.isCustomCashConvertersItem) {
-      return;
-    }
-
-    const variantToSet = resolveVariantFromCartItem(selectedCartItem);
-    if (variantToSet) {
-      // Set attribute values from the variant's attribute_values
-      // This should happen BEFORE setting the variant to avoid race conditions
-      if (variantToSet.attribute_values) {
-        setAllAttributeValues(variantToSet.attribute_values);
-      }
-      
-      // Then set the variant
-      setVariant(variantToSet.cex_sku);
-    }
-
-    // Restore eBay research data if available
-    if (selectedCartItem.ebayResearchData) {
-      setSavedEbayState(selectedCartItem.ebayResearchData);
-      setEbayData(selectedCartItem.ebayResearchData);
-    }
-
-    // Restore Cash Converters research data if available
-    if (selectedCartItem.cashConvertersResearchData) {
-      setSavedCashConvertersState(selectedCartItem.cashConvertersResearchData);
-      setCashConvertersData(selectedCartItem.cashConvertersResearchData);
-    }
-
-    // Restore reference data and offers if available (don't wait for variant to load)
+    if (!selectedCartItem || variants.length === 0 || selectedCartItem.isCustomEbayItem || selectedCartItem.isCustomCashConvertersItem) return;
+    const v = resolveVariantFromCartItem(selectedCartItem);
+    if (v) { if (v.attribute_values) setAllAttributeValues(v.attribute_values); setVariant(v.cex_sku); }
+    if (selectedCartItem.ebayResearchData) { setSavedEbayState(selectedCartItem.ebayResearchData); setEbayData(selectedCartItem.ebayResearchData); }
+    if (selectedCartItem.cashConvertersResearchData) { setSavedCashConvertersState(selectedCartItem.cashConvertersResearchData); setCashConvertersData(selectedCartItem.cashConvertersResearchData); }
     if (selectedCartItem.referenceData) {
       setReferenceData(selectedCartItem.referenceData);
-      
-      // Set offers based on transaction type
-      const displayOffers = useVoucherOffers 
-        ? selectedCartItem.voucherOffers || selectedCartItem.offers 
-        : selectedCartItem.cashOffers || selectedCartItem.offers;
-      
-      if (displayOffers) {
-        setOffers(displayOffers);
-      }
-      
-      // Restore sale price
-      if (selectedCartItem.ourSalePrice) {
-        setOurSalePrice(selectedCartItem.ourSalePrice.toString());
+      const display = useVoucherOffers ? (selectedCartItem.voucherOffers || selectedCartItem.offers) : (selectedCartItem.cashOffers || selectedCartItem.offers);
+      if (display) setOffers(display);
+      if (selectedCartItem.ourSalePrice != null && Number.isFinite(Number(selectedCartItem.ourSalePrice))) {
+        setOurSalePrice(String(roundSalePrice(Number(selectedCartItem.ourSalePrice))));
       }
     }
-  }, [selectedCartItem, variants, useVoucherOffers, resolveVariantFromCartItem]);
+  }, [selectedCartItem, variants, useVoucherOffers, resolveVariantFromCartItem, setAllAttributeValues, setVariant]);
 
-  const createOrAppendRequestItem = async ({
-    variantId,
-    rawData,
-    cashConvertersData,
-    cexSku,
-    cashOffers,
-    voucherOffers,
-    selectedOfferId,
-    manualOffer,
-    ourSalePrice
-  }) => {
-    const resolvedIntent = intent || mapTransactionTypeToIntent(customerData?.transactionType);
-    const itemPayload = {
-      variant: variantId ?? null,
-      expectation_gbp: null,
-      raw_data: rawData,
-      cash_converters_data: cashConvertersData,
-      notes: ''
-    };
-    if (cexSku != null) {
-      itemPayload.cex_sku = cexSku;
-    }
-    if (Array.isArray(cashOffers) && cashOffers.length > 0) {
-      itemPayload.cash_offers_json = cashOffers.map(o => ({ id: o.id, title: o.title, price: roundOfferPrice(o.price) }));
-    }
-    if (Array.isArray(voucherOffers) && voucherOffers.length > 0) {
-      itemPayload.voucher_offers_json = voucherOffers.map(o => ({ id: o.id, title: o.title, price: roundOfferPrice(o.price) }));
-    }
-    if (selectedOfferId != null && selectedOfferId !== '') {
-      itemPayload.selected_offer_id = selectedOfferId;
-      itemPayload.manual_offer_used = selectedOfferId === 'manual';
-    }
-    if (manualOffer != null && manualOffer !== '' && !isNaN(parseFloat(manualOffer))) {
-      itemPayload.manual_offer_gbp = roundOfferPrice(parseFloat(manualOffer));
-    }
-    if (ourSalePrice != null && ourSalePrice !== '' && !isNaN(parseFloat(ourSalePrice))) {
-      itemPayload.our_sale_price_at_negotiation = parseFloat(ourSalePrice);
-    }
-
-    if (!request) {
-      // Validate required fields before creating request
-      if (!customerData?.id) {
-        throw new Error('Customer must be selected before adding items');
-      }
-      if (!resolvedIntent) {
-        throw new Error('Transaction type must be selected before adding items');
-      }
-      
-      const payload = {
-        customer_id: customerData.id,
-        intent: resolvedIntent,
-        item: itemPayload,
-        ...(customerData && { customer_enrichment: customerData })
-      };
-
-      const newRequest = await createRequest(payload);
-      setRequest(newRequest);
-      const firstItem = newRequest?.items?.[0];
-      if (!firstItem?.request_item_id) {
-        throw new Error('Invalid response: request created but no request_item_id returned');
-      }
-      return firstItem.request_item_id;
-    } else {
-      const addPayload = {
-        ...itemPayload,
-        ...(customerData && { customer_enrichment: customerData })
-      };
-      const created = await addRequestItem(request.request_id, addPayload);
-      return created.request_item_id;
-    }
-  };
-
-
+  // ── Cart item creation ──
   const buildCartItem = (selectedOfferIdForItem, manualOfferPerUnit) => {
-    const selectedVariant = variants.find(v => v.cex_sku === variant);
-    const normalizedOffers = offers.map(o => ({
-      id: o.id,
-      title: o.title,
-      price: roundOfferPrice(o.price)
-    }));
-    const cashOffers = referenceData?.cash_offers?.map(o => ({
-      id: o.id,
-      title: o.title,
-      price: roundOfferPrice(o.price)
-    })) || [];
-    const voucherOffers = referenceData?.voucher_offers?.map(o => ({
-      id: o.id,
-      title: o.title,
-      price: roundOfferPrice(o.price)
-    })) || [];
-
+    const selectedVariant = variants.find((v) => v.cex_sku === variant);
+    const cashOffers = referenceData?.cash_offers?.map((o) => ({ id: o.id, title: o.title, price: roundOfferPrice(o.price) })) || [];
+    const voucherOffers = referenceData?.voucher_offers?.map((o) => ({ id: o.id, title: o.title, price: roundOfferPrice(o.price) })) || [];
     return {
       id: crypto.randomUUID?.() ?? `cart-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       title: selectedModel.name,
-      subtitle:
-        selectedVariant?.title ||
-        Object.values(attributeValues).filter(v => v).join(' / ') ||
-        'Standard',
-      offers: normalizedOffers,
-      cashOffers,
-      voucherOffers,
-      quantity: 1,
+      subtitle: selectedVariant?.title || Object.values(attributeValues).filter((v) => v).join(' / ') || 'Standard',
+      offers: offers.map((o) => ({ id: o.id, title: o.title, price: roundOfferPrice(o.price) })),
+      cashOffers, voucherOffers, quantity: 1,
       variantId: selectedVariant?.variant_id,
       category: selectedCategory?.name,
       categoryObject: selectedCategory,
       model: selectedModel?.name,
       condition: attributeValues.condition || selectedVariant?.condition,
-      color: attributeValues.color || selectedVariant?.color,
-      storage: attributeValues.storage || selectedVariant?.storage,
-      network: attributeValues.network || selectedVariant?.network,
       attributeValues: { ...attributeValues },
-      ourSalePrice: ourSalePrice ? Number(ourSalePrice) : null,
+      ourSalePrice: ourSalePrice ? roundSalePrice(Number(ourSalePrice)) : null,
       cexSellPrice: referenceData?.cex_sale_price ? Number(referenceData.cex_sale_price) : null,
       cexBuyPrice: referenceData?.cex_tradein_cash ? Number(referenceData.cex_tradein_cash) : null,
       cexVoucherPrice: referenceData?.cex_tradein_voucher ? Number(referenceData.cex_tradein_voucher) : null,
@@ -634,21 +242,58 @@ const MainContent = ({
       cexUrl: selectedVariant?.cex_sku ? `https://uk.webuy.com/product-detail?id=${selectedVariant.cex_sku}` : null,
       ebayResearchData: savedEbayState || null,
       cashConvertersResearchData: savedCashConvertersState || null,
-      referenceData,
-      request_item_id: null,
+      referenceData, request_item_id: null,
       offerType: useVoucherOffers ? 'voucher' : 'cash',
       selectedOfferId: selectedOfferIdForItem,
       manualOffer: manualOfferPerUnit != null ? formatOfferPrice(manualOfferPerUnit) : null,
     };
   };
 
+  const handleAddToCart = async (offerArg) => {
+    if (!selectedModel || !variant) { alert('Please select a variant'); return; }
+    if (!isRepricing && (!offers || offers.length === 0)) { alert('No offers available.'); return; }
+
+    let selectedOfferIdForItem = null, manualOfferPerUnit = null;
+    if (offerArg && typeof offerArg === 'object' && offerArg.type === 'manual') {
+      selectedOfferIdForItem = 'manual';
+      manualOfferPerUnit = Number(offerArg.amount);
+      if (!manualOfferPerUnit || manualOfferPerUnit <= 0) { alert('Please enter a valid amount.'); return; }
+    } else {
+      selectedOfferIdForItem = isRepricing ? null : (offerArg === undefined ? (offers[0]?.id ?? null) : offerArg);
+    }
+
+    const cartItem = buildCartItem(selectedOfferIdForItem, manualOfferPerUnit);
+    const isDuplicate = cartItems.some((ci) => !ci.isCustomEbayItem && !ci.isCustomCashConvertersItem && ci.variantId === cartItem.variantId);
+
+    try {
+      if (isRepricing) {
+        addToCart(cartItem, { showNotification });
+        onItemAddedToCart?.();
+      } else if (isDuplicate) {
+        setPendingDuplicateItem(cartItem);
+        setShowDuplicateDialog(true);
+      } else {
+        const reqItemId = await createOrAppendRequestItem({
+          variantId: cartItem.variantId, rawData: cartItem.ebayResearchData, cashConvertersData: cartItem.cashConvertersResearchData,
+          cashOffers: cartItem.cashOffers, voucherOffers: cartItem.voucherOffers,
+          selectedOfferId: cartItem.selectedOfferId, manualOffer: cartItem.manualOffer, ourSalePrice: cartItem.ourSalePrice,
+        });
+        cartItem.request_item_id = reqItemId;
+        addToCart(cartItem, { showNotification });
+        onItemAddedToCart?.();
+      }
+    } catch (err) {
+      console.error('Failed to add item:', err);
+      alert('Failed to add item. Check console.');
+    }
+  };
+
   const handleDuplicateIncreaseQty = () => {
     setShowDuplicateDialog(false);
     const cartItem = pendingDuplicateItem;
     setPendingDuplicateItem(null);
-    // Use the existing item's selected offer so Buyer.jsx increments quantity
-    const existingItem = cartItems.find(ci => ci.variantId === cartItem.variantId);
-    addToCart({ ...cartItem, selectedOfferId: existingItem?.selectedOfferId ?? cartItem.selectedOfferId });
+    const existing = cartItems.find((ci) => ci.variantId === cartItem.variantId);
+    addToCart({ ...cartItem, selectedOfferId: existing?.selectedOfferId ?? cartItem.selectedOfferId }, { showNotification });
     onItemAddedToCart?.();
   };
 
@@ -657,827 +302,232 @@ const MainContent = ({
     const cartItem = pendingDuplicateItem;
     setPendingDuplicateItem(null);
     try {
-      const requestItemId = await createOrAppendRequestItem({
-        variantId: cartItem.variantId,
-        rawData: cartItem.ebayResearchData,
-        cashConvertersData: cartItem.cashConvertersResearchData,
-        cashOffers: cartItem.cashOffers,
-        voucherOffers: cartItem.voucherOffers,
-        selectedOfferId: cartItem.selectedOfferId,
-        manualOffer: cartItem.manualOffer,
-        ourSalePrice: cartItem.ourSalePrice
+      const reqItemId = await createOrAppendRequestItem({
+        variantId: cartItem.variantId, rawData: cartItem.ebayResearchData, cashConvertersData: cartItem.cashConvertersResearchData,
+        cashOffers: cartItem.cashOffers, voucherOffers: cartItem.voucherOffers,
+        selectedOfferId: cartItem.selectedOfferId, manualOffer: cartItem.manualOffer, ourSalePrice: cartItem.ourSalePrice,
       });
-      cartItem.request_item_id = requestItemId;
-    } catch (err) {
-      console.error('Failed to create request item for new separate item:', err);
-    }
-    addToCart({ ...cartItem, forceNew: true });
+      cartItem.request_item_id = reqItemId;
+    } catch (err) { console.error('Failed to create request item:', err); }
+    addToCart({ ...cartItem, forceNew: true }, { showNotification });
     onItemAddedToCart?.();
   };
 
-  const handleAddToCart = async (offerArg) => {
-    if (!selectedModel || !variant) {
-      alert('Please select a variant');
-      return;
-    }
-
-    if (!isRepricing && (!offers || offers.length === 0)) {
-      alert('No offers available. Please wait for offers to load.');
-      return;
-    }
-
-    let selectedOfferIdForItem = null;
-    let manualOfferPerUnit = null;
-
-    if (offerArg && typeof offerArg === 'object' && offerArg.type === 'manual') {
-      selectedOfferIdForItem = 'manual';
-      manualOfferPerUnit = Number(offerArg.amount);
-      if (!manualOfferPerUnit || manualOfferPerUnit <= 0) {
-        alert('Please enter a valid manual offer amount.');
-        return;
-      }
-    } else {
-      const offerId = offerArg;
-      selectedOfferIdForItem = isRepricing ? null : (offerId === undefined ? (offers[0]?.id ?? null) : offerId);
-    }
-
-    const cartItem = buildCartItem(selectedOfferIdForItem, manualOfferPerUnit);
-    const isDuplicateCeXItem = cartItems.some(
-      (ci) => !ci.isCustomEbayItem && !ci.isCustomCashConvertersItem && ci.variantId === cartItem.variantId
-    );
-
-    try {
-      if (isRepricing) {
-        addToCart(cartItem);
-        onItemAddedToCart?.();
-      } else if (isDuplicateCeXItem) {
-        // Show popup asking whether to increase qty or add as separate item
-        setPendingDuplicateItem(cartItem);
-        setShowDuplicateDialog(true);
-      } else {
-        const requestItemId = await createOrAppendRequestItem({
-          variantId: cartItem.variantId,
-          rawData: cartItem.ebayResearchData,
-          cashConvertersData: cartItem.cashConvertersResearchData,
-          cashOffers: cartItem.cashOffers,
-          voucherOffers: cartItem.voucherOffers,
-          selectedOfferId: cartItem.selectedOfferId,
-          manualOffer: cartItem.manualOffer,
-          ourSalePrice: cartItem.ourSalePrice
-        });
-        cartItem.request_item_id = requestItemId;
-        addToCart(cartItem);
-        onItemAddedToCart?.();
-      }
-    } catch (err) {
-      console.error('Failed to add item to request:', err);
-      alert('Failed to add item to request. Check console for details.');
-    }
-  };
-
+  // ── Research completion handlers ──
   const handleEbayResearchComplete = useCallback(async (data) => {
     setEbayData(data);
     setSavedEbayState(data);
-
     if (isEbayCategory) {
-      // eBay-only items: variant is null. Use stable offer ids (ebay-cash-0,1,2) so same item keeps same ids.
       const apiFilterValues = Object.values(data.selectedFilters?.apiFilters || {}).flat();
       const basicFilterValues = data.selectedFilters?.basic || [];
       const allFilters = [...basicFilterValues, ...apiFilterValues].filter(Boolean);
-      const filterSubtitle = allFilters.length > 0
-        ? allFilters.join(' / ')
-        : (data.searchTerm || 'No filters applied');
-
-      const cashOffers = (data.buyOffers || []).map((o, idx) => ({
-        id: `ebay-cash-${idx}`,
-        title: ["1st Offer", "2nd Offer", "3rd Offer"][idx] || "Offer",
-        price: roundOfferPrice(o.price)
-      }));
-
-      const voucherOffers = cashOffers.map(offer => ({
-        id: `ebay-voucher-${offer.id}`,
-        title: offer.title,
-        price: toVoucherOfferPrice(offer.price)
-      }));
-
+      const filterSubtitle = allFilters.length > 0 ? allFilters.join(' / ') : (data.searchTerm || 'No filters applied');
+      const cashOffers = (data.buyOffers || []).map((o, idx) => ({ id: `ebay-cash-${idx}`, title: ['1st Offer', '2nd Offer', '3rd Offer'][idx] || 'Offer', price: roundOfferPrice(o.price) }));
+      const voucherOffers = cashOffers.map((o) => ({ id: `ebay-voucher-${o.id}`, title: o.title, price: toVoucherOfferPrice(o.price) }));
       const displayOffers = useVoucherOffers ? voucherOffers : cashOffers;
 
-      let selectedOfferId = null;
-      let manualOfferValue = null;
+      let selectedOfferId = null, manualOfferValue = null;
       if (data.selectedOfferIndex === 'manual' && data.manualOffer) {
         selectedOfferId = 'manual';
         const parsed = parseFloat(String(data.manualOffer).replace(/[£,]/g, ''));
-        if (!Number.isNaN(parsed) && parsed > 0) {
-          manualOfferValue = formatOfferPrice(parsed);
-        }
-      } else if (
-        data.selectedOfferIndex != null &&
-        typeof data.selectedOfferIndex === 'number' &&
-        data.selectedOfferIndex >= 0 &&
-        displayOffers[data.selectedOfferIndex]
-      ) {
+        if (!Number.isNaN(parsed) && parsed > 0) manualOfferValue = formatOfferPrice(parsed);
+      } else if (data.selectedOfferIndex != null && typeof data.selectedOfferIndex === 'number' && displayOffers[data.selectedOfferIndex]) {
         selectedOfferId = displayOffers[data.selectedOfferIndex].id;
       }
 
       const customCartItem = {
         id: crypto.randomUUID?.() ?? `cart-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        title: data.searchTerm || "eBay Research Item",
-        subtitle: filterSubtitle,
-        quantity: 1,
-        category: EBAY_TOP_LEVEL_CATEGORY.name,
-        categoryObject: EBAY_TOP_LEVEL_CATEGORY,
-        offers: displayOffers,
-        cashOffers: cashOffers,
-        voucherOffers: voucherOffers,
-        ebayResearchData: data,
-        isCustomEbayItem: true,
-        variantId: null,
-        request_item_id: null,
-        ourSalePrice: data.stats?.suggestedPrice ? Number(data.stats.suggestedPrice) : null,
-        selectedOfferId,
-        manualOffer: manualOfferValue,
+        title: data.searchTerm || 'eBay Research Item', subtitle: filterSubtitle, quantity: 1,
+        category: EBAY_TOP_LEVEL_CATEGORY.name, categoryObject: EBAY_TOP_LEVEL_CATEGORY,
+        offers: displayOffers, cashOffers, voucherOffers, ebayResearchData: data, isCustomEbayItem: true,
+        variantId: null, request_item_id: null,
+        ourSalePrice: data.stats?.suggestedPrice != null ? roundSalePrice(Number(data.stats.suggestedPrice)) : null,
+        selectedOfferId, manualOffer: manualOfferValue,
       };
 
-      const isDuplicateEbayItem = cartItems.some(
-        (ci) => ci.isCustomEbayItem && ci.title === customCartItem.title && ci.category === customCartItem.category
-      );
-
+      const isDuplicate = cartItems.some((ci) => ci.isCustomEbayItem && ci.title === customCartItem.title && ci.category === customCartItem.category);
       try {
-        if (isRepricing || isDuplicateEbayItem) {
-          addToCart(customCartItem);
+        if (isRepricing || isDuplicate) {
+          addToCart(customCartItem, { showNotification });
         } else {
-          const requestItemId = await createOrAppendRequestItem({
-            variantId: null,
-            rawData: {
-              ...data,
-              cash_offers: cashOffers,
-              voucher_offers: voucherOffers,
-            },
-            cashConvertersData: null,
-            cashOffers,
-            voucherOffers,
-            selectedOfferId: customCartItem.selectedOfferId,
-            manualOffer: customCartItem.manualOffer,
-            ourSalePrice: customCartItem.ourSalePrice
+          const reqItemId = await createOrAppendRequestItem({
+            variantId: null, rawData: { ...data, cash_offers: cashOffers, voucher_offers: voucherOffers },
+            cashConvertersData: null, cashOffers, voucherOffers,
+            selectedOfferId: customCartItem.selectedOfferId, manualOffer: customCartItem.manualOffer, ourSalePrice: customCartItem.ourSalePrice,
           });
-
-          customCartItem.request_item_id = requestItemId;
-          addToCart(customCartItem);
+          customCartItem.request_item_id = reqItemId;
+          addToCart(customCartItem, { showNotification });
         }
-        setSavedEbayState(null);
-        setEbayData(null);
-      } catch (err) {
-        console.error('Failed to add eBay item to request:', err);
-        alert('Failed to add eBay item to request. Check console for details.');
-      }
-
+        setSavedEbayState(null); setEbayData(null);
+      } catch (err) { console.error('Failed to add eBay item:', err); alert('Failed to add eBay item.'); }
     } else {
-      // Non-eBay items with eBay research: update raw_data
-      const selectedVariant = variants.find(v => v.cex_sku === variant);
+      const selectedVariant = variants.find((v) => v.cex_sku === variant);
       const targetId = selectedVariant?.variant_id;
-      
-      if (targetId && typeof updateCartItemEbayData === 'function') {
-        // Update cart item locally
-        updateCartItemEbayData(targetId, data);
-        
-        //  Update raw_data on backend if item already exists
-        // Find the cart item with this variant to get request_item_id
-        // This assumes you have access to cart items or can pass request_item_id
-        // For now, we'll update via the parent component's callback
-      }
+      if (targetId) updateCartItemResearchData(targetId, 'ebay', data);
     }
-  }, [addToCart, cartItems, createOrAppendRequestItem, isEbayCategory, isRepricing, updateCartItemEbayData, useVoucherOffers, variant, variants]);
+  }, [addToCart, cartItems, createOrAppendRequestItem, isEbayCategory, isRepricing, updateCartItemResearchData, useVoucherOffers, variant, variants, showNotification]);
 
   const handleCashConvertersResearchComplete = async (data) => {
     setCashConvertersData(data);
     setSavedCashConvertersState(data);
+    const isCCCategory = selectedCategory?.path?.some((p) => p.toLowerCase() === 'cash converters') || selectedCategory?.name?.toLowerCase() === 'cash converters';
 
-    // Check if this is a Cash Converters-only category
-    const isCashConvertersCategory = selectedCategory?.path?.some(p => p.toLowerCase() === 'cash converters') || 
-                                     selectedCategory?.name.toLowerCase() === 'cash converters';
-
-    if (isCashConvertersCategory) {
-      // Cash Converters-only items: variant is null, add to cart
+    if (isCCCategory) {
       const apiFilterValues = Object.values(data.selectedFilters?.apiFilters || {}).flat();
       const basicFilterValues = data.selectedFilters?.basic || [];
       const allFilters = [...basicFilterValues, ...apiFilterValues].filter(Boolean);
-      const filterSubtitle = allFilters.length > 0
-        ? allFilters.join(' / ')
-        : (data.searchTerm || 'No filters applied');
-
-      const cashOffers = data.buyOffers.map((o, idx) => ({
-          id: `cc-cash-${Date.now()}-${idx}`, // Make IDs unique for cash
-          title: ["1st Offer", "2nd Offer", "3rd Offer"][idx] || "Offer",
-          price: Number(o.price)
-      }));
-
-      const voucherOffers = cashOffers.map(offer => ({
-          id: `cc-voucher-${offer.id}`, // Make IDs unique for voucher
-          title: offer.title,
-          price: Number((offer.price * 1.10).toFixed(2)) // 10% more, rounded to 2 decimal places
-      }));
+      const filterSubtitle = allFilters.length > 0 ? allFilters.join(' / ') : (data.searchTerm || 'No filters applied');
+      const cashOffers = data.buyOffers.map((o, idx) => ({ id: `cc-cash-${Date.now()}-${idx}`, title: ['1st Offer', '2nd Offer', '3rd Offer'][idx] || 'Offer', price: Number(o.price) }));
+      const voucherOffers = cashOffers.map((o) => ({ id: `cc-voucher-${o.id}`, title: o.title, price: Number((o.price * 1.10).toFixed(2)) }));
 
       const customCartItem = {
         id: crypto.randomUUID?.() ?? `cart-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        title: data.searchTerm || "Cash Converters Research Item",
-        subtitle: filterSubtitle,
-        quantity: 1,
-        category: selectedCategory?.name,
-        categoryObject: selectedCategory,
-        offers: useVoucherOffers ? voucherOffers : cashOffers, // Default to appropriate offer type
-        cashOffers: cashOffers, // Store cash offers
-        voucherOffers: voucherOffers, // Store voucher offers
-        cashConvertersResearchData: data,
-        isCustomCashConvertersItem: true,
-        variantId: null,
-        request_item_id: null,
-        ourSalePrice: data.stats?.suggestedPrice ? Number(data.stats.suggestedPrice) : null
+        title: data.searchTerm || 'Cash Converters Research Item', subtitle: filterSubtitle, quantity: 1,
+        category: selectedCategory?.name, categoryObject: selectedCategory,
+        offers: useVoucherOffers ? voucherOffers : cashOffers, cashOffers, voucherOffers,
+        cashConvertersResearchData: data, isCustomCashConvertersItem: true, variantId: null, request_item_id: null,
+        ourSalePrice: data.stats?.suggestedPrice != null ? roundSalePrice(Number(data.stats.suggestedPrice)) : null,
       };
 
-      const isDuplicateCCItem = cartItems.some(
-        (ci) => ci.isCustomCashConvertersItem && ci.title === customCartItem.title && ci.category === customCartItem.category
-      );
-
+      const isDuplicate = cartItems.some((ci) => ci.isCustomCashConvertersItem && ci.title === customCartItem.title && ci.category === customCartItem.category);
       try {
-        if (isRepricing || isDuplicateCCItem) {
-          addToCart(customCartItem);
-        } else {
-          const requestItemId = await createOrAppendRequestItem({
-            variantId: null,
-            rawData: null,
-            cashConvertersData: data,
-            cashOffers: customCartItem.cashOffers,
-            voucherOffers: customCartItem.voucherOffers,
-            selectedOfferId: customCartItem.selectedOfferId,
-            manualOffer: customCartItem.manualOffer,
-            ourSalePrice: customCartItem.ourSalePrice
+        if (isRepricing || isDuplicate) { addToCart(customCartItem, { showNotification }); }
+        else {
+          const reqItemId = await createOrAppendRequestItem({
+            variantId: null, rawData: null, cashConvertersData: data,
+            cashOffers: customCartItem.cashOffers, voucherOffers: customCartItem.voucherOffers,
+            selectedOfferId: customCartItem.selectedOfferId, manualOffer: customCartItem.manualOffer, ourSalePrice: customCartItem.ourSalePrice,
           });
-
-          customCartItem.request_item_id = requestItemId;
-          addToCart(customCartItem);
+          customCartItem.request_item_id = reqItemId;
+          addToCart(customCartItem, { showNotification });
         }
-      } catch (err) {
-        console.error('Failed to add Cash Converters item to request:', err);
-        alert('Failed to add Cash Converters item to request. Check console for details.');
-      }
+      } catch (err) { console.error('Failed to add CC item:', err); alert('Failed to add item.'); }
     } else {
-      // Non-CC items with Cash Converters research: update existing cart item
-      const selectedVariant = variants.find(v => v.cex_sku === variant);
+      const selectedVariant = variants.find((v) => v.cex_sku === variant);
       const targetId = selectedVariant?.variant_id;
-      
-      if (targetId && typeof updateCartItemCashConvertersData === 'function') {
-        updateCartItemCashConvertersData(targetId, data);
-      }
+      if (targetId) updateCartItemResearchData(targetId, 'cashConverters', data);
     }
   };
 
-  // True when the user has clicked a regular (non-custom) cart item to view it
-  const isViewingCartItem = Boolean(selectedCartItem) &&
-    !selectedCartItem?.isCustomEbayItem &&
-    !selectedCartItem?.isCustomCashConvertersItem &&
-    !selectedCartItem?.isCustomCeXItem;
-
-  const handleAttributeChangeWithDeselect = useCallback((...args) => {
-    if (isViewingCartItem && typeof onDeselectCartItem === 'function') {
-      onDeselectCartItem();
-    }
-    handleAttributeChange(...args);
-  }, [handleAttributeChange, isViewingCartItem, onDeselectCartItem]);
-
-  const setVariantWithDeselect = useCallback((nextVariant) => {
-    if (isViewingCartItem && typeof onDeselectCartItem === 'function') {
-      onDeselectCartItem();
-    }
-    setVariant(nextVariant);
-  }, [isViewingCartItem, onDeselectCartItem, setVariant]);
-
+  // ── Offer editing callbacks ──
   const handleOfferPriceChange = useCallback((offerId, newPrice) => {
-    if (!selectedCartItem || !updateCartItemOffers) return;
-    const parsedPrice = Number(newPrice);
-    const normalizedPrice = roundOfferPrice(parsedPrice);
-    const updateArr = (arr) => (arr || []).map(o =>
-      o.id === offerId ? { ...o, price: normalizedPrice } : o
-    );
-    updateCartItemOffers(selectedCartItem.id, {
-      offers: updateArr(selectedCartItem.offers),
-      cashOffers: updateArr(selectedCartItem.cashOffers),
-      voucherOffers: updateArr(selectedCartItem.voucherOffers),
-    });
+    if (!selectedCartItem) return;
+    const normalized = roundOfferPrice(Number(newPrice));
+    const update = (arr) => (arr || []).map((o) => (o.id === offerId ? { ...o, price: normalized } : o));
+    updateCartItemOffers(selectedCartItem.id, { offers: update(selectedCartItem.offers), cashOffers: update(selectedCartItem.cashOffers), voucherOffers: update(selectedCartItem.voucherOffers) });
   }, [selectedCartItem, updateCartItemOffers]);
 
   const handleSelectedOfferChange = useCallback((offerId) => {
-    if (!selectedCartItem || !updateCartItemOffers) return;
+    if (!selectedCartItem) return;
     updateCartItemOffers(selectedCartItem.id, { selectedOfferId: offerId });
   }, [selectedCartItem, updateCartItemOffers]);
 
-  // Selected CeX cart item (from Add from CeX) – check BEFORE cexProductData so clicking a cart item shows it, not the add flow
+  const isViewingCartItem = Boolean(selectedCartItem) && !selectedCartItem?.isCustomEbayItem && !selectedCartItem?.isCustomCashConvertersItem && !selectedCartItem?.isCustomCeXItem;
+
+  const isAlreadyInCart = React.useMemo(() => {
+    if (!isRepricing) return false;
+    if (selectedCartItem) return true;
+    if (variant) return cartItems.some((ci) => ci.cexSku === variant || (ci.variantId != null && String(ci.variantId) === String(variant)));
+    if (cexProductData) return cartItems.some((ci) => ci.isCustomCeXItem && ci.title === cexProductData.title && ci.subtitle === (cexProductData.category || ''));
+    return false;
+  }, [isRepricing, selectedCartItem, variant, cexProductData, cartItems]);
+
+  const handleAttributeChangeWithDeselect = useCallback((...args) => {
+    if (isViewingCartItem) deselectCartItem();
+    handleAttributeChange(...args);
+  }, [handleAttributeChange, isViewingCartItem, deselectCartItem]);
+
+  const setVariantWithDeselect = useCallback((nextVariant) => {
+    if (isViewingCartItem) deselectCartItem();
+    setVariant(nextVariant);
+  }, [isViewingCartItem, deselectCartItem, setVariant]);
+
+  // Build market comparison context for research modals
+  const buildMarketContext = useCallback((item) => {
+    const base = {
+      cexSalePrice: referenceData?.cex_sale_price ?? null,
+      ourSalePrice: ourSalePrice ? roundSalePrice(Number(ourSalePrice)) : null,
+      ebaySalePrice: ebayData?.stats?.median ?? null,
+      cashConvertersSalePrice: cashConvertersData?.stats?.median ?? null,
+      itemTitle: selectedModel?.name || selectedCategory?.name || null,
+      itemCondition: attributeValues?.condition || null,
+      ebaySearchTerm: ebayData?.searchTerm || null,
+      cashConvertersSearchTerm: cashConvertersData?.searchTerm || null,
+    };
+    if (Object.values(attributeValues || {}).some((v) => v)) {
+      base.itemSpecs = Object.fromEntries(
+        Object.entries(attributeValues || {}).filter(([, v]) => v).map(([k, v]) => [k.charAt(0).toUpperCase() + k.slice(1), v])
+      );
+    }
+    return base;
+  }, [referenceData, ourSalePrice, ebayData, cashConvertersData, selectedModel, selectedCategory, attributeValues]);
+
+  // ── Routing: which view to show ──
+
+  // CeX cart item selected
   if (selectedCartItem?.isCustomCeXItem) {
-    const useVoucherOffers = customerData?.transactionType === 'store_credit';
-    const displayOffers = useVoucherOffers ? (selectedCartItem.voucherOffers || []) : (selectedCartItem.cashOffers || []);
-    const refData = selectedCartItem.referenceData || {};
-    const resolvedOurSalePrice = refData.cex_based_sale_price ?? selectedCartItem.ourSalePrice ?? '';
-    const refWithOurSale = { ...refData, our_sale_price: resolvedOurSalePrice };
-    const imageUrl =
-      refData.cex_image_urls?.large ||
-      refData.cex_image_urls?.medium ||
-      refData.cex_image_urls?.small ||
-      selectedCartItem.cexProductData?.image ||
-      selectedCartItem.image;
-    const cexCompetitorStats = (
-      refData.cex_sale_price != null || selectedCartItem.cexSellPrice != null
-    ) ? [{
-      salePrice: refData.cex_sale_price ?? selectedCartItem.cexSellPrice,
-      buyPrice: refData.cex_tradein_cash ?? selectedCartItem.cexBuyPrice,
-    }] : [];
-    const specs = selectedCartItem.cexProductData?.specifications || {};
-
     return (
-      <section className="buyer-main-content w-3/5 min-w-0 min-h-0 flex-1 bg-white flex flex-col overflow-y-auto buyer-panel-scroll">
-        <div className="flex items-center justify-between px-8 bg-gray-50 border-b border-gray-200 sticky top-0 z-40">
-          <div className="flex items-center gap-3 py-4">
-            <div className="bg-blue-900 p-1.5 rounded">
-              <span className="material-symbols-outlined text-yellow-400 text-sm">add_link</span>
-            </div>
-            <div>
-              <h2 className="text-sm font-bold text-blue-900">{selectedCartItem.title || 'CeX Product'}</h2>
-              <p className="text-[10px] text-gray-500 uppercase tracking-wider">Viewing saved item</p>
-            </div>
-          </div>
-        </div>
-        <div className="p-8 space-y-8">
-          <div className="bg-gray-50 p-6 rounded-xl border border-gray-200">
-            <div className="flex gap-8 items-start">
-              {imageUrl && (
-                <div className="flex-shrink-0 w-80 h-80 rounded-lg overflow-hidden border border-gray-200 bg-white flex items-center justify-center">
-                  <img src={imageUrl} alt={selectedCartItem.title} className="w-full h-full object-contain" />
-                </div>
-              )}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Product details</h2>
-                  {(selectedCartItem.cexProductData?.isOutOfStock || selectedCartItem.cexProductData?.stockStatus) && (
-                    <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full border border-red-200 bg-red-50 text-[11px] font-bold uppercase tracking-wider text-red-700">
-                      <span className="material-symbols-outlined text-[14px]">error</span>
-                      {selectedCartItem.cexProductData.stockStatus || 'Out of stock at CeX'}
-                    </span>
-                  )}
-                </div>
-                <ul className="grid grid-cols-2 gap-x-8 gap-y-2">
-                  {Object.keys(specs).length > 0 ? (
-                    Object.entries(specs).map(([label, value]) => (
-                      <li key={label} className="flex">
-                        <div>
-                          <span className="font-semibold text-gray-700 mr-2">{label}:</span>
-                          <span className="text-sm text-gray-900">{value}</span>
-                        </div>
-                      </li>
-                    ))
-                  ) : (
-                    <li className="col-span-2 text-sm text-gray-500">No specifications</li>
-                  )}
-                </ul>
-              </div>
-            </div>
-          </div>
-          <MarketComparisonsTable
-            variant="cex"
-            competitorStats={cexCompetitorStats}
-            ourSalePrice={resolvedOurSalePrice}
-            referenceData={refData}
-            ebayData={selectedCartItem.ebayResearchData || null}
-            setEbayModalOpen={() => {}}
-            cashConvertersData={selectedCartItem.cashConvertersResearchData || null}
-            setCashConvertersModalOpen={() => {}}
-            readOnly={true}
-            cexSku={selectedCartItem.cexProductData?.id || selectedCartItem.cexSku}
-            hideBuyInPrice={isRepricing}
-          />
-          {!isRepricing && displayOffers.length > 0 && (
-            <OfferSelection
-              variant="cex"
-              offers={displayOffers}
-              referenceData={refWithOurSale}
-              offerType={useVoucherOffers ? 'voucher' : 'cash'}
-              initialSelectedOfferId={selectedCartItem?.selectedOfferId ?? null}
-              editMode={true}
-              syncKey={`${selectedCartItem?.id ?? 'cex'}:${useVoucherOffers ? 'voucher' : 'cash'}`}
-              onOfferPriceChange={handleOfferPriceChange}
-              onSelectedOfferChange={handleSelectedOfferChange}
-            />
-          )}
-        </div>
-      </section>
+      <CexProductView
+        item={selectedCartItem}
+        isRepricing={isRepricing}
+        useVoucherOffers={useVoucherOffers}
+        customerData={customerData}
+        onOfferPriceChange={handleOfferPriceChange}
+        onSelectedOfferChange={handleSelectedOfferChange}
+        onUpdateCartItemResearch={(itemId, type, data) => {
+          const field = type === 'ebay' ? 'ebayResearchData' : 'cashConvertersResearchData';
+          useAppStore.getState().updateCartItem(itemId, { [field]: data });
+        }}
+      />
     );
   }
 
-  // CeX product from "Add from CeX" flow – use normal MainContent layout (no config/condition)
+  // CeX product from "Add from CeX" flow
   if (cexProductData) {
-    const useVoucherOffers = customerData?.transactionType === 'store_credit';
-    const cashOffers = (cexProductData.cash_offers || []).map((o, idx) => ({
-      id: o.id || `cex-cash-${cexProductData.id ?? 'cex'}-${idx}`,
-      title: o.title || ['First Offer', 'Second Offer', 'Third Offer'][idx],
-      price: roundOfferPrice(o.price)
-    }));
-    const voucherOffers = (cexProductData.voucher_offers || []).map((o, idx) => ({
-      id: o.id || `cex-voucher-${cexProductData.id ?? 'cex'}-${idx}`,
-      title: o.title || ['First Offer', 'Second Offer', 'Third Offer'][idx],
-      price: roundOfferPrice(o.price)
-    }));
-    const offers = useVoucherOffers ? voucherOffers : cashOffers;
-    const refData = cexProductData.referenceData || {};
-    const refWithOurSale = { ...refData, our_sale_price: refData.cex_based_sale_price };
-    const imageUrl = refData.cex_image_urls?.large || refData.cex_image_urls?.medium || cexProductData.image;
-    const breadcrumbItems = ['CeX', cexProductData.category || 'Product'].filter(Boolean);
-
-    const buildCeXCartItem = (offerArg) => {
-      let selectedOfferId = null;
-      let manualOffer = null;
-      if (offerArg && typeof offerArg === 'object' && offerArg.type === 'manual') {
-        selectedOfferId = 'manual';
-        const roundedManualOffer = roundOfferPrice(offerArg.amount);
-        manualOffer = roundedManualOffer > 50
-          ? String(roundedManualOffer)
-          : roundedManualOffer.toFixed(2);
-      } else if (typeof offerArg === 'string') {
-        selectedOfferId = offerArg;
-      }
-      return {
-        id: crypto.randomUUID?.() ?? `cart-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        title: cexProductData.title || 'CeX Product',
-        subtitle: cexProductData.category || '',
-        quantity: 1,
-        category: 'CeX',
-        categoryObject: { name: 'CeX', path: ['CeX'] },
-        offers,
-        cashOffers,
-        voucherOffers,
-        isCustomCeXItem: true,
-        variantId: null,
-        request_item_id: null,
-        referenceData: refData,
-        ourSalePrice: refData.cex_based_sale_price ? Number(refData.cex_based_sale_price) : null,
-        cexSellPrice: refData.cex_sale_price ? Number(refData.cex_sale_price) : null,
-        cexBuyPrice: refData.cex_tradein_cash ? Number(refData.cex_tradein_cash) : null,
-        cexVoucherPrice: refData.cex_tradein_voucher ? Number(refData.cex_tradein_voucher) : null,
-        cexOutOfStock: cexProductData.isOutOfStock ?? false,
-        cexSku: cexProductData.id ?? null,
-        cexUrl: cexProductData.id ? `https://uk.webuy.com/product-detail?id=${cexProductData.id}` : null,
-        ebayResearchData: cexProductData.ebayResearchData || null,
-        cashConvertersResearchData: cexProductData.cashConvertersResearchData || null,
-        cexProductData,
-        selectedOfferId,
-        manualOffer
-      };
-    };
-
-    const handleAddCeXToCart = async () => {
-      const customCartItem = buildCeXCartItem(null);
-      const isDuplicateCeX = cartItems.some(
-        (ci) => ci.isCustomCeXItem && ci.title === customCartItem.title && ci.subtitle === customCartItem.subtitle
-      );
-      try {
-        if (isRepricing || isDuplicateCeX) {
-          addToCart(customCartItem);
-        } else {
-          const requestItemId = await createOrAppendRequestItem({
-            variantId: null,
-            rawData: cexProductData,
-            cashConvertersData: cexProductData.cashConvertersResearchData || null,
-            cexSku: cexProductData.id,
-            cashOffers: customCartItem.cashOffers,
-            voucherOffers: customCartItem.voucherOffers,
-            selectedOfferId: customCartItem.selectedOfferId,
-            manualOffer: customCartItem.manualOffer,
-            ourSalePrice: customCartItem.ourSalePrice
-          });
-          customCartItem.request_item_id = requestItemId;
-          addToCart(customCartItem);
-        }
-        onClearCeXProduct?.();
-      } catch (err) {
-        console.error('[CG Suite] Failed to add CeX item to request:', err);
-        alert('Failed to add CeX item to request. Check console for details.');
-      }
-    };
-
-    const handleAddCeXToCartWithOffer = async (offerArg) => {
-      const customCartItem = buildCeXCartItem(offerArg);
-      const isDuplicateCeX = cartItems.some(
-        (ci) => ci.isCustomCeXItem && ci.title === customCartItem.title && ci.subtitle === customCartItem.subtitle
-      );
-      try {
-        if (isRepricing || isDuplicateCeX) {
-          addToCart(customCartItem);
-        } else {
-          const requestItemId = await createOrAppendRequestItem({
-            variantId: null,
-            rawData: cexProductData,
-            cashConvertersData: cexProductData.cashConvertersResearchData || null,
-            cexSku: cexProductData.id,
-            cashOffers: customCartItem.cashOffers,
-            voucherOffers: customCartItem.voucherOffers,
-            selectedOfferId: customCartItem.selectedOfferId,
-            manualOffer: customCartItem.manualOffer,
-            ourSalePrice: customCartItem.ourSalePrice
-          });
-          customCartItem.request_item_id = requestItemId;
-          addToCart(customCartItem);
-        }
-        onClearCeXProduct?.();
-      } catch (err) {
-        console.error('[CG Suite] Failed to add CeX item to request:', err);
-        alert('Failed to add CeX item to request. Check console for details.');
-      }
-    };
-
     return (
-      <section className="buyer-main-content w-3/5 min-w-0 min-h-0 flex-1 bg-white flex flex-col overflow-y-auto buyer-panel-scroll">
-        <div className="px-8 py-6 border-b border-gray-200 bg-gray-50/50">
-          <div className="flex items-center justify-between">
-            <div>
-              <Breadcrumb items={breadcrumbItems} />
-              <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight mt-2">
-                {cexProductData.title || 'CeX Product'}
-              </h1>
-            </div>
-            <div className="flex items-center gap-3">
-              {onClearCeXProduct && (
-                <button
-                  type="button"
-                  onClick={onClearCeXProduct}
-                  className="text-gray-500 hover:text-gray-700 p-2"
-                  aria-label="Close"
-                >
-                  <Icon name="close" />
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="p-8 space-y-8">
-          <div className="bg-gray-50 p-6 rounded-xl border border-gray-200">
-            <div className="flex gap-8 items-start">
-              {imageUrl && (
-                <div className="flex-shrink-0 w-80 h-80 rounded-lg overflow-hidden border border-gray-200 bg-white flex items-center justify-center">
-                  <img src={imageUrl} alt={cexProductData.title} className="w-full h-full object-contain" />
-                </div>
-              )}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Product details</h2>
-                  {(cexProductData.isOutOfStock || cexProductData.stockStatus) && (
-                    <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full border border-red-200 bg-red-50 text-[11px] font-bold uppercase tracking-wider text-red-700">
-                      <span className="material-symbols-outlined text-[14px]">error</span>
-                      {cexProductData.stockStatus || 'Out of stock at CeX'}
-                    </span>
-                  )}
-                </div>
-                <ul className="grid grid-cols-2 gap-x-8 gap-y-2">
-                  {cexProductData.specifications && Object.entries(cexProductData.specifications).map(([label, value]) => (
-                    <li key={label} className="flex">
-                      <div>
-                        <span className="font-semibold text-gray-700 mr-2">{label}:</span>
-                        <span className="text-sm text-gray-900">{value}</span>
-                      </div>
-                    </li>
-                  ))}
-                  {(!cexProductData.specifications || Object.keys(cexProductData.specifications).length === 0) && (
-                    <li className="col-span-2 text-sm text-gray-500">No specifications</li>
-                  )}
-                </ul>
-              </div>
-            </div>
-          </div>
-
-          <MarketComparisonsTable
-            variant="cex"
-            competitorStats={refData.cex_sale_price != null ? [{ salePrice: refData.cex_sale_price, buyPrice: refData.cex_tradein_cash }] : []}
-            ourSalePrice={refData.cex_based_sale_price || ''}
-            referenceData={refData}
-            ebayData={cexProductData.ebayResearchData || null}
-            setEbayModalOpen={setCexProductData ? () => setCeXEbayModalOpen(true) : () => {}}
-            cashConvertersData={cexProductData.cashConvertersResearchData || null}
-            setCashConvertersModalOpen={setCexProductData ? () => setCeXCashConvertersModalOpen(true) : () => {}}
-            cexSku={cexProductData.id}
-            hideBuyInPrice={isRepricing}
-          />
-
-          {isRepricing ? (
-            <div className="flex justify-end pt-4">
-              <Button
-                variant="primary"
-                icon="sell"
-                className="px-6 py-3 font-bold uppercase tracking-tight"
-                onClick={handleAddCeXToCart}
-              >
-                Add to Reprice List
-              </Button>
-            </div>
-          ) : offers.length > 0 && (
-            <OfferSelection
-              variant="cex"
-              offers={offers}
-              referenceData={refWithOurSale}
-              offerType={useVoucherOffers ? 'voucher' : 'cash'}
-              onAddToCart={handleAddCeXToCartWithOffer}
-            />
-          )}
-
-          {isCeXEbayModalOpen && (
-            <EbayResearchForm
-              mode="modal"
-              category={{ name: 'CeX', path: ['CeX'] }}
-              savedState={cexProductData.ebayResearchData}
-              initialHistogramState={false}
-              showManualOffer={false}
-              referenceData={refData}
-              ourSalePrice={refData.cex_based_sale_price}
-              initialSearchQuery={cexProductData.modelName || cexProductData.title}
-              marketComparisonContext={
-                refData
-                  ? {
-                      cexSalePrice: refData.cex_sale_price ?? null,
-                      ourSalePrice: refData.cex_based_sale_price ?? null,
-                      ebaySalePrice: cexProductData.ebayResearchData?.stats?.median ?? null,
-                      cashConvertersSalePrice: cexProductData.cashConvertersResearchData?.stats?.median ?? null,
-                      itemTitle: cexProductData.title || 'CeX Product',
-                      itemConfig: (() => {
-                        const specs = cexProductData.specifications || {};
-                        const parts = Object.entries(specs)
-                          .filter(([label, value]) => value && label !== 'Grade' && label !== 'Condition')
-                          .map(([, value]) => value);
-                        return parts.length ? parts.join(' / ') : null;
-                      })(),
-                      itemCondition: (() => {
-                        const specs = cexProductData.specifications || {};
-                        return specs.Grade || specs.Condition || null;
-                      })(),
-                      ebaySearchTerm: cexProductData.ebayResearchData?.searchTerm || null,
-                      cashConvertersSearchTerm: cexProductData.cashConvertersResearchData?.searchTerm || null,
-                      cexSpecs: Object.keys(cexProductData.specifications || {}).length > 0 ? cexProductData.specifications : null,
-                    }
-                  : null
-              }
-              onComplete={(data) => {
-                if (data?.cancel) {
-                  setCeXEbayModalOpen(false);
-                  return;
-                }
-                setCexProductData && setCexProductData((prev) => ({ ...prev, ebayResearchData: data }));
-                setCeXEbayModalOpen(false);
-              }}
-            />
-          )}
-          {isCeXCashConvertersModalOpen && (
-            <CashConvertersResearchForm
-              mode="modal"
-              category={{ name: 'CeX', path: ['CeX'] }}
-              savedState={cexProductData.cashConvertersResearchData}
-              initialHistogramState={false}
-              referenceData={refData}
-              ourSalePrice={refData.cex_based_sale_price}
-              initialSearchQuery={cexProductData.modelName || cexProductData.title}
-              marketComparisonContext={
-                refData
-                  ? {
-                      cexSalePrice: refData.cex_sale_price ?? null,
-                      ourSalePrice: refData.cex_based_sale_price ?? null,
-                      ebaySalePrice: cexProductData.ebayResearchData?.stats?.median ?? null,
-                      cashConvertersSalePrice: cexProductData.cashConvertersResearchData?.stats?.median ?? null,
-                      itemTitle: cexProductData.title || 'CeX Product',
-                      itemConfig: (() => {
-                        const specs = cexProductData.specifications || {};
-                        const parts = Object.entries(specs)
-                          .filter(([label, value]) => value && label !== 'Grade' && label !== 'Condition')
-                          .map(([, value]) => value);
-                        return parts.length ? parts.join(' / ') : null;
-                      })(),
-                      itemCondition: (() => {
-                        const specs = cexProductData.specifications || {};
-                        return specs.Grade || specs.Condition || null;
-                      })(),
-                      ebaySearchTerm: cexProductData.ebayResearchData?.searchTerm || null,
-                      cashConvertersSearchTerm: cexProductData.cashConvertersResearchData?.searchTerm || null,
-                      cexSpecs: Object.keys(cexProductData.specifications || {}).length > 0 ? cexProductData.specifications : null,
-                    }
-                  : null
-              }
-              onComplete={(data) => {
-                if (data?.cancel) {
-                  setCeXCashConvertersModalOpen(false);
-                  return;
-                }
-                setCexProductData && setCexProductData((prev) => ({ ...prev, cashConvertersResearchData: data }));
-                setCeXCashConvertersModalOpen(false);
-              }}
-            />
-          )}
-        </div>
-      </section>
+      <CexProductView
+        cexProduct={cexProductData}
+        isRepricing={isRepricing}
+        useVoucherOffers={useVoucherOffers}
+        customerData={customerData}
+        onAddToCart={addToCart}
+        createOrAppendRequestItem={createOrAppendRequestItem}
+        onClearCeXProduct={clearCexProduct}
+        cartItems={cartItems}
+        setCexProductData={setCexProductData}
+        onItemAddedToCart={onItemAddedToCart}
+        showNotification={showNotification}
+      />
     );
   }
 
-  // Special handling for selected eBay cart items
+  // eBay cart item selected
   if (selectedCartItem?.isCustomEbayItem) {
-    const useVoucherOffers = customerData?.transactionType === 'store_credit';
-    const displayOffers = useVoucherOffers ? (selectedCartItem.voucherOffers || []) : (selectedCartItem.cashOffers || []);
-    const offerReferenceData = selectedCartItem.ourSalePrice != null
-      ? { our_sale_price: selectedCartItem.ourSalePrice }
-      : null;
-
     return (
-      <section className="buyer-main-content w-3/5 min-w-0 min-h-0 flex-1 bg-white flex flex-col overflow-y-auto buyer-panel-scroll">
-        <div className="flex items-center px-8 bg-gray-50 border-b border-gray-200 sticky top-0 z-40">
-          <div className="flex items-center gap-3 py-4">
-            <div className="bg-blue-900 p-1.5 rounded">
-              <span className="material-symbols-outlined text-yellow-400 text-sm">analytics</span>
-            </div>
-            <div>
-              <h2 className="text-sm font-bold text-blue-900">eBay Research Item</h2>
-              <p className="text-[10px] text-gray-500 uppercase tracking-wider">Viewing saved research</p>
-            </div>
-          </div>
-        </div>
-        
-        <div className="p-8 space-y-8">
-          {!isRepricing && displayOffers.length > 0 && (
-            <OfferSelection
-              variant="ebay"
-              offers={displayOffers}
-              referenceData={offerReferenceData}
-              offerType={useVoucherOffers ? 'voucher' : 'cash'}
-              initialSelectedOfferId={selectedCartItem?.selectedOfferId ?? null}
-              editMode={true}
-              syncKey={`${selectedCartItem?.id ?? 'ebay'}:${useVoucherOffers ? 'voucher' : 'cash'}`}
+      <EbayCartItemView
+        item={selectedCartItem}
+        isRepricing={isRepricing}
+        useVoucherOffers={useVoucherOffers}
               onOfferPriceChange={handleOfferPriceChange}
               onSelectedOfferChange={handleSelectedOfferChange}
-            />
-          )}
-          {selectedCartItem.ebayResearchData ? (
-            <EbayResearchForm
-              key={selectedCartItem.id}
-              mode="page"
-              category={EBAY_TOP_LEVEL_CATEGORY}
-              onComplete={handleEbayResearchComplete}
-              savedState={selectedCartItem.ebayResearchData}
-              initialHistogramState={false}
-              showManualOffer={false}
-              resetDrillOnOpen={true}
-              onAddNewItem={onDeselectCartItem}
-              addActionLabel={isRepricing ? 'Add to Reprice List' : 'Add to Cart'}
-              hideOfferCards={true}
-            />
-          ) : (
-            <div className="text-center py-12">
-              <span className="material-symbols-outlined text-4xl text-gray-300 mb-2">search_off</span>
-              <p className="text-sm text-gray-500">No research data available</p>
-            </div>
-          )}
-        </div>
-      </section>
+        onEbayResearchComplete={handleEbayResearchComplete}
+        onDeselectCartItem={deselectCartItem}
+      />
     );
   }
 
-  // Special handling for selected Cash Converters cart items
+  // Cash Converters cart item selected
   if (selectedCartItem?.isCustomCashConvertersItem) {
     return (
-      <section className="buyer-main-content w-3/5 min-w-0 min-h-0 flex-1 bg-white flex flex-col overflow-y-auto buyer-panel-scroll">
-        <div className="flex items-center px-8 bg-gray-50 border-b border-gray-200 sticky top-0 z-40">
-          <div className="flex items-center gap-3 py-4">
-            <div className="bg-blue-900 p-1.5 rounded">
-              <span className="material-symbols-outlined text-yellow-400 text-sm">store</span>
-            </div>
-            <div>
-              <h2 className="text-sm font-bold text-blue-900">Cash Converters Research Item</h2>
-              <p className="text-[10px] text-gray-500 uppercase tracking-wider">Viewing saved research</p>
-            </div>
-          </div>
-        </div>
-        
-        <div className="p-8">
-          {savedCashConvertersState ? (
-            <CashConvertersResearchForm
-              mode="page"
-              category={selectedCartItem.categoryObject || { name: 'Cash Converters', path: ['Cash Converters'] }}
-              onComplete={() => {}} // Read-only mode
+      <CashConvertersCartItemView
+        item={selectedCartItem}
               savedState={savedCashConvertersState}
-              initialHistogramState={false}
-              readOnly={true}
-              resetDrillOnOpen={true}
-              onAddNewItem={onDeselectCartItem}
-            />
-          ) : (
-            <div className="text-center py-12">
-              <span className="material-symbols-outlined text-4xl text-gray-300 mb-2">search_off</span>
-              <p className="text-sm text-gray-500">No research data available</p>
-            </div>
-          )}
-        </div>
-      </section>
+        onDeselectCartItem={deselectCartItem}
+      />
     );
   }
-  
+
+  // No category selected
   if (!selectedCategory) {
     return (
       <section className="buyer-main-content w-3/5 min-w-0 min-h-0 flex-1 bg-white flex flex-col overflow-y-auto buyer-panel-scroll">
@@ -1486,18 +536,16 @@ const MainContent = ({
     );
   }
 
+  // Category selected but no model (product selection)
   if (!selectedModel && !isEbayCategory) {
     return (
       <section className="buyer-main-content w-3/5 min-w-0 min-h-0 flex-1 bg-white flex flex-col overflow-y-auto buyer-panel-scroll">
-        <ProductSelection 
-          availableModels={availableModels} 
-          setSelectedModel={setSelectedModel}
-          isLoading={isLoadingModels}
-        />
+        <ProductSelection availableModels={availableModels} setSelectedModel={setSelectedModel} isLoading={isLoadingModels} />
       </section>
     );
   }
 
+  // ── Main product/eBay view ──
   return (
     <section className="buyer-main-content w-3/5 min-w-0 min-h-0 flex-1 bg-white flex flex-col overflow-y-auto buyer-panel-scroll">
       {!isEbayCategory && (
@@ -1507,110 +555,74 @@ const MainContent = ({
           </div>
           <div className="px-8 py-6 bg-gray-50/50">
             <Breadcrumb items={selectedCategory.path} />
-
             <div className="mb-4">
               {isLoadingModels ? (
                 <div className="flex items-center gap-3 text-sm text-gray-600 py-2">
                   <Icon name="sync" className="animate-spin text-xl text-blue-900" />
-                  <span>Loading models for this category…</span>
+                  <span>Loading models…</span>
                 </div>
               ) : (
                 <SearchableDropdown
                   value={selectedModel?.name || 'Select a model'}
-                  options={availableModels.length > 0 ? availableModels.map(m => m.name) : ['No models available']}
-                  onChange={(name) => {
-                    const model = availableModels.find(m => m.name === name);
-                    if (model) setSelectedModel(model);
-                  }}
+                  options={availableModels.length > 0 ? availableModels.map((m) => m.name) : ['No models available']}
+                  onChange={(name) => { const m = availableModels.find((x) => x.name === name); if (m) setSelectedModel(m); }}
                 />
               )}
             </div>
-
-            <div>
               <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">
                 {selectedModel?.name || selectedCategory.name}
-                {Object.keys(attributeValues).length > 0 && (
-                  <span> - {Object.values(attributeValues).filter(v => v).join(' / ')}</span>
-                )}
+              {Object.keys(attributeValues).length > 0 && <span> - {Object.values(attributeValues).filter((v) => v).join(' / ')}</span>}
               </h1>
-            </div>
           </div>
         </div>
       )}
       
       {isEbayCategory && (
+        <>
         <div className="flex items-center px-8 bg-gray-50 border-b border-gray-200 sticky top-0 z-40">
           <Tab icon="analytics" label="eBay Research" isActive={activeTab === 'research'} onClick={() => setActiveTab('research')} />
         </div>
-      )}
-
-      {isEbayCategory && (
         <div className="p-8">
           {!savedEbayState && cartItems.some((ci) => ci.isCustomEbayItem) && (
             <div className="mb-6 px-4 py-3 rounded-lg bg-blue-50 border border-blue-200 flex items-center gap-3">
               <span className="material-symbols-outlined text-blue-600 text-xl">info</span>
-              <p className="text-sm text-blue-900">
-                Click on an item on the right to view its per-item research data.
-              </p>
+                <p className="text-sm text-blue-900">Click on an item on the right to view its per-item research data.</p>
             </div>
           )}
           <EbayResearchForm
             key={savedEbayState ? 'ebay-with-data' : 'ebay-empty'}
-            mode="page"
-            category={EBAY_TOP_LEVEL_CATEGORY}
-            onComplete={handleEbayResearchComplete}
-            savedState={savedEbayState}
-            initialHistogramState={false}
-            showManualOffer={false}
-            addActionLabel={isRepricing ? 'Add to Reprice List' : 'Add to Cart'}
-            hideOfferCards={isRepricing}
+              mode="page" category={EBAY_TOP_LEVEL_CATEGORY}
+              onComplete={handleEbayResearchComplete} savedState={savedEbayState}
+              initialHistogramState={false} showManualOffer={false}
+              addActionLabel={isRepricing ? 'Add to Reprice List' : 'Add to Cart'} hideOfferCards={isRepricing}
           />
         </div>
+        </>
       )}
 
       {!isEbayCategory && (
         <>
           <div className="p-8 space-y-8">
             <AttributeConfiguration
-              attributes={attributes}
-              attributeValues={attributeValues}
-              variants={variants}
-              handleAttributeChange={handleAttributeChangeWithDeselect}
-              setAllAttributeValues={setAllAttributeValues}
-              variant={variant}
-              setVariant={setVariant}
-              onUserSetVariant={setVariantWithDeselect}
-              variantImageUrl={
-                referenceData?.cex_image_urls?.large ||
-                referenceData?.cex_image_urls?.medium ||
-                referenceData?.cex_image_urls?.small
-              }
+              attributes={attributes} attributeValues={attributeValues} variants={variants}
+              handleAttributeChange={handleAttributeChangeWithDeselect} setAllAttributeValues={setAllAttributeValues}
+              variant={variant} setVariant={setVariant} onUserSetVariant={setVariantWithDeselect}
+              variantImageUrl={referenceData?.cex_image_urls?.large || referenceData?.cex_image_urls?.medium || referenceData?.cex_image_urls?.small}
             />
 
             {variant && (
               <MarketComparisonsTable
-                variant={variant}
-                competitorStats={[]}
-                ourSalePrice={ourSalePrice}
-                referenceData={referenceData}
-                ebayData={ebayData}
-                setEbayModalOpen={setEbayModalOpen}
-                cashConvertersData={cashConvertersData}
-                setCashConvertersModalOpen={setCashConvertersModalOpen}
-                cexSku={variant}
-                hideBuyInPrice={isRepricing}
+                variant={variant} competitorStats={[]} ourSalePrice={ourSalePrice} referenceData={referenceData}
+                ebayData={ebayData} setEbayModalOpen={setEbayModalOpen}
+                cashConvertersData={cashConvertersData} setCashConvertersModalOpen={setCashConvertersModalOpen}
+                cexSku={variant} hideBuyInPrice={isRepricing}
               />
             )}
 
             {isRepricing ? (
-              variant && (
+              variant && !isAlreadyInCart && (
                 <div className="flex justify-end pt-4">
-                  <Button
-                    variant="primary"
-                    icon="sell"
-                    className="px-6 py-3 font-bold uppercase tracking-tight"
-                    onClick={() => handleAddToCart(null)}
-                  >
+                  <Button variant="primary" icon="sell" className="px-6 py-3 font-bold uppercase tracking-tight" onClick={() => handleAddToCart(null)}>
                     Add to Reprice List
                   </Button>
                 </div>
@@ -1618,117 +630,40 @@ const MainContent = ({
             ) : isLoadingOffers ? (
               <div className="flex items-center justify-center py-8">
                 <Icon name="sync" className="animate-spin text-2xl text-blue-900 mr-3" />
-                <span className="text-sm text-gray-600">
-                  Loading {useVoucherOffers ? 'voucher' : 'cash'} offers...
-                </span>
+                <span className="text-sm text-gray-600">Loading {useVoucherOffers ? 'voucher' : 'cash'} offers...</span>
               </div>
             ) : isViewingCartItem ? (
               <OfferSelection
                 variant={variant}
-                offers={
-                  useVoucherOffers
-                    ? (selectedCartItem.voucherOffers?.length ? selectedCartItem.voucherOffers : offers)
-                    : (selectedCartItem.cashOffers?.length ? selectedCartItem.cashOffers : offers)
-                }
-                referenceData={referenceData}
-                offerType={useVoucherOffers ? 'voucher' : 'cash'}
-                initialSelectedOfferId={selectedCartItem?.selectedOfferId ?? null}
-                editMode={true}
+                offers={useVoucherOffers ? (selectedCartItem.voucherOffers?.length ? selectedCartItem.voucherOffers : offers) : (selectedCartItem.cashOffers?.length ? selectedCartItem.cashOffers : offers)}
+                referenceData={referenceData} offerType={useVoucherOffers ? 'voucher' : 'cash'}
+                initialSelectedOfferId={selectedCartItem?.selectedOfferId ?? null} editMode={true}
                 syncKey={`${selectedCartItem?.id ?? variant ?? 'item'}:${useVoucherOffers ? 'voucher' : 'cash'}`}
-                onOfferPriceChange={handleOfferPriceChange}
-                onSelectedOfferChange={handleSelectedOfferChange}
+                onOfferPriceChange={handleOfferPriceChange} onSelectedOfferChange={handleSelectedOfferChange}
               />
             ) : (
-              <OfferSelection
-                variant={variant}
-                offers={offers}
-                referenceData={referenceData}
-                offerType={useVoucherOffers ? 'voucher' : 'cash'}
-                onAddToCart={handleAddToCart}
-              />
+              <OfferSelection variant={variant} offers={offers} referenceData={referenceData} offerType={useVoucherOffers ? 'voucher' : 'cash'} onAddToCart={handleAddToCart} />
             )}
           </div>
 
           {isEbayModalOpen && (
             <EbayResearchForm
-              mode="modal"
-              category={selectedCategory}
-              savedState={savedEbayState}
-              initialHistogramState={false}
-              showManualOffer={false}
-              referenceData={referenceData}
-              ourSalePrice={ourSalePrice}
-              initialSearchQuery={selectedModel?.name || undefined}
-              marketComparisonContext={
-                (selectedModel || referenceData || ourSalePrice || ebayData || cashConvertersData)
-                  ? {
-                      cexSalePrice: referenceData?.cex_sale_price ?? null,
-                      ourSalePrice: ourSalePrice ?? null,
-                      ebaySalePrice: ebayData?.stats?.median ?? null,
-                      cashConvertersSalePrice: cashConvertersData?.stats?.median ?? null,
-                      itemTitle: selectedModel?.name || selectedCategory?.name || null,
-                      itemCondition: attributeValues?.condition || null,
-                      itemSpecs: Object.values(attributeValues || {}).some(v => v)
-                        ? Object.fromEntries(
-                            Object.entries(attributeValues || {})
-                              .filter(([, v]) => v)
-                              .map(([k, v]) => [k.charAt(0).toUpperCase() + k.slice(1), v])
-                          )
-                        : null,
-                      ebaySearchTerm: ebayData?.searchTerm || ebayData?.lastSearchedTerm || null,
-                      cashConvertersSearchTerm: cashConvertersData?.searchTerm || cashConvertersData?.lastSearchedTerm || null,
-                    }
-                  : null
-              }
-              onComplete={(data) => {
-                if (data?.cancel) {
-                  setEbayModalOpen(false);
-                  return;
-                }
-                handleEbayResearchComplete(data);
-                setEbayModalOpen(false);
-              }}
+              mode="modal" category={selectedCategory} savedState={savedEbayState}
+              initialHistogramState={false} showManualOffer={false} referenceData={referenceData}
+              ourSalePrice={ourSalePrice} initialSearchQuery={selectedModel?.name || undefined}
+              marketComparisonContext={buildMarketContext()}
+              hideOfferCards
+              onComplete={(data) => { if (data?.cancel) { setEbayModalOpen(false); return; } handleEbayResearchComplete(data); setEbayModalOpen(false); }}
             />
           )}
 
           {isCashConvertersModalOpen && (
             <CashConvertersResearchForm
-              mode="modal"
-              category={selectedCategory}
-              savedState={savedCashConvertersState}
-              initialHistogramState={false}
-              referenceData={referenceData}
-              ourSalePrice={ourSalePrice}
-              initialSearchQuery={ebayData?.searchTerm || ebayData?.lastSearchedTerm || selectedModel?.name || undefined}
-              marketComparisonContext={
-                (selectedModel || referenceData || ourSalePrice || ebayData || cashConvertersData)
-                  ? {
-                      cexSalePrice: referenceData?.cex_sale_price ?? null,
-                      ourSalePrice: ourSalePrice ?? null,
-                      ebaySalePrice: ebayData?.stats?.median ?? null,
-                      cashConvertersSalePrice: cashConvertersData?.stats?.median ?? null,
-                      itemTitle: selectedModel?.name || selectedCategory?.name || null,
-                      itemCondition: attributeValues?.condition || null,
-                      itemSpecs: Object.values(attributeValues || {}).some(v => v)
-                        ? Object.fromEntries(
-                            Object.entries(attributeValues || {})
-                              .filter(([, v]) => v)
-                              .map(([k, v]) => [k.charAt(0).toUpperCase() + k.slice(1), v])
-                          )
-                        : null,
-                      ebaySearchTerm: ebayData?.searchTerm || ebayData?.lastSearchedTerm || null,
-                      cashConvertersSearchTerm: cashConvertersData?.searchTerm || cashConvertersData?.lastSearchedTerm || null,
-                    }
-                  : null
-              }
-              onComplete={(data) => {
-                if (data?.cancel) {
-                  setCashConvertersModalOpen(false);
-                  return;
-                }
-                handleCashConvertersResearchComplete(data);
-                setCashConvertersModalOpen(false);
-              }}
+              mode="modal" category={selectedCategory} savedState={savedCashConvertersState}
+              initialHistogramState={false} referenceData={referenceData} ourSalePrice={ourSalePrice}
+              initialSearchQuery={ebayData?.searchTerm || selectedModel?.name || undefined}
+              marketComparisonContext={buildMarketContext()}
+              onComplete={(data) => { if (data?.cancel) { setCashConvertersModalOpen(false); return; } handleCashConvertersResearchComplete(data); setCashConvertersModalOpen(false); }}
             />
           )}
         </>
@@ -1744,30 +679,19 @@ const MainContent = ({
               <h2 className="text-base font-extrabold text-gray-900">Item Already in Cart</h2>
             </div>
             <p className="text-sm text-gray-600 mb-6">
-              <span className="font-semibold text-gray-900">{pendingDuplicateItem.title}</span> is already in your cart. What would you like to do?
+              <span className="font-semibold text-gray-900">{pendingDuplicateItem.title}</span> is already in your cart.
             </p>
             <div className="flex flex-col gap-3">
-              <button
-                type="button"
-                onClick={handleDuplicateIncreaseQty}
-                className="w-full px-4 py-3 bg-blue-900 text-white rounded-xl font-bold hover:bg-blue-800 transition-colors flex items-center justify-center gap-2"
-              >
-                <span className="material-symbols-outlined text-lg">add_circle</span>
-                Increase Quantity
+              <button type="button" onClick={handleDuplicateIncreaseQty}
+                className="w-full px-4 py-3 bg-blue-900 text-white rounded-xl font-bold hover:bg-blue-800 transition-colors flex items-center justify-center gap-2">
+                <span className="material-symbols-outlined text-lg">add_circle</span>Increase Quantity
               </button>
-              <button
-                type="button"
-                onClick={handleDuplicateAddNew}
-                className="w-full px-4 py-3 border-2 border-blue-900 text-blue-900 rounded-xl font-bold hover:bg-blue-50 transition-colors flex items-center justify-center gap-2"
-              >
-                <span className="material-symbols-outlined text-lg">add_box</span>
-                Add as Separate Item
+              <button type="button" onClick={handleDuplicateAddNew}
+                className="w-full px-4 py-3 border-2 border-blue-900 text-blue-900 rounded-xl font-bold hover:bg-blue-50 transition-colors flex items-center justify-center gap-2">
+                <span className="material-symbols-outlined text-lg">add_box</span>Add as Separate Item
               </button>
-              <button
-                type="button"
-                onClick={() => { setShowDuplicateDialog(false); setPendingDuplicateItem(null); }}
-                className="w-full px-4 py-2 text-gray-500 rounded-xl font-medium hover:bg-gray-50 transition-colors text-sm"
-              >
+              <button type="button" onClick={() => { setShowDuplicateDialog(false); setPendingDuplicateItem(null); }}
+                className="w-full px-4 py-2 text-gray-500 rounded-xl font-medium hover:bg-gray-50 transition-colors text-sm">
                 Cancel
               </button>
             </div>

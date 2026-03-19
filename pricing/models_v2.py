@@ -869,12 +869,29 @@ class RequestItem(models.Model):
         db_table = "buying_request_item"
 
 
+class RepricingSessionStatus(models.TextChoices):
+    IN_PROGRESS = "IN_PROGRESS"
+    COMPLETED = "COMPLETED"
+
+
 class RepricingSession(models.Model):
     repricing_session_id = models.AutoField(primary_key=True)
     cart_key = models.CharField(max_length=255, blank=True, default="", db_index=True)
     item_count = models.PositiveIntegerField(default=0)
     barcode_count = models.PositiveIntegerField(default=0)
+    status = models.CharField(
+        max_length=20,
+        choices=RepricingSessionStatus.choices,
+        default=RepricingSessionStatus.IN_PROGRESS,
+        db_index=True,
+    )
+    session_data = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Full frontend state for resuming in-progress sessions (items, barcodes, lookups, research)"
+    )
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "pricing_repricing_session"

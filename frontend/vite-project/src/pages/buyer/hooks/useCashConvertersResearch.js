@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { roundSalePrice } from '@/utils/helpers';
 
 // Flag to control pagination: set to true to fetch only first page, false to fetch all pages
 const FETCH_ONLY_FIRST_PAGE = true;
@@ -187,8 +188,7 @@ function calculateStats(listingsData) {
     ? (sortedPrices[mid - 1] + sortedPrices[mid]) / 2
     : sortedPrices[mid];
 
-  // Suggested sale price: £1 below median
-  const suggestedPrice = Math.max(median - 1, 0);
+  const suggestedPrice = roundSalePrice(Math.max(median - 1, 0));
 
   return {
     average,

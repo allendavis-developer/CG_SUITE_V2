@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { createRequest, addRequestItem, updateRequestItemRawData } from '@/services/api';
+import { roundSalePrice } from '@/utils/helpers';
 
 export const useCartItemCreation = ({
   customerData,
@@ -108,7 +109,7 @@ export const useCartItemCreation = ({
       color: attributeValues.color || selectedVariant?.color,
       storage: attributeValues.storage || selectedVariant?.storage,
       network: attributeValues.network || selectedVariant?.network,
-      ourSalePrice: ourSalePrice ? Number(ourSalePrice) : null,
+      ourSalePrice: ourSalePrice ? roundSalePrice(Number(ourSalePrice)) : null,
       cexSellPrice: referenceData?.cex_sale_price ? Number(referenceData.cex_sale_price) : null,
       cexBuyPrice: referenceData?.cex_tradein_cash ? Number(referenceData.cex_tradein_cash) : null,
       cexVoucherPrice: referenceData?.cex_tradein_voucher ? Number(referenceData.cex_tradein_voucher) : null,

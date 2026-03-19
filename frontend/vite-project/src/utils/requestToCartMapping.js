@@ -3,7 +3,7 @@
  * Used when opening a QUOTE request from Requests Overview to continue editing.
  */
 
-import { roundOfferPrice, toVoucherOfferPrice, formatOfferPrice } from '@/utils/helpers';
+import { roundOfferPrice, roundSalePrice, toVoucherOfferPrice, formatOfferPrice } from '@/utils/helpers';
 
 /**
  * Map request items from API to cart item format for Buyer/MainContent
@@ -149,7 +149,7 @@ export function mapRequestItemsToCartItems(items, transactionType) {
             ? parseFloat(rawData.sellPrice ?? rawData.price)
             : null;
 
-    const ourSalePrice =
+    const rawOurSale =
       item.our_sale_price_at_negotiation != null
         ? parseFloat(item.our_sale_price_at_negotiation)
         : rawData?.referenceData?.cex_based_sale_price != null
@@ -157,6 +157,10 @@ export function mapRequestItemsToCartItems(items, transactionType) {
           : ebayResearchData?.stats?.suggestedPrice != null
             ? parseFloat(ebayResearchData.stats.suggestedPrice)
             : null;
+    const ourSalePrice =
+      rawOurSale != null && !Number.isNaN(rawOurSale) && rawOurSale > 0
+        ? roundSalePrice(rawOurSale)
+        : null;
 
     const title = hasSavedDisplay
       ? savedDisplayTitle

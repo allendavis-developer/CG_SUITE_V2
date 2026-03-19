@@ -3,6 +3,13 @@ import { useNavigate } from "react-router-dom";
 import { createCustomer, getOrCreateCustomer } from "@/services/api";
 import { openNosposForCustomerIntake } from "@/services/extensionClient";
 
+function getDaysSinceLastTransaction(customer) {
+  if (!customer?.lastTransacted) return null;
+  const d = new Date(customer.lastTransacted.replace(",", ""));
+  if (isNaN(d.getTime())) return null;
+  return Math.floor((Date.now() - d.getTime()) / 86400000);
+}
+
 export default function CustomerIntakeModal({ open = true, onClose }) {
   const navigate = useNavigate();
   const [customerType, setCustomerType] = useState("existing"); // "existing" | "new"
@@ -13,16 +20,39 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
   const [nosposChanges, setNosposChanges] = useState([]);
   const [confirming, setConfirming] = useState(false);
 
+  // Bypass: skip customer data update
+  const [bypassReason, setBypassReason] = useState(null);
+  const [showBypassPrompt, setShowBypassPrompt] = useState(false);
+  const [bypassReasonInput, setBypassReasonInput] = useState("");
+
   if (!open) return null;
 
   const handleGetDataFromNospos = async () => {
     setNosposOpenLoading(true);
     setNosposChanges([]);
     setNosposCustomer(null);
+    setBypassReason(null);
+    setShowBypassPrompt(false);
+    setBypassReasonInput("");
     setError(null);
     try {
       const result = await openNosposForCustomerIntake();
-      if (result?.customer) setNosposCustomer(result.customer);
+      if (result?.customer) {
+        setNosposCustomer(result.customer);
+        // Extension may already have collected bypass (e.g. prompt when last tx >14 days ago).
+        const br = result.customer.bypassReason;
+        if (br) {
+          const days = getDaysSinceLastTransaction(result.customer);
+          // Extension uses literal '14 days ago' when ≤14 days (no prompt); normalize for UI copy.
+          if (br === "14 days ago" && days !== null && days <= 14) {
+            setBypassReason("Within 14 days of last transaction");
+          } else {
+            setBypassReason(br);
+          }
+          setShowBypassPrompt(false);
+          setBypassReasonInput("");
+        }
+      }
       if (result?.changes?.length > 0) setNosposChanges(result.changes);
     } catch (err) {
       setError(err?.message || "Failed to open NoSpos");
@@ -53,6 +83,32 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
     } catch (err) {
       setError(err.message || "Failed to create new customer");
     }
+  };
+
+  const handleBypass = () => {
+    if (!nosposCustomer) {
+      setError("Please get customer data from NoSpos first.");
+      return;
+    }
+    const days = getDaysSinceLastTransaction(nosposCustomer);
+    if (days !== null && days <= 14) {
+      setBypassReason("Within 14 days of last transaction");
+      setShowBypassPrompt(false);
+    } else {
+      setShowBypassPrompt(true);
+      setBypassReasonInput("");
+    }
+  };
+
+  const handleBypassConfirmReason = () => {
+    const reason = bypassReasonInput.trim();
+    if (!reason) {
+      setError("Please enter a reason for bypassing customer data update.");
+      return;
+    }
+    setBypassReason(reason);
+    setShowBypassPrompt(false);
+    setError(null);
   };
 
   const handleConfirm = async () => {
@@ -86,6 +142,7 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
         address: c.address,
         cancelRate: cancelRateNum,
         nosposChanges,
+        bypassReason: bypassReason || null,
       });
     } catch (err) {
       setError(err?.message || "Failed to create customer record");
@@ -328,22 +385,77 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
                     </div>
                   </div>
 
-                  {/* Recent transaction warning */}
-                  {(() => {
-                    if (!c.lastTransacted) return null;
-                    const d = new Date(c.lastTransacted.replace(',', ''));
-                    if (isNaN(d.getTime())) return null;
-                    const days = Math.floor((Date.now() - d.getTime()) / 86400000);
-                    if (days > 14) return null;
-                    return (
-                      <div className="border-t border-amber-200 px-5 py-3 bg-amber-50 flex items-start gap-2">
-                        <span className="material-symbols-outlined text-amber-600 text-base mt-0.5">warning</span>
-                        <p className="text-xs font-semibold text-amber-800 leading-snug">
-                          Customer information not updated because last transaction ({c.lastTransacted}) was less than 14 days ago.
+                  {/* Bypass status / reason display */}
+                  {bypassReason ? (
+                    <div className="border-t border-amber-200 px-5 py-3 bg-amber-50 flex items-start gap-2">
+                      <span className="material-symbols-outlined text-amber-600 text-base mt-0.5">info</span>
+                      <div className="flex-1">
+                        <p className="text-xs font-bold text-amber-800 leading-snug">
+                          {getDaysSinceLastTransaction(c) !== null && getDaysSinceLastTransaction(c) <= 14
+                            ? `Customer data not updated — ${bypassReason}`
+                            : `Customer data was not updated because: ${bypassReason}`}
                         </p>
+                        {c.lastTransacted && (
+                          <p className="text-[10px] text-amber-600 mt-0.5">Last transaction: {c.lastTransacted}</p>
+                        )}
                       </div>
-                    );
-                  })()}
+                      <button
+                        onClick={() => { setBypassReason(null); }}
+                        className="text-amber-400 hover:text-amber-700 transition-colors shrink-0"
+                        title="Remove bypass"
+                      >
+                        <span className="material-symbols-outlined text-base">close</span>
+                      </button>
+                    </div>
+                  ) : !showBypassPrompt && (
+                    <div className="border-t border-gray-100 px-5 py-3 bg-gray-50 flex items-center justify-between">
+                      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+                        {c.lastTransacted ? `Last transacted: ${c.lastTransacted}` : 'No transaction history'}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handleBypass}
+                        className="text-xs font-bold text-amber-600 hover:text-amber-800 transition-colors flex items-center gap-1"
+                      >
+                        <span className="material-symbols-outlined text-sm">skip_next</span>
+                        Bypass Data Update
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Bypass reason prompt (shown when > 14 days) */}
+                  {showBypassPrompt && (
+                    <div className="border-t border-amber-200 px-5 py-4 bg-amber-50">
+                      <p className="text-xs font-bold text-amber-800 mb-2">
+                        Last transaction was more than 14 days ago. Enter a reason for bypassing the data update:
+                      </p>
+                      <div className="flex gap-2">
+                        <input
+                          autoFocus
+                          type="text"
+                          className="flex-1 px-3 py-2 border border-amber-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white"
+                          placeholder="Enter reason…"
+                          value={bypassReasonInput}
+                          onChange={(e) => setBypassReasonInput(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') handleBypassConfirmReason(); }}
+                        />
+                        <button
+                          type="button"
+                          onClick={handleBypassConfirmReason}
+                          className="px-3 py-2 rounded-lg text-xs font-bold bg-amber-500 text-white hover:bg-amber-600 transition-colors"
+                        >
+                          Confirm
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setShowBypassPrompt(false); setError(null); }}
+                          className="px-3 py-2 rounded-lg text-xs font-semibold text-gray-500 hover:text-gray-700 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
               {/* Transaction stats */}
               {(c.buyBackRate || c.renewRate || c.cancelRate || c.faultyRate) && (

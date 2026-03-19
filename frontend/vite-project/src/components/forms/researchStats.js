@@ -1,4 +1,4 @@
-import { roundOfferPrice } from '@/utils/helpers';
+import { roundOfferPrice, roundSalePrice } from '@/utils/helpers';
 
 /**
  * Stats and buy-offer helpers for research forms (works with listings whose price may be string or number).
@@ -34,8 +34,8 @@ export function calculateStats(listingsData) {
     ? (sortedPrices[mid - 1] + sortedPrices[mid]) / 2
     : sortedPrices[mid];
 
-  // Suggested sale price: exactly £1 below the median, no extra rounding.
-  const suggestedPrice = Math.max(median - 1, 0);
+  // Suggested sale price: £1 below median, then sale-price rounding (£5 / £2).
+  const suggestedPrice = roundSalePrice(Math.max(median - 1, 0));
 
   return { average, median, suggestedPrice };
 }

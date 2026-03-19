@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import AppHeader from "@/components/AppHeader";
 import EbayResearchForm from "@/components/forms/EbayResearchForm";
@@ -8,9 +8,12 @@ import SalePriceConfirmModal from "@/components/modals/SalePriceConfirmModal";
 import TinyModal from "@/components/ui/TinyModal";
 import { maybeShowSalePriceConfirm } from "./utils/researchCompletionHelpers";
 import { cancelNosposRepricing, clearLastRepricingResult, getLastRepricingResult, getNosposRepricingStatus, openNospos, searchNosposBarcode } from "@/services/extensionClient";
-import { saveRepricingSession } from "@/services/api";
+import { saveRepricingSession, createRepricingSessionDraft, updateRepricingSession, fetchRepricingSessionDetail } from "@/services/api";
 import { getCartKey, loadRepricingProgress, saveRepricingProgress, clearRepricingProgress } from "@/utils/repricingProgress";
 import { getEditableSalePriceState, resolveRepricingSalePrice } from "./utils/repricingDisplay";
+import useAppStore from '@/store/useAppStore';
+import { roundSalePrice } from '@/utils/helpers';
+import { buildItemSpecs, buildInitialSearchQuery } from './utils/negotiationHelpers';
 
 // ─── Right-click context menu (remove only) ────────────────────────────────
 const ContextMenu = ({ x, y, onClose, onRemove }) => {
@@ -46,33 +49,6 @@ const ContextMenu = ({ x, y, onClose, onRemove }) => {
   );
 };
 
-// ─── Item spec helpers (same logic as Negotiation.jsx) ────────────────────────
-const buildItemSpecs = (item) => {
-  if (!item) return null;
-  if (item.cexProductData?.specifications && Object.keys(item.cexProductData.specifications).length > 0) {
-    return item.cexProductData.specifications;
-  }
-  if (item.attributeValues && Object.values(item.attributeValues).some(v => v)) {
-    return Object.fromEntries(
-      Object.entries(item.attributeValues)
-        .filter(([, v]) => v)
-        .map(([k, v]) => [k.charAt(0).toUpperCase() + k.slice(1), v])
-    );
-  }
-  const specs = {};
-  if (item.storage)   specs['Storage']   = item.storage;
-  if (item.color)     specs['Colour']    = item.color;
-  if (item.network)   specs['Network']   = item.network;
-  if (item.condition) specs['Condition'] = item.condition;
-  return Object.keys(specs).length > 0 ? specs : null;
-};
-
-const buildInitialSearchQuery = (item) =>
-  item?.ebayResearchData?.searchTerm ||
-  item?.ebayResearchData?.lastSearchedTerm ||
-  item?.title ||
-  undefined;
-
 const buildSessionSavePayload = (payload) => ({
   cart_key: payload?.cart_key || "",
   item_count: payload?.item_count || 0,
@@ -95,7 +71,8 @@ const RepricingNegotiation = () => {
   const location = useLocation();
   const { showNotification } = useNotification();
 
-  const { cartItems } = location.state || {};
+  const storeCartItems = useAppStore((s) => s.repricingCartItems);
+  const cartItems = location.state?.cartItems ?? storeCartItems;
 
   const [items, setItems] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -131,6 +108,76 @@ const RepricingNegotiation = () => {
   const hasInitialized = useRef(false);
   const lastHandledCompletionRef = useRef("");
 
+  // ── DB session persistence ──────────────────────────────────────────────────
+  const [dbSessionId, setDbSessionId] = useState(location.state?.sessionId || null);
+  const autoSaveTimer = useRef(null);
+  const isCreatingSession = useRef(false);
+  const hasPendingSave = useRef(false);
+  const latestStateRef = useRef({ items, barcodes, nosposLookups });
+
+  useEffect(() => { latestStateRef.current = { items, barcodes, nosposLookups }; }, [items, barcodes, nosposLookups]);
+
+  const buildSessionDataSnapshot = useCallback((state) => {
+    const { items: snapshotItems, barcodes: snapshotBarcodes, nosposLookups: snapshotLookups } = state || latestStateRef.current;
+    return {
+      items: snapshotItems.map(({ id, title, subtitle, category, model, cexSellPrice, cexBuyPrice, cexUrl,
+        ourSalePrice, ourSalePriceInput, cexOutOfStock, cexProductData, isCustomCeXItem, condition,
+        categoryObject, nosposBarcodes, ebayResearchData, cashConvertersResearchData, quantity,
+        isRemoved }) => ({
+        id, title, subtitle, category, model, cexSellPrice, cexBuyPrice, cexUrl,
+        ourSalePrice, ourSalePriceInput, cexOutOfStock, cexProductData, isCustomCeXItem, condition,
+        categoryObject, nosposBarcodes, ebayResearchData, cashConvertersResearchData, quantity,
+        isRemoved,
+      })),
+      barcodes: snapshotBarcodes,
+      nosposLookups: snapshotLookups,
+    };
+  }, []);
+
+  const flushNegotiationSave = useCallback((opts = {}) => {
+    if (!dbSessionId || isRepricingFinished) return;
+    const state = latestStateRef.current;
+    const activeCount = state.items.filter(i => !i.isRemoved).length;
+    if (autoSaveTimer.current) { clearTimeout(autoSaveTimer.current); autoSaveTimer.current = null; }
+    hasPendingSave.current = false;
+    updateRepricingSession(dbSessionId, {
+      session_data: buildSessionDataSnapshot(state),
+      cart_key: getCartKey(state.items.filter(i => !i.isRemoved)),
+      item_count: activeCount,
+    }, opts).catch(err => console.warn('[CG Suite] Repricing save failed:', err));
+  }, [dbSessionId, isRepricingFinished, buildSessionDataSnapshot]);
+
+  // Debounced auto-save: trigger on any state change (items, barcodes, lookups)
+  useEffect(() => {
+    if (!dbSessionId || isLoading || isRepricingFinished) return;
+    hasPendingSave.current = true;
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    autoSaveTimer.current = setTimeout(() => {
+      hasPendingSave.current = false;
+      const activeCount = items.filter(i => !i.isRemoved).length;
+      updateRepricingSession(dbSessionId, {
+        session_data: buildSessionDataSnapshot({ items, barcodes, nosposLookups }),
+        cart_key: getCartKey(items.filter(i => !i.isRemoved)),
+        item_count: activeCount,
+      }).catch(err => console.warn('[CG Suite] Auto-save failed:', err));
+    }, 1500);
+    return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
+  }, [items, barcodes, nosposLookups, dbSessionId, isLoading, isRepricingFinished, buildSessionDataSnapshot]);
+
+  // Flush pending save on unmount (client-side navigation away)
+  useEffect(() => {
+    return () => {
+      if (hasPendingSave.current) flushNegotiationSave();
+    };
+  }, [flushNegotiationSave]);
+
+  // Save on tab close / hard reload
+  useEffect(() => {
+    const handleUnload = () => flushNegotiationSave({ keepalive: true });
+    window.addEventListener('beforeunload', handleUnload);
+    return () => window.removeEventListener('beforeunload', handleUnload);
+  }, [flushNegotiationSave]);
+
   const persistCompletedRepricing = async (payload) => {
     if (!payload?.cart_key || payload.cart_key !== activeCartKey) return false;
 
@@ -146,6 +193,14 @@ const RepricingNegotiation = () => {
         await saveRepricingSession(savePayload);
         clearRepricingProgress(activeCartKey);
       }
+
+      // Mark the DB session as COMPLETED
+      if (dbSessionId) {
+        try {
+          await updateRepricingSession(dbSessionId, { status: 'COMPLETED' });
+        } catch {}
+      }
+
       try {
         await clearLastRepricingResult();
       } catch {
@@ -180,6 +235,14 @@ const RepricingNegotiation = () => {
     if (hasInitialized.current) return;
     hasInitialized.current = true;
 
+    const resumeSessionId = location.state?.sessionId || useAppStore.getState().repricingSessionId;
+
+    // If we have a sessionId AND cartItems, just attach to the existing DB session (no refetch)
+    if (resumeSessionId && cartItems?.length) {
+      setDbSessionId(resumeSessionId);
+    }
+
+    // Normal flow: starting fresh from cart items
     if (!cartItems || cartItems.length === 0) {
       navigate('/repricing', { replace: true });
       return;
@@ -217,6 +280,33 @@ const RepricingNegotiation = () => {
         setNosposLookups(prePopulatedLookups);
       }
     }
+
+    // Create a draft DB session (unless already attached to an existing one)
+    if (!resumeSessionId && !isCreatingSession.current) {
+      isCreatingSession.current = true;
+      const itemsSnapshot = cartItems.map(item => ({
+        id: item.id, title: item.title, subtitle: item.subtitle, category: item.category,
+        model: item.model, cexSellPrice: item.cexSellPrice, cexBuyPrice: item.cexBuyPrice,
+        cexUrl: item.cexUrl, ourSalePrice: item.ourSalePrice, cexOutOfStock: item.cexOutOfStock,
+        cexProductData: item.cexProductData, isCustomCeXItem: item.isCustomCeXItem,
+        condition: item.condition, categoryObject: item.categoryObject,
+        nosposBarcodes: item.nosposBarcodes, ebayResearchData: item.ebayResearchData,
+        cashConvertersResearchData: item.cashConvertersResearchData, quantity: item.quantity,
+      }));
+      createRepricingSessionDraft({
+        cart_key: cartKey,
+        item_count: cartItems.length,
+        session_data: { items: itemsSnapshot, barcodes: saved?.barcodes || {}, nosposLookups: saved?.nosposLookups || {} },
+      }).then(resp => {
+        if (resp?.repricing_session_id) {
+          setDbSessionId(resp.repricing_session_id);
+          useAppStore.getState().setRepricingSessionId(resp.repricing_session_id);
+        }
+      }).catch(err => {
+        console.warn('[CG Suite] Failed to create draft session:', err);
+      });
+    }
+
     setIsLoading(false);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -631,6 +721,7 @@ const RepricingNegotiation = () => {
                   const handleOurSalePriceBlur = () => {
                     const raw = (item.ourSalePriceInput ?? salePriceDisplayValue).replace(/[£,]/g, '').trim();
                     const parsedTotal = parseFloat(raw);
+                    const qty = item.quantity || 1;
                     setItems(prev => prev.map(i => {
                       if (i.id !== item.id) return i;
                       const next = { ...i };
@@ -639,7 +730,7 @@ const RepricingNegotiation = () => {
                         next.ourSalePrice = '';
                         return next;
                       }
-                      next.ourSalePrice = parsedTotal.toFixed(2);
+                      next.ourSalePrice = String(roundSalePrice(parsedTotal / qty));
                       return next;
                     }));
                   };

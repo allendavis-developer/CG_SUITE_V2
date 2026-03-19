@@ -10,13 +10,15 @@ from django.db.models import OuterRef, Subquery, Max
 import os
 import logging
 import requests
+
+logger = logging.getLogger(__name__)
 from pricing.utils.ebay_filters import extract_filters, extract_ebay_search_params, build_ebay_search_url, resolve_ebay_category
 from pricing.utils.cashconverters_filters import build_cashconverters_url, convert_facet_groups_to_filters, resolve_cashconverters_category
 
 from .models_v2 import ( ProductCategory, Product, Variant, Customer,
 Request, RequestItem, RequestStatus, RequestStatusHistory,
 Customer, Variant, RequestIntent, RepricingSession, RepricingSessionItem,
-PricingRule
+RepricingSessionStatus, PricingRule
 )
 
 from .serializers import ( RequestSerializer, RequestItemSerializer, CustomerSerializer,
@@ -57,6 +59,18 @@ def _round_offer_price(value):
             ((amount / Decimal("5")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)) * Decimal("5")
         )
     return float(amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
+def _round_sale_price(value):
+    """Nearest £5 if above £50, else nearest £2 (matches frontend `roundSalePrice`)."""
+    amount = Decimal(str(value or 0))
+    if amount > Decimal("50"):
+        return float(
+            ((amount / Decimal("5")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)) * Decimal("5")
+        )
+    return float(
+        ((amount / Decimal("2")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)) * Decimal("2")
+    )
 
 
 @api_view(['GET'])
@@ -140,7 +154,7 @@ def customers_view(request):
                 "cancel_rate": customer.cancel_rate,
             }
             return Response(data, status=status.HTTP_201_CREATED)
-        print("❌ CustomerSerializer errors:", serializer.errors)
+        logger.warning("CustomerSerializer errors: %s", serializer.errors)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -382,29 +396,6 @@ def update_request_intent(request, request_id):
     )
 
 
-@api_view(['GET'])
-def requests_overview_list(request):
-    """
-    GET: List all requests, optionally filtered by status.
-    Query params: ?status=QUOTE or ?status=BOOKED_FOR_TESTING or ?status=COMPLETE
-    """
-    requests = Request.objects.all().prefetch_related(
-        'items',
-        'items__variant', # Pre-fetch variant details for items
-        'status_history'
-    ).select_related('customer').order_by('-created_at') # Order by creation date, newest first
-
-    status_filter = request.query_params.get('status')
-    if status_filter:
-        # Filter by the latest status in the history
-        requests = requests.filter(status_history__status=status_filter, status_history__effective_at=(
-            RequestStatusHistory.objects.filter(request=OuterRef('pk')).order_by('-effective_at').values('effective_at')[:1]
-        ))
-        
-    serializer = RequestSerializer(requests, many=True)
-    return Response(serializer.data)
-
-
 @api_view(['GET', 'POST'])
 def repricing_sessions_view(request):
     if request.method == 'GET':
@@ -412,8 +403,22 @@ def repricing_sessions_view(request):
         serializer = RepricingSessionSerializer(sessions, many=True)
         return Response(serializer.data)
 
+    # Draft session creation: no items_data, just session_data with IN_PROGRESS status
     items_data = request.data.get('items_data') or []
+    session_data = request.data.get('session_data')
     cart_key = (request.data.get('cart_key') or '').strip()
+
+    if session_data is not None and not items_data:
+        item_count = int(request.data.get('item_count', 0))
+        session = RepricingSession.objects.create(
+            cart_key=cart_key,
+            item_count=item_count,
+            barcode_count=0,
+            status=RepricingSessionStatus.IN_PROGRESS,
+            session_data=session_data,
+        )
+        serializer = RepricingSessionSerializer(session)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     if not isinstance(items_data, list) or len(items_data) == 0:
         return Response(
@@ -432,6 +437,7 @@ def repricing_sessions_view(request):
             cart_key=cart_key,
             item_count=len(unique_item_ids),
             barcode_count=len(items_data),
+            status=RepricingSessionStatus.COMPLETED,
         )
 
         for idx, item_data in enumerate(items_data):
@@ -473,12 +479,45 @@ def repricing_sessions_view(request):
     return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
-@api_view(['GET'])
+@api_view(['GET', 'PATCH'])
 def repricing_session_detail(request, repricing_session_id):
     session = get_object_or_404(
         RepricingSession.objects.prefetch_related('items'),
         repricing_session_id=repricing_session_id
     )
+
+    if request.method == 'GET':
+        serializer = RepricingSessionSerializer(session)
+        return Response(serializer.data)
+
+    # PATCH: auto-save session state
+    update_fields = []
+
+    if 'session_data' in request.data:
+        session.session_data = request.data['session_data']
+        update_fields.append('session_data')
+
+    if 'status' in request.data:
+        new_status = request.data['status']
+        if new_status in RepricingSessionStatus.values:
+            session.status = new_status
+            update_fields.append('status')
+
+    if 'cart_key' in request.data:
+        session.cart_key = (request.data['cart_key'] or '').strip()
+        update_fields.append('cart_key')
+
+    if 'item_count' in request.data:
+        session.item_count = int(request.data['item_count'] or 0)
+        update_fields.append('item_count')
+
+    if 'barcode_count' in request.data:
+        session.barcode_count = int(request.data['barcode_count'] or 0)
+        update_fields.append('barcode_count')
+
+    if update_fields:
+        session.save(update_fields=update_fields + ['updated_at'])
+
     serializer = RepricingSessionSerializer(session)
     return Response(serializer.data)
 
@@ -932,11 +971,11 @@ def variant_prices(request):
         # Derive the multiplier implied by the pricing rule, then apply it to the
         # live CeX sell price so both our_sale_price and cex_sale_price stay in sync.
         multiplier = float(target_sell_price) / float(variant.current_price_gbp)
-        our_sale_price = cex_sale_price * multiplier
+        our_sale_price = _round_sale_price(cex_sale_price * multiplier)
         percentage_used = round(multiplier * 100, 2)
     else:
         percentage_used = 85.0
-        our_sale_price = cex_sale_price * 0.85
+        our_sale_price = _round_sale_price(cex_sale_price * 0.85)
 
     # Resolve first_offer_pct from the applicable pricing rule
     applicable_rule = variant.get_applicable_rule()
@@ -1016,7 +1055,7 @@ def variant_prices(request):
         "cex_sale_price": cex_sale_price,
         "cex_tradein_cash": cex_tradein_cash,
         "cex_tradein_voucher": cex_tradein_voucher,
-        "cex_based_sale_price": round(our_sale_price, 2),
+        "cex_based_sale_price": our_sale_price,
         "percentage_used": percentage_used,
         "cex_out_of_stock": cex_out_of_stock,
         "first_offer_pct_of_cex": first_offer_pct,
@@ -1044,8 +1083,6 @@ def cex_product_prices(request):
     Used when adding a product via "Add from CeX" - we have sell/trade-in prices
     from the page but no variant in our DB.
     """
-    import logging
-    logger = logging.getLogger(__name__)
     data = request.data or {}
     logger.info("[CG Suite] cex_product_prices received: %s", data)
 
@@ -1068,7 +1105,7 @@ def cex_product_prices(request):
 
     if global_rule:
         percentage_used = round(float(global_rule.sell_price_multiplier) * 100, 2)
-        our_sale_price = cex_sale_price * float(global_rule.sell_price_multiplier)
+        our_sale_price = _round_sale_price(cex_sale_price * float(global_rule.sell_price_multiplier))
         first_offer_pct = (
             float(global_rule.first_offer_pct_of_cex)
             if global_rule.first_offer_pct_of_cex is not None
@@ -1081,7 +1118,7 @@ def cex_product_prices(request):
         )
     else:
         percentage_used = 85.0
-        our_sale_price = cex_sale_price * 0.85
+        our_sale_price = _round_sale_price(cex_sale_price * 0.85)
         first_offer_pct = None
         second_offer_pct = None
 
@@ -1118,7 +1155,7 @@ def cex_product_prices(request):
         "cex_sale_price": cex_sale_price,
         "cex_tradein_cash": cex_tradein_cash,
         "cex_tradein_voucher": cex_tradein_voucher,
-        "cex_based_sale_price": round(our_sale_price, 2),
+        "cex_based_sale_price": our_sale_price,
         "percentage_used": percentage_used,
         "first_offer_pct_of_cex": first_offer_pct,
         "second_offer_pct_of_cex": second_offer_pct,
@@ -1284,9 +1321,6 @@ def react_app(request):
     return render(request, "react.html")
 
 
-logger = logging.getLogger(__name__)
-
-
 @api_view(['GET'])
 def product_variants(request):
     """
@@ -1440,9 +1474,9 @@ def quick_reprice_lookup(request):
             target_sell_price = variant.get_target_sell_price()
             if target_sell_price is not None and float(variant.current_price_gbp) > 0:
                 multiplier = float(target_sell_price) / float(variant.current_price_gbp)
-                our_sale_price = round(cex_sale_price * multiplier, 2)
+                our_sale_price = _round_sale_price(cex_sale_price * multiplier)
             else:
-                our_sale_price = round(cex_sale_price * 0.85, 2)
+                our_sale_price = _round_sale_price(cex_sale_price * 0.85)
 
             found.append({
                 'cex_sku': cex_sku,
@@ -1478,7 +1512,7 @@ def quick_reprice_lookup(request):
                 cex_tradein_voucher = float(cex_box.get('exchangePrice') or 0)
                 image_urls = cex_box.get('imageUrls') or {}
                 image = image_urls.get('large') or image_urls.get('medium') or image_urls.get('small')
-                our_sale_price = round(cex_sale_price * 0.85, 2)
+                our_sale_price = _round_sale_price(cex_sale_price * 0.85)
                 found.append({
                     'cex_sku': cex_sku,
                     'nospos_barcode': nospos_barcode,
@@ -1573,8 +1607,7 @@ def get_ebay_filters(request):
             params=params,
             timeout=20,
         )
-        # Log the actual URL that was requested
-        print(f"Request sent to: {response.url}")
+        logger.debug("eBay request sent to: %s", response.url)
 
         response.raise_for_status()
     except requests.RequestException as e:
@@ -1638,8 +1671,7 @@ def get_cashconverters_filters(request):
         # Use category_path if provided (even though it may not be in URL yet)
         api_url = build_cashconverters_url(search_term, category_path if category_path else None)
 
-    # Log the exact Cash Converters API URL used for filters
-    print(f"CashConverters FILTERS API URL: {api_url}")
+    logger.debug("CashConverters filters API URL: %s", api_url)
 
     headers = {
         "User-Agent": (
@@ -1660,7 +1692,7 @@ def get_cashconverters_filters(request):
             api_url,
             timeout=20,
         )
-        print(f"Cash Converters API request sent to: {response.url}")
+        logger.debug("Cash Converters filters request sent to: %s", response.url)
 
         response.raise_for_status()
     except requests.RequestException as e:
@@ -1777,8 +1809,7 @@ def get_cashconverters_results(request):
             ''
         ))
 
-        # Log the exact Cash Converters API URL used for results
-        print(f"CashConverters RESULTS API URL: {api_url} (page={page})")
+        logger.debug("CashConverters results API URL: %s (page=%s)", api_url, page)
 
     except Exception as e:
         return Response(
@@ -1806,7 +1837,7 @@ def get_cashconverters_results(request):
             timeout=20,
         )
         mode = "first page only" if fetch_only_first_page else "all pages"
-        print(f"Cash Converters results request sent to: {response.url} (mode: {mode})")
+        logger.debug("Cash Converters results request sent to: %s (mode: %s)", response.url, mode)
 
         response.raise_for_status()
     except requests.RequestException as e:

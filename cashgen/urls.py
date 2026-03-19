@@ -20,7 +20,7 @@ urlpatterns = [
     path('api/customers/', v2.customers_view),
     path('api/customers/<int:customer_id>/', v2.customer_detail),
     path('api/requests/', v2.requests_view, name='requests'),
-    path('api/requests/<int:request_id>/items/', v2.add_request_item, name='add_request_`item'),
+    path('api/requests/<int:request_id>/items/', v2.add_request_item, name='add_request_item'),
     path('api/requests/<int:request_id>/', v2.request_detail, name='request_detail'),
     path('api/requests/overview/', v2.requests_overview_list, name='requests_overview_list'),
     path('api/requests/<int:request_id>/finish/', v2.finish_request, name='finish_request'),

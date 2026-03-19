@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import AppHeader from "@/components/AppHeader";
 import { useNotification } from "@/contexts/NotificationContext";
 import { fetchRepricingSessionsOverview } from "@/services/api";
+import useAppStore from "@/store/useAppStore";
 
 const RepricingOverview = () => {
   const navigate = useNavigate();
@@ -33,6 +34,24 @@ const RepricingOverview = () => {
     () => sessions.reduce((sum, session) => sum + (Number(session.barcode_count) || 0), 0),
     [sessions]
   );
+
+  const inProgressCount = useMemo(
+    () => sessions.filter(s => s.status === 'IN_PROGRESS').length,
+    [sessions]
+  );
+
+  const handleSessionClick = (session) => {
+    if (session.status === 'IN_PROGRESS' && session.session_data?.items?.length) {
+      useAppStore.setState({
+        repricingCartItems: session.session_data.items,
+        repricingSessionId: session.repricing_session_id,
+        isCustomerModalOpen: false,
+      });
+      navigate('/repricing', { state: { preserveCart: true, cartItems: session.session_data.items } });
+    } else {
+      navigate(`/repricing-sessions/${session.repricing_session_id}/view`);
+    }
+  };
 
   if (loading) {
     return <div className="bg-gray-50 min-h-screen flex items-center justify-center"><p className="text-gray-600 font-semibold">Loading repricing sessions...</p></div>;
@@ -92,6 +111,12 @@ const RepricingOverview = () => {
                 <p className="text-white/50 text-[10px] font-bold uppercase tracking-wider">Sessions</p>
                 <p className="text-xl font-extrabold text-white mt-1">{sessions.length}</p>
               </div>
+              {inProgressCount > 0 && (
+                <div className="bg-amber-500/10 p-3 rounded-lg border border-amber-400/30">
+                  <p className="text-amber-300/70 text-[10px] font-bold uppercase tracking-wider">In Progress</p>
+                  <p className="text-xl font-extrabold text-amber-300 mt-1">{inProgressCount}</p>
+                </div>
+              )}
               <div className="bg-white/5 p-3 rounded-lg border border-white/10">
                 <p className="text-white/50 text-[10px] font-bold uppercase tracking-wider">Barcodes Repriced</p>
                 <p className="text-xl font-extrabold text-white mt-1">{totalBarcodeCount}</p>
@@ -127,7 +152,9 @@ const RepricingOverview = () => {
                 <thead>
                   <tr>
                     <th className="w-28">Session</th>
+                    <th className="w-32">Status</th>
                     <th className="w-40">Created</th>
+                    <th className="w-40">Last Updated</th>
                     <th className="w-32">Items</th>
                     <th className="w-40">Barcodes</th>
                     <th>Cart Key</th>
@@ -135,24 +162,55 @@ const RepricingOverview = () => {
                   </tr>
                 </thead>
                 <tbody className="text-xs">
-                  {sessions.map((session) => (
-                    <tr key={session.repricing_session_id} onClick={() => navigate(`/repricing-sessions/${session.repricing_session_id}/view`)}>
-                      <td className="font-bold text-gray-600">#{session.repricing_session_id}</td>
-                      <td className="text-gray-600">
-                        {new Date(session.created_at).toLocaleString('en-GB', {
-                          day: '2-digit',
-                          month: 'short',
-                          year: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })}
-                      </td>
-                      <td className="font-semibold text-blue-900">{session.item_count || 0}</td>
-                      <td className="font-semibold text-blue-900">{session.barcode_count || 0}</td>
-                      <td className="font-mono text-[11px] text-gray-500">{session.cart_key || '—'}</td>
-                      <td className="text-right"><span className="material-symbols-outlined text-slate-300">chevron_right</span></td>
-                    </tr>
-                  ))}
+                  {sessions.map((session) => {
+                    const isInProgress = session.status === 'IN_PROGRESS';
+                    return (
+                      <tr key={session.repricing_session_id} onClick={() => handleSessionClick(session)}>
+                        <td className="font-bold text-gray-600">#{session.repricing_session_id}</td>
+                        <td>
+                          {isInProgress ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-300">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                              In Progress
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-300">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                              Completed
+                            </span>
+                          )}
+                        </td>
+                        <td className="text-gray-600">
+                          {new Date(session.created_at).toLocaleString('en-GB', {
+                            day: '2-digit',
+                            month: 'short',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </td>
+                        <td className="text-gray-500">
+                          {session.updated_at ? new Date(session.updated_at).toLocaleString('en-GB', {
+                            day: '2-digit',
+                            month: 'short',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          }) : '—'}
+                        </td>
+                        <td className="font-semibold text-blue-900">{session.item_count || 0}</td>
+                        <td className="font-semibold text-blue-900">{session.barcode_count || 0}</td>
+                        <td className="font-mono text-[11px] text-gray-500">{session.cart_key || '—'}</td>
+                        <td className="text-right">
+                          {isInProgress ? (
+                            <span className="material-symbols-outlined text-amber-500" title="Resume session">play_arrow</span>
+                          ) : (
+                            <span className="material-symbols-outlined text-slate-300">chevron_right</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             )}

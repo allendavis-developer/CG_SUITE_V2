@@ -19,6 +19,7 @@ module.exports = {
       fontFamily: {
         sans: ["Inter", "sans-serif"],
       },
+      // Prefer `src/index.css` :root `--radius` + @theme tokens for the live app (Tailwind v4).
       borderRadius: {
         DEFAULT: "0.25rem",
         lg: "0.5rem",

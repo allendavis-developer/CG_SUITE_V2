@@ -1,5 +1,6 @@
 import React from "react";
 import TinyModal from "@/components/ui/TinyModal";
+import { roundSalePrice } from "@/utils/helpers";
 
 /**
  * Shared "Update Our Sale Price?" modal for Negotiation and RepricingNegotiation.
@@ -49,7 +50,7 @@ export default function SalePriceConfirmModal({
         if (i.id !== itemId) return i;
         return {
           ...i,
-          ourSalePrice: newPricePerUnit.toFixed(2),
+          ourSalePrice: String(roundSalePrice(newPricePerUnit)),
           ...(useResearchSuggestedPrice && source === "ebay" ? { useResearchSuggestedPrice: true } : {}),
         };
       })
@@ -63,7 +64,7 @@ export default function SalePriceConfirmModal({
         if (i.id !== itemId) return i;
         const next = { ...i };
         if (hasOld) {
-          next.ourSalePrice = oldPricePerUnit.toFixed(2);
+          next.ourSalePrice = String(roundSalePrice(oldPricePerUnit));
         } else {
           next.ourSalePrice = "";
         }

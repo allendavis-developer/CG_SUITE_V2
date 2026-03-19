@@ -264,7 +264,10 @@ class RepricingSessionSerializer(serializers.ModelSerializer):
             'cart_key',
             'item_count',
             'barcode_count',
+            'status',
+            'session_data',
             'created_at',
+            'updated_at',
             'items',
         ]
-        read_only_fields = ['repricing_session_id', 'created_at']
+        read_only_fields = ['repricing_session_id', 'created_at', 'updated_at']

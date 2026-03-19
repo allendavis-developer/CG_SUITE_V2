@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { fetchVariantPrices } from '@/services/api';
+import { roundSalePrice } from '@/utils/helpers';
 
 export const useProductOffers = (variant, useVoucherOffers) => {
   const [offers, setOffers] = useState([]);
@@ -35,8 +36,9 @@ export const useProductOffers = (variant, useVoucherOffers) => {
           voucher_offers: data.voucher_offers
         });
         
-        if (data.referenceData && data.referenceData.cex_based_sale_price) {
-          setOurSalePrice(data.referenceData.cex_based_sale_price.toString());
+        if (data.referenceData?.cex_based_sale_price != null) {
+          const n = Number(data.referenceData.cex_based_sale_price);
+          if (Number.isFinite(n)) setOurSalePrice(String(roundSalePrice(n)));
         }
         
         if (selectedOffers && selectedOffers.length > 0) {

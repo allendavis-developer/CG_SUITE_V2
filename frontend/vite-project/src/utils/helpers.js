@@ -17,6 +17,14 @@ export const roundOfferPrice = (value) => {
   return Math.round((amount + Number.EPSILON) * 100) / 100;
 };
 
+/** Sale / retail price: nearest £5 if above £50, else nearest £2 (matches backend `_round_sale_price`). */
+export const roundSalePrice = (value) => {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return 0;
+  if (amount > 50) return Math.round(amount / 5) * 5;
+  return Math.round(amount / 2) * 2;
+};
+
 export const toVoucherOfferPrice = (cashOfferPrice) =>
   roundOfferPrice(Number(cashOfferPrice) * 1.1);
 
