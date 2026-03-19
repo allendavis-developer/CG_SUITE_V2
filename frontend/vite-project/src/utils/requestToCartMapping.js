@@ -1,0 +1,298 @@
+/**
+ * Maps a request (from API) to Buyer page state (cartItems, customerData, etc.)
+ * Used when opening a QUOTE request from Requests Overview to continue editing.
+ */
+
+/**
+ * Map request items from API to cart item format for Buyer/MainContent
+ * @param {Array} items - request.items from API
+ * @param {string} transactionType - 'sale' | 'buyback' | 'store_credit'
+ */
+export function mapRequestItemsToCartItems(items, transactionType) {
+  if (!items || !Array.isArray(items)) return [];
+
+  const useVoucher = transactionType === 'store_credit';
+
+  return items.map((item) => {
+    const rawData = item.raw_data || null;
+    const ebayResearchData = rawData;
+    const cashConvertersResearchData = item.cash_converters_data || null;
+
+    let savedCashOffers = item.cash_offers_json || [];
+    let savedVoucherOffers = item.voucher_offers_json || [];
+
+    // Add from CeX: raw_data has id, title, and either CeX structure or no eBay fields
+    // Include items with stats/selectedFilters (eBay research merged) when CeX structure is present
+    const hasCeXStructure = !!(
+      rawData?.id != null &&
+      rawData?.title != null &&
+      (Array.isArray(rawData?.cash_offers) || Array.isArray(rawData?.voucher_offers) || rawData?.category)
+    );
+    const isPureCeX = rawData?.id != null && rawData?.title != null && !rawData?.stats && !rawData?.selectedFilters;
+    const isAddFromCeXPayload = hasCeXStructure || isPureCeX;
+
+    if (isAddFromCeXPayload) {
+      // Prefer persisted request-item offers so post-edit values survive reopen/New Buy.
+      // Fall back to raw_data for older records where JSON offer fields were never saved.
+      if (!Array.isArray(savedCashOffers) || savedCashOffers.length === 0) {
+        savedCashOffers = rawData.cash_offers || savedCashOffers;
+      }
+      if (!Array.isArray(savedVoucherOffers) || savedVoucherOffers.length === 0) {
+        savedVoucherOffers = rawData.voucher_offers || savedVoucherOffers;
+      }
+    }
+
+    const isEbayResearchPayload = !!(
+      ebayResearchData?.stats && ebayResearchData?.selectedFilters
+    );
+
+    if (isEbayResearchPayload && savedCashOffers.length === 0 && Array.isArray(ebayResearchData?.buyOffers)) {
+      savedCashOffers = ebayResearchData.buyOffers.map((offer, idx) => ({
+        id: `ebay-cash-${idx}`,
+        title: ["1st Offer", "2nd Offer", "3rd Offer"][idx] || "Offer",
+        price: Number(offer.price),
+      }));
+    }
+
+    if (
+      isEbayResearchPayload &&
+      savedCashOffers.length > 0 &&
+      savedVoucherOffers.length === 0
+    ) {
+      savedVoucherOffers = savedCashOffers.map((offer) => ({
+        id: `ebay-voucher-${offer.id}`,
+        title: offer.title,
+        price: Number((offer.price * 1.1).toFixed(2)),
+      }));
+    }
+
+    const displayOffers = useVoucher ? savedVoucherOffers : savedCashOffers;
+
+    const savedDisplayTitle = ebayResearchData?.display_title;
+    const savedDisplaySubtitle = ebayResearchData?.display_subtitle;
+    const hasSavedDisplay =
+      savedDisplayTitle != null && savedDisplayTitle !== '';
+
+    const cexTitle = item.variant_details?.title;
+    const variantId = item.variant_details?.variant_id ?? null;
+    const rawCeXTitle = !isEbayResearchPayload
+      ? rawData?.title || rawData?.modelName
+      : null;
+    const rawEbayTitle = isEbayResearchPayload
+      ? ebayResearchData?.searchTerm || ebayResearchData?.title || null
+      : null;
+    const cashConvertersTitle =
+      cashConvertersResearchData?.searchTerm ||
+      cashConvertersResearchData?.title ||
+      null;
+
+    const ebaySubtitleFromFilters = isEbayResearchPayload
+      ? (Object.values(ebayResearchData?.selectedFilters?.apiFilters || {})
+          .flat()
+          .join(' / ') ||
+          ebayResearchData?.selectedFilters?.basic?.join(' / ') ||
+          'eBay Filters')
+      : null;
+
+    const isCexItem = !!(cexTitle || rawCeXTitle || isAddFromCeXPayload);
+    const cexSku = item.variant_details?.cex_sku || rawData?.id || null;
+    const productName = item.variant_details?.product_name || null;
+    const categoryId = item.variant_details?.category_id ?? null;
+    const categoryName = item.variant_details?.category_name || null;
+    const attributeValues = item.variant_details?.attribute_values || rawData?.attribute_values || {};
+    const condition = item.variant_details?.condition || null;
+
+    const cexBuyPrice =
+      item.cex_buy_cash_at_negotiation != null
+        ? parseFloat(item.cex_buy_cash_at_negotiation)
+        : item.variant_details?.tradein_cash != null
+          ? parseFloat(item.variant_details.tradein_cash)
+          : isAddFromCeXPayload && rawData?.tradeInCash != null
+            ? parseFloat(rawData.tradeInCash)
+            : null;
+    const cexVoucherPrice =
+      item.cex_buy_voucher_at_negotiation != null
+        ? parseFloat(item.cex_buy_voucher_at_negotiation)
+        : item.variant_details?.tradein_voucher != null
+          ? parseFloat(item.variant_details.tradein_voucher)
+          : isAddFromCeXPayload && rawData?.tradeInVoucher != null
+            ? parseFloat(rawData.tradeInVoucher)
+            : null;
+    const cexSellPrice =
+      item.cex_sell_at_negotiation != null
+        ? parseFloat(item.cex_sell_at_negotiation)
+        : item.variant_details?.current_price_gbp != null
+          ? parseFloat(item.variant_details.current_price_gbp)
+          : isAddFromCeXPayload && (rawData?.sellPrice ?? rawData?.price) != null
+            ? parseFloat(rawData.sellPrice ?? rawData.price)
+            : null;
+
+    const ourSalePrice =
+      item.our_sale_price_at_negotiation != null
+        ? parseFloat(item.our_sale_price_at_negotiation)
+        : rawData?.referenceData?.cex_based_sale_price != null
+          ? parseFloat(rawData.referenceData.cex_based_sale_price)
+          : ebayResearchData?.stats?.suggestedPrice != null
+            ? parseFloat(ebayResearchData.stats.suggestedPrice)
+            : null;
+
+    const title = hasSavedDisplay
+      ? savedDisplayTitle
+      : isCexItem
+        ? cexTitle || rawCeXTitle || 'N/A'
+        : rawEbayTitle || cashConvertersTitle || 'N/A';
+    const subtitle = hasSavedDisplay
+      ? savedDisplaySubtitle ?? ''
+      : isCexItem
+        ? (rawData?.category ?? '')
+        : ebaySubtitleFromFilters || 'No details';
+
+    const cartItem = {
+      id: item.request_item_id,
+      request_item_id: item.request_item_id,
+      rawData,
+      title,
+      subtitle,
+      quantity: item.quantity,
+      selectedOfferId: item.selected_offer_id,
+      manualOffer: item.manual_offer_gbp?.toString() || '',
+      manualOfferUsed: item.manual_offer_used ?? item.selected_offer_id === 'manual',
+      customerExpectation: item.customer_expectation_gbp?.toString() || '',
+      ebayResearchData: isEbayResearchPayload ? ebayResearchData : null,
+      cashConvertersResearchData,
+      cashOffers: savedCashOffers,
+      voucherOffers: savedVoucherOffers,
+      offers: displayOffers,
+      cexBuyPrice,
+      cexVoucherPrice,
+      cexSellPrice,
+      cexOutOfStock: item.variant_details?.cex_out_of_stock ?? rawData?.isOutOfStock ?? false,
+      ourSalePrice,
+    };
+
+    if (isAddFromCeXPayload) {
+      cartItem.variantId = null;
+      cartItem.isCustomCeXItem = true;
+      cartItem.isCustomEbayItem = false;
+      cartItem.isCustomCashConvertersItem = false;
+      cartItem.category = rawData?.category || 'CeX';
+      cartItem.categoryObject = rawData?.category
+        ? { name: rawData.category, path: [rawData.category] }
+        : { name: 'CeX', path: ['CeX'] };
+      cartItem.cexSku = rawData?.id ?? null;
+      cartItem.cexUrl = rawData?.id
+        ? `https://uk.webuy.com/product-detail?id=${rawData.id}`
+        : null;
+      cartItem.referenceData = rawData?.referenceData || rawData?.reference_data || {};
+      cartItem.cexProductData = {
+        id: rawData.id,
+        title: rawData.title,
+        category: rawData.category,
+        image: rawData.image,
+        specifications: rawData.specifications || {},
+        isOutOfStock: rawData.isOutOfStock,
+        stockStatus: rawData.stockStatus,
+        ...rawData,
+      };
+      cartItem.image = rawData?.image || null;
+    } else if (variantId && item.variant_details) {
+      cartItem.variantId = variantId;
+      cartItem.cexSku = cexSku;
+      cartItem.model = productName || title;
+      cartItem.category = categoryName || '';
+      cartItem.categoryObject = categoryId != null
+        ? { id: categoryId, name: categoryName || '', path: [categoryName || ''] }
+        : null;
+      cartItem.attributeValues = attributeValues;
+      cartItem.condition = condition || cartItem.condition || null;
+      cartItem.isCustomCeXItem = false;
+      cartItem.isCustomEbayItem = false;
+      cartItem.isCustomCashConvertersItem = false;
+    } else if (isEbayResearchPayload) {
+      cartItem.variantId = null;
+      cartItem.isCustomEbayItem = true;
+      cartItem.isCustomCeXItem = false;
+      cartItem.isCustomCashConvertersItem = false;
+      cartItem.category = ebayResearchData?.category || 'Other';
+    } else if (cashConvertersResearchData) {
+      cartItem.variantId = null;
+      cartItem.isCustomEbayItem = false;
+      cartItem.isCustomCeXItem = false;
+      cartItem.isCustomCashConvertersItem = true;
+      cartItem.category = cashConvertersResearchData?.category || 'Other';
+    } else {
+      cartItem.variantId = variantId;
+      cartItem.cexSku = cexSku;
+      cartItem.model = productName || title;
+      cartItem.category = categoryName || '';
+      cartItem.categoryObject = categoryId != null
+        ? { id: categoryId, name: categoryName || '', path: [categoryName || ''] }
+        : null;
+      cartItem.attributeValues = attributeValues;
+      cartItem.condition = condition || cartItem.condition || null;
+      cartItem.isCustomEbayItem = false;
+      cartItem.isCustomCeXItem = !!isCexItem;
+      cartItem.isCustomCashConvertersItem = false;
+    }
+
+    // Fallback: ensure Add from CeX items always have cexProductData for display
+    // (handles edge cases where raw_data has CeX fields but didn't hit the Add from CeX block)
+    if (cartItem.isCustomCeXItem && !cartItem.cexProductData && rawData?.id != null && rawData?.title != null) {
+      cartItem.cexProductData = {
+        id: rawData.id,
+        title: rawData.title,
+        category: rawData.category,
+        image: rawData.image,
+        specifications: rawData.specifications || {},
+        isOutOfStock: rawData.isOutOfStock,
+        stockStatus: rawData.stockStatus,
+        ...rawData,
+      };
+      if (!cartItem.categoryObject && rawData?.category) {
+        cartItem.categoryObject = { name: rawData.category, path: [rawData.category] };
+      }
+      if (cartItem.image == null) cartItem.image = rawData?.image || null;
+      if (!cartItem.cexSku) cartItem.cexSku = rawData?.id ?? null;
+    }
+
+    return cartItem;
+  });
+}
+
+/**
+ * Map request to customerData format for Buyer
+ * Merges customer_details (from API) with customer_enrichment_json (NoSpos rates, dates, etc.)
+ */
+export function mapRequestToCustomerData(request) {
+  const cd = request.customer_details || request.customer;
+  const enrichment = request.customer_enrichment_json || {};
+  const transactionType =
+    request.intent === 'DIRECT_SALE'
+      ? 'sale'
+      : request.intent === 'BUYBACK'
+        ? 'buyback'
+        : 'store_credit';
+
+  return {
+    id: cd?.customer_id ?? cd?.id ?? enrichment.id ?? null,
+    name: cd?.name ?? enrichment.name ?? 'Unknown',
+    cancelRate: cd?.cancel_rate ?? enrichment.cancelRate ?? 0,
+    transactionType,
+    phone: cd?.phone ?? enrichment.phone ?? null,
+    email: cd?.email ?? enrichment.email ?? null,
+    address: cd?.address ?? enrichment.address ?? null,
+    isNewCustomer: enrichment.isNewCustomer ?? false,
+    joined: enrichment.joined ?? null,
+    lastTransacted: enrichment.lastTransacted ?? null,
+    buyBackRate: enrichment.buyBackRate ?? null,
+    buyBackRateRaw: enrichment.buyBackRateRaw ?? null,
+    renewRate: enrichment.renewRate ?? null,
+    renewRateRaw: enrichment.renewRateRaw ?? null,
+    cancelRateStr: enrichment.cancelRateStr ?? null,
+    cancelRateRaw: enrichment.cancelRateRaw ?? null,
+    faultyRate: enrichment.faultyRate ?? null,
+    faultyRateRaw: enrichment.faultyRateRaw ?? null,
+    buyingCount: enrichment.buyingCount ?? null,
+    salesCount: enrichment.salesCount ?? null,
+  };
+}

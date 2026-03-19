@@ -119,9 +119,9 @@ const OfferSelection = ({
     closeContextMenu();
   };
 
-  const commitPriceChange = (offerId) => {
+  const commitPriceChange = (offerId, rawValue) => {
     if (!onOfferPriceChange) return;
-    const raw = String(localPrices[offerId] || '').replace(/[£,]/g, '').trim();
+    const raw = String(rawValue ?? localPrices[offerId] ?? '').replace(/[£,]/g, '').trim();
     const parsed = parseFloat(raw);
     if (!Number.isNaN(parsed) && parsed > 0) {
       const normalized = Number(parsed.toFixed(2));
@@ -189,12 +189,16 @@ const OfferSelection = ({
                     onChange={(e) => {
                       const val = e.target.value;
                       setLocalPrices(prev => ({ ...prev, [offer.id]: val }));
+                      const parsed = parseFloat(String(val).replace(/[£,]/g, '').trim());
+                      if (!Number.isNaN(parsed) && parsed > 0) {
+                        onOfferPriceChange?.(offer.id, Number(parsed.toFixed(2)));
+                      }
                     }}
-                    onBlur={() => commitPriceChange(offer.id)}
+                    onBlur={(e) => commitPriceChange(offer.id, e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         e.preventDefault();
-                        commitPriceChange(offer.id);
+                        commitPriceChange(offer.id, e.currentTarget.value);
                         e.target.blur();
                       }
                     }}

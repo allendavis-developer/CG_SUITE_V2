@@ -9,6 +9,8 @@ import { useNavigate } from "react-router-dom";
 const CartSidebar = ({ 
   cartItems = [], 
   setCartItems = () => {}, 
+  onRemoveItem = null,
+  onResetBuy = null,
   customerData,
   currentRequestId,
   onFinalize,
@@ -37,8 +39,14 @@ const CartSidebar = ({
     }
   }, [cartItems.length]);
 
-  const removeItem = (id) => {
-    setCartItems(cartItems.filter(item => item.id !== id));
+  const removeItem = (idOrItem) => {
+    const item = typeof idOrItem === 'object' ? idOrItem : cartItems.find(i => i.id === idOrItem);
+    if (!item) return;
+    if (onRemoveItem) {
+      onRemoveItem(item);
+    } else {
+      setCartItems(cartItems.filter(i => i.id !== item.id));
+    }
   };
 
   const updateQuantity = (id, newQuantity) => {
@@ -118,18 +126,31 @@ const CartSidebar = ({
   return (
     <aside className="w-1/5 min-w-0 min-h-0 shrink-0 border-l border-blue-900/20 flex flex-col bg-white overflow-hidden">
       <div className="px-4 py-3 border-b border-blue-900/20 bg-blue-900 shadow-md shadow-blue-900/10">
-        <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-yellow-400 text-base">
-            {isRepricing ? 'sell' : 'shopping_cart'}
-          </span>
-          <div>
-            <p className="text-xs font-black uppercase tracking-wider text-white">
-              {isRepricing ? 'Reprice List' : 'Cart'}
-            </p>
-            <p className="text-[10px] text-blue-200">
-              {cartItems.length} item{cartItems.length !== 1 ? 's' : ''}
-            </p>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-yellow-400 text-base">
+              {isRepricing ? 'sell' : 'shopping_cart'}
+            </span>
+            <div>
+              <p className="text-xs font-black uppercase tracking-wider text-white">
+                {isRepricing ? 'Reprice List' : 'Cart'}
+              </p>
+              <p className="text-[10px] text-blue-200">
+                {cartItems.length} item{cartItems.length !== 1 ? 's' : ''}
+              </p>
+            </div>
           </div>
+          {onResetBuy && (
+            <button
+              type="button"
+              onClick={onResetBuy}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold text-blue-200 hover:text-white hover:bg-white/10 transition-colors"
+              title="Clear cart, customer, and start fresh"
+            >
+              <Icon name="refresh" className="text-sm" />
+              New Buy
+            </button>
+          )}
         </div>
       </div>
 
@@ -186,7 +207,7 @@ const CartSidebar = ({
                   className="h-6 w-6 p-0 min-w-0"
                   onClick={(e) => {
                     e.stopPropagation(); // Prevent item selection when removing
-                    removeItem(item.id);
+                    removeItem(item);
                   }}
                 >
                   <Icon name="close" className="text-sm" />
@@ -232,40 +253,45 @@ const CartSidebar = ({
                 </div>
               )}
 
-              {/* Read-only Offers Display — hidden in repricing mode */}
-              {!isRepricing && (item.offers?.length > 0 || (item.manualOffer && item.selectedOfferId === 'manual')) && (
-                <div className="mt-3 pt-2 border-t border-gray-100">
-                  <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1">
-                    Valuation Options {customerData.transactionType === 'store_credit' ? '(Voucher)' : '(Cash)'}:
-                  </p>
-                  <div className="flex flex-wrap items-center gap-1.5 text-xs text-gray-600">
-                    {item.offers?.map((offer, index) => (
-                      <React.Fragment key={offer.id}>
-                        <span
-                          className={`font-medium px-2 py-0.5 rounded ${
-                            item.selectedOfferId === offer.id
-                              ? 'bg-blue-600 text-white'
-                              : ''
-                          }`}
-                        >
-                          £{offer.price.toFixed(2)}
-                        </span>
-                        {index < item.offers.length - 1 && (
-                          <span className="text-gray-300">|</span>
-                        )}
-                      </React.Fragment>
-                    ))}
-                    {item.manualOffer && item.selectedOfferId === 'manual' && (
-                      <>
-                        {item.offers?.length ? <span className="text-gray-300">|</span> : null}
+              {/* Read-only Offers Display — hidden in repricing mode. Show when we have offers or manual offer (from any flow: CeX, eBay, DB). */}
+              {!isRepricing && (() => {
+                const displayOffers = item.offers?.length
+                  ? item.offers
+                  : (customerData?.transactionType === 'store_credit' ? item.voucherOffers : item.cashOffers) || [];
+                const hasManualSelected = item.selectedOfferId === 'manual' && item.manualOffer != null && item.manualOffer !== '';
+                const showSection = displayOffers.length > 0 || hasManualSelected;
+                if (!showSection) return null;
+                return (
+                  <div className="mt-3 pt-2 border-t border-gray-100">
+                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1">
+                      Valuation Options {customerData.transactionType === 'store_credit' ? '(Voucher)' : '(Cash)'}:
+                    </p>
+                    <div className="flex flex-wrap items-center gap-1.5 text-xs text-gray-600">
+                      {displayOffers.map((offer, index) => (
+                        <React.Fragment key={offer.id}>
+                          <span
+                            className={`font-medium px-2 py-0.5 rounded ${
+                              item.selectedOfferId === offer.id
+                                ? 'bg-blue-600 text-white'
+                                : ''
+                            }`}
+                          >
+                            £{Number(offer.price).toFixed(2)}
+                          </span>
+                          {index < displayOffers.length - 1 || hasManualSelected ? (
+                            <span className="text-gray-300">|</span>
+                          ) : null}
+                        </React.Fragment>
+                      ))}
+                      {hasManualSelected && (
                         <span className="font-medium px-2 py-0.5 rounded bg-blue-600 text-white">
-                          £{Number(item.manualOffer).toFixed(2)}
+                          Manual £{Number(item.manualOffer).toFixed(2)}
                         </span>
-                      </>
-                    )}
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
             </div>
           ))}
           </>

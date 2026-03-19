@@ -478,6 +478,47 @@ export const updateCustomer = async (customerId, updates) => {
 };
 
 /**
+ * Delete a request item (only allowed for QUOTE requests)
+ * @param {number} requestItemId
+ */
+export const deleteRequestItem = async (requestItemId) => {
+  if (!requestItemId) return;
+
+  const res = await fetch(`${API_BASE_URL}/request-items/${requestItemId}/`, {
+    method: 'DELETE',
+    headers: { 'X-CSRFToken': getCSRFToken() },
+  });
+
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || 'Failed to remove item from quote');
+  }
+};
+
+/**
+ * Update selected offer for a request item (only allowed for QUOTE requests)
+ * @param {number} requestItemId
+ * @param {object} data - { selected_offer_id?, manual_offer_gbp?, manual_offer_used? }
+ */
+export const updateRequestItemOffer = async (requestItemId, data) => {
+  if (!requestItemId || !data) return;
+
+  const res = await fetch(`${API_BASE_URL}/request-items/${requestItemId}/update-offer/`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRFToken': getCSRFToken()
+    },
+    body: JSON.stringify(data)
+  });
+
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || 'Failed to update offer selection');
+  }
+};
+
+/**
  * Update raw_data field for a request item
  * @param {number} requestItemId
  * @param {object} rawData - JSON object with new raw data

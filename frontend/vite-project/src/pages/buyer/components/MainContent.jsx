@@ -121,6 +121,16 @@ const MainContent = ({
   const variantSelectionKey = !isEbayCategory && selectedModel?.product_id
     ? `${selectedModel.product_id}`
     : null;
+  const resolveVariantFromCartItem = useCallback((cartItem) => {
+    if (!cartItem || variants.length === 0) {
+      return null;
+    }
+
+    return variants.find((candidate) =>
+      (cartItem.variantId != null && String(candidate.variant_id) === String(cartItem.variantId)) ||
+      (cartItem.cexSku && candidate.cex_sku === cartItem.cexSku)
+    ) || null;
+  }, [variants]);
 
   // Reset state when category changes
   useEffect(() => {
@@ -389,11 +399,17 @@ const MainContent = ({
       setSelectedModel(modelToSet);
     }
 
-    if (attributes.length > 0 && selectedCartItem.attributeValues) {
+    const matchedVariant = resolveVariantFromCartItem(selectedCartItem);
+
+    if (matchedVariant?.attribute_values) {
+      setAllAttributeValues(matchedVariant.attribute_values);
+    } else if (attributes.length > 0 && selectedCartItem.attributeValues) {
       setAllAttributeValues(selectedCartItem.attributeValues);
     }
 
-    if (variants.length > 0 && selectedCartItem.cexSku) {
+    if (matchedVariant?.cex_sku) {
+      setVariant(matchedVariant.cex_sku);
+    } else if (variants.length > 0 && selectedCartItem.cexSku) {
       setVariant(selectedCartItem.cexSku);
     }
 
@@ -433,7 +449,8 @@ const MainContent = ({
     variants,
     setAllAttributeValues,
     setVariant,
-    useVoucherOffers
+    useVoucherOffers,
+    resolveVariantFromCartItem
   ]);
 
   // Step 2: Set variant and attributes once variants are loaded
@@ -452,8 +469,7 @@ const MainContent = ({
       return;
     }
 
-    // Find the variant by variantId
-    const variantToSet = variants.find(v => v.variant_id === selectedCartItem.variantId);
+    const variantToSet = resolveVariantFromCartItem(selectedCartItem);
     if (variantToSet) {
       // Set attribute values from the variant's attribute_values
       // This should happen BEFORE setting the variant to avoid race conditions
@@ -495,9 +511,9 @@ const MainContent = ({
         setOurSalePrice(selectedCartItem.ourSalePrice.toString());
       }
     }
-  }, [selectedCartItem, variants, useVoucherOffers]);
+  }, [selectedCartItem, variants, useVoucherOffers, resolveVariantFromCartItem]);
 
-  const createOrAppendRequestItem = async ({ variantId, rawData, cexSku }) => {
+  const createOrAppendRequestItem = async ({ variantId, rawData, cexSku, cashOffers, voucherOffers, selectedOfferId, manualOffer, ourSalePrice }) => {
     const itemPayload = {
       variant: variantId ?? null,
       expectation_gbp: null,
@@ -506,6 +522,22 @@ const MainContent = ({
     };
     if (cexSku != null) {
       itemPayload.cex_sku = cexSku;
+    }
+    if (Array.isArray(cashOffers) && cashOffers.length > 0) {
+      itemPayload.cash_offers_json = cashOffers.map(o => ({ id: o.id, title: o.title, price: Number(o.price) }));
+    }
+    if (Array.isArray(voucherOffers) && voucherOffers.length > 0) {
+      itemPayload.voucher_offers_json = voucherOffers.map(o => ({ id: o.id, title: o.title, price: Number(o.price) }));
+    }
+    if (selectedOfferId != null && selectedOfferId !== '') {
+      itemPayload.selected_offer_id = selectedOfferId;
+      itemPayload.manual_offer_used = selectedOfferId === 'manual';
+    }
+    if (manualOffer != null && manualOffer !== '' && !isNaN(parseFloat(manualOffer))) {
+      itemPayload.manual_offer_gbp = parseFloat(manualOffer);
+    }
+    if (ourSalePrice != null && ourSalePrice !== '' && !isNaN(parseFloat(ourSalePrice))) {
+      itemPayload.our_sale_price_at_negotiation = parseFloat(ourSalePrice);
     }
 
     if (!request) {
@@ -520,7 +552,8 @@ const MainContent = ({
       const payload = {
         customer_id: customerData.id,
         intent,
-        item: itemPayload
+        item: itemPayload,
+        ...(customerData && { customer_enrichment: customerData })
       };
 
       const newRequest = await createRequest(payload);
@@ -531,7 +564,11 @@ const MainContent = ({
       }
       return firstItem.request_item_id;
     } else {
-      const created = await addRequestItem(request.request_id, itemPayload);
+      const addPayload = {
+        ...itemPayload,
+        ...(customerData && { customer_enrichment: customerData })
+      };
+      const created = await addRequestItem(request.request_id, addPayload);
       return created.request_item_id;
     }
   };
@@ -609,7 +646,12 @@ const MainContent = ({
     try {
       const requestItemId = await createOrAppendRequestItem({
         variantId: cartItem.variantId,
-        rawData: cartItem.ebayResearchData
+        rawData: cartItem.ebayResearchData,
+        cashOffers: cartItem.cashOffers,
+        voucherOffers: cartItem.voucherOffers,
+        selectedOfferId: cartItem.selectedOfferId,
+        manualOffer: cartItem.manualOffer,
+        ourSalePrice: cartItem.ourSalePrice
       });
       cartItem.request_item_id = requestItemId;
     } catch (err) {
@@ -661,7 +703,12 @@ const MainContent = ({
       } else {
         const requestItemId = await createOrAppendRequestItem({
           variantId: cartItem.variantId,
-          rawData: cartItem.ebayResearchData
+          rawData: cartItem.ebayResearchData,
+          cashOffers: cartItem.cashOffers,
+          voucherOffers: cartItem.voucherOffers,
+          selectedOfferId: cartItem.selectedOfferId,
+          manualOffer: cartItem.manualOffer,
+          ourSalePrice: cartItem.ourSalePrice
         });
         cartItem.request_item_id = requestItemId;
         addToCart(cartItem);
@@ -746,7 +793,16 @@ const MainContent = ({
         } else {
           const requestItemId = await createOrAppendRequestItem({
             variantId: null,
-            rawData: data
+            rawData: {
+              ...data,
+              cash_offers: cashOffers,
+              voucher_offers: voucherOffers,
+            },
+            cashOffers,
+            voucherOffers,
+            selectedOfferId: customCartItem.selectedOfferId,
+            manualOffer: customCartItem.manualOffer,
+            ourSalePrice: customCartItem.ourSalePrice
           });
 
           customCartItem.request_item_id = requestItemId;
@@ -832,7 +888,12 @@ const MainContent = ({
         } else {
           const requestItemId = await createOrAppendRequestItem({
             variantId: null,
-            rawData: data
+            rawData: data,
+            cashOffers: customCartItem.cashOffers,
+            voucherOffers: customCartItem.voucherOffers,
+            selectedOfferId: customCartItem.selectedOfferId,
+            manualOffer: customCartItem.manualOffer,
+            ourSalePrice: customCartItem.ourSalePrice
           });
 
           customCartItem.request_item_id = requestItemId;
@@ -890,6 +951,105 @@ const MainContent = ({
     if (!selectedCartItem || !updateCartItemOffers) return;
     updateCartItemOffers(selectedCartItem.id, { selectedOfferId: offerId });
   }, [selectedCartItem, updateCartItemOffers]);
+
+  // Selected CeX cart item (from Add from CeX) – check BEFORE cexProductData so clicking a cart item shows it, not the add flow
+  if (selectedCartItem?.isCustomCeXItem) {
+    const useVoucherOffers = customerData?.transactionType === 'store_credit';
+    const displayOffers = useVoucherOffers ? (selectedCartItem.voucherOffers || []) : (selectedCartItem.cashOffers || []);
+    const refData = selectedCartItem.referenceData || {};
+    const resolvedOurSalePrice = refData.cex_based_sale_price ?? selectedCartItem.ourSalePrice ?? '';
+    const refWithOurSale = { ...refData, our_sale_price: resolvedOurSalePrice };
+    const imageUrl =
+      refData.cex_image_urls?.large ||
+      refData.cex_image_urls?.medium ||
+      refData.cex_image_urls?.small ||
+      selectedCartItem.cexProductData?.image ||
+      selectedCartItem.image;
+    const cexCompetitorStats = (
+      refData.cex_sale_price != null || selectedCartItem.cexSellPrice != null
+    ) ? [{
+      salePrice: refData.cex_sale_price ?? selectedCartItem.cexSellPrice,
+      buyPrice: refData.cex_tradein_cash ?? selectedCartItem.cexBuyPrice,
+    }] : [];
+    const specs = selectedCartItem.cexProductData?.specifications || {};
+
+    return (
+      <section className="buyer-main-content w-3/5 min-w-0 min-h-0 flex-1 bg-white flex flex-col overflow-y-auto buyer-panel-scroll">
+        <div className="flex items-center justify-between px-8 bg-gray-50 border-b border-gray-200 sticky top-0 z-40">
+          <div className="flex items-center gap-3 py-4">
+            <div className="bg-blue-900 p-1.5 rounded">
+              <span className="material-symbols-outlined text-yellow-400 text-sm">add_link</span>
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-blue-900">{selectedCartItem.title || 'CeX Product'}</h2>
+              <p className="text-[10px] text-gray-500 uppercase tracking-wider">Viewing saved item</p>
+            </div>
+          </div>
+        </div>
+        <div className="p-8 space-y-8">
+          <div className="bg-gray-50 p-6 rounded-xl border border-gray-200">
+            <div className="flex gap-8 items-start">
+              {imageUrl && (
+                <div className="flex-shrink-0 w-80 h-80 rounded-lg overflow-hidden border border-gray-200 bg-white flex items-center justify-center">
+                  <img src={imageUrl} alt={selectedCartItem.title} className="w-full h-full object-contain" />
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Product details</h2>
+                  {(selectedCartItem.cexProductData?.isOutOfStock || selectedCartItem.cexProductData?.stockStatus) && (
+                    <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full border border-red-200 bg-red-50 text-[11px] font-bold uppercase tracking-wider text-red-700">
+                      <span className="material-symbols-outlined text-[14px]">error</span>
+                      {selectedCartItem.cexProductData.stockStatus || 'Out of stock at CeX'}
+                    </span>
+                  )}
+                </div>
+                <ul className="grid grid-cols-2 gap-x-8 gap-y-2">
+                  {Object.keys(specs).length > 0 ? (
+                    Object.entries(specs).map(([label, value]) => (
+                      <li key={label} className="flex">
+                        <div>
+                          <span className="font-semibold text-gray-700 mr-2">{label}:</span>
+                          <span className="text-sm text-gray-900">{value}</span>
+                        </div>
+                      </li>
+                    ))
+                  ) : (
+                    <li className="col-span-2 text-sm text-gray-500">No specifications</li>
+                  )}
+                </ul>
+              </div>
+            </div>
+          </div>
+          <MarketComparisonsTable
+            variant="cex"
+            competitorStats={cexCompetitorStats}
+            ourSalePrice={resolvedOurSalePrice}
+            referenceData={refData}
+            ebayData={selectedCartItem.ebayResearchData || null}
+            setEbayModalOpen={() => {}}
+            cashConvertersData={selectedCartItem.cashConvertersResearchData || null}
+            setCashConvertersModalOpen={() => {}}
+            readOnly={true}
+            cexSku={selectedCartItem.cexProductData?.id || selectedCartItem.cexSku}
+            hideBuyInPrice={isRepricing}
+          />
+          {!isRepricing && displayOffers.length > 0 && (
+            <OfferSelection
+              variant="cex"
+              offers={displayOffers}
+              referenceData={refWithOurSale}
+              offerType={useVoucherOffers ? 'voucher' : 'cash'}
+              initialSelectedOfferId={selectedCartItem?.selectedOfferId ?? null}
+              editMode={true}
+              onOfferPriceChange={handleOfferPriceChange}
+              onSelectedOfferChange={handleSelectedOfferChange}
+            />
+          )}
+        </div>
+      </section>
+    );
+  }
 
   // CeX product from "Add from CeX" flow – use normal MainContent layout (no config/condition)
   if (cexProductData) {
@@ -957,7 +1117,16 @@ const MainContent = ({
         if (isRepricing || isDuplicateCeX) {
           addToCart(customCartItem);
         } else {
-          const requestItemId = await createOrAppendRequestItem({ variantId: null, rawData: cexProductData, cexSku: cexProductData.id });
+          const requestItemId = await createOrAppendRequestItem({
+            variantId: null,
+            rawData: cexProductData,
+            cexSku: cexProductData.id,
+            cashOffers: customCartItem.cashOffers,
+            voucherOffers: customCartItem.voucherOffers,
+            selectedOfferId: customCartItem.selectedOfferId,
+            manualOffer: customCartItem.manualOffer,
+            ourSalePrice: customCartItem.ourSalePrice
+          });
           customCartItem.request_item_id = requestItemId;
           addToCart(customCartItem);
         }
@@ -977,7 +1146,16 @@ const MainContent = ({
         if (isRepricing || isDuplicateCeX) {
           addToCart(customCartItem);
         } else {
-          const requestItemId = await createOrAppendRequestItem({ variantId: null, rawData: cexProductData, cexSku: cexProductData.id });
+          const requestItemId = await createOrAppendRequestItem({
+            variantId: null,
+            rawData: cexProductData,
+            cexSku: cexProductData.id,
+            cashOffers: customCartItem.cashOffers,
+            voucherOffers: customCartItem.voucherOffers,
+            selectedOfferId: customCartItem.selectedOfferId,
+            manualOffer: customCartItem.manualOffer,
+            ourSalePrice: customCartItem.ourSalePrice
+          });
           customCartItem.request_item_id = requestItemId;
           addToCart(customCartItem);
         }
@@ -1158,94 +1336,6 @@ const MainContent = ({
                 setCexProductData && setCexProductData((prev) => ({ ...prev, cashConvertersResearchData: data }));
                 setCeXCashConvertersModalOpen(false);
               }}
-            />
-          )}
-        </div>
-      </section>
-    );
-  }
-
-  // Selected CeX cart item (from Add from CeX)
-  if (selectedCartItem?.isCustomCeXItem) {
-    const useVoucherOffers = customerData?.transactionType === 'store_credit';
-    const displayOffers = useVoucherOffers ? (selectedCartItem.voucherOffers || []) : (selectedCartItem.cashOffers || []);
-    const refData = selectedCartItem.referenceData || {};
-    const refWithOurSale = { ...refData, our_sale_price: refData.cex_based_sale_price };
-    const imageUrl = refData.cex_image_urls?.large || refData.cex_image_urls?.medium;
-    const cexCompetitorStats = refData.cex_sale_price != null ? [{ salePrice: refData.cex_sale_price, buyPrice: refData.cex_tradein_cash }] : [];
-    const specs = selectedCartItem.cexProductData?.specifications || {};
-
-    return (
-      <section className="buyer-main-content w-3/5 min-w-0 min-h-0 flex-1 bg-white flex flex-col overflow-y-auto buyer-panel-scroll">
-        <div className="flex items-center justify-between px-8 bg-gray-50 border-b border-gray-200 sticky top-0 z-40">
-          <div className="flex items-center gap-3 py-4">
-            <div className="bg-blue-900 p-1.5 rounded">
-              <span className="material-symbols-outlined text-yellow-400 text-sm">add_link</span>
-            </div>
-            <div>
-              <h2 className="text-sm font-bold text-blue-900">CeX Product</h2>
-              <p className="text-[10px] text-gray-500 uppercase tracking-wider">Viewing saved item</p>
-            </div>
-          </div>
-        </div>
-        <div className="p-8 space-y-8">
-          <div className="bg-gray-50 p-6 rounded-xl border border-gray-200">
-            <div className="flex gap-8 items-start">
-              {imageUrl && (
-                <div className="flex-shrink-0 w-80 h-80 rounded-lg overflow-hidden border border-gray-200 bg-white flex items-center justify-center">
-                  <img src={imageUrl} alt={selectedCartItem.title} className="w-full h-full object-contain" />
-                </div>
-              )}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Product details</h2>
-                  {(selectedCartItem.cexProductData?.isOutOfStock || selectedCartItem.cexProductData?.stockStatus) && (
-                    <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full border border-red-200 bg-red-50 text-[11px] font-bold uppercase tracking-wider text-red-700">
-                      <span className="material-symbols-outlined text-[14px]">error</span>
-                      {selectedCartItem.cexProductData.stockStatus || 'Out of stock at CeX'}
-                    </span>
-                  )}
-                </div>
-                <ul className="grid grid-cols-2 gap-x-8 gap-y-2">
-                  {Object.keys(specs).length > 0 ? (
-                    Object.entries(specs).map(([label, value]) => (
-                      <li key={label} className="flex">
-                        <div>
-                          <span className="font-semibold text-gray-700 mr-2">{label}:</span>
-                          <span className="text-sm text-gray-900">{value}</span>
-                        </div>
-                      </li>
-                    ))
-                  ) : (
-                    <li className="col-span-2 text-sm text-gray-500">No specifications</li>
-                  )}
-                </ul>
-              </div>
-            </div>
-          </div>
-          <MarketComparisonsTable
-            variant="cex"
-            competitorStats={cexCompetitorStats}
-            ourSalePrice={refData.cex_based_sale_price || ''}
-            referenceData={refData}
-            ebayData={selectedCartItem.ebayResearchData || null}
-            setEbayModalOpen={() => {}}
-            cashConvertersData={selectedCartItem.cashConvertersResearchData || null}
-            setCashConvertersModalOpen={() => {}}
-            readOnly={true}
-            cexSku={selectedCartItem.cexProductData?.id}
-            hideBuyInPrice={isRepricing}
-          />
-          {!isRepricing && displayOffers.length > 0 && (
-            <OfferSelection
-              variant="cex"
-              offers={displayOffers}
-              referenceData={refWithOurSale}
-              offerType={useVoucherOffers ? 'voucher' : 'cash'}
-              initialSelectedOfferId={selectedCartItem?.selectedOfferId ?? null}
-              editMode={true}
-              onOfferPriceChange={handleOfferPriceChange}
-              onSelectedOfferChange={handleSelectedOfferChange}
             />
           )}
         </div>

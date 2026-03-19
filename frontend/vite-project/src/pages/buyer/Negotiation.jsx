@@ -5,6 +5,7 @@ import EbayResearchForm from "@/components/forms/EbayResearchForm";
 import CashConvertersResearchForm from "@/components/forms/CashConvertersResearchForm";
 import CustomerTransactionHeader from './components/CustomerTransactionHeader';
 import { finishRequest, fetchRequestDetail, updateCustomer, saveQuoteDraft } from '@/services/api';
+import { clearSnapshot } from '@/pages/buyer/buyerPageStore';
 import { useNotification } from '@/contexts/NotificationContext';
 import NewCustomerDetailsModal from '@/components/modals/NewCustomerDetailsModal';
 import SalePriceConfirmModal from '@/components/modals/SalePriceConfirmModal';
@@ -223,7 +224,23 @@ const Negotiation = ({ mode }) => {
                   ? Number(item.ebayResearchData.stats.suggestedPrice)
                   : null));
 
-      const rawData = { ...(item.ebayResearchData || {}) };
+      const rawDataSource =
+        item.rawData ||
+        (item.isCustomCeXItem ? item.cexProductData : null) ||
+        item.ebayResearchData ||
+        {};
+      const rawData = { ...rawDataSource };
+      if (item.isCustomCeXItem) {
+        if (item.ebayResearchData && !rawData.ebayResearchData) {
+          rawData.ebayResearchData = item.ebayResearchData;
+        }
+        if (item.cashConvertersResearchData && !rawData.cashConvertersResearchData) {
+          rawData.cashConvertersResearchData = item.cashConvertersResearchData;
+        }
+        if (item.referenceData && !rawData.referenceData && !rawData.reference_data) {
+          rawData.referenceData = item.referenceData;
+        }
+      }
       rawData.display_title = item.title ?? '';
       rawData.display_subtitle = item.subtitle ?? '';
 
@@ -266,11 +283,21 @@ const Negotiation = ({ mode }) => {
     try {
       await finishRequest(actualRequestId, payload);
       completedRef.current = true;
+      clearSnapshot('buyer');
       showNotification("Transaction finalized successfully and booked for testing!", 'success');
       navigate("/transaction-complete");
     } catch (error) {
       console.error("Error finalizing transaction:", error);
-      showNotification(`Failed to finalize transaction: ${error.message}`, 'error');
+      const msg = error?.message || '';
+      if (msg.toLowerCase().includes('can only finalize') || msg.toLowerCase().includes('quote request')) {
+        showNotification(
+          "This request has already been finalized. Please start a new negotiation from the buyer page.",
+          'error'
+        );
+        navigate("/buyer", { replace: true });
+      } else {
+        showNotification(`Failed to finalize transaction: ${msg}`, 'error');
+      }
     }
   };
 
@@ -374,6 +401,14 @@ const Negotiation = ({ mode }) => {
 
                 const isEbayResearchPayload =
                     !!(ebayResearchData && ebayResearchData.stats && ebayResearchData.selectedFilters);
+
+                if (isEbayResearchPayload && savedCashOffers.length === 0 && Array.isArray(ebayResearchData?.buyOffers)) {
+                    savedCashOffers = ebayResearchData.buyOffers.map((offer, idx) => ({
+                        id: `ebay-cash-${idx}`,
+                        title: ["1st Offer", "2nd Offer", "3rd Offer"][idx] || "Offer",
+                        price: Number(offer.price)
+                    }));
+                }
 
                 if (isEbayResearchPayload && savedCashOffers.length > 0 && savedVoucherOffers.length === 0) {
                     savedVoucherOffers = savedCashOffers.map(offer => ({

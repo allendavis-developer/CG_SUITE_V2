@@ -116,6 +116,21 @@ export const useProductAttributes = (productId, variants) => {
     }
   }, [attributes, attributeValues, variants]);
 
+  // When variant is set (e.g. from persistence when returning from another page) but attributeValues
+  // don't match, sync attributeValues from the variant — same flow as when user selects a variant.
+  useEffect(() => {
+    if (!variant || variants.length === 0 || attributes.length === 0) return;
+    const matchedVariant = variants.find(v => v.cex_sku === variant);
+    if (!matchedVariant?.attribute_values) return;
+
+    const needsSync = Object.entries(matchedVariant.attribute_values).some(
+      ([code, value]) => attributeValues[code] !== value
+    );
+    if (!needsSync) return;
+
+    setAttributeValues({ ...matchedVariant.attribute_values });
+  }, [variant, variants, attributes.length, attributeValues]);
+
   // Auto-select variant when all attributes are selected
   useEffect(() => {
     if (variants.length === 1 && attributes.length === 0) {
@@ -125,10 +140,10 @@ export const useProductAttributes = (productId, variants) => {
 
     if (variants.length === 0 || Object.keys(attributeValues).length === 0) return;
 
-    const matchingVariants = variants.filter(variant => {
+    const matchingVariants = variants.filter(v => {
       return Object.entries(attributeValues).every(([attrCode, attrValue]) => {
         if (!attrValue) return true;
-        return variant.attribute_values[attrCode] === attrValue;
+        return v.attribute_values[attrCode] === attrValue;
       });
     });
 

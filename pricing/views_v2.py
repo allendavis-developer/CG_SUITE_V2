@@ -252,11 +252,16 @@ def requests_view(request):
                 status=status.HTTP_404_NOT_FOUND
             )
         
+        customer_enrichment = request.data.get('customer_enrichment')
+        if customer_enrichment is not None and not isinstance(customer_enrichment, dict):
+            customer_enrichment = None
+
         with transaction.atomic():
             # Create the request
             new_request = Request.objects.create(
                 customer=customer,
-                intent=intent
+                intent=intent,
+                customer_enrichment_json=customer_enrichment
             )
             
             # Create initial status history entry
@@ -301,8 +306,14 @@ def add_request_item(request, request_id):
     
     # Add request to the data
     item_data = request.data.copy()
+    customer_enrichment = item_data.pop('customer_enrichment', None)
     item_data['request'] = request_id
     _resolve_cex_sku_to_variant(item_data)
+
+    # Optionally update customer enrichment if provided and not yet set
+    if customer_enrichment is not None and isinstance(customer_enrichment, dict) and existing_request.customer_enrichment_json is None:
+        existing_request.customer_enrichment_json = customer_enrichment
+        existing_request.save(update_fields=['customer_enrichment_json'])
 
     serializer = RequestItemSerializer(data=item_data)
     
@@ -492,6 +503,54 @@ def requests_overview_list(request):
     return Response(serializer.data)
 
 
+@api_view(['PATCH'])
+def update_request_item(request, request_item_id):
+    """
+    PATCH: Update offer selection and persisted offer data for a request item.
+    Only allowed for QUOTE requests.
+    """
+    existing_item = get_object_or_404(RequestItem, request_item_id=request_item_id)
+    existing_request = existing_item.request
+    current_status = existing_request.status_history.first()
+    if not current_status or current_status.status != RequestStatus.QUOTE:
+        return Response(
+            {"error": "Can only update items in QUOTE requests"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    update_fields = []
+    if 'selected_offer_id' in request.data:
+        existing_item.selected_offer_id = request.data['selected_offer_id'] or None
+        update_fields.append('selected_offer_id')
+    if 'manual_offer_used' in request.data:
+        existing_item.manual_offer_used = bool(request.data['manual_offer_used'])
+        update_fields.append('manual_offer_used')
+    if 'manual_offer_gbp' in request.data:
+        val = request.data['manual_offer_gbp']
+        existing_item.manual_offer_gbp = Decimal(str(val)) if val is not None and val != '' else None
+        update_fields.append('manual_offer_gbp')
+    if 'our_sale_price_at_negotiation' in request.data:
+        val = request.data['our_sale_price_at_negotiation']
+        try:
+            existing_item.our_sale_price_at_negotiation = Decimal(str(val)) if val is not None and val != '' else None
+            update_fields.append('our_sale_price_at_negotiation')
+        except (InvalidOperation, ValueError):
+            pass
+    if 'cash_offers_json' in request.data:
+        existing_item.cash_offers_json = request.data['cash_offers_json'] or []
+        update_fields.append('cash_offers_json')
+    if 'voucher_offers_json' in request.data:
+        existing_item.voucher_offers_json = request.data['voucher_offers_json'] or []
+        update_fields.append('voucher_offers_json')
+
+    if update_fields:
+        existing_item.save(update_fields=update_fields)
+
+    from .serializers import RequestItemSerializer
+    serializer = RequestItemSerializer(existing_item)
+    return Response(serializer.data, status=status.HTTP_200_OK)
+
+
 @api_view(['POST'])
 def update_request_item_raw_data(request, request_item_id):
     """
@@ -523,6 +582,26 @@ def update_request_item_raw_data(request, request_item_id):
         },
         status=status.HTTP_200_OK
     )
+
+
+@api_view(['DELETE'])
+def delete_request_item(request, request_item_id):
+    """
+    DELETE: Remove a request item from its request.
+    Only allowed for QUOTE requests.
+    """
+    existing_item = get_object_or_404(RequestItem, request_item_id=request_item_id)
+    existing_request = existing_item.request
+
+    current_status = existing_request.status_history.first()
+    if not current_status or current_status.status != RequestStatus.QUOTE:
+        return Response(
+            {"error": "Can only remove items from QUOTE requests"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    existing_item.delete()
+    return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 @api_view(['POST'])
@@ -1272,9 +1351,16 @@ def quick_reprice_lookup(request):
             cex_box = _fetch_cex_box_detail(cex_sku)
             if cex_box:
                 cex_sale_price = float(cex_box.get('sellPrice') or variant.current_price_gbp)
+                cex_tradein_cash = float(cex_box.get('cashPrice') or variant.tradein_cash or 0)
+                cex_tradein_voucher = float(cex_box.get('exchangePrice') or variant.tradein_voucher or 0)
+                image_urls = cex_box.get('imageUrls') or {}
+                image = image_urls.get('large') or image_urls.get('medium') or image_urls.get('small')
                 title = cex_box.get('boxName') or variant.product.name
             else:
                 cex_sale_price = float(variant.current_price_gbp)
+                cex_tradein_cash = float(variant.tradein_cash or 0)
+                cex_tradein_voucher = float(variant.tradein_voucher or 0)
+                image = None
                 title = variant.product.name
 
             target_sell_price = variant.get_target_sell_price()
@@ -1288,12 +1374,25 @@ def quick_reprice_lookup(request):
                 'cex_sku': cex_sku,
                 'nospos_barcode': nospos_barcode,
                 'variant_id': variant.variant_id,
+                'product_id': variant.product.product_id,
+                'product_name': (
+                    f"{variant.product.manufacturer.name} {variant.product.name}"
+                    if variant.product.manufacturer else variant.product.name
+                ),
                 'title': title,
                 'subtitle': variant.title,
                 'condition': variant.condition_grade.code,
+                'attribute_values': {
+                    vav.attribute_value.attribute.code: vav.attribute_value.value
+                    for vav in variant.variant_attribute_values.select_related('attribute_value__attribute').all()
+                },
+                'category_id': variant.product.category.category_id,
                 'category_name': variant.product.category.name,
                 'cex_sale_price': cex_sale_price,
+                'cex_tradein_cash': cex_tradein_cash,
+                'cex_tradein_voucher': cex_tradein_voucher,
                 'our_sale_price': our_sale_price,
+                'image': image,
                 'in_db': True,
             })
 
@@ -1301,6 +1400,10 @@ def quick_reprice_lookup(request):
             cex_box = _fetch_cex_box_detail(cex_sku)
             if cex_box:
                 cex_sale_price = float(cex_box.get('sellPrice') or 0)
+                cex_tradein_cash = float(cex_box.get('cashPrice') or 0)
+                cex_tradein_voucher = float(cex_box.get('exchangePrice') or 0)
+                image_urls = cex_box.get('imageUrls') or {}
+                image = image_urls.get('large') or image_urls.get('medium') or image_urls.get('small')
                 our_sale_price = round(cex_sale_price * 0.85, 2)
                 found.append({
                     'cex_sku': cex_sku,
@@ -1311,7 +1414,10 @@ def quick_reprice_lookup(request):
                     'condition': '',
                     'category_name': cex_box.get('superCatName') or '',
                     'cex_sale_price': cex_sale_price,
+                    'cex_tradein_cash': cex_tradein_cash,
+                    'cex_tradein_voucher': cex_tradein_voucher,
                     'our_sale_price': our_sale_price,
+                    'image': image,
                     'in_db': False,
                 })
             else:
@@ -1686,6 +1792,57 @@ def get_cashconverters_results(request):
         "results": results,
         "total_items": len(results)
     })
+
+
+# ── Ideal Postcodes proxy (UK address lookup for Chrome extension) ─────────────────
+
+@api_view(['GET'])
+def address_lookup(request, postcode):
+    """
+    Proxy to Ideal Postcodes postcode lookup API.
+    Given a UK postcode, returns the complete list of addresses at that postcode.
+    Used by the Chrome extension customer verification form.
+    """
+    from django.conf import settings
+    from urllib.parse import quote
+    api_key = (getattr(settings, 'IDEAL_POSTCODES_API_KEY', '') or '').strip()
+    if not api_key:
+        return Response(
+            {'error': 'Address lookup not configured. Set IDEAL_POSTCODES_API_KEY in .env.'},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE
+        )
+    postcode_clean = (postcode or '').strip()
+    if not postcode_clean or len(postcode_clean.replace(' ', '')) < 4:
+        return Response({'addresses': []})
+    try:
+        url = f"https://api.ideal-postcodes.co.uk/v1/postcodes/{quote(postcode_clean)}?api_key={api_key}"
+        resp = requests.get(url, timeout=10)
+        if resp.status_code == 401:
+            logging.getLogger(__name__).warning('Ideal Postcodes 401: invalid API key')
+            return Response(
+                {'error': 'Invalid Ideal Postcodes API key. Check your key at https://ideal-postcodes.co.uk/'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        if resp.status_code == 402:
+            logging.getLogger(__name__).warning('Ideal Postcodes 402: no lookups remaining')
+            return Response(
+                {'error': 'Address lookup limit reached. Top up at https://ideal-postcodes.co.uk/'},
+                status=status.HTTP_402_PAYMENT_REQUIRED
+            )
+        if resp.status_code == 404:
+            return Response({'addresses': []})
+        resp.raise_for_status()
+        data = resp.json()
+        result = data.get('result', [])
+        if not isinstance(result, list):
+            result = [result] if result else []
+        return Response({'addresses': result})
+    except requests.RequestException as e:
+        logging.getLogger(__name__).warning('Ideal Postcodes postcode lookup failed: %s', e)
+        return Response(
+            {'error': str(e) if hasattr(e, 'message') else 'Address lookup failed'},
+            status=status.HTTP_502_BAD_GATEWAY
+        )
 
 
 

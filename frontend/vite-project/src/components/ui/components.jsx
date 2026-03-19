@@ -446,7 +446,7 @@ export const RecentItem = ({ image, title, sku, onClick }) => (
 
 
 // Sidebar Component
-export const Sidebar = ({ onCategorySelect, onAddFromCeX, isCeXLoading, onQuickReprice, onResetBuy, customerData, onTransactionTypeChange }) => {
+export const Sidebar = ({ onCategorySelect, onAddFromCeX, isCeXLoading, onQuickReprice, customerData, onTransactionTypeChange }) => {
   const [categories, setCategories] = useState([]);
   const [expandedCategories, setExpandedCategories] = useState([]);
   const [filterText, setFilterText] = useState('');
@@ -725,19 +725,8 @@ export const Sidebar = ({ onCategorySelect, onAddFromCeX, isCeXLoading, onQuickR
         <div className="space-y-1">
           {filteredCategories.map((cat) => renderCategory(cat))}
         </div>
-        {(onAddFromCeX || onQuickReprice || onResetBuy) && (
+        {(onAddFromCeX || onQuickReprice) && (
           <div className="mt-4 pt-4 border-t border-white/10 space-y-2">
-            {onResetBuy && (
-              <button
-                type="button"
-                onClick={onResetBuy}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-white/10 hover:bg-white/20 text-white font-semibold text-sm transition-colors border border-white/20"
-                title="Clear cart, customer, and start fresh"
-              >
-                <Icon name="refresh" className="text-sm" />
-                New Buy
-              </button>
-            )}
             {onAddFromCeX && (
               <button
                 type="button"

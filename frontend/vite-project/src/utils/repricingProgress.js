@@ -18,19 +18,21 @@ export function loadRepricingProgress(cartKey) {
     if (!entry) return null;
     return {
       barcodes: entry.barcodes || {},
-      completedBarcodes: entry.completedBarcodes || {},
-      completedItems: entry.completedItems || [],
+      nosposLookups: entry.nosposLookups || {},
     };
   } catch {
     return null;
   }
 }
 
-export function saveRepricingProgress(cartKey, { barcodes, completedBarcodes, completedItems }) {
+export function saveRepricingProgress(cartKey, { barcodes, nosposLookups }) {
   try {
     const raw = localStorage.getItem(REPRICING_PROGRESS_KEY) || "{}";
     const data = JSON.parse(raw);
-    data[cartKey] = { barcodes: barcodes || {}, completedBarcodes: completedBarcodes || {}, completedItems: completedItems || [] };
+    data[cartKey] = {
+      barcodes: barcodes || {},
+      nosposLookups: nosposLookups || {},
+    };
     localStorage.setItem(REPRICING_PROGRESS_KEY, JSON.stringify(data));
   } catch (err) {
     console.warn("[CG Suite] Failed to save repricing progress:", err);

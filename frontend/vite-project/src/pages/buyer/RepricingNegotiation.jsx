@@ -7,7 +7,7 @@ import { useNotification } from "@/contexts/NotificationContext";
 import SalePriceConfirmModal from "@/components/modals/SalePriceConfirmModal";
 import TinyModal from "@/components/ui/TinyModal";
 import { maybeShowSalePriceConfirm } from "./utils/researchCompletionHelpers";
-import { clearLastRepricingResult, getLastRepricingResult, openNospos } from "@/services/extensionClient";
+import { cancelNosposRepricing, clearLastRepricingResult, getLastRepricingResult, getNosposRepricingStatus, openNospos, searchNosposBarcode } from "@/services/extensionClient";
 import { saveRepricingSession } from "@/services/api";
 import { getCartKey, loadRepricingProgress, saveRepricingProgress, clearRepricingProgress } from "@/utils/repricingProgress";
 import { getEditableSalePriceState, resolveRepricingSalePrice } from "./utils/repricingDisplay";
@@ -105,6 +105,12 @@ const RepricingNegotiation = () => {
   const [barcodeModal, setBarcodeModal] = useState(null); // { item } | null
   const [barcodeInput, setBarcodeInput] = useState('');
 
+  // NosPos barcode lookup state: { [itemId_barcodeIndex]: { status, results, stockBarcode, stockUrl, error } }
+  // status: 'searching' | 'found' | 'not_found' | 'selected' | 'skipped' | 'error'
+  const [nosposLookups, setNosposLookups] = useState({});
+  // Which results panel is expanded: { itemId, barcodeIndex } | null
+  const [nosposResultsPanel, setNosposResultsPanel] = useState(null);
+
   // Progress: completedBarcodes { [itemId]: number[] } (indices), completedItems string[]
   const [completedBarcodes, setCompletedBarcodes] = useState({});
   const [completedItems, setCompletedItems] = useState([]);
@@ -117,6 +123,7 @@ const RepricingNegotiation = () => {
   const [cashConvertersResearchItem, setCashConvertersResearchItem] = useState(null);
   const [isRepricingFinished, setIsRepricingFinished] = useState(false);
   const [ambiguousBarcodeModal, setAmbiguousBarcodeModal] = useState(null);
+  const [repricingJob, setRepricingJob] = useState(null);
 
   // Right-click context menu
   const [contextMenu, setContextMenu] = useState(null); // { x, y, item }
@@ -146,6 +153,7 @@ const RepricingNegotiation = () => {
       }
 
       setIsRepricingFinished(true);
+      setRepricingJob((prev) => prev ? { ...prev, running: false, done: true, step: 'completed', message: 'Repricing completed.' } : prev);
 
       if (ambiguousEntries.length > 0) {
         setAmbiguousBarcodeModal({ entries: ambiguousEntries, isRetrying: false });
@@ -182,18 +190,31 @@ const RepricingNegotiation = () => {
     const saved = cartKey ? loadRepricingProgress(cartKey) : null;
     if (saved) {
       setBarcodes(saved.barcodes);
-      setCompletedBarcodes(saved.completedBarcodes);
-      setCompletedItems(saved.completedItems);
+      setNosposLookups(saved.nosposLookups || {});
     } else {
-      // Pre-populate barcodes from nosposBarcode set by Quick Reprice
+      // Pre-populate barcodes from nosposBarcodes set by Quick Reprice (array of { barserial, href, name })
       const prePopulated = {};
+      const prePopulatedLookups = {};
       for (const item of cartItems) {
-        if (item.nosposBarcode) {
-          prePopulated[item.id] = [item.nosposBarcode];
+        const barcodes = item.nosposBarcodes || [];
+        if (barcodes.length > 0) {
+          prePopulated[item.id] = barcodes.map(b => b.barserial);
+          barcodes.forEach((b, index) => {
+            prePopulatedLookups[`${item.id}_${index}`] = {
+              status: 'selected',
+              results: b.href
+                ? [{ barserial: b.barserial, href: b.href.replace(/^https:\/\/nospos\.com/i, '') }]
+                : [],
+              stockBarcode: b.barserial,
+              stockName: b.name || '',
+              stockUrl: b.href || ''
+            };
+          });
         }
       }
       if (Object.keys(prePopulated).length > 0) {
         setBarcodes(prePopulated);
+        setNosposLookups(prePopulatedLookups);
       }
     }
     setIsLoading(false);
@@ -204,10 +225,16 @@ const RepricingNegotiation = () => {
   const activeCartKey = getCartKey(activeItems);
 
   useEffect(() => {
-    if (activeCartKey && (Object.keys(barcodes).length > 0 || Object.keys(completedBarcodes).length > 0 || completedItems.length > 0)) {
-      saveRepricingProgress(activeCartKey, { barcodes, completedBarcodes, completedItems });
+    if (
+      activeCartKey &&
+      (
+        Object.keys(barcodes).length > 0 ||
+        Object.keys(nosposLookups).length > 0
+      )
+    ) {
+      saveRepricingProgress(activeCartKey, { barcodes, nosposLookups });
     }
-  }, [barcodes, completedBarcodes, completedItems, activeCartKey]);
+  }, [barcodes, nosposLookups, activeCartKey]);
 
   useEffect(() => {
     const handler = (e) => {
@@ -216,6 +243,7 @@ const RepricingNegotiation = () => {
         if (msgCartKey && msgCartKey === activeCartKey) {
           setCompletedBarcodes(cb || {});
           setCompletedItems(ci || []);
+          setRepricingJob(e.data.payload);
         }
       }
     };
@@ -238,6 +266,20 @@ const RepricingNegotiation = () => {
 
     let cancelled = false;
 
+    const syncLiveStatus = async () => {
+      try {
+        const response = await getNosposRepricingStatus();
+        const payload = response?.ok ? response.payload : null;
+        if (cancelled || !payload || payload.cartKey !== activeCartKey) return;
+        // Update when running, or when stopped/cancelled (so we clear the stuck overlay)
+        setRepricingJob(payload);
+        setCompletedBarcodes(payload.completedBarcodes || {});
+        setCompletedItems(payload.completedItems || []);
+      } catch {
+        // Ignore polling failures if extension is unavailable.
+      }
+    };
+
     const checkForCompletedResult = async () => {
       try {
         const response = await getLastRepricingResult();
@@ -248,12 +290,15 @@ const RepricingNegotiation = () => {
       }
     };
 
+    syncLiveStatus();
     checkForCompletedResult();
+    const intervalId = window.setInterval(syncLiveStatus, 1500);
     window.addEventListener("focus", checkForCompletedResult);
     document.addEventListener("visibilitychange", checkForCompletedResult);
 
     return () => {
       cancelled = true;
+      window.clearInterval(intervalId);
       window.removeEventListener("focus", checkForCompletedResult);
       document.removeEventListener("visibilitychange", checkForCompletedResult);
     };
@@ -263,9 +308,36 @@ const RepricingNegotiation = () => {
     lastHandledCompletionRef.current = "";
   }, [activeCartKey]);
 
-  const allItemsHaveBarcodes =
+  const getLookupKey = (itemId, barcodeIndex) => `${itemId}_${barcodeIndex}`;
+
+  const getBarcodeLookup = (itemId, barcodeIndex) =>
+    nosposLookups[getLookupKey(itemId, barcodeIndex)] || null;
+
+  const getVerifiedBarcodesForItem = (itemId) =>
+    (barcodes[itemId] || []).flatMap((code, index) => {
+      const lookup = getBarcodeLookup(itemId, index);
+      return lookup?.status === 'selected' && lookup.stockBarcode
+        ? [lookup.stockBarcode]
+        : [];
+    });
+
+  const isBarcodeResolved = (itemId, barcodeIndex) => {
+    const lookup = getBarcodeLookup(itemId, barcodeIndex);
+    return lookup?.status === 'selected' || lookup?.status === 'skipped';
+  };
+
+  const isItemReadyForRepricing = (itemId) => {
+    const itemBarcodes = barcodes[itemId] || [];
+    if (!itemBarcodes.length) return false;
+    const hasVerified = getVerifiedBarcodesForItem(itemId).length > 0;
+    const allResolved = itemBarcodes.every((_, index) => isBarcodeResolved(itemId, index));
+    return hasVerified && allResolved;
+  };
+
+  const allItemsReadyForRepricing =
     activeItems.length > 0 &&
-    activeItems.every(i => (barcodes[i.id] || []).length > 0);
+    activeItems.every((item) => isItemReadyForRepricing(item.id));
+  const isBackgroundRepricingRunning = repricingJob?.running && repricingJob?.cartKey === activeCartKey;
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
   const handleRemoveItem = (item) => {
@@ -317,10 +389,38 @@ const RepricingNegotiation = () => {
         showNotification(`Add at least one barcode for: ${item.title || 'Unknown Item'}`, 'error');
         return;
       }
+      if (!isItemReadyForRepricing(item.id)) {
+        showNotification(`Verify the NosPos barcode for: ${item.title || 'Unknown Item'}`, 'error');
+        return;
+      }
     }
-    showNotification("Opening NoSpos…", 'info');
+    showNotification("Starting background repricing…", 'info');
     try {
       lastHandledCompletionRef.current = "";
+      // Restart from zero: clear previous run's progress so repricing processes all barcodes again
+      setCompletedBarcodes({});
+      setCompletedItems([]);
+      const freshCompletedBarcodes = {};
+      const freshCompletedItems = [];
+      setRepricingJob({
+        cartKey: activeCartKey,
+        running: true,
+        done: false,
+        step: 'starting',
+        message: 'Opening NoSpos in the background',
+        currentBarcode: '',
+        currentItemId: '',
+        currentItemTitle: '',
+        totalBarcodes: activeItems.reduce((sum, item) => sum + getVerifiedBarcodesForItem(item.id).length, 0),
+        completedBarcodeCount: 0,
+        completedBarcodes: freshCompletedBarcodes,
+        completedItems: freshCompletedItems,
+        logs: [{
+          timestamp: new Date().toISOString(),
+          level: 'info',
+          message: 'Starting background repricing…'
+        }]
+      });
       const repricingData = activeItems.map((item) => ({
         itemId: item.id,
         title: item.title || "",
@@ -329,9 +429,9 @@ const RepricingNegotiation = () => {
         cexSellAtRepricing: item.cexSellPrice ?? null,
         raw_data: item.ebayResearchData || {},
         cash_converters_data: item.cashConvertersResearchData || {},
-        barcodes: barcodes[item.id] || []
+        barcodes: getVerifiedBarcodesForItem(item.id)
       }));
-      await openNospos(repricingData, { completedBarcodes, completedItems, cartKey: activeCartKey });
+      await openNospos(repricingData, { completedBarcodes: freshCompletedBarcodes, completedItems: freshCompletedItems, cartKey: activeCartKey });
     } catch (err) {
       showNotification(err?.message || "Could not open NoSpos", "error");
     }
@@ -694,9 +794,9 @@ const RepricingNegotiation = () => {
                         <button
                           className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-all w-full ${
                             hasBarcodes
-                              ? completedItems.includes(item.id)
+                              ? isItemReadyForRepricing(item.id)
                                 ? 'border-emerald-400 bg-emerald-100 text-emerald-800'
-                                : 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                                : 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100'
                               : 'border-red-300 bg-red-50 text-red-600 hover:bg-red-100'
                           }`}
                           onClick={() => { setBarcodeModal({ item }); setBarcodeInput(''); }}
@@ -705,11 +805,16 @@ const RepricingNegotiation = () => {
                           <span className="material-symbols-outlined text-[14px]">barcode</span>
                           <span className="flex-1 text-left">
                             {hasBarcodes
-                              ? `${(completedBarcodes[item.id] || []).length}/${itemBarcodes.length} barcode${itemBarcodes.length !== 1 ? 's' : ''}`
+                              ? isItemReadyForRepricing(item.id)
+                                ? 'Barcodes verified'
+                                : 'Barcodes need review'
                               : 'Add barcodes'}
                           </span>
-                          {completedItems.includes(item.id) && (
+                          {isItemReadyForRepricing(item.id) && (
                             <span className="material-symbols-outlined text-[14px] text-emerald-600">check_circle</span>
+                          )}
+                          {hasBarcodes && !isItemReadyForRepricing(item.id) && (
+                            <span className="material-symbols-outlined text-[14px] text-amber-600">pending</span>
                           )}
                           {!hasBarcodes && (
                             <span className="material-symbols-outlined text-[14px] text-red-500">error</span>
@@ -757,8 +862,7 @@ const RepricingNegotiation = () => {
               <div className="space-y-2">
                 {activeItems.map(i => {
                   const count = (barcodes[i.id] || []).length;
-                  const done = (completedBarcodes[i.id] || []).length;
-                  const itemComplete = completedItems.includes(i.id);
+                  const itemComplete = isItemReadyForRepricing(i.id);
                   return (
                     <div key={i.id} className="flex items-center justify-between gap-2">
                       <span className="text-xs truncate flex-1 flex items-center gap-1" style={{ color: '#64748b' }}>
@@ -767,10 +871,10 @@ const RepricingNegotiation = () => {
                       </span>
                       <span
                         className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                          itemComplete ? 'bg-emerald-200 text-emerald-800' : count > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'
+                          itemComplete ? 'bg-emerald-200 text-emerald-800' : count > 0 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-600'
                         }`}
                       >
-                        {count > 0 ? `${done}/${count} barcode${count !== 1 ? 's' : ''}` : 'missing'}
+                        {count === 0 ? 'missing' : itemComplete ? 'verified' : 'needs review'}
                       </span>
                     </div>
                   );
@@ -786,7 +890,7 @@ const RepricingNegotiation = () => {
           >
             <button
               className={`w-full font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 group active:scale-[0.98] ${
-                !allItemsHaveBarcodes || isRepricingFinished ? 'opacity-50 cursor-not-allowed' : ''
+                !allItemsReadyForRepricing || isRepricingFinished || isBackgroundRepricingRunning ? 'opacity-50 cursor-not-allowed' : ''
               }`}
               style={{
                 background: '#f7b918',
@@ -794,20 +898,23 @@ const RepricingNegotiation = () => {
                 boxShadow: '0 10px 15px -3px rgba(247,185,24,0.3)'
               }}
               onClick={handleProceed}
-              disabled={!allItemsHaveBarcodes || isRepricingFinished}
+              disabled={!allItemsReadyForRepricing || isRepricingFinished || isBackgroundRepricingRunning}
             >
               <span className="text-base uppercase tracking-tight">
-                {isRepricingFinished ? 'Repricing Finished' : 'Proceed with Repricing'}
+                {isRepricingFinished ? 'Repricing Finished' : isBackgroundRepricingRunning ? 'Repricing Running in Background' : 'Proceed with Repricing'}
               </span>
-              {!isRepricingFinished && (
+              {!isRepricingFinished && !isBackgroundRepricingRunning && (
                 <span className="material-symbols-outlined text-xl group-hover:translate-x-1 transition-transform">
                   arrow_forward
                 </span>
               )}
+              {isBackgroundRepricingRunning && (
+                <span className="material-symbols-outlined text-xl animate-spin">progress_activity</span>
+              )}
             </button>
-            {!allItemsHaveBarcodes && !isRepricingFinished && (
+            {!allItemsReadyForRepricing && !isRepricingFinished && (
               <p className="text-[10px] text-center text-red-600 font-semibold -mt-2">
-                Add barcodes to all items to proceed
+                Verify a NoSpos barcode for every item before proceeding
               </p>
             )}
             {isRepricingFinished && (
@@ -837,6 +944,85 @@ const RepricingNegotiation = () => {
         useResearchSuggestedPrice={false}
         priceLabel="New Sale Price"
       />
+
+      {isBackgroundRepricingRunning && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-950/55 backdrop-blur-sm" />
+          <div className="relative w-full max-w-3xl max-h-[85vh] overflow-hidden rounded-3xl bg-white shadow-2xl border" style={{ borderColor: 'rgba(20,69,132,0.15)' }}>
+            <div className="px-6 py-5 border-b bg-blue-900" style={{ borderColor: 'rgba(20,69,132,0.15)' }}>
+              <div className="flex items-start gap-4">
+                <span className="material-symbols-outlined text-yellow-400 text-3xl animate-spin">progress_activity</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-200">Background Repricing In Progress</p>
+                  <h3 className="text-xl font-black text-white mt-1">Please wait while CG Suite updates NoSpos</h3>
+                  <p className="text-sm text-blue-100 mt-2">
+                    The rest of this screen is locked while the hidden NoSpos worker is running so the process stays consistent.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await cancelNosposRepricing(activeCartKey);
+                      showNotification('Repricing cancelled', 'info');
+                    } catch (e) {
+                      showNotification('Could not cancel repricing', 'error');
+                    }
+                  }}
+                  className="shrink-0 px-4 py-2 rounded-lg font-bold text-sm bg-red-600 hover:bg-red-700 text-white transition-colors flex items-center gap-2"
+                >
+                  <span className="material-symbols-outlined text-[18px]">close</span>
+                  Cancel
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6 space-y-5">
+              <div className="rounded-2xl border bg-slate-50 p-4" style={{ borderColor: 'rgba(20,69,132,0.1)' }}>
+                <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Current Status</p>
+                <p className="text-sm font-bold text-slate-800 mt-1">{repricingJob?.message || 'Working…'}</p>
+                <p className="text-xs text-slate-500 mt-2">
+                  {repricingJob?.currentItemTitle ? `Item: ${repricingJob.currentItemTitle}` : 'Waiting for first item'}
+                  {repricingJob?.currentBarcode ? ` · Barcode: ${repricingJob.currentBarcode}` : ''}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border bg-slate-50 p-4" style={{ borderColor: 'rgba(20,69,132,0.1)' }}>
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Progress</p>
+                  <p className="text-xs font-bold text-slate-600">
+                    {repricingJob?.completedBarcodeCount || 0} / {repricingJob?.totalBarcodes || 0} barcodes completed
+                  </p>
+                </div>
+                <div className="h-3 rounded-full bg-slate-200 overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-500"
+                    style={{
+                      width: `${repricingJob?.totalBarcodes ? Math.min(100, ((repricingJob.completedBarcodeCount || 0) / repricingJob.totalBarcodes) * 100) : 0}%`,
+                      background: '#144584'
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-2xl border overflow-hidden" style={{ borderColor: 'rgba(20,69,132,0.1)' }}>
+                <div className="px-4 py-3 bg-slate-50 border-b" style={{ borderColor: 'rgba(20,69,132,0.08)' }}>
+                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Detailed Process Stack</p>
+                  <p className="text-xs text-slate-500 mt-1">This stays in order from start to finish so you can follow each item and barcode step-by-step.</p>
+                </div>
+                <div className="max-h-[38vh] overflow-y-auto buyer-panel-scroll p-4 space-y-2 bg-white">
+                  {[...(repricingJob?.logs || [])].slice(-40).map((entry, index) => (
+                    <div key={`${entry.timestamp || 'log'}-${index}`} className="rounded-xl border px-3 py-2.5 bg-slate-50" style={{ borderColor: 'rgba(20,69,132,0.08)' }}>
+                      <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">Step {Math.max(1, (repricingJob?.logs || []).slice(-40).length ? index + 1 : 1)}</p>
+                      <p className="text-[11px] font-semibold text-slate-700 leading-relaxed">{entry.message}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {ambiguousBarcodeModal && (
         <div className="fixed inset-0 z-[130] flex items-center justify-center p-4">
@@ -925,14 +1111,63 @@ const RepricingNegotiation = () => {
         const modalItem = barcodeModal.item;
         const itemBarcodes = barcodes[modalItem.id] || [];
 
+        const runNosposLookup = (code, barcodeIndex) => {
+          const lookupKey = `${modalItem.id}_${barcodeIndex}`;
+          setNosposLookups(prev => ({ ...prev, [lookupKey]: { status: 'searching' } }));
+          searchNosposBarcode(code).then(result => {
+            if (result?.loginRequired) {
+              showNotification("NosPos lookup needs you to be logged in first.", "error");
+              setNosposLookups(prev => ({ ...prev, [lookupKey]: { status: 'error', error: 'Log in to NosPos first' } }));
+            } else if (result?.ok) {
+              const results = result.results || [];
+              if (results.length === 0) {
+                showNotification(`No NosPos match found for barcode ${code}.`, "warning");
+                setNosposLookups(prev => ({ ...prev, [lookupKey]: { status: 'not_found', results: [] } }));
+              } else if (results.length === 1) {
+                showNotification(`Found 1 NosPos match for barcode ${code}.`, "success");
+                // Auto-select single result
+                setNosposLookups(prev => ({
+                  ...prev,
+                  [lookupKey]: {
+                    status: 'selected',
+                    results,
+                    stockBarcode: results[0].barserial,
+                    stockName: results[0].name || '',
+                    stockUrl: `https://nospos.com${results[0].href}`
+                  }
+                }));
+              } else {
+                showNotification(`Found ${results.length} NosPos matches for barcode ${code}. Pick the right one below.`, "info");
+                setNosposLookups(prev => ({ ...prev, [lookupKey]: { status: 'found', results } }));
+                // Auto-open the results panel for this barcode
+                setNosposResultsPanel({ itemId: modalItem.id, barcodeIndex });
+              }
+            } else {
+              showNotification(result?.error || "NosPos lookup failed.", "error");
+              setNosposLookups(prev => ({
+                ...prev,
+                [lookupKey]: { status: 'error', error: result?.error || 'Search failed' }
+              }));
+            }
+          }).catch(err => {
+            showNotification(err?.message || "NosPos lookup failed.", "error");
+            setNosposLookups(prev => ({
+              ...prev,
+              [lookupKey]: { status: 'error', error: err?.message || 'Extension unavailable' }
+            }));
+          });
+        };
+
         const addBarcode = () => {
           const code = barcodeInput.trim();
           if (!code) return;
+          const newIdx = (barcodes[modalItem.id] || []).length;
           setBarcodes(prev => ({
             ...prev,
             [modalItem.id]: [...(prev[modalItem.id] || []), code]
           }));
           setBarcodeInput('');
+          runNosposLookup(code, newIdx);
         };
 
         const removeBarcode = (code) => {
@@ -942,34 +1177,200 @@ const RepricingNegotiation = () => {
           }));
         };
 
+        const selectNosposResult = (lookupKey, result) => {
+          setNosposLookups(prev => ({
+            ...prev,
+            [lookupKey]: {
+              ...prev[lookupKey],
+              status: 'selected',
+              stockBarcode: result.barserial,
+              stockName: result.name || '',
+              stockUrl: `https://nospos.com${result.href}`
+            }
+          }));
+          setNosposResultsPanel(null);
+        };
+
+        const skipNosposLookup = (lookupKey) => {
+          setNosposLookups(prev => ({
+            ...prev,
+            [lookupKey]: { ...prev[lookupKey], status: 'skipped' }
+          }));
+        };
+
         return (
-          <TinyModal title="Barcodes" onClose={() => setBarcodeModal(null)}>
+          <TinyModal title="Barcodes" onClose={() => { setBarcodeModal(null); setNosposResultsPanel(null); }}>
             <p className="text-xs font-semibold mb-4" style={{ color: '#144584' }}>
               {modalItem.title}
             </p>
 
             {itemBarcodes.length > 0 ? (
-              <div className="space-y-1.5 mb-4 max-h-40 overflow-y-auto">
+              <div className="space-y-2 mb-4 max-h-96 overflow-y-auto">
                 {itemBarcodes.map((code, idx) => {
                   const isComplete = (completedBarcodes[modalItem.id] || []).includes(idx);
+                  const lookupKey = `${modalItem.id}_${idx}`;
+                  const lookup = nosposLookups[lookupKey];
+                  const isPanelOpen = nosposResultsPanel?.itemId === modalItem.id && nosposResultsPanel?.barcodeIndex === idx;
+
                   return (
-                    <div
-                      key={idx}
-                      className={`flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg border ${
-                        isComplete ? 'bg-emerald-50 border-emerald-200' : 'bg-gray-50 border-gray-200'
-                      }`}
-                    >
-                      <span className="text-xs font-mono font-semibold flex items-center gap-2" style={{ color: '#144584' }}>
-                        {isComplete && <span className="material-symbols-outlined text-emerald-600 text-[16px]">check_circle</span>}
-                        {code}
-                      </span>
-                      <button
-                        onClick={() => removeBarcode(code)}
-                        className="text-red-400 hover:text-red-600 transition-colors"
-                        title="Remove barcode"
-                      >
-                        <span className="material-symbols-outlined text-[16px]">close</span>
-                      </button>
+                    <div key={idx} className="rounded-lg border overflow-hidden" style={{ borderColor: isComplete ? '#a7f3d0' : 'rgba(20,69,132,0.15)' }}>
+                      {/* Top row: barcode code + status + remove */}
+                      <div className={`flex items-center gap-2 px-3 py-1.5 ${isComplete ? 'bg-emerald-50' : 'bg-gray-50'}`}>
+                        <span className="flex-1 text-xs font-mono font-semibold flex items-center gap-1.5" style={{ color: '#144584' }}>
+                          {isComplete && <span className="material-symbols-outlined text-emerald-600 text-[14px]">check_circle</span>}
+                          {code}
+                        </span>
+
+                        {/* NosPos lookup status badges */}
+                        {lookup?.status === 'searching' && (
+                          <span className="text-[10px] font-semibold text-blue-500 flex items-center gap-1">
+                            <span className="material-symbols-outlined text-[12px] animate-spin">refresh</span>
+                            Searching…
+                          </span>
+                        )}
+                        {lookup?.status === 'selected' && (
+                          <span className="text-[10px] font-semibold text-emerald-600 flex items-center gap-1 min-w-0">
+                            <span className="material-symbols-outlined text-[12px]">check_circle</span>
+                            <span className="truncate">
+                              <a
+                                href={lookup.stockUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="hover:underline"
+                                title={lookup.stockBarcode}
+                              >
+                                {lookup.stockBarcode}
+                              </a>
+                              {lookup.stockName ? (
+                                <>
+                                  {' '}
+                                  ·{' '}
+                                  <a
+                                    href={lookup.stockUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="hover:underline"
+                                    title={lookup.stockName}
+                                  >
+                                    {lookup.stockName}
+                                  </a>
+                                </>
+                              ) : null}
+                            </span>
+                          </span>
+                        )}
+                        {lookup?.status === 'found' && (
+                          <button
+                            className="text-[10px] font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1 transition-colors"
+                            onClick={() => setNosposResultsPanel(isPanelOpen ? null : { itemId: modalItem.id, barcodeIndex: idx })}
+                          >
+                            <span className="material-symbols-outlined text-[12px]">list</span>
+                            {lookup.results.length} result{lookup.results.length !== 1 ? 's' : ''} — pick one
+                          </button>
+                        )}
+                        {lookup?.status === 'not_found' && (
+                          <span className="text-[10px] font-semibold text-amber-600 flex items-center gap-1">
+                            <span className="material-symbols-outlined text-[12px]">search_off</span>
+                            Not found
+                          </span>
+                        )}
+                        {lookup?.status === 'skipped' && (
+                          <span className="text-[10px] font-semibold text-slate-400 flex items-center gap-1">
+                            <span className="material-symbols-outlined text-[12px]">skip_next</span>
+                            Skipped
+                          </span>
+                        )}
+                        {lookup?.status === 'error' && (
+                          <span className="text-[10px] font-semibold text-red-400" title={lookup.error}>
+                            <span className="material-symbols-outlined text-[12px]">warning</span>
+                          </span>
+                        )}
+
+                        {(lookup?.status === 'not_found' || lookup?.status === 'error') && (
+                          <button
+                            className="text-[10px] font-semibold text-blue-600 hover:text-blue-800 transition-colors flex items-center gap-0.5"
+                            onClick={() => runNosposLookup(code, idx)}
+                            title="Retry NosPos lookup"
+                          >
+                            <span className="material-symbols-outlined text-[12px]">refresh</span>
+                            Retry
+                          </button>
+                        )}
+
+                        {/* Skip button for not_found / found / error states */}
+                        {(lookup?.status === 'not_found' || lookup?.status === 'found' || lookup?.status === 'error') && (
+                          <button
+                            className="text-[10px] font-semibold text-slate-400 hover:text-slate-600 transition-colors flex items-center gap-0.5"
+                            onClick={() => { skipNosposLookup(lookupKey); setNosposResultsPanel(null); }}
+                            title="Skip this barcode"
+                          >
+                            Skip
+                          </button>
+                        )}
+
+                        <button
+                          onClick={() => removeBarcode(code)}
+                          className="text-red-400 hover:text-red-600 transition-colors flex-shrink-0"
+                          title="Remove barcode"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">close</span>
+                        </button>
+                      </div>
+
+                      {/* Results panel (shown when multiple results and user expands or auto-opens) */}
+                      {isPanelOpen && lookup?.results?.length > 0 && (
+                        <div className="border-t" style={{ borderColor: 'rgba(20,69,132,0.1)' }}>
+                          <div className="px-2 py-1.5 bg-blue-50">
+                            <p className="text-[10px] font-semibold text-blue-700 mb-1">Select the matching item on NosPos:</p>
+                            <div className="space-y-1">
+                              {lookup.results.map((result, ri) => (
+                                <div
+                                  key={ri}
+                                  className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-white border hover:border-blue-300 hover:bg-blue-50 transition-colors cursor-pointer group"
+                                  style={{ borderColor: 'rgba(20,69,132,0.15)' }}
+                                >
+                                  <div className="flex-1 min-w-0">
+                                    <a
+                                      href={`https://nospos.com${result.href}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="block text-[11px] font-mono font-bold text-blue-700 hover:underline leading-tight"
+                                      onClick={() => selectNosposResult(lookupKey, result)}
+                                    >
+                                      {result.barserial}
+                                    </a>
+                                    <a
+                                      href={`https://nospos.com${result.href}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="block text-[10px] text-slate-500 truncate leading-tight mt-0.5 hover:underline"
+                                      onClick={() => selectNosposResult(lookupKey, result)}
+                                    >
+                                      {result.name}
+                                    </a>
+                                    <p className="text-[10px] text-slate-400 leading-tight">
+                                      Cost {result.costPrice} · Retail {result.retailPrice} · Qty {result.quantity}
+                                    </p>
+                                  </div>
+                                  <button
+                                    className="flex-shrink-0 px-2 py-1 rounded text-[10px] font-bold transition-colors"
+                                    style={{ background: '#144584', color: 'white' }}
+                                    onClick={() => selectNosposResult(lookupKey, result)}
+                                  >
+                                    Select
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                            <button
+                              className="mt-1.5 text-[10px] font-semibold text-slate-400 hover:text-slate-600 transition-colors"
+                              onClick={() => setNosposResultsPanel(null)}
+                            >
+                              Close
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -1001,7 +1402,7 @@ const RepricingNegotiation = () => {
             <button
               className="w-full py-2.5 rounded-lg text-sm font-bold transition-all hover:opacity-90"
               style={{ background: '#f7b918', color: '#144584' }}
-              onClick={() => setBarcodeModal(null)}
+              onClick={() => { setBarcodeModal(null); setNosposResultsPanel(null); }}
             >
               OK
             </button>

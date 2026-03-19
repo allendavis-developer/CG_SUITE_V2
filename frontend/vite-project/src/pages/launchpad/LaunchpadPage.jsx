@@ -94,21 +94,21 @@ const LaunchpadPage = () => {
               <ModuleCard
                 icon="shopping_cart_checkout"
                 title="Buying Module"
-                description="Manage and process all trade-in transactions, inventory acquisitions, and vendor settlements in one place."
+                description="Manage and process all buys."
                 route="/buyer"
                 buttonLabel="Open Buying Module"
               />
               <ModuleCard
                 icon="analytics"
                 title="Repricing Module"
-                description="Analyze real-time market trends, competitor data, and update product pricing dynamically across all channels."
+                description="Analyse real-time competitor data, and update product pricing."
                 route="/repricing"
                 buttonLabel="Open Repricing Module"
               />
               <ModuleCard
                 icon="summarize"
                 title="Reports"
-                description="View request overview and repricing history. Access detailed reports for transactions and pricing sessions."
+                description="View reporting."
                 route="/reports"
                 buttonLabel="Open Reports"
               />

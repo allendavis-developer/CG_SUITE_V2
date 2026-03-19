@@ -56,6 +56,35 @@ async function putTabInYellowGroup(tabId) {
   }
 }
 
+async function openBackgroundNosposTab(url, appTabId = null) {
+  try {
+    const win = await chrome.windows.create({
+      url,
+      focused: false,
+      state: 'minimized'
+    });
+    if (win?.id != null) {
+      await chrome.windows.update(win.id, { focused: false, state: 'minimized' }).catch(() => {});
+    }
+    const tab = (win?.tabs || [])[0];
+    if (tab?.id != null) {
+      if (appTabId) {
+        await focusAppTab(appTabId);
+      }
+      return { tabId: tab.id, windowId: win.id || null };
+    }
+  } catch (e) {
+    console.warn('[CG Suite] Could not open minimized NoSpos window:', e?.message);
+  }
+
+  const fallbackTab = await chrome.tabs.create({ url, active: false });
+  await putTabInYellowGroup(fallbackTab.id);
+  if (appTabId) {
+    await focusAppTab(appTabId);
+  }
+  return { tabId: fallbackTab.id, windowId: fallbackTab.windowId || null };
+}
+
 // ── Storage helpers ────────────────────────────────────────────────────────────
 
 async function getPending() {
@@ -104,6 +133,142 @@ async function clearLastRepricingResult() {
   await chrome.storage.local.remove('cgNosposLastRepricingResult');
 }
 
+async function getRepricingStatus() {
+  const stored = await chrome.storage.local.get('cgNosposRepricingStatus');
+  return stored.cgNosposRepricingStatus || null;
+}
+
+async function setRepricingStatus(status) {
+  await chrome.storage.local.set({ cgNosposRepricingStatus: status || null });
+}
+
+async function clearRepricingStatus() {
+  await chrome.storage.local.remove('cgNosposRepricingStatus');
+}
+
+function countTotalBarcodes(repricingData) {
+  return (repricingData || []).reduce((sum, item) => sum + ((item?.barcodes?.length) || 0), 0);
+}
+
+function countCompletedBarcodes(completedBarcodes) {
+  return Object.values(completedBarcodes || {}).reduce((sum, indices) => sum + ((indices || []).length), 0);
+}
+
+function buildBarcodeQueue(repricingData, completedBarcodes, completedItems, skippedBarcodes = {}) {
+  const queue = [];
+  for (let i = 0; i < (repricingData || []).length; i++) {
+    const item = repricingData[i];
+    if (completedItems?.includes(item?.itemId)) continue;
+    const done = completedBarcodes?.[item?.itemId] || [];
+    const skipped = skippedBarcodes?.[item?.itemId] || [];
+    for (let j = 0; j < (item?.barcodes?.length || 0); j++) {
+      if (done.includes(j) || skipped.includes(j)) continue;
+      const barcode = (item?.barcodes?.[j] || '').trim();
+      if (!barcode) continue;
+      queue.push({
+        itemIndex: i,
+        barcodeIndex: j,
+        itemId: item?.itemId,
+        itemTitle: item?.title || '',
+        barcode
+      });
+    }
+  }
+  return queue;
+}
+
+function getActiveQueue(data) {
+  const queue = Array.isArray(data?.queue) ? data.queue : [];
+  if (queue.length > 0) return queue;
+  return buildBarcodeQueue(data?.repricingData || [], data?.completedBarcodes || {}, data?.completedItems || [], data?.skippedBarcodes || {});
+}
+
+function removeQueueHead(queue, expected) {
+  const currentQueue = Array.isArray(queue) ? [...queue] : [];
+  if (currentQueue.length === 0) return currentQueue;
+  if (!expected) return currentQueue.slice(1);
+  const head = currentQueue[0];
+  if (
+    head?.itemId === expected?.itemId &&
+    head?.barcodeIndex === expected?.barcodeIndex &&
+    head?.barcode === expected?.barcode
+  ) {
+    return currentQueue.slice(1);
+  }
+  return currentQueue.filter((entry) => !(
+    entry?.itemId === expected?.itemId &&
+    entry?.barcodeIndex === expected?.barcodeIndex &&
+    entry?.barcode === expected?.barcode
+  ));
+}
+
+function appendRepricingLog(data, message, level = 'info') {
+  const logs = [...(data?.logs || []), {
+    timestamp: new Date().toISOString(),
+    level,
+    message: String(message || '').trim()
+  }].slice(-200);
+  return { ...(data || {}), logs };
+}
+
+function itemTitleForLog(item) {
+  return item?.title || 'Unknown Item';
+}
+
+function formatBarcodeArrayForLog(item) {
+  const values = (item?.barcodes || []).map((barcode) => String(barcode || '').trim()).filter(Boolean);
+  return `[${values.map((barcode) => `"${barcode}"`).join(', ')}]`;
+}
+
+function addItemContextLog(data, item, prefix = 'Next item is') {
+  if (!item?.itemId) return data;
+  if (data?.lastLoggedItemId === item.itemId) return data;
+  const label = data?.lastLoggedItemId ? 'Next item is' : 'First item is';
+  return appendRepricingLog(
+    { ...(data || {}), lastLoggedItemId: item.itemId },
+    `${label} ${itemTitleForLog(item)} - doing barcodes ${formatBarcodeArrayForLog(item)}.`
+  );
+}
+
+function buildRepricingStatusPayload(data, overrides = {}) {
+  const repricingData = data?.repricingData || [];
+  const completedBarcodes = data?.completedBarcodes || {};
+  const completedItems = data?.completedItems || [];
+  const totalBarcodes = countTotalBarcodes(repricingData);
+  const completedBarcodeCount = countCompletedBarcodes(completedBarcodes);
+  const queue = getActiveQueue(data);
+  const next = queue[0] || null;
+  const nextItem = next ? repricingData[next.itemIndex] : null;
+
+  return {
+    cartKey: data?.cartKey || '',
+    running: !data?.done,
+    done: !!data?.done,
+    step: overrides.step || data?.step || (data?.done ? 'completed' : 'working'),
+    message: overrides.message || data?.message || '',
+    currentBarcode: overrides.currentBarcode ?? data?.currentBarcode ?? next?.barcode ?? '',
+    currentItemId: overrides.currentItemId ?? data?.currentItemId ?? nextItem?.itemId ?? '',
+    currentItemTitle: overrides.currentItemTitle ?? data?.currentItemTitle ?? nextItem?.title ?? '',
+    totalBarcodes,
+    completedBarcodeCount,
+    completedBarcodes,
+    completedItems,
+    logs: data?.logs || [],
+  };
+}
+
+async function broadcastRepricingStatus(appTabId, data, overrides = {}) {
+  const payload = buildRepricingStatusPayload(data, overrides);
+  await setRepricingStatus(payload);
+  if (appTabId) {
+    await chrome.tabs.sendMessage(appTabId, {
+      type: 'REPRICING_PROGRESS_TO_PAGE',
+      payload
+    }).catch(() => {});
+  }
+  return payload;
+}
+
 async function failNosposRequestAndCloseTab(requestId, entry, message) {
   const pending = await getPending();
   if (pending[requestId]) {
@@ -112,6 +277,21 @@ async function failNosposRequestAndCloseTab(requestId, entry, message) {
   }
 
   if (entry?.type === 'openNospos') {
+    const status = await getRepricingStatus();
+    if (status?.cartKey) {
+      await setRepricingStatus({
+        ...status,
+        running: false,
+        done: false,
+        step: 'error',
+        message: message || 'You must be logged into NoSpos to continue.',
+        logs: [...(status.logs || []), {
+          timestamp: new Date().toISOString(),
+          level: 'error',
+          message: message || 'You must be logged into NoSpos to continue.'
+        }].slice(-200)
+      });
+    }
     await clearNosposRepricingState(entry.listingTabId);
   }
 
@@ -145,6 +325,138 @@ async function sendRepricingComplete(appTabId, payload) {
     type: 'REPRICING_COMPLETE_TO_PAGE',
     payload
   }).catch(() => {});
+}
+
+// ── NosPos stock search result parser ─────────────────────────────────────────
+
+/**
+ * Parse the NosPos /stock/search/index HTML page and extract result rows.
+ * Returns an array of { barserial, href, name, costPrice, retailPrice, quantity }.
+ */
+function decodeNosposHtmlText(value) {
+  return (value || '')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getStockNameFromEditHtml(html) {
+  // Try every ordering of attributes on the stock-name input.
+  // The input looks like: <input type="text" id="stock-name" class="..." name="Stock[name]" value="xbox series x" ...>
+  // We match the whole input tag first, then pull value= out of it.
+  const byId = html.match(/<input[^>]+id="stock-name"[^>]*>/i);
+  const byName = html.match(/<input[^>]+name="Stock\[name\]"[^>]*>/i);
+  const tag = (byId || byName)?.[0] || '';
+  const valueMatch = tag.match(/\bvalue="([^"]*)"/i);
+  return decodeNosposHtmlText(valueMatch?.[1] || '');
+}
+
+function parseNosposSearchResults(html) {
+  const results = [];
+  // Match <tr data-key="..."> rows
+  const rowRe = /<tr[^>]+data-key="\d+"[^>]*>([\s\S]*?)<\/tr>/gi;
+  let rowMatch;
+  while ((rowMatch = rowRe.exec(html)) !== null) {
+    const rowHtml = rowMatch[1];
+    // Extract all <td>...</td> cells
+    const cells = [];
+    const cellRe = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+    let cellMatch;
+    while ((cellMatch = cellRe.exec(rowHtml)) !== null) {
+      cells.push(cellMatch[1]);
+    }
+    if (cells.length < 5) continue;
+
+    // Cell 0: barserial + href
+    const linkMatch = cells[0].match(/<a[^>]+href="([^"]+)"[^>]*>([^<]*)<\/a>/i);
+    const href = linkMatch ? linkMatch[1].replace(/&amp;/g, '&') : '';
+    const barserial = linkMatch ? linkMatch[2].trim() : '';
+
+    // Cell 1: item name (prefer title attribute for full text, handles HTML entities)
+    const titleAttr = cells[1].match(/(?:data-original-title|title)="([^"]+)"/i);
+    const name = titleAttr
+      ? decodeNosposHtmlText(titleAttr[1])
+      : cells[1].replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+
+    // Cells 2-4: prices + quantity (strip all tags)
+    const costPrice = cells[2].replace(/<[^>]*>/g, '').trim();
+    const retailPrice = cells[3].replace(/<[^>]*>/g, '').trim();
+    const quantity = cells[4].replace(/<[^>]*>/g, '').trim();
+
+    if (barserial || href) {
+      results.push({ barserial, href, name, costPrice, retailPrice, quantity });
+    }
+  }
+  return results;
+}
+
+/**
+ * Parse a direct /stock/:id/edit hit when NosPos bypasses the search results page.
+ * Returns a single result row if the page contains a Barserial detail.
+ */
+function parseNosposStockEditResult(html, finalUrl) {
+  const barserialMatch = html.match(
+    /<div[^>]*class="detail"[^>]*>\s*<strong>\s*Barserial\s*<\/strong>\s*<span>([\s\S]*?)<\/span>\s*<\/div>/i
+  );
+  const barserial = decodeNosposHtmlText(
+    (barserialMatch?.[1] || '').replace(/<[^>]*>/g, ' ')
+  );
+  if (!barserial) return [];
+
+  let href = '';
+  try {
+    href = new URL(finalUrl).pathname || '';
+  } catch {
+    href = '';
+  }
+
+  const titleMatch = html.match(/<title>([\s\S]*?)<\/title>/i);
+  const stockNameFromInput = getStockNameFromEditHtml(html);
+  const name = stockNameFromInput || decodeNosposHtmlText((titleMatch?.[1] || '').replace(/\s*-\s*Nospos\s*$/i, ''));
+
+  return [{
+    barserial,
+    href,
+    name,
+    costPrice: '',
+    retailPrice: '',
+    quantity: ''
+  }];
+}
+
+// ── Address lookup (getAddress.io via Django proxy) ─────────────────────────────
+
+const ADDRESS_API_BASE = 'http://127.0.0.1:8000';
+
+async function handleFetchAddressSuggestions(message) {
+  // Normalize postcode: trim, collapse whitespace (including nbsp), uppercase
+  const raw = (message.postcode || '').trim().replace(/\s+/g, ' ').replace(/\u00A0/g, ' ');
+  const postcode = raw.toUpperCase();
+  if (!postcode || postcode.replace(/\s/g, '').length < 4) {
+    return { ok: true, addresses: [] };
+  }
+  const bases = ['http://127.0.0.1:8000', 'http://localhost:8000'];
+  for (const base of bases) {
+    try {
+      const url = `${base}/api/address-lookup/${encodeURIComponent(postcode)}/`;
+      const resp = await fetch(url);
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        return { ok: false, error: err.error || `HTTP ${resp.status}` };
+      }
+      const data = await resp.json();
+      const addresses = data.addresses || [];
+      return { ok: true, addresses: Array.isArray(addresses) ? addresses : [] };
+    } catch (e) {
+      if (bases.indexOf(base) < bases.length - 1) continue;
+      return { ok: false, error: (e?.message || 'Network error') + '. Is Django running at http://127.0.0.1:8000?' };
+    }
+  }
+  return { ok: false, error: 'Could not reach address lookup service' };
 }
 
 // ── Message router ─────────────────────────────────────────────────────────────
@@ -227,6 +539,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'FETCH_ADDRESS_SUGGESTIONS') {
+    handleFetchAddressSuggestions(message)
+      .then(r => sendResponse(r))
+      .catch(e => sendResponse({ ok: false, error: e?.message || 'Failed' }));
+    return true;
+  }
+
   return false;
 });
 
@@ -295,6 +614,32 @@ async function handleBridgeForward(message, sender) {
     return { ok: true };
   }
 
+  // Search NosPos stock by barcode in the background (no tab switch).
+  // Fetches the stock search results page directly and parses the results table.
+  if (payload.action === 'searchNosposBarcode') {
+    const barcode = (payload.barcode || '').trim();
+    if (!barcode) return { ok: false, error: 'No barcode provided' };
+    try {
+      const searchUrl = `https://nospos.com/stock/search/index?StockSearchAndFilter[query]=${encodeURIComponent(barcode)}&sort=-quantity`;
+      const response = await fetch(searchUrl, {
+        credentials: 'include',
+        headers: { 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' }
+      });
+      const finalUrl = response.url || '';
+      if (!response.ok || finalUrl.includes('/login') || finalUrl.includes('/signin') || finalUrl.includes('/site/standard-login') || finalUrl.includes('/twofactor')) {
+        return { ok: false, loginRequired: true };
+      }
+      const html = await response.text();
+      const isDirectStockEditHit = /^https:\/\/[^/]*nospos\.com\/stock\/\d+\/edit\/?(\?.*)?$/i.test(finalUrl);
+      const results = isDirectStockEditHit
+        ? parseNosposStockEditResult(html, finalUrl)
+        : parseNosposSearchResults(html);
+      return { ok: true, results };
+    } catch (e) {
+      return { ok: false, error: e.message || 'Search failed' };
+    }
+  }
+
   // Open nospos.com for customer intake – same flow as openNosposAndWait (waits for user to log in)
   // but does not navigate to /stock/search; user stays on nospos.com to look up customer data.
   if (payload.action === 'openNosposForCustomerIntake') {
@@ -327,40 +672,56 @@ async function handleBridgeForward(message, sender) {
     const url = 'https://nospos.com';
     await clearNosposRepricingState();
     await chrome.storage.local.remove('cgNosposLastRepricingResult');
-    const newTab = await chrome.tabs.create({ url });
-    await putTabInYellowGroup(newTab.id);
+    await clearRepricingStatus();
+    const { tabId: nosposTabId } = await openBackgroundNosposTab(url, appTabId);
 
     const repricingData = payload.repricingData || [];
     const completedBarcodes = payload.completedBarcodes || {};
     const completedItems = payload.completedItems || [];
     const cartKey = payload.cartKey || '';
 
-    const data = { repricingData, appTabId, completedBarcodes, completedItems, cartKey, nosposTabId: newTab.id };
+    const data = { repricingData, appTabId, completedBarcodes, completedItems, cartKey, nosposTabId };
     const pending = await getPending();
-    pending[requestId] = { appTabId, listingTabId: newTab.id, type: 'openNospos', repricingData };
+    pending[requestId] = { appTabId, listingTabId: nosposTabId, type: 'openNospos', repricingData };
     await setPending(pending);
 
     const stored = await chrome.storage.local.get('cgNosposRepricingProgress');
     const merged = stored.cgNosposRepricingProgress && stored.cgNosposRepricingProgress.cartKey === cartKey
       ? { ...data, completedBarcodes: { ...completedBarcodes, ...stored.cgNosposRepricingProgress.completedBarcodes }, completedItems: [...new Set([...completedItems, ...(stored.cgNosposRepricingProgress.completedItems || [])])] }
       : data;
+    const initialData = {
+      ...merged,
+      queue: buildBarcodeQueue(repricingData, merged.completedBarcodes, merged.completedItems, {}),
+      awaitingStockSelection: false,
+      currentBarcode: '',
+      currentItemId: '',
+      currentItemIndex: null,
+      currentBarcodeIndex: null,
+      skippedBarcodes: {},
+      ambiguousBarcodes: [],
+      justSaved: false,
+      verifyRetries: 0,
+      done: false,
+      pendingCompletion: null,
+      verifiedChanges: [],
+      logs: [{
+        timestamp: new Date().toISOString(),
+        level: 'info',
+        message: 'Started repricing.'
+      }],
+      step: 'starting',
+      message: 'Opening hidden NoSpos worker'
+    };
     await chrome.storage.session.set({
-      cgNosposRepricingData: {
-        ...merged,
-        awaitingStockSelection: false,
-        currentBarcode: '',
-        skippedBarcodes: {},
-        ambiguousBarcodes: [],
-        justSaved: false,
-        verifyRetries: 0,
-        done: false,
-        pendingCompletion: null,
-        verifiedChanges: []
-      }
+      cgNosposRepricingData: initialData
     });
     await chrome.storage.local.set({ cgNosposRepricingProgress: { cartKey, completedBarcodes: merged.completedBarcodes, completedItems: merged.completedItems, appTabId } });
+    await broadcastRepricingStatus(appTabId, initialData, {
+      step: 'starting',
+      message: 'Opening hidden NoSpos worker'
+    });
 
-    console.log('[CG Suite] openNosposAndWait – waiting for user to land on nospos.com', { requestId, listingTabId: newTab.id });
+    console.log('[CG Suite] openNosposAndWait – waiting for user to land on nospos.com', { requestId, listingTabId: nosposTabId });
     return { ok: true };
   }
 
@@ -370,6 +731,46 @@ async function handleBridgeForward(message, sender) {
 
   if (payload.action === 'clearLastRepricingResult') {
     await clearLastRepricingResult();
+    return { ok: true };
+  }
+
+  if (payload.action === 'getNosposRepricingStatus') {
+    return { ok: true, payload: await getRepricingStatus() };
+  }
+
+  if (payload.action === 'cancelNosposRepricing') {
+    const nosposData = (await chrome.storage.session.get('cgNosposRepricingData')).cgNosposRepricingData;
+    const progress = (await chrome.storage.local.get('cgNosposRepricingProgress')).cgNosposRepricingProgress;
+    const appTabId = nosposData?.appTabId ?? progress?.appTabId;
+    const nosposTabId = nosposData?.nosposTabId;
+    const cartKey = nosposData?.cartKey ?? progress?.cartKey ?? payload.cartKey ?? '';
+
+    await clearNosposRepricingState(nosposTabId || 0);
+    const cancelledStatus = {
+      cartKey,
+      running: false,
+      done: false,
+      cancelled: true,
+      step: 'cancelled',
+      message: 'Repricing was cancelled.',
+      completedBarcodes: nosposData?.completedBarcodes ?? progress?.completedBarcodes ?? {},
+      completedItems: nosposData?.completedItems ?? progress?.completedItems ?? [],
+      logs: [...(nosposData?.logs || []), {
+        timestamp: new Date().toISOString(),
+        level: 'info',
+        message: 'Repricing was cancelled by the user.'
+      }].slice(-200)
+    };
+    await setRepricingStatus(cancelledStatus);
+    if (appTabId) {
+      chrome.tabs.sendMessage(appTabId, {
+        type: 'REPRICING_PROGRESS_TO_PAGE',
+        payload: cancelledStatus
+      }).catch(() => {});
+    }
+    if (nosposTabId) {
+      chrome.tabs.remove(nosposTabId).catch(() => {});
+    }
     return { ok: true };
   }
 
@@ -489,6 +890,13 @@ async function handleNosposPageReady(message, sender) {
     if (entry.type === 'openNospos') {
       // Navigate to stock search; keep pending so content script can get repricingData and fill first barcode
       await chrome.tabs.update(tabId, { url: 'https://nospos.com/stock/search' });
+      const stored = await chrome.storage.session.get('cgNosposRepricingData');
+      const nextData = appendRepricingLog(stored.cgNosposRepricingData, 'Logged into NoSpos. Opening stock search…');
+      await chrome.storage.session.set({ cgNosposRepricingData: nextData });
+      await broadcastRepricingStatus(entry.appTabId, nextData, {
+        step: 'search',
+        message: 'Logged into NoSpos. Opening stock search…'
+      });
       console.log('[CG Suite] NOSPOS_PAGE_READY – navigating to /stock/search', { requestId });
       return;
     }
@@ -579,12 +987,14 @@ async function handleNosposCustomerDone(message, sender) {
       requestId,
       response: cancelled
         ? { ok: false, cancelled: true }
-        : { ok: true, customer: message.customer || null, changes: message.changes || [] }
+        : { ok: true, customer: message.customer || null, changes: message.changes || [], saveFailed: !!message.saveFailed }
     }).catch(() => {});
-    await focusAppTab(entry.appTabId);
+    if (!message.saveFailed) {
+      await focusAppTab(entry.appTabId);
+    }
   }
-  // Close the NoSpos tab now that the flow is complete
-  if (entry.listingTabId != null) {
+  // Close the NoSpos tab when flow completed successfully (keep it open if save failed so user can fix)
+  if (entry.listingTabId != null && !message.saveFailed) {
     await chrome.tabs.remove(entry.listingTabId).catch(() => {});
   }
   console.log('[CG Suite] NOSPOS_CUSTOMER_DONE – resolved app promise, focused app tab, closed nospos tab', { requestId, cancelled });
@@ -699,11 +1109,20 @@ function buildRepricingCompletionPayload(data) {
 }
 
 async function finalizeNosposRepricing(data, tabId) {
+  const completedData = appendRepricingLog(
+    { ...data, done: true, step: 'completed', message: 'Repricing completed.' },
+    'Repricing completed.',
+    'success'
+  );
   const finalPayload = buildRepricingCompletionPayload(data);
   if (finalPayload.barcode_count > 0 || finalPayload.ambiguous_barcodes.length > 0) {
     await setLastRepricingResult(finalPayload);
     await sendRepricingComplete(data?.appTabId, finalPayload);
   }
+  await setRepricingStatus(buildRepricingStatusPayload(completedData, {
+    step: 'completed',
+    message: 'Repricing completed.'
+  }));
   await clearNosposRepricingState(tabId);
   await focusAppTab(data?.appTabId);
   if (tabId != null) {
@@ -734,8 +1153,12 @@ async function handleNosposStockSearchReady(message, sender) {
           completedItems: prog.completedItems || [],
           cartKey: prog.cartKey || '',
           nosposTabId: tabId,
+          queue: buildBarcodeQueue(repricingData, prog.completedBarcodes || {}, prog.completedItems || [], {}),
           awaitingStockSelection: false,
           currentBarcode: '',
+          currentItemId: '',
+          currentItemIndex: null,
+          currentBarcodeIndex: null,
           skippedBarcodes: {},
           ambiguousBarcodes: [],
           justSaved: false,
@@ -764,48 +1187,77 @@ async function handleNosposStockSearchReady(message, sender) {
     awaitingStockSelection,
     currentBarcode
   } = data;
-  const next = findNextBarcode(repricingData, completedBarcodes, completedItems, data.skippedBarcodes || {});
+  const queue = getActiveQueue(data);
+  const next = queue[0] || null;
 
   if (!next) {
-    await finalizeNosposRepricing(data, tabId);
+    const finalizingData = appendRepricingLog(data, 'All barcodes processed. Finalizing repricing…');
+    await chrome.storage.session.set({ cgNosposRepricingData: finalizingData });
+    await broadcastRepricingStatus(finalizingData.appTabId, finalizingData, {
+      step: 'finalizing',
+      message: 'All barcodes processed. Finalizing repricing…'
+    });
+    await finalizeNosposRepricing(finalizingData, tabId);
     return { ok: false };
   }
 
   if (awaitingStockSelection && currentBarcode === next.barcode) {
     const ambiguousData = markBarcodeAsAmbiguous(data, next);
-    const nextAfterSkip = findNextBarcode(
-      ambiguousData.repricingData || [],
-      ambiguousData.completedBarcodes || {},
-      ambiguousData.completedItems || [],
-      ambiguousData.skippedBarcodes || {}
-    );
+    const nextQueue = queue.slice(1);
+    const nextAfterSkip = nextQueue[0] || null;
 
     if (!nextAfterSkip) {
-      await finalizeNosposRepricing(ambiguousData, tabId);
+      await finalizeNosposRepricing({ ...ambiguousData, queue: nextQueue }, tabId);
       return { ok: false };
     }
 
-    await chrome.storage.session.set({
-      cgNosposRepricingData: {
+    const updatedData = appendRepricingLog(
+      {
         ...ambiguousData,
+        queue: nextQueue,
         nosposTabId: tabId,
         awaitingStockSelection: true,
         currentBarcode: nextAfterSkip.barcode,
+        currentItemId: nextAfterSkip.itemId || '',
+        currentItemIndex: nextAfterSkip.itemIndex,
+        currentBarcodeIndex: nextAfterSkip.barcodeIndex,
         verifyRetries: 0
-      }
+      },
+      `No single stock row could be selected for ${next.barcode}. Marking it as ambiguous and moving to ${nextAfterSkip.barcode}.`,
+      'warning'
+    );
+    await chrome.storage.session.set({ cgNosposRepricingData: updatedData });
+    await broadcastRepricingStatus(updatedData.appTabId, updatedData, {
+      step: 'search',
+      message: `Skipped ambiguous barcode ${next.barcode}`
     });
 
     return { ok: true, firstBarcode: nextAfterSkip.barcode, skippedPreviousBarcode: true };
   }
 
-  await chrome.storage.session.set({
-    cgNosposRepricingData: {
-      ...data,
+  const itemWithContext = repricingData[next.itemIndex];
+  const dataWithItemHeader = addItemContextLog(data, itemWithContext);
+  const updatedData = appendRepricingLog(
+    {
+      ...dataWithItemHeader,
+      queue,
       nosposTabId: tabId,
       awaitingStockSelection: true,
       currentBarcode: next.barcode,
+      currentItemId: next.itemId || '',
+      currentItemIndex: next.itemIndex,
+      currentBarcodeIndex: next.barcodeIndex,
       verifyRetries: 0
-    }
+    },
+    `Doing barcode ${next.barcode}.`
+  );
+  await chrome.storage.session.set({ cgNosposRepricingData: updatedData });
+  await broadcastRepricingStatus(updatedData.appTabId, updatedData, {
+    step: 'search',
+    message: `Searching barcode ${next.barcode}`,
+    currentBarcode: next.barcode,
+    currentItemId: next.itemId || '',
+    currentItemTitle: next.itemTitle || repricingData[next.itemIndex]?.title || ''
   });
 
   return { ok: true, firstBarcode: next.barcode };
@@ -821,7 +1273,8 @@ async function handleNosposStockEditReady(message, sender) {
   if (data.justSaved) return { ok: false, waitingForVerification: true };
 
   const { repricingData = [], appTabId, completedBarcodes = {}, completedItems = [], cartKey, nosposTabId } = data;
-  const next = findNextBarcode(repricingData, completedBarcodes, completedItems, data.skippedBarcodes || {});
+  const queue = getActiveQueue(data);
+  const next = queue[0] || null;
   if (!next) return { ok: false };
 
   const item = repricingData[next.itemIndex];
@@ -832,30 +1285,40 @@ async function handleNosposStockEditReady(message, sender) {
 
   // Always set justSaved and wait for page reload + verification before proceeding.
   // Do NOT focus app tab here - wait until after verify + navigate to search, then focus when done.
-  await chrome.storage.session.set({
-    cgNosposRepricingData: {
-      ...data,
-      repricingData,
-      appTabId,
-      completedBarcodes,
-      completedItems,
-      cartKey,
-      nosposTabId: nosposTabId || tabId,
-      awaitingStockSelection: false,
-      currentBarcode: '',
-      justSaved: true,
-      lastSalePrice: salePrice,
-      verifyRetries: 0,
-      done: false,
-      pendingCompletion: {
-        itemId: item?.itemId,
-        barcodeIndex: next.barcodeIndex,
-        barcode: next.barcode,
-        oldRetailPrice: message.oldRetailPrice || '',
-        stockBarcode: message.stockBarcode || '',
-        stockUrl: sender.tab?.url || ''
-      }
+  const updatedData = appendRepricingLog({
+    ...data,
+    repricingData,
+    appTabId,
+    completedBarcodes,
+    completedItems,
+    cartKey,
+    nosposTabId: nosposTabId || tabId,
+    queue,
+    awaitingStockSelection: false,
+    currentBarcode: '',
+    currentItemId: '',
+    currentItemIndex: null,
+    currentBarcodeIndex: null,
+    justSaved: true,
+    lastSalePrice: salePrice,
+    verifyRetries: 0,
+    done: false,
+    pendingCompletion: {
+      itemId: item?.itemId,
+      barcodeIndex: next.barcodeIndex,
+      barcode: next.barcode,
+      oldRetailPrice: message.oldRetailPrice || '',
+      stockBarcode: message.stockBarcode || '',
+      stockUrl: sender.tab?.url || ''
     }
+  }, `Saving barcode ${next.barcode}.`);
+  await chrome.storage.session.set({ cgNosposRepricingData: updatedData });
+  await broadcastRepricingStatus(appTabId, updatedData, {
+    step: 'saving',
+    message: `Saving retail price for ${next.barcode}…`,
+    currentBarcode: next.barcode,
+    currentItemId: item?.itemId || '',
+    currentItemTitle: item?.title || ''
   });
 
   return { ok: true, salePrice, done: false };
@@ -900,10 +1363,24 @@ async function handleNosposPageLoaded(message, sender) {
       const updatedProgress = applyVerifiedBarcodeCompletion(verifiedData);
       if (!updatedProgress) return;
       const { completedBarcodes, completedItems, verifiedChanges } = updatedProgress;
+      const nextQueue = removeQueueHead(data.queue, data.pendingCompletion);
       const payload = { cartKey: data.cartKey, completedBarcodes, completedItems };
-      if (data.appTabId) {
-        chrome.tabs.sendMessage(data.appTabId, { type: 'REPRICING_PROGRESS_TO_PAGE', payload }).catch(() => {});
-      }
+      const verifiedState = appendRepricingLog(
+        {
+          ...verifiedData,
+          completedBarcodes,
+          completedItems,
+          verifiedChanges,
+          queue: nextQueue
+        },
+        `Barcode ${data.pendingCompletion?.barcode || stockBarcode || 'barcode'} saved.`,
+        'success'
+      );
+      await broadcastRepricingStatus(data.appTabId, verifiedState, {
+        ...payload,
+        step: 'verified',
+        message: `Verified ${data.pendingCompletion?.barcode || stockBarcode || 'barcode'}.`
+      });
       await chrome.storage.local.set({
         cgNosposRepricingProgress: {
           cartKey: data.cartKey,
@@ -912,20 +1389,16 @@ async function handleNosposPageLoaded(message, sender) {
           appTabId: data.appTabId
         }
       });
-      const done = findNextBarcode(
-        data.repricingData || [],
-        completedBarcodes,
-        completedItems,
-        data.skippedBarcodes || {}
-      ) == null;
+      const done = nextQueue.length === 0;
 
       if (done) {
         await finalizeNosposRepricing(
           {
-            ...verifiedData,
+            ...verifiedState,
             completedBarcodes,
             completedItems,
             verifiedChanges,
+            queue: nextQueue,
             pendingCompletion: null
           },
           tabId
@@ -933,10 +1406,11 @@ async function handleNosposPageLoaded(message, sender) {
       } else {
         await chrome.storage.session.set({
           cgNosposRepricingData: {
-            ...verifiedData,
+            ...verifiedState,
             completedBarcodes,
             completedItems,
             verifiedChanges,
+            queue: nextQueue,
             justSaved: false,
             verifyRetries: 0,
             pendingCompletion: null,
@@ -948,15 +1422,28 @@ async function handleNosposPageLoaded(message, sender) {
     } else {
       const retries = (data.verifyRetries || 0) + 1;
       if (retries < 5) {
-        await chrome.storage.session.set({
-          cgNosposRepricingData: { ...data, verifyRetries: retries }
+        const retryState = {
+          ...data,
+          verifyRetries: retries
+        };
+        await chrome.storage.session.set({ cgNosposRepricingData: retryState });
+        await broadcastRepricingStatus(data.appTabId, retryState, {
+          step: 'verifying',
+          message: `Checking that NoSpos saved the new retail price for ${data.pendingCompletion?.barcode || stockBarcode || 'barcode'}…`
         });
         setTimeout(() => {
           chrome.tabs.sendMessage(tabId, { type: 'NOSPOS_VERIFY_RETAIL_PRICE' }).catch(() => {});
         }, 800);
       } else {
-        await chrome.storage.session.set({
-          cgNosposRepricingData: { ...data, verifyRetries: retries }
+        const failedVerify = appendRepricingLog(
+          { ...data, verifyRetries: retries },
+          `Could not verify saved price for ${data.pendingCompletion?.barcode || stockBarcode || 'barcode'} after ${retries} attempts.`,
+          'warning'
+        );
+        await chrome.storage.session.set({ cgNosposRepricingData: failedVerify });
+        await broadcastRepricingStatus(data.appTabId, failedVerify, {
+          step: 'verifying',
+          message: `Still waiting to verify ${data.pendingCompletion?.barcode || stockBarcode || 'barcode'}…`
         });
       }
     }
@@ -964,15 +1451,32 @@ async function handleNosposPageLoaded(message, sender) {
   }
 
   if (isSearchPage && data.justSaved) {
+    const searchResetState = appendRepricingLog(
+      { ...data, justSaved: false, verifyRetries: 0 },
+      'Returned to the stock search page. Preparing the next barcode…'
+    );
     await chrome.storage.session.set({
-      cgNosposRepricingData: { ...data, justSaved: false, verifyRetries: 0 }
+      cgNosposRepricingData: searchResetState
+    });
+    await broadcastRepricingStatus(data.appTabId, searchResetState, {
+      step: 'search',
+      message: 'Returned to stock search. Preparing the next barcode…'
     });
     return;
   }
 
   if (!isSearchPage && !isEditPage && tabId) {
+    const rerouteState = appendRepricingLog(
+      { ...data, justSaved: false, verifyRetries: 0 },
+      'NoSpos moved away from the expected page. Redirecting back to stock search…',
+      'warning'
+    );
     await chrome.storage.session.set({
-      cgNosposRepricingData: { ...data, justSaved: false, verifyRetries: 0 }
+      cgNosposRepricingData: rerouteState
+    });
+    await broadcastRepricingStatus(data.appTabId, rerouteState, {
+      step: 'search',
+      message: 'Redirecting the background worker back to stock search…'
     });
     await chrome.tabs.update(tabId, { url: 'https://nospos.com/stock/search' });
   }
@@ -1014,8 +1518,32 @@ async function handleScrapedData(message) {
 
 chrome.tabs.onRemoved.addListener(async (removedTabId) => {
   const nosposData = (await chrome.storage.session.get('cgNosposRepricingData')).cgNosposRepricingData;
+  const progress = (await chrome.storage.local.get('cgNosposRepricingProgress')).cgNosposRepricingProgress;
   if (nosposData?.nosposTabId === removedTabId) {
+    const appTabId = nosposData?.appTabId ?? progress?.appTabId;
     await clearNosposRepricingState(removedTabId);
+    const cancelledStatus = {
+      cartKey: nosposData?.cartKey ?? progress?.cartKey ?? '',
+      running: false,
+      done: false,
+      cancelled: true,
+      step: 'cancelled',
+      message: 'NoSpos tab was closed. Repricing cancelled.',
+      completedBarcodes: nosposData?.completedBarcodes ?? progress?.completedBarcodes ?? {},
+      completedItems: nosposData?.completedItems ?? progress?.completedItems ?? [],
+      logs: [...(nosposData?.logs || []), {
+        timestamp: new Date().toISOString(),
+        level: 'info',
+        message: 'NoSpos tab was closed. Repricing cancelled.'
+      }].slice(-200)
+    };
+    await setRepricingStatus(cancelledStatus);
+    if (appTabId) {
+      chrome.tabs.sendMessage(appTabId, {
+        type: 'REPRICING_PROGRESS_TO_PAGE',
+        payload: cancelledStatus
+      }).catch(() => {});
+    }
   }
 
   const pending = await getPending();

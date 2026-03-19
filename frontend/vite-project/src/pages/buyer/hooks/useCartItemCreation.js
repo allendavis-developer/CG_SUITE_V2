@@ -41,14 +41,19 @@ export const useCartItemCreation = ({
       const payload = {
         customer_id: customerData.id,
         intent,
-        item: itemPayload
+        item: itemPayload,
+        ...(customerData && { customer_enrichment: customerData })
       };
 
       const newRequest = await createRequest(payload);
       setRequest(newRequest);
       return newRequest.items[0].request_item_id;
     } else {
-      const created = await addRequestItem(request.request_id, itemPayload);
+      const addPayload = {
+        ...itemPayload,
+        ...(customerData && { customer_enrichment: customerData })
+      };
+      const created = await addRequestItem(request.request_id, addPayload);
       return created.request_item_id;
     }
   };

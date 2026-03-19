@@ -105,6 +105,42 @@
     }).catch(function () {});
   }
 
+  // ── Save failed notification panel (shown when NoSpos save fails) ───────────
+
+  function showSaveFailedPanel(errorMsg) {
+    if (document.getElementById('cg-suite-save-failed-panel')) return;
+    var errText = (errorMsg || '').trim();
+    var panel = document.createElement('div');
+    panel.id = 'cg-suite-save-failed-panel';
+    panel.innerHTML =
+      '<div style="position:fixed;top:50%;right:0;transform:translateY(-50%);z-index:2147483647;' +
+        'background:#dc2626;color:white;padding:20px 24px;border-radius:12px 0 0 12px;' +
+        'box-shadow:-6px 6px 24px rgba(0,0,0,0.35);font-family:system-ui,sans-serif;' +
+        'min-width:280px;max-width:360px;">' +
+        '<p style="margin:0 0 6px 0;font-weight:800;font-size:14px;">Save failed</p>' +
+        (errText ? '<p style="margin:0 0 8px 0;font-size:13px;font-weight:600;opacity:0.95;">' + (errText.replace(/</g, '&lt;').replace(/>/g, '&gt;')) + '</p>' : '') +
+        '<p style="margin:0 0 14px 0;font-size:13px;opacity:0.95;line-height:1.45;">' +
+          'Your data was sent to the app. Fix the save here on NoSpos, then switch back to the app when you\'re ready.' +
+        '</p>' +
+        '<button id="cg-suite-save-failed-dismiss" style="width:100%;padding:10px 16px;background:rgba(255,255,255,0.2);' +
+          'color:white;border:1px solid rgba(255,255,255,0.5);border-radius:8px;font-weight:600;cursor:pointer;font-size:13px;">Got it</button>' +
+      '</div>';
+    document.body.appendChild(panel);
+    document.getElementById('cg-suite-save-failed-dismiss').addEventListener('click', function () {
+      panel.remove();
+    });
+  }
+
+  function extractNosposErrorText() {
+    var el = document.querySelector('.error-summary.alert.alert-danger, .error-summary, .alert.alert-danger');
+    if (!el) return '';
+    var items = el.querySelectorAll('ul li');
+    if (items.length) {
+      return Array.from(items).map(function (li) { return (li.textContent || '').trim(); }).filter(Boolean).join('. ');
+    }
+    return (el.textContent || '').trim();
+  }
+
   // ── Customer Search Panel (shown on /customers) ────────────────────────────
 
   function showCustomerSearchPanel(requestId) {
@@ -299,6 +335,32 @@
     '</div>';
   }
 
+  // Address Line 1 with postcode lookup search button + mini popup
+  function address1WithSearch(value) {
+    return '<div style="display:flex;flex-direction:column;gap:5px;">' +
+      '<label for="cg-field-address1" style="' + LABEL_BASE + 'color:#92400e;">Address Line 1 <span style="color:#f59e0b;">*</span></label>' +
+      '<div id="cg-address1-wrap" style="display:flex;gap:8px;align-items:stretch;position:relative;">' +
+        '<input type="text" id="cg-field-address1" value="' + esc(value) + '" placeholder="Type address or click search" style="' +
+          INPUT_BASE + 'border-color:#fcd34d;background:#fffbeb;flex:1;" />' +
+        '<button type="button" id="cg-address-search-btn" title="Find addresses for this postcode" style="' +
+          'flex-shrink:0;width:40px;padding:0;border:1.5px solid #1e3a8a;background:#1e3a8a;color:white;' +
+          'border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:18px;' +
+          'transition:background 0.2s, transform 0.1s;" onmouseover="this.style.background=\'#1e40af\'" onmouseout="this.style.background=\'#1e3a8a\'">' +
+          '&#128269;</button>' +
+        '<div id="cg-address-popup" style="display:none;position:absolute;top:100%;left:0;right:40px;margin-top:4px;' +
+          'max-height:220px;overflow-y:auto;background:white;border:1.5px solid #e5e7eb;border-radius:10px;' +
+          'box-shadow:0 10px 40px rgba(0,0,0,0.15);z-index:9999;font-size:13px;">' +
+          '<div id="cg-address-popup-list"></div>' +
+          '<div id="cg-address-popup-loading" style="display:none;padding:16px;text-align:center;color:#6b7280;">Loading…</div>' +
+          '<div id="cg-address-popup-empty" style="display:none;padding:16px;text-align:center;color:#6b7280;">No addresses found. Enter postcode first.</div>' +
+          '<div id="cg-address-popup-error" style="display:none;padding:12px;color:#dc2626;font-size:12px;"></div>' +
+        '</div>' +
+      '</div>' +
+      '<div id="cg-field-address1-warn" style="display:none;font-size:12px;color:#b45309;font-weight:600;' +
+        'padding:6px 10px;background:#fef3c7;border-radius:6px;border:1px solid #fcd34d;"></div>' +
+    '</div>';
+  }
+
   function genderSelect(currentVal) {
     var opts = [['0','Unknown'],['1','Male'],['2','Female'],['3','Other']];
     return '<div style="display:flex;flex-direction:column;gap:5px;">' +
@@ -461,18 +523,18 @@
                   'display:flex;align-items:center;gap:7px;">' +
                   '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5">' +
                   '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>' +
-                  'Last transaction was ' + days + ' day' + (days === 1 ? '' : 's') + ' ago — you can skip these fields and press OK.' +
+                  'Last transaction was ' + days + ' day' + (days === 1 ? '' : 's') + ' ago.' +
                   '</div>'
                 : ''
               ) +
               grid2(
                 emptyField('cg-field-mobile',   'Mobile Phone',   'Type the number you know'),
-                emptyField('cg-field-email',     'Email Address',  'Type the address you know')
+                (d.email ? emptyField('cg-field-email',     'Email Address',  'Type the address you know') : '<div></div>')
               ) +
               '<div style="margin-top:10px;">' +
               grid2(
                 emptyField('cg-field-postcode',  'Postcode',       'Type the postcode you know'),
-                emptyField('cg-field-address1',  'Address Line 1', 'Type the address you know')
+                address1WithSearch('')
               ) + '</div>' +
             '</div>' +
 
@@ -548,6 +610,9 @@
           '<button id="cg-customer-cancel" style="padding:10px 20px;background:transparent;' +
             'color:#6b7280;border:1.5px solid #e5e7eb;border-radius:10px;font-weight:600;' +
             'cursor:pointer;font-size:14px;font-family:system-ui,sans-serif;">Cancel</button>' +
+          '<button id="cg-customer-bypass" style="padding:9px 16px;background:transparent;' +
+            'color:#6b7280;border:1px solid #d1d5db;border-radius:8px;font-weight:600;' +
+            'cursor:pointer;font-size:12px;font-family:system-ui,sans-serif;">Bypass</button>' +
           '<button id="cg-customer-use" style="padding:10px 28px;background:#facc15;' +
             'color:#1e3a8a;border:none;border-radius:10px;font-weight:800;cursor:pointer;' +
             'font-size:14px;font-family:system-ui,sans-serif;box-shadow:0 4px 12px rgba(250,204,21,0.4);">' +
@@ -577,6 +642,113 @@
     tabDetails.addEventListener('click', function () { activateTab('details'); });
     tabChanges.addEventListener('click', function () { activateTab('changes'); });
 
+    // ── Address lookup (Ideal Postcodes via extension background) ─────────────────
+    var popup = document.getElementById('cg-address-popup');
+    var popupList = document.getElementById('cg-address-popup-list');
+    var popupLoading = document.getElementById('cg-address-popup-loading');
+    var popupEmpty = document.getElementById('cg-address-popup-empty');
+    var popupError = document.getElementById('cg-address-popup-error');
+    var searchBtn = document.getElementById('cg-address-search-btn');
+    var address1Input = document.getElementById('cg-field-address1');
+    var address1Wrap = document.getElementById('cg-address1-wrap');
+
+    function hideAddressPopup() {
+      if (popup) popup.style.display = 'none';
+    }
+
+    function showAddressPopup() {
+      if (!popup) return;
+      popupList.style.display = '';
+      popupLoading.style.display = 'none';
+      popupEmpty.style.display = 'none';
+      popupError.style.display = 'none';
+      popup.style.display = 'block';
+    }
+
+    function closePopupOnClickOutside(e) {
+      if (address1Wrap && popup && !address1Wrap.contains(e.target)) {
+        hideAddressPopup();
+        document.removeEventListener('click', closePopupOnClickOutside);
+      }
+    }
+
+    if (searchBtn && popup) {
+      searchBtn.addEventListener('click', function () {
+        var postcode = (document.getElementById('cg-field-postcode').value || '').trim();
+        if (!postcode || postcode.replace(/\s+/g, '').length < 4) {
+          popupList.innerHTML = '';
+          popupList.style.display = 'none';
+          popupLoading.style.display = 'none';
+          popupEmpty.style.display = 'block';
+          popupEmpty.textContent = 'Enter a postcode first (min 4 chars)';
+          popupError.style.display = 'none';
+          popup.style.display = 'block';
+          setTimeout(function () { document.addEventListener('click', closePopupOnClickOutside); }, 0);
+          return;
+        }
+        popupList.innerHTML = '';
+        popupList.style.display = 'none';
+        popupLoading.style.display = 'block';
+        popupEmpty.style.display = 'none';
+        popupError.style.display = 'none';
+        popup.style.display = 'block';
+        setTimeout(function () { document.addEventListener('click', closePopupOnClickOutside); }, 0);
+
+        chrome.runtime.sendMessage({ type: 'FETCH_ADDRESS_SUGGESTIONS', postcode: postcode }, function (res) {
+          popupLoading.style.display = 'none';
+          if (!res || !res.ok) {
+            popupError.textContent = res && res.error ? res.error : 'Address lookup failed';
+            popupError.style.display = 'block';
+            popupEmpty.style.display = 'none';
+            popupList.style.display = 'none';
+            return;
+          }
+          var addresses = res.addresses || [];
+          if (addresses.length === 0) {
+            popupEmpty.textContent = 'No addresses found. Check the postcode (e.g. L13 9AE) and that Django is running at http://127.0.0.1:8000';
+            popupEmpty.style.display = 'block';
+            popupList.style.display = 'none';
+            return;
+          }
+          popupEmpty.style.display = 'none';
+          popupList.style.display = 'block';
+          popupList.innerHTML = addresses.map(function (addr, i) {
+            var display = [addr.line_1, addr.line_2, addr.line_3, addr.post_town, addr.postcode].filter(Boolean).join(', ');
+            if (!display) display = 'Address ' + (i + 1);
+            return '<div class="cg-address-item" data-index="' + i + '" style="padding:10px 14px;cursor:pointer;border-bottom:1px solid #f3f4f6;' +
+              'transition:background 0.15s;" onmouseover="this.style.background=\'#f0f9ff\'" onmouseout="this.style.background=\'transparent\'">' +
+              esc(display) + '</div>';
+          }).join('');
+          popupList.querySelectorAll('.cg-address-item').forEach(function (el) {
+            el.addEventListener('click', function () {
+              var idx = parseInt(el.getAttribute('data-index'), 10);
+              if (isNaN(idx) || idx < 0 || idx >= addresses.length) return;
+              var addr = addresses[idx];
+              hideAddressPopup();
+              document.removeEventListener('click', closePopupOnClickOutside);
+              var line1 = addr.line_1 || '';
+              var line2 = addr.line_2 || '';
+              var line3 = addr.line_3 || '';
+              var town = addr.post_town || '';
+              var county = addr.county || '';
+              var pc = addr.postcode || '';
+              var addr2Val = [line2, line3].filter(Boolean).join(', ');
+              if (address1Input) { address1Input.value = line1; address1Input.dispatchEvent(new Event('input', { bubbles: true })); }
+              var addr2 = document.getElementById('cg-field-address2');
+              if (addr2) { addr2.value = addr2Val; addr2.dispatchEvent(new Event('input', { bubbles: true })); }
+              var townEl = document.getElementById('cg-field-town');
+              if (townEl) { townEl.value = town; townEl.dispatchEvent(new Event('input', { bubbles: true })); townEl.style.borderColor = '#e5e7eb'; townEl.style.background = '#f9fafb'; }
+              var countyEl = document.getElementById('cg-field-county');
+              if (countyEl) { countyEl.value = county; countyEl.dispatchEvent(new Event('input', { bubbles: true })); }
+              var postEl = document.getElementById('cg-field-postcode');
+              if (postEl && pc) { postEl.value = pc; postEl.dispatchEvent(new Event('input', { bubbles: true })); }
+              showFieldWarn('cg-field-town', '');
+            });
+          });
+        });
+      });
+    }
+
     var phoneWarningAcknowledged = false;
 
     function getFieldVal(id) {
@@ -591,24 +763,43 @@
 
     var useBtn = document.getElementById('cg-customer-use');
 
-    document.getElementById('cg-customer-use').addEventListener('click', function () {
+    var hasEmailInNospos = !!(d.email && d.email.trim());
+
+    function validateVerifyFields() {
+      var phone = getFieldVal('cg-field-mobile');
+      var email = hasEmailInNospos ? getFieldVal('cg-field-email') : '';
+      var post = getFieldVal('cg-field-postcode');
+      var addr1 = getFieldVal('cg-field-address1');
+      var town = getFieldVal('cg-field-town');
+      if (!phone) { showFieldWarn('cg-field-mobile', 'Mobile is required.'); document.getElementById('cg-field-mobile').focus(); return false; }
+      showFieldWarn('cg-field-mobile', '');
+      if (hasEmailInNospos && !email) { showFieldWarn('cg-field-email', 'Email is required.'); document.getElementById('cg-field-email').focus(); return false; }
+      if (hasEmailInNospos) showFieldWarn('cg-field-email', '');
+      if (!post) { showFieldWarn('cg-field-postcode', 'Postcode is required.'); document.getElementById('cg-field-postcode').focus(); return false; }
+      showFieldWarn('cg-field-postcode', '');
+      if (!addr1) { showFieldWarn('cg-field-address1', 'Address Line 1 is required.'); document.getElementById('cg-field-address1').focus(); return false; }
+      showFieldWarn('cg-field-address1', '');
+      if (!town) { showFieldWarn('cg-field-town', 'Town is required.'); document.getElementById('cg-field-town').focus(); return false; }
+      showFieldWarn('cg-field-town', '');
+      return true;
+    }
+
+    function proceedWithCustomerData(bypassReason) {
       var enteredPhone   = getFieldVal('cg-field-mobile');
       var enteredEmail   = getFieldVal('cg-field-email');
       var enteredPost    = getFieldVal('cg-field-postcode');
       var enteredAddr1   = getFieldVal('cg-field-address1');
+      var enteredTown    = getFieldVal('cg-field-town');
 
-      // Town is required
-      var enteredTown = getFieldVal('cg-field-town');
-      if (!enteredTown) {
-        showFieldWarn('cg-field-town', 'Town is required before you can continue.');
-        document.getElementById('cg-field-town').style.borderColor = '#f59e0b';
-        document.getElementById('cg-field-town').focus();
-        return;
+      if (bypassReason) {
+        enteredPhone = enteredPhone || d.mobile;
+        enteredEmail = enteredEmail || d.email;
+        enteredPost  = enteredPost  || d.postcode;
+        enteredAddr1 = enteredAddr1 || d.address1;
+        enteredTown  = enteredTown  || d.town;
       }
-      showFieldWarn('cg-field-town', '');
 
-      // Phone typo check: same digit count but 1-2 differ = likely typo
-      if (!phoneWarningAcknowledged && enteredPhone && d.mobile && enteredPhone !== d.mobile) {
+      if (!bypassReason && !phoneWarningAcknowledged && enteredPhone && d.mobile && enteredPhone !== d.mobile) {
         var dist = phoneDigitMismatches(enteredPhone, d.mobile);
         if (dist >= 1 && dist <= 2) {
           showFieldWarn('cg-field-mobile',
@@ -695,6 +886,10 @@
       customer.name    = (customer.forename + ' ' + customer.surname).trim();
       customer.phone   = customer.mobile || customer.homePhone;
       customer.address = [customer.address1, customer.address2, customer.town, customer.county, customer.postcode].filter(Boolean).join(', ');
+      if (bypassReason) {
+        customer.bypassReason = bypassReason;
+        changes.push({ field: 'Bypass', from: '', to: bypassReason });
+      }
 
       // Find the nospos Save button
       var saveBtn = document.querySelector('.card-footer .btn-blue') ||
@@ -716,25 +911,65 @@
       useBtn.textContent = 'Saving…';
       useBtn.disabled = true;
       useBtn.style.opacity = '0.7';
+      var bypassBtnEl = document.getElementById('cg-customer-bypass');
+      if (bypassBtnEl) { bypassBtnEl.disabled = true; bypassBtnEl.style.opacity = '0.5'; }
 
-      // If nospos doesn't reload within 8 s, assume save failed
-      var saveTimeout = setTimeout(function () {
-        try { sessionStorage.removeItem('cgCustomerPending'); } catch (e) {}
-        useBtn.textContent = 'OK';
-        useBtn.disabled = false;
-        useBtn.style.opacity = '1';
-        var footer = useBtn.closest('div');
-        if (footer) {
-          var errMsg = document.createElement('p');
-          errMsg.style.cssText = 'margin:8px 0 0;font-size:12px;color:#dc2626;font-weight:600;text-align:right;';
-          errMsg.textContent = 'Save failed — check for errors on the form above.';
-          footer.appendChild(errMsg);
+      var saveFailedHandled = false;
+      var saveTimeout = null;
+
+      function handleSaveFailed(errorMsg) {
+        if (saveFailedHandled) return;
+        saveFailedHandled = true;
+        if (saveTimeout) { clearTimeout(saveTimeout); saveTimeout = null; }
+        window.removeEventListener('beforeunload', onBeforeUnload);
+        if (observer) { observer.disconnect(); observer = null; }
+        var pending = null;
+        try {
+          var raw = sessionStorage.getItem('cgCustomerPending');
+          if (raw) { pending = JSON.parse(raw); sessionStorage.removeItem('cgCustomerPending'); }
+        } catch (e) {}
+        if (pending && pending.requestId) {
+          chrome.runtime.sendMessage({
+            type: 'NOSPOS_CUSTOMER_DONE',
+            requestId: pending.requestId,
+            cancelled: false,
+            customer: pending.customer,
+            changes: pending.changes || [],
+            saveFailed: true
+          }).catch(function () {});
         }
-      }, 8000);
+        overlay.remove();
+        showSaveFailedPanel(errorMsg);
+      }
 
-      window.addEventListener('beforeunload', function () { clearTimeout(saveTimeout); });
+      function onBeforeUnload() { clearTimeout(saveTimeout); }
+
+      var observer = null;
+      observer = new MutationObserver(function () {
+        if (saveFailedHandled) return;
+        var err = extractNosposErrorText();
+        if (err) handleSaveFailed(err);
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+
+      // Fallback: if nospos doesn't reload within 4 s, assume save failed (e.g. network error)
+      saveTimeout = setTimeout(function () { handleSaveFailed(''); }, 4000);
+
+      window.addEventListener('beforeunload', onBeforeUnload);
 
       saveBtn.click();
+    }
+
+    document.getElementById('cg-customer-use').addEventListener('click', function () {
+      if (!validateVerifyFields()) return;
+      proceedWithCustomerData();
+    });
+
+    document.getElementById('cg-customer-bypass').addEventListener('click', function () {
+      var reason = window.prompt('Reason?');
+      if (reason != null && (reason = (reason || '').trim())) {
+        proceedWithCustomerData(reason);
+      }
     });
 
     document.getElementById('cg-customer-cancel').addEventListener('click', function () {

@@ -9,12 +9,22 @@ import { useLocation } from 'react-router-dom';
 import { useNotification } from '@/contexts/NotificationContext';
 import { loadSnapshot, saveSnapshot, clearSnapshot, defaultSnapshot } from '@/pages/buyer/buyerPageStore';
 
-import { fetchProductModels, updateRequestItemRawData, fetchRequestDetail, fetchCeXProductPrices } from '@/services/api';
+import { fetchProductModels, updateRequestItemRawData, updateRequestItemOffer, fetchRequestDetail, fetchCeXProductPrices, fetchVariantPrices, deleteRequestItem } from '@/services/api';
 import { getDataFromListingPage } from '@/services/extensionClient';
 import { mapTransactionTypeToIntent } from '@/utils/transactionConstants';
+import { mapRequestItemsToCartItems, mapRequestToCustomerData } from '@/utils/requestToCartMapping';
 
 function getInitialSnapshot(mode) {
   return loadSnapshot(mode);
+}
+
+function normalizeOffersForPersistence(offers) {
+  if (!Array.isArray(offers)) return undefined;
+  return offers.map((offer) => ({
+    id: offer.id,
+    title: offer.title,
+    price: Number(offer.price),
+  }));
 }
 
 export default function Buyer({ mode = 'buyer' }) {
@@ -59,6 +69,9 @@ export default function Buyer({ mode = 'buyer' }) {
   const [isQuickRepriceOpen, setIsQuickRepriceOpen] = useState(false);
   const [resetKey, setResetKey] = useState(0);
 
+  // Pending offer updates not yet reflected in state (user may click New Buy before re-render)
+  const pendingOfferUpdatesRef = useRef({});
+
   const persistRef = useRef(null);
   persistRef.current = {
     selectedCategory,
@@ -74,37 +87,104 @@ export default function Buyer({ mode = 'buyer' }) {
   };
 
   useEffect(() => {
-    return () => {
+    if (persistRef.current) {
+      saveSnapshot(mode, persistRef.current);
+    }
+  }, [
+    mode,
+    selectedCategory,
+    availableModels,
+    selectedModel,
+    cartItems,
+    selectedCartItem,
+    customerData,
+    intent,
+    request,
+    isCustomerModalOpen,
+    cexProductData,
+  ]);
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
       if (persistRef.current) saveSnapshot(mode, persistRef.current);
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      handleBeforeUnload();
+      window.removeEventListener('beforeunload', handleBeforeUnload);
     };
   }, [mode]);
 
   useEffect(() => {
     const s = initialSnapshotRef.current;
+    const resetBuyerSetup = () => {
+      clearSnapshot('buyer');
+      const def = defaultSnapshot();
+      setSelectedCategory(null);
+      setAvailableModels([]);
+      setSelectedModel(null);
+      setCartItems([]);
+      setSelectedCartItem(null);
+      setCustomerData(def.customerData);
+      setIntent(null);
+      setRequest(null);
+      setCexProductData(null);
+    };
     if (s?.selectedCartItemId && Array.isArray(s.cartItems) && s.cartItems.length > 0) {
       const found = s.cartItems.find((i) => i.id === s.selectedCartItemId);
       if (found) setSelectedCartItem(found);
     }
     if (s?.requestId) {
-      fetchRequestDetail(s.requestId).then((data) => data && setRequest(data)).catch(() => {});
+      fetchRequestDetail(s.requestId).then((data) => {
+        if (!data) return;
+        const status = data.current_status ?? data.status_history?.[0]?.status;
+        if (status !== 'QUOTE') {
+          resetBuyerSetup();
+          return;
+        }
+        setRequest(data);
+      }).catch(() => {});
     }
   }, []);
 
-  // Keep selectedCartItem in sync with cartItems when the cart is updated (e.g. transaction type
-  // effect creates new object refs). Without this, clicking a DB item can wrongly deselect because
-  // selectedCartItem points to a stale ref while the clicked item is a new ref with the same id.
+  // Open quote request from Requests Overview (continue editing)
   useEffect(() => {
-    if (!selectedCartItem?.id || !cartItems.length) return;
-    const current = cartItems.find((i) => i.id === selectedCartItem.id);
-    if (current && current !== selectedCartItem) {
-      setSelectedCartItem(current);
-    }
-  }, [cartItems, selectedCartItem?.id]);
+    const req = location.state?.openQuoteRequest;
+    if (req && req.current_status === 'QUOTE') {
+      pendingOfferUpdatesRef.current = {};
+      const transactionType =
+        req.intent === 'DIRECT_SALE'
+          ? 'sale'
+          : req.intent === 'BUYBACK'
+            ? 'buyback'
+            : 'store_credit';
+      const customerData = mapRequestToCustomerData(req);
+      const cartItems = mapRequestItemsToCartItems(req.items, transactionType);
 
-  // Restore cart state on navigation (e.g. from repricing-negotiation with preserveCart)
+      setCustomerData(customerData);
+      setIntent(mapTransactionTypeToIntent(transactionType));
+      setRequest(req);
+      setCartItems(cartItems);
+      setCustomerModalOpen(false);
+      setSelectedCartItem(null);
+      setSelectedCategory(null);
+      setSelectedModel(null);
+
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state?.openQuoteRequest]);
+
+  // Restore cart state on navigation (e.g. from negotiation or repricing-negotiation with preserveCart)
   useEffect(() => {
     if (location.state?.preserveCart) {
-      if (location.state.cartItems) setCartItems(location.state.cartItems);
+      if (location.state.cartItems) {
+        const useVoucher = location.state.customerData?.transactionType === 'store_credit';
+        const itemsWithOffers = location.state.cartItems.map((item) => {
+          const nextOffers = useVoucher ? (item.voucherOffers ?? []) : (item.cashOffers ?? []);
+          return { ...item, offers: nextOffers.length ? nextOffers : (item.offers || []) };
+        });
+        setCartItems(itemsWithOffers);
+      }
       if (location.state.customerData) {
         setCustomerData(location.state.customerData);
         setCustomerModalOpen(false);
@@ -115,14 +195,37 @@ export default function Buyer({ mode = 'buyer' }) {
         }
       }
       // Restore request if provided (optional, but helpful if available)
+      const resetBuyerSetup = () => {
+        clearSnapshot('buyer');
+        const def = defaultSnapshot();
+        setSelectedCategory(null);
+        setAvailableModels([]);
+        setSelectedModel(null);
+        setCartItems([]);
+        setSelectedCartItem(null);
+        setCustomerData(def.customerData);
+        setIntent(null);
+        setRequest(null);
+        setCexProductData(null);
+      };
+
       if (location.state.request) {
-        setRequest(location.state.request);
+        const req = location.state.request;
+        const status = req.current_status ?? req.status_history?.[0]?.status;
+        if (status === 'QUOTE') {
+          setRequest(req);
+        } else {
+          resetBuyerSetup();
+        }
       } else if (location.state.currentRequestId && !request) {
-        // If we have a requestId but no request object, fetch it
         fetchRequestDetail(location.state.currentRequestId).then(requestData => {
-          if (requestData) {
-            setRequest(requestData);
+          if (!requestData) return;
+          const status = requestData.current_status ?? requestData.status_history?.[0]?.status;
+          if (status !== 'QUOTE') {
+            resetBuyerSetup();
+            return;
           }
+          setRequest(requestData);
         }).catch(err => {
           console.error('Failed to fetch request when restoring state:', err);
         });
@@ -130,6 +233,74 @@ export default function Buyer({ mode = 'buyer' }) {
       window.history.replaceState({}, document.title);
     }
   }, [location.state]);
+
+  // Hydrate internal DB items that lack offers (e.g. opened from quote mode before we saved offers)
+  useEffect(() => {
+    if (isRepricing || !cartItems.length) return;
+
+    const toHydrate = cartItems.filter(
+      (item) =>
+        !item.isCustomEbayItem &&
+        !item.isCustomCeXItem &&
+        !item.isCustomCashConvertersItem &&
+        item.variantId &&
+        item.cexSku &&
+        (!item.cashOffers?.length || !item.voucherOffers?.length)
+    );
+    if (toHydrate.length === 0) return;
+
+    const useVoucher = customerData?.transactionType === 'store_credit';
+    let cancelled = false;
+
+    Promise.all(
+      toHydrate.map(async (item) => {
+        try {
+          const priceData = await fetchVariantPrices(item.cexSku);
+          return {
+            item,
+            cashOffers: priceData.cash_offers || [],
+            voucherOffers: priceData.voucher_offers || [],
+            referenceData: priceData.referenceData || {},
+          };
+        } catch {
+          return { item, cashOffers: [], voucherOffers: [], referenceData: {} };
+        }
+      })
+    ).then((results) => {
+      if (cancelled) return;
+      setCartItems((prev) =>
+        prev.map((ci) => {
+          const r = results.find((x) => x.item.id === ci.id);
+          if (!r) return ci;
+          const offers = useVoucher ? r.voucherOffers : r.cashOffers;
+          return {
+            ...ci,
+            cashOffers: r.cashOffers.length ? r.cashOffers : ci.cashOffers,
+            voucherOffers: r.voucherOffers.length ? r.voucherOffers : ci.voucherOffers,
+            offers: offers.length ? offers : (useVoucher ? ci.voucherOffers : ci.cashOffers) ?? [],
+            referenceData: Object.keys(r.referenceData).length ? r.referenceData : ci.referenceData,
+          };
+        })
+      );
+      setSelectedCartItem((current) => {
+        if (!current) return current;
+        const r = results.find((x) => x.item.id === current.id);
+        if (!r) return current;
+        const offers = useVoucher ? r.voucherOffers : r.cashOffers;
+        return {
+          ...current,
+          cashOffers: r.cashOffers.length ? r.cashOffers : current.cashOffers,
+          voucherOffers: r.voucherOffers.length ? r.voucherOffers : current.voucherOffers,
+          offers: offers.length ? offers : (useVoucher ? current.voucherOffers : current.cashOffers) ?? [],
+          referenceData: Object.keys(r.referenceData).length ? r.referenceData : current.referenceData,
+        };
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cartItems, customerData?.transactionType, isRepricing]);
 
   useEffect(() => {
     if (!cartItems.length) return;
@@ -275,8 +446,49 @@ export default function Buyer({ mode = 'buyer' }) {
   /**
    * Reset the entire buying module state: clear cart, customer, category, request, etc.
    * Persists the cleared state so it survives navigation.
+   * Flushes current offer/price state to backend before clearing so no changes are lost.
    */
-  const handleResetBuy = () => {
+  const handleResetBuy = async () => {
+    // Persist current cart offer state before clearing (merge pending updates in case state hasn't committed)
+    if (!isRepricing && cartItems.length > 0) {
+      const pending = pendingOfferUpdatesRef.current;
+      const persistPromises = [];
+      for (const item of cartItems) {
+        if (!item?.request_item_id) continue;
+        const merged = { ...item, ...pending[item.id] };
+        const payload = {};
+        if (merged.selectedOfferId !== undefined) {
+          payload.selected_offer_id = merged.selectedOfferId;
+          payload.manual_offer_used = merged.selectedOfferId === 'manual';
+        }
+        if (merged.manualOffer !== undefined && merged.manualOffer !== '') {
+          const parsed = parseFloat(String(merged.manualOffer).replace(/[£,]/g, ''));
+          payload.manual_offer_gbp = !isNaN(parsed) ? parsed : null;
+        }
+        if (merged.ourSalePrice !== undefined) {
+          const parsed = parseFloat(String(merged.ourSalePrice).replace(/[£,]/g, ''));
+          payload.our_sale_price_at_negotiation = !isNaN(parsed) && parsed > 0 ? parsed : null;
+        }
+        if (Array.isArray(merged.cashOffers)) {
+          payload.cash_offers_json = normalizeOffersForPersistence(merged.cashOffers);
+        }
+        if (Array.isArray(merged.voucherOffers)) {
+          payload.voucher_offers_json = normalizeOffersForPersistence(merged.voucherOffers);
+        }
+        if (Object.keys(payload).length > 0) {
+          persistPromises.push(
+            updateRequestItemOffer(item.request_item_id, payload).catch((err) => {
+              console.error('[Buyer] Failed to persist offer before reset:', err);
+            })
+          );
+        }
+      }
+      if (persistPromises.length > 0) {
+        await Promise.all(persistPromises);
+      }
+      pendingOfferUpdatesRef.current = {};
+    }
+
     const defaults = defaultSnapshot();
     clearSnapshot(mode);
     saveSnapshot(mode, { ...defaults, isCustomerModalOpen: !isRepricing });
@@ -319,15 +531,25 @@ export default function Buyer({ mode = 'buyer' }) {
         quantity: 1,
         variantId: result.variant_id ?? null,
         cexSku: result.cex_sku,
+        model: result.product_name || result.title,
         category: result.category_name || '',
         categoryObject: result.category_name
-          ? { name: result.category_name, path: [result.category_name] }
+          ? {
+              ...(result.category_id != null ? { id: result.category_id } : {}),
+              name: result.category_name,
+              path: [result.category_name]
+            }
           : null,
         condition: result.condition || '',
+        attributeValues: result.attribute_values || {},
         ourSalePrice: result.our_sale_price ?? null,
         cexSellPrice: result.cex_sale_price ?? null,
-        nosposBarcode: result.nospos_barcode || '',
+        cexBuyPrice: result.cex_tradein_cash ?? null,
+        cexVoucherPrice: result.cex_tradein_voucher ?? null,
+        image: result.image || '',
+        nosposBarcodes: result.nosposBarcodes || [],
         isCustomCeXItem: !result.in_db,
+        fromQuickReprice: true,
         offerType: 'cash',
         selectedOfferId: null,
         ebayResearchData: null,
@@ -373,8 +595,46 @@ export default function Buyer({ mode = 'buyer' }) {
   };
 
   const updateCartItemOffers = (cartItemId, updatedOfferData) => {
-    setCartItems(prev => prev.map(item =>
-      item.id === cartItemId ? { ...item, ...updatedOfferData } : item
+    const item = cartItems.find(i => i.id === cartItemId);
+    if (!isRepricing && item?.request_item_id && (
+      updatedOfferData.selectedOfferId !== undefined ||
+      updatedOfferData.manualOffer !== undefined ||
+      updatedOfferData.ourSalePrice !== undefined ||
+      updatedOfferData.cashOffers !== undefined ||
+      updatedOfferData.voucherOffers !== undefined
+    )) {
+      // Store pending update so New Buy can persist it before state commits
+      pendingOfferUpdatesRef.current[cartItemId] = {
+        ...pendingOfferUpdatesRef.current[cartItemId],
+        ...updatedOfferData,
+      };
+      const payload = {};
+      if (updatedOfferData.selectedOfferId !== undefined) {
+        payload.selected_offer_id = updatedOfferData.selectedOfferId;
+        payload.manual_offer_used = updatedOfferData.selectedOfferId === 'manual';
+      }
+      if (updatedOfferData.manualOffer !== undefined && updatedOfferData.manualOffer !== '') {
+        const parsed = parseFloat(String(updatedOfferData.manualOffer).replace(/[£,]/g, ''));
+        payload.manual_offer_gbp = !isNaN(parsed) ? parsed : null;
+      }
+      if (updatedOfferData.ourSalePrice !== undefined) {
+        const parsed = parseFloat(String(updatedOfferData.ourSalePrice).replace(/[£,]/g, ''));
+        payload.our_sale_price_at_negotiation = !isNaN(parsed) && parsed > 0 ? parsed : null;
+      }
+      if (Array.isArray(updatedOfferData.cashOffers)) {
+        payload.cash_offers_json = normalizeOffersForPersistence(updatedOfferData.cashOffers);
+      }
+      if (Array.isArray(updatedOfferData.voucherOffers)) {
+        payload.voucher_offers_json = normalizeOffersForPersistence(updatedOfferData.voucherOffers);
+      }
+      if (Object.keys(payload).length > 0) {
+        updateRequestItemOffer(item.request_item_id, payload).catch((err) => {
+          console.error('[Buyer] Failed to persist offer/price selection:', err);
+        });
+      }
+    }
+    setCartItems(prev => prev.map(i =>
+      i.id === cartItemId ? { ...i, ...updatedOfferData } : i
     ));
     setSelectedCartItem(prev =>
       prev?.id === cartItemId ? { ...prev, ...updatedOfferData } : prev
@@ -491,33 +751,151 @@ export default function Buyer({ mode = 'buyer' }) {
     }, 0);
   };
 
-  const handleCartItemSelect = async (item) => {
-    // Always select immediately; cart clicks should open the item rather than toggling it off.
-    setSelectedCartItem(item);
+  const handleRemoveItem = async (item) => {
+    if (request?.request_id && item.request_item_id) {
+      try {
+        await deleteRequestItem(item.request_item_id);
+      } catch (err) {
+        showNotification(err?.message || 'Failed to remove item from quote', 'error');
+        return;
+      }
+    }
+    setCartItems(prev => prev.filter(i => i.id !== item.id));
+    if (selectedCartItem?.id === item.id) setSelectedCartItem(null);
+  };
 
-    // eBay and CeX items don't use variants – skip models fetch for instant display
-    const isEbayOrCex = item.isCustomEbayItem || item.isCustomCeXItem;
-    if (isEbayOrCex && item.categoryObject) {
-      setSelectedCategory(item.categoryObject);
+  const handleCartItemSelect = async (item) => {
+    // If clicking the same item, deselect it
+    if (selectedCartItem?.id === item.id) {
+      setSelectedCartItem(null);
       return;
     }
 
-    if (item.categoryObject) {
-      const sameCategory =
-        selectedCategory?.name === item.categoryObject.name &&
-        JSON.stringify(selectedCategory?.path || []) === JSON.stringify(item.categoryObject.path || []);
+    // Clear cexProductData so MainContent shows the selected cart item, not the Add from CeX flow
+    setCexProductData(null);
 
-      if (sameCategory && availableModels.length > 0) {
-        setSelectedCategory(item.categoryObject);
-        return;
+    // Set immediately so the sidebar highlights the item and MainContent renders right away
+    setSelectedCartItem(item);
+
+    // Hydrate Quick Reprice items with pricing / reference data on first click
+    let activeItem = item;
+    if (item.fromQuickReprice && item.cexSku) {
+      try {
+        const priceData = item.variantId
+          ? await fetchVariantPrices(item.cexSku)
+          : await fetchCeXProductPrices({
+              sellPrice: item.cexSellPrice,
+              tradeInCash: item.cexBuyPrice,
+              tradeInVoucher: item.cexVoucherPrice,
+              title: item.title,
+              category: item.category || item.subtitle || 'CeX',
+              image: item.image || '',
+              id: item.cexSku,
+            });
+        activeItem = {
+          ...item,
+          cashOffers: priceData.cash_offers || [],
+          voucherOffers: priceData.voucher_offers || [],
+          referenceData: priceData.referenceData || null,
+          cexProductData: item.variantId
+            ? item.cexProductData
+            : {
+                id: item.cexSku,
+                title: item.title,
+                category: item.category || item.subtitle || 'CeX',
+                image: item.image || '',
+              },
+          fromQuickReprice: false, // cached — don't re-fetch on subsequent clicks
+        };
+        setSelectedCartItem(activeItem);
+        setCartItems(prev => prev.map(ci => ci.id === item.id ? activeItem : ci));
+      } catch {
+        // Silently fall through — panel will render with whatever data is available
       }
+    }
 
+    // Hydrate internal DB items (from product selection) that lack offers (e.g. loaded from quote overview)
+    if (
+      !item.isCustomEbayItem &&
+      !item.isCustomCeXItem &&
+      !item.isCustomCashConvertersItem &&
+      item.variantId &&
+      item.cexSku &&
+      (!item.cashOffers?.length || !item.voucherOffers?.length)
+    ) {
+      try {
+        const priceData = await fetchVariantPrices(item.cexSku);
+        const cashOffers = priceData.cash_offers || item.cashOffers || [];
+        const voucherOffers = priceData.voucher_offers || item.voucherOffers || [];
+        const useVoucher = customerData?.transactionType === 'store_credit';
+        activeItem = {
+          ...item,
+          cashOffers,
+          voucherOffers,
+          offers: useVoucher ? voucherOffers : cashOffers,
+          referenceData: priceData.referenceData || item.referenceData || {},
+        };
+        setSelectedCartItem(activeItem);
+        setCartItems(prev => prev.map(ci => ci.id === item.id ? activeItem : ci));
+      } catch {
+        // Silently fall through — panel will render with whatever data is available
+      }
+    }
+
+    // Hydrate Add from CeX items that lack cexProductData/offers (e.g. loaded from quote overview)
+    if (
+      item.isCustomCeXItem &&
+      !item.fromQuickReprice &&
+      (item.cexSku || item.cexProductData?.id) &&
+      (!item.cexProductData || (!item.cashOffers?.length && !item.voucherOffers?.length))
+    ) {
+      try {
+        const sku = item.cexSku || item.cexProductData?.id;
+        const priceData = await fetchCeXProductPrices({
+          sellPrice: item.cexSellPrice,
+          tradeInCash: item.cexBuyPrice,
+          tradeInVoucher: item.cexVoucherPrice,
+          title: item.title,
+          category: item.category || item.subtitle || 'CeX',
+          image: item.image || item.cexProductData?.image || '',
+          id: sku,
+        });
+        activeItem = {
+          ...item,
+          cashOffers: priceData.cash_offers || item.cashOffers || [],
+          voucherOffers: priceData.voucher_offers || item.voucherOffers || [],
+          offers: (priceData.cash_offers?.length ? priceData.cash_offers : item.cashOffers) || [],
+          referenceData: priceData.referenceData || item.referenceData || {},
+          cexProductData: {
+            id: sku,
+            title: item.title,
+            category: item.category || item.subtitle || 'CeX',
+            image: item.image || item.cexProductData?.image || '',
+            specifications: item.cexProductData?.specifications || {},
+            ...item.cexProductData,
+          },
+        };
+        setSelectedCartItem(activeItem);
+        setCartItems(prev => prev.map(ci => ci.id === item.id ? activeItem : ci));
+      } catch {
+        // Silently fall through — panel will render with whatever data is available
+      }
+    }
+
+    // eBay and CeX items don't use variants – skip models fetch for instant display
+    const isEbayOrCex = activeItem.isCustomEbayItem || activeItem.isCustomCeXItem;
+    if (isEbayOrCex && activeItem.categoryObject) {
+      setSelectedCategory(activeItem.categoryObject);
+      return;
+    }
+
+    if (activeItem.categoryObject) {
       const requestId = ++modelsRequestIdRef.current;
-      setSelectedCategory(item.categoryObject);
+      setSelectedCategory(activeItem.categoryObject);
       setIsLoadingModels(true);
 
       try {
-        const models = await fetchProductModels(item.categoryObject);
+        const models = await fetchProductModels(activeItem.categoryObject);
         if (modelsRequestIdRef.current !== requestId) return; // Ignore stale responses
         setAvailableModels(models);
         // MainContent's Step-1 effect depends on [selectedCartItem, availableModels]
@@ -603,7 +981,6 @@ export default function Buyer({ mode = 'buyer' }) {
           onAddFromCeX={handleAddFromCeX}
           isCeXLoading={cexLoading}
           onQuickReprice={isRepricing ? () => setIsQuickRepriceOpen(true) : null}
-          onResetBuy={isRepricing ? null : handleResetBuy}
           customerData={isRepricing ? null : customerData}
           onTransactionTypeChange={isRepricing ? null : handleTransactionTypeChange}
         />
@@ -634,6 +1011,8 @@ export default function Buyer({ mode = 'buyer' }) {
       <CartSidebar 
         cartItems={cartItems} 
         setCartItems={setCartItems}
+        onRemoveItem={!isRepricing ? handleRemoveItem : undefined}
+        onResetBuy={isRepricing ? null : handleResetBuy}
         customerData={customerData}
         currentRequestId={request?.request_id}
         onItemSelect={handleCartItemSelect}

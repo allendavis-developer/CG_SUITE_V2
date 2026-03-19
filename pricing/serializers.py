@@ -33,9 +33,41 @@ class ProductSerializer(serializers.ModelSerializer):
 
 class VariantSerializer(serializers.ModelSerializer):
     """Variant serializer for nested use in RequestItemSerializer"""
+    product_id = serializers.IntegerField(source='product.product_id', read_only=True)
+    product_name = serializers.SerializerMethodField()
+    category_id = serializers.IntegerField(source='product.category.category_id', read_only=True)
+    category_name = serializers.CharField(source='product.category.name', read_only=True)
+    condition = serializers.CharField(source='condition_grade.code', read_only=True)
+    attribute_values = serializers.SerializerMethodField()
+
+    def get_product_name(self, obj):
+        if obj.product.manufacturer:
+            return f"{obj.product.manufacturer.name} {obj.product.name}"
+        return obj.product.name
+
+    def get_attribute_values(self, obj):
+        return {
+            vav.attribute_value.attribute.code: vav.attribute_value.value
+            for vav in obj.variant_attribute_values.select_related('attribute_value__attribute').all()
+        }
+
     class Meta:
         model = Variant
-        fields = ['variant_id', 'cex_sku', 'title', 'current_price_gbp', 'tradein_cash', 'tradein_voucher', 'cex_out_of_stock']
+        fields = [
+            'variant_id',
+            'cex_sku',
+            'title',
+            'current_price_gbp',
+            'tradein_cash',
+            'tradein_voucher',
+            'cex_out_of_stock',
+            'product_id',
+            'product_name',
+            'category_id',
+            'category_name',
+            'condition',
+            'attribute_values',
+        ]
         read_only_fields = ['variant_id']
 
 
@@ -148,7 +180,6 @@ class RequestItemSerializer(serializers.ModelSerializer):
             'cex_buy_cash_at_negotiation',
             'cex_buy_voucher_at_negotiation',
             'cex_sell_at_negotiation',
-            'our_sale_price_at_negotiation',
         ]
     
     def validate_customer_expectation_gbp(self, value):
@@ -181,6 +212,7 @@ class RequestSerializer(serializers.ModelSerializer):
             'overall_expectation_gbp',
             'target_offer_gbp',
             'negotiated_grand_total_gbp',
+            'customer_enrichment_json',
             'items',
             'current_status',
             'status_history'

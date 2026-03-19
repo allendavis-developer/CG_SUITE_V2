@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Buyer from "./pages/buyer/Buyer";
 import Negotiation from "./pages/buyer/Negotiation";
@@ -10,30 +10,6 @@ import RequestsOverview from "./pages/buyer/RequestsOverview";
 import LaunchpadPage from "./pages/launchpad/LaunchpadPage";
 import ReportsPage from "./pages/reports/ReportsPage";
 import PricingRulesPage from "./pages/pricing/PricingRulesPage";
-import { REPRICING_PROGRESS_KEY } from "./utils/repricingProgress";
-
-function RepricingProgressListener() {
-  useEffect(() => {
-    const handler = (e) => {
-      if (e.data?.type === "REPRICING_PROGRESS" && e.data.payload) {
-        try {
-          const stored = JSON.parse(localStorage.getItem(REPRICING_PROGRESS_KEY) || "{}");
-          const { cartKey, completedBarcodes, completedItems } = e.data.payload;
-          if (cartKey) {
-            const next = { ...stored, [cartKey]: { ...(stored[cartKey] || {}), completedBarcodes, completedItems } };
-            localStorage.setItem(REPRICING_PROGRESS_KEY, JSON.stringify(next));
-          }
-        } catch (err) {
-          console.warn("[CG Suite] Failed to save repricing progress:", err);
-        }
-      }
-    };
-    window.addEventListener("message", handler);
-    return () => window.removeEventListener("message", handler);
-  }, []);
-  return null;
-}
-
 function Home() {
   return <LaunchpadPage />;
 }
@@ -41,7 +17,6 @@ function Home() {
 export default function App() {
   return (
     <BrowserRouter>
-      <RepricingProgressListener />
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/buyer" element={<Buyer key="buyer" />} />

@@ -10,7 +10,7 @@ const getGreeting = () => {
   return 'Good evening';
 };
 
-const LaunchpadWelcome = ({ userName = 'Alex' }) => (
+const LaunchpadWelcome = ({ userName = 'A' }) => (
   <div className="mb-8">
     <h1 className="text-slate-900 dark:text-slate-100 text-3xl font-extrabold tracking-tight mb-2">
       System Launchpad

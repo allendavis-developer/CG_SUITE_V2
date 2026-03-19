@@ -27,12 +27,15 @@ urlpatterns = [
     path('api/requests/<int:request_id>/cancel/', v2.cancel_request, name='cancel_request'),
     path('api/requests/<int:request_id>/update-intent/', v2.update_request_intent, name='update_request_intent'),
     path('api/request-items/<int:request_item_id>/update-raw/', v2.update_request_item_raw_data, name='update_request_item_raw_data'),
+    path('api/request-items/<int:request_item_id>/update-offer/', v2.update_request_item, name='update_request_item'),
+    path('api/request-items/<int:request_item_id>/', v2.delete_request_item, name='delete_request_item'),
     path('api/quick-reprice/lookup/', v2.quick_reprice_lookup, name='quick_reprice_lookup'),
     path('api/repricing-sessions/', v2.repricing_sessions_view, name='repricing_sessions'),
     path('api/repricing-sessions/overview/', v2.repricing_sessions_view, name='repricing_sessions_overview'),
     path('api/repricing-sessions/<int:repricing_session_id>/', v2.repricing_session_detail, name='repricing_session_detail'),
     path('api/pricing-rules/', v2.pricing_rules_view, name='pricing_rules'),
     path('api/pricing-rules/<int:rule_id>/', v2.pricing_rule_detail, name='pricing_rule_detail'),
+    path('api/address-lookup/<str:postcode>/', v2.address_lookup, name='address_lookup'),
     re_path(r'^(?:.*)/?$', v2.react_app, name='react_app_catchall'),
 
 

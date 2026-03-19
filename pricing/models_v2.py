@@ -706,6 +706,12 @@ class Request(models.Model):
         help_text="Target grand total offer in GBP"
     )
 
+    customer_enrichment_json = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Enriched customer data from NoSpos (rates, dates, etc.) for display in buyer UI"
+    )
+
     def __str__(self):
         # This will show "Request #101 - John Doe (BUYBACK)"
         return f"Request #{self.request_id} - {self.customer.name} ({self.intent})"

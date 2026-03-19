@@ -106,12 +106,39 @@ export async function openNospos(repricingData, progress = {}) {
   });
 }
 
+/**
+ * Search NosPos for a barcode in the background (no tab switch).
+ * Returns { ok: true, results: [{ barserial, href, name, costPrice, retailPrice, quantity }] }
+ * or { ok: false, loginRequired: true } if not logged in to NosPos,
+ * or { ok: false, error: string } on failure.
+ *
+ * @param {string} barcode - The barcode/partial barcode to search for
+ */
+export async function searchNosposBarcode(barcode) {
+  return sendMessage({
+    action: 'searchNosposBarcode',
+    barcode: barcode || ''
+  });
+}
+
 export async function getLastRepricingResult() {
   return sendMessage({ action: 'getLastRepricingResult' });
 }
 
 export async function clearLastRepricingResult() {
   return sendMessage({ action: 'clearLastRepricingResult' });
+}
+
+export async function getNosposRepricingStatus() {
+  return sendMessage({ action: 'getNosposRepricingStatus' });
+}
+
+/**
+ * Cancel the running background repricing. Clears extension state and closes the NoSpos tab.
+ * @param {string} [cartKey] - Optional cart key so we can clear the correct session when extension has no stored data
+ */
+export async function cancelNosposRepricing(cartKey = '') {
+  return sendMessage({ action: 'cancelNosposRepricing', cartKey });
 }
 
 /**

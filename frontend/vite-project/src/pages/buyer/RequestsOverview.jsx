@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useNotification } from '@/contexts/NotificationContext';
-import { API_BASE_URL } from '@/services/api';
+import { API_BASE_URL, fetchRequestDetail } from '@/services/api';
 import { Icon, CustomDropdown } from '@/components/ui/components';
 import AppHeader from '@/components/AppHeader';
 import { formatIntent, getFilterTitle } from '@/utils/transactionConstants';
@@ -250,7 +250,27 @@ const RequestsOverview = () => {
                 </thead>
                 <tbody className="text-xs">
                   {filteredRequests.map((requestItem) => (
-                    <tr key={requestItem.request_id} onClick={() => navigate(`/requests/${requestItem.request_id}/view`)}>
+                    <tr
+                      key={requestItem.request_id}
+                      onClick={async () => {
+                        if (requestItem.current_status === 'QUOTE') {
+                          try {
+                            const data = await fetchRequestDetail(requestItem.request_id);
+                            if (data) {
+                              navigate('/buyer', {
+                                state: { openQuoteRequest: data },
+                              });
+                            } else {
+                              navigate(`/requests/${requestItem.request_id}/view`);
+                            }
+                          } catch {
+                            navigate(`/requests/${requestItem.request_id}/view`);
+                          }
+                        } else {
+                          navigate(`/requests/${requestItem.request_id}/view`);
+                        }
+                      }}
+                    >
                       <td className="font-bold text-gray-600">#{requestItem.request_id}</td>
                       <td>
                         <div className="flex items-center gap-3">

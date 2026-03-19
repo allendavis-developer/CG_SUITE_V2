@@ -17,10 +17,9 @@ import os
 # getting our environment variables
 from dotenv import load_dotenv
 
-load_dotenv()  # loads .env in the same folder
-
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / '.env')  # load .env from project root
 
 
 # Quick-start development settings - unsuitable for production
@@ -163,4 +162,8 @@ CSRF_COOKIE_SECURE = True          # Only send cookie over HTTPS
 CSRF_COOKIE_SAMESITE = 'Lax'       # 'Lax' is safest, 'None' if cross-site
 CSRF_TRUSTED_ORIGINS = ['https://cashgensuite.onrender.com']
 SESSION_COOKIE_SECURE = True       # Also secure sessions
+
+# Ideal Postcodes API key for UK address lookup (used by Chrome extension customer form)
+# Set IDEAL_POSTCODES_API_KEY in .env - get a key at https://ideal-postcodes.co.uk/
+IDEAL_POSTCODES_API_KEY = os.getenv('IDEAL_POSTCODES_API_KEY', '')
 
