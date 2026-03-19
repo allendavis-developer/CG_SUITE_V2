@@ -13,6 +13,7 @@ import { fetchProductModels, updateRequestItemRawData, updateRequestItemOffer, f
 import { getDataFromListingPage } from '@/services/extensionClient';
 import { mapTransactionTypeToIntent } from '@/utils/transactionConstants';
 import { mapRequestItemsToCartItems, mapRequestToCustomerData } from '@/utils/requestToCartMapping';
+import { roundOfferPrice } from '@/utils/helpers';
 
 function getInitialSnapshot(mode) {
   return loadSnapshot(mode);
@@ -23,7 +24,7 @@ function normalizeOffersForPersistence(offers) {
   return offers.map((offer) => ({
     id: offer.id,
     title: offer.title,
-    price: Number(offer.price),
+    price: roundOfferPrice(offer.price),
   }));
 }
 
@@ -463,7 +464,7 @@ export default function Buyer({ mode = 'buyer' }) {
         }
         if (merged.manualOffer !== undefined && merged.manualOffer !== '') {
           const parsed = parseFloat(String(merged.manualOffer).replace(/[£,]/g, ''));
-          payload.manual_offer_gbp = !isNaN(parsed) ? parsed : null;
+          payload.manual_offer_gbp = !isNaN(parsed) ? roundOfferPrice(parsed) : null;
         }
         if (merged.ourSalePrice !== undefined) {
           const parsed = parseFloat(String(merged.ourSalePrice).replace(/[£,]/g, ''));
@@ -615,7 +616,7 @@ export default function Buyer({ mode = 'buyer' }) {
       }
       if (updatedOfferData.manualOffer !== undefined && updatedOfferData.manualOffer !== '') {
         const parsed = parseFloat(String(updatedOfferData.manualOffer).replace(/[£,]/g, ''));
-        payload.manual_offer_gbp = !isNaN(parsed) ? parsed : null;
+        payload.manual_offer_gbp = !isNaN(parsed) ? roundOfferPrice(parsed) : null;
       }
       if (updatedOfferData.ourSalePrice !== undefined) {
         const parsed = parseFloat(String(updatedOfferData.ourSalePrice).replace(/[£,]/g, ''));

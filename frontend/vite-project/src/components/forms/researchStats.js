@@ -1,6 +1,8 @@
+import { roundOfferPrice } from '@/utils/helpers';
+
 /**
  * Stats and buy-offer helpers for research forms (works with listings whose price may be string or number).
- * No rounding is applied to the underlying stats; formatting is handled by the UI.
+ * Offer prices follow the same rounding rules used elsewhere in the app.
  */
 
 function parsePrice(item) {
@@ -43,6 +45,6 @@ export function calculateBuyOffers(sellPrice) {
   const margins = [0.6, 0.5, 0.4];
   return margins.map(margin => ({
     margin,
-    price: sellPrice * (1 - margin),
+    price: roundOfferPrice(sellPrice * (1 - margin)),
   }));
 }

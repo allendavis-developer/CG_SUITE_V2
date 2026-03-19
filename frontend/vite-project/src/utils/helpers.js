@@ -10,6 +10,21 @@ export const formatGBP = (value) =>
     minimumFractionDigits: 2
   }).format(value);
 
+export const roundOfferPrice = (value) => {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return 0;
+  if (amount > 50) return Math.round(amount / 5) * 5;
+  return Math.round((amount + Number.EPSILON) * 100) / 100;
+};
+
+export const toVoucherOfferPrice = (cashOfferPrice) =>
+  roundOfferPrice(Number(cashOfferPrice) * 1.1);
+
+export const formatOfferPrice = (value) => {
+  const rounded = roundOfferPrice(value);
+  return rounded > 50 ? String(rounded) : rounded.toFixed(2);
+};
+
 /**
  * Get CSRF token from cookie
  * @returns {string|undefined} CSRF token

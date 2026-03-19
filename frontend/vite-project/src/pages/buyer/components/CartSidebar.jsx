@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Icon, Button } from '@/components/ui/components';
 import { useNavigate } from "react-router-dom";
+import { formatOfferPrice } from '@/utils/helpers';
 
 /**
  * Shopping cart sidebar component - No totals, non-selectable offers.
@@ -276,7 +277,7 @@ const CartSidebar = ({
                                 : ''
                             }`}
                           >
-                            £{Number(offer.price).toFixed(2)}
+                            £{formatOfferPrice(offer.price)}
                           </span>
                           {index < displayOffers.length - 1 || hasManualSelected ? (
                             <span className="text-gray-300">|</span>
@@ -285,7 +286,7 @@ const CartSidebar = ({
                       ))}
                       {hasManualSelected && (
                         <span className="font-medium px-2 py-0.5 rounded bg-blue-600 text-white">
-                          Manual £{Number(item.manualOffer).toFixed(2)}
+                          Manual £{formatOfferPrice(item.manualOffer)}
                         </span>
                       )}
                     </div>
@@ -314,7 +315,7 @@ const CartSidebar = ({
                 </span>
               </div>
               <span className="text-3xl font-black text-blue-900 tabular-nums">
-                {offerMin !== null ? `£${offerMin.toFixed(2)}` : '—'}
+                {offerMin !== null ? `£${formatOfferPrice(offerMin)}` : '—'}
               </span>
             </div>
             <div className="flex justify-between items-baseline">
@@ -327,7 +328,7 @@ const CartSidebar = ({
                 </span>
               </div>
               <span className="text-3xl font-black text-blue-900 tabular-nums">
-                {offerMax !== null ? `£${offerMax.toFixed(2)}` : '—'}
+                {offerMax !== null ? `£${formatOfferPrice(offerMax)}` : '—'}
               </span>
             </div>
             {allItemsHaveOffer && (

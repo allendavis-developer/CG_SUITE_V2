@@ -11,6 +11,7 @@ import NewCustomerDetailsModal from '@/components/modals/NewCustomerDetailsModal
 import SalePriceConfirmModal from '@/components/modals/SalePriceConfirmModal';
 import TinyModal from '@/components/ui/TinyModal';
 import { maybeShowSalePriceConfirm } from './utils/researchCompletionHelpers';
+import { roundOfferPrice, toVoucherOfferPrice } from '@/utils/helpers';
 
 
 // Context menu for item row actions (right-click)
@@ -406,7 +407,7 @@ const Negotiation = ({ mode }) => {
                     savedCashOffers = ebayResearchData.buyOffers.map((offer, idx) => ({
                         id: `ebay-cash-${idx}`,
                         title: ["1st Offer", "2nd Offer", "3rd Offer"][idx] || "Offer",
-                        price: Number(offer.price)
+                        price: roundOfferPrice(offer.price)
                     }));
                 }
 
@@ -414,7 +415,7 @@ const Negotiation = ({ mode }) => {
                     savedVoucherOffers = savedCashOffers.map(offer => ({
                         id: `ebay-voucher-${offer.id}`,
                         title: offer.title,
-                        price: Number((offer.price * 1.10).toFixed(2))
+                        price: toVoucherOfferPrice(offer.price)
                     }));
                 }
 
@@ -638,12 +639,12 @@ const Negotiation = ({ mode }) => {
             newCashOffers = updatedState.buyOffers.map((o, idx) => ({
               id: `ebay-cash-${Date.now()}-${idx}`,
               title: ["1st Offer", "2nd Offer", "3rd Offer"][idx] || "Offer",
-              price: Number(o.price)
+              price: roundOfferPrice(o.price)
             }));
             newVoucherOffers = newCashOffers.map(offer => ({
               id: `ebay-voucher-${offer.id}`,
               title: offer.title,
-              price: Number((offer.price * 1.10).toFixed(2))
+              price: toVoucherOfferPrice(offer.price)
             }));
           } else if (!hasCeXBasedOffers) {
             const hasExistingOffers =
@@ -654,12 +655,12 @@ const Negotiation = ({ mode }) => {
               newCashOffers = updatedState.buyOffers.map((o, idx) => ({
                 id: `ebay-cash-${Date.now()}-${idx}`,
                 title: ["1st Offer", "2nd Offer", "3rd Offer"][idx] || "Offer",
-                price: Number(o.price)
+                price: roundOfferPrice(o.price)
               }));
               newVoucherOffers = newCashOffers.map(offer => ({
                 id: `ebay-voucher-${offer.id}`,
                 title: offer.title,
-                price: Number((offer.price * 1.10).toFixed(2))
+                price: toVoucherOfferPrice(offer.price)
               }));
             }
           }

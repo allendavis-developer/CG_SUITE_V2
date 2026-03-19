@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { OfferCard, Icon } from '@/components/ui/components';
-import { formatGBP, calculateMargin } from '@/utils/helpers';
+import { formatGBP, calculateMargin, roundOfferPrice, formatOfferPrice } from '@/utils/helpers';
 
 /**
  * Offer selection component.
@@ -23,7 +23,7 @@ const OfferSelection = ({
 }) => {
   const formatPriceInput = (value) => {
     const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed.toFixed(2) : '';
+    return Number.isFinite(parsed) ? formatOfferPrice(parsed) : '';
   };
 
   const [selectedOfferId, setSelectedOfferId] = useState(initialSelectedOfferId);
@@ -110,7 +110,7 @@ const OfferSelection = ({
     if (!onAddToCart) return;
     const baseOffer = offers[index];
     const basePrice = baseOffer ? parseFloat(baseOffer.price) : NaN;
-    const initialValue = !Number.isNaN(basePrice) && basePrice > 0 ? basePrice.toFixed(2) : '';
+    const initialValue = !Number.isNaN(basePrice) && basePrice > 0 ? formatOfferPrice(basePrice) : '';
     setContextMenu({
       x: e.clientX,
       y: e.clientY,
@@ -140,8 +140,8 @@ const OfferSelection = ({
     const raw = String(rawValue ?? localPrices[offerId] ?? '').replace(/[£,]/g, '').trim();
     const parsed = parseFloat(raw);
     if (!Number.isNaN(parsed) && parsed > 0) {
-      const normalized = Number(parsed.toFixed(2));
-      setLocalPrices(prev => ({ ...prev, [offerId]: normalized.toFixed(2) }));
+      const normalized = roundOfferPrice(parsed);
+      setLocalPrices(prev => ({ ...prev, [offerId]: formatOfferPrice(normalized) }));
       onOfferPriceChange(offerId, normalized);
     }
   };

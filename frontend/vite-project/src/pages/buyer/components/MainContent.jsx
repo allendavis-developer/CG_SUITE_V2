@@ -20,7 +20,7 @@ import { fetchVariantPrices } from '@/services/api';
 import { createRequest, addRequestItem, updateRequestItemRawData } from '@/services/api';
 import { mapTransactionTypeToIntent } from '@/utils/transactionConstants';
 
-import { formatGBP } from '@/utils/helpers';
+import { formatGBP, roundOfferPrice, toVoucherOfferPrice, formatOfferPrice } from '@/utils/helpers';
 
 /** Single top-level "eBay" category – selecting eBay goes straight to search, not eBay subcategories */
 const EBAY_TOP_LEVEL_CATEGORY = { name: 'eBay', path: ['eBay'] };
@@ -537,17 +537,17 @@ const MainContent = ({
       itemPayload.cex_sku = cexSku;
     }
     if (Array.isArray(cashOffers) && cashOffers.length > 0) {
-      itemPayload.cash_offers_json = cashOffers.map(o => ({ id: o.id, title: o.title, price: Number(o.price) }));
+      itemPayload.cash_offers_json = cashOffers.map(o => ({ id: o.id, title: o.title, price: roundOfferPrice(o.price) }));
     }
     if (Array.isArray(voucherOffers) && voucherOffers.length > 0) {
-      itemPayload.voucher_offers_json = voucherOffers.map(o => ({ id: o.id, title: o.title, price: Number(o.price) }));
+      itemPayload.voucher_offers_json = voucherOffers.map(o => ({ id: o.id, title: o.title, price: roundOfferPrice(o.price) }));
     }
     if (selectedOfferId != null && selectedOfferId !== '') {
       itemPayload.selected_offer_id = selectedOfferId;
       itemPayload.manual_offer_used = selectedOfferId === 'manual';
     }
     if (manualOffer != null && manualOffer !== '' && !isNaN(parseFloat(manualOffer))) {
-      itemPayload.manual_offer_gbp = parseFloat(manualOffer);
+      itemPayload.manual_offer_gbp = roundOfferPrice(parseFloat(manualOffer));
     }
     if (ourSalePrice != null && ourSalePrice !== '' && !isNaN(parseFloat(ourSalePrice))) {
       itemPayload.our_sale_price_at_negotiation = parseFloat(ourSalePrice);
@@ -592,17 +592,17 @@ const MainContent = ({
     const normalizedOffers = offers.map(o => ({
       id: o.id,
       title: o.title,
-      price: Number(o.price)
+      price: roundOfferPrice(o.price)
     }));
     const cashOffers = referenceData?.cash_offers?.map(o => ({
       id: o.id,
       title: o.title,
-      price: Number(o.price)
+      price: roundOfferPrice(o.price)
     })) || [];
     const voucherOffers = referenceData?.voucher_offers?.map(o => ({
       id: o.id,
       title: o.title,
-      price: Number(o.price)
+      price: roundOfferPrice(o.price)
     })) || [];
 
     return {
@@ -638,7 +638,7 @@ const MainContent = ({
       request_item_id: null,
       offerType: useVoucherOffers ? 'voucher' : 'cash',
       selectedOfferId: selectedOfferIdForItem,
-      manualOffer: manualOfferPerUnit != null ? manualOfferPerUnit.toFixed(2) : null,
+      manualOffer: manualOfferPerUnit != null ? formatOfferPrice(manualOfferPerUnit) : null,
     };
   };
 
@@ -751,13 +751,13 @@ const MainContent = ({
       const cashOffers = (data.buyOffers || []).map((o, idx) => ({
         id: `ebay-cash-${idx}`,
         title: ["1st Offer", "2nd Offer", "3rd Offer"][idx] || "Offer",
-        price: Number(o.price)
+        price: roundOfferPrice(o.price)
       }));
 
       const voucherOffers = cashOffers.map(offer => ({
         id: `ebay-voucher-${offer.id}`,
         title: offer.title,
-        price: Number((offer.price * 1.10).toFixed(2))
+        price: toVoucherOfferPrice(offer.price)
       }));
 
       const displayOffers = useVoucherOffers ? voucherOffers : cashOffers;
@@ -768,7 +768,7 @@ const MainContent = ({
         selectedOfferId = 'manual';
         const parsed = parseFloat(String(data.manualOffer).replace(/[£,]/g, ''));
         if (!Number.isNaN(parsed) && parsed > 0) {
-          manualOfferValue = parsed.toFixed(2);
+          manualOfferValue = formatOfferPrice(parsed);
         }
       } else if (
         data.selectedOfferIndex != null &&
@@ -953,7 +953,8 @@ const MainContent = ({
 
   const handleOfferPriceChange = useCallback((offerId, newPrice) => {
     if (!selectedCartItem || !updateCartItemOffers) return;
-    const normalizedPrice = Number(Number(newPrice).toFixed(2));
+    const parsedPrice = Number(newPrice);
+    const normalizedPrice = roundOfferPrice(parsedPrice);
     const updateArr = (arr) => (arr || []).map(o =>
       o.id === offerId ? { ...o, price: normalizedPrice } : o
     );
@@ -1075,12 +1076,12 @@ const MainContent = ({
     const cashOffers = (cexProductData.cash_offers || []).map((o, idx) => ({
       id: o.id || `cex-cash-${cexProductData.id ?? 'cex'}-${idx}`,
       title: o.title || ['First Offer', 'Second Offer', 'Third Offer'][idx],
-      price: Number(o.price)
+      price: roundOfferPrice(o.price)
     }));
     const voucherOffers = (cexProductData.voucher_offers || []).map((o, idx) => ({
       id: o.id || `cex-voucher-${cexProductData.id ?? 'cex'}-${idx}`,
       title: o.title || ['First Offer', 'Second Offer', 'Third Offer'][idx],
-      price: Number(o.price)
+      price: roundOfferPrice(o.price)
     }));
     const offers = useVoucherOffers ? voucherOffers : cashOffers;
     const refData = cexProductData.referenceData || {};
@@ -1093,7 +1094,10 @@ const MainContent = ({
       let manualOffer = null;
       if (offerArg && typeof offerArg === 'object' && offerArg.type === 'manual') {
         selectedOfferId = 'manual';
-        manualOffer = String(Number(offerArg.amount).toFixed(2));
+        const roundedManualOffer = roundOfferPrice(offerArg.amount);
+        manualOffer = roundedManualOffer > 50
+          ? String(roundedManualOffer)
+          : roundedManualOffer.toFixed(2);
       } else if (typeof offerArg === 'string') {
         selectedOfferId = offerArg;
       }

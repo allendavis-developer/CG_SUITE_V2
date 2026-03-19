@@ -1,5 +1,6 @@
 import React from 'react';
 import { Icon, Button } from '@/components/ui/components';
+import { formatOfferPrice } from '@/utils/helpers';
 
 const CartItem = ({ item, removeItem, updateQuantity, incrementQuantity, decrementQuantity }) => {
   return (
@@ -65,7 +66,7 @@ const CartItem = ({ item, removeItem, updateQuantity, incrementQuantity, decreme
           {item.offers.map((offer, index) => (
             <React.Fragment key={offer.id}>
               <span className="font-medium">
-                £{offer.price.toFixed(2)}
+                £{formatOfferPrice(offer.price)}
               </span>
               {index < item.offers.length - 1 && (
                 <span className="mx-2 text-gray-300">|</span>

@@ -5,7 +5,7 @@ from django.http import JsonResponse
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from django.db.models import OuterRef, Subquery, Max
 import os
 import logging
@@ -48,6 +48,15 @@ def _decimal_or_none(value, field_name):
         return Decimal(str(value))
     except (InvalidOperation, TypeError):
         raise ValueError(f"Invalid format for {field_name}")
+
+
+def _round_offer_price(value):
+    amount = Decimal(str(value or 0))
+    if amount > Decimal("50"):
+        return float(
+            ((amount / Decimal("5")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)) * Decimal("5")
+        )
+    return float(amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
 @api_view(['GET'])
@@ -973,24 +982,28 @@ def variant_prices(request):
         else:
             offer_2 = (offer_1 + offer_3) / 2
 
+        rounded_offer_1 = _round_offer_price(offer_1)
+        rounded_offer_2 = _round_offer_price(offer_2)
+        rounded_offer_3 = _round_offer_price(offer_3)
+
         return [
             {
                 "id": f"{prefix}_1",
                 "title": "First Offer",
-                "price": round(offer_1, 2),
-                "margin": calculate_margin_percentage(offer_1, our_sale_price)
+                "price": rounded_offer_1,
+                "margin": calculate_margin_percentage(rounded_offer_1, our_sale_price)
             },
             {
                 "id": f"{prefix}_2",
                 "title": "Second Offer",
-                "price": round(offer_2, 2),
-                "margin": calculate_margin_percentage(offer_2, our_sale_price)
+                "price": rounded_offer_2,
+                "margin": calculate_margin_percentage(rounded_offer_2, our_sale_price)
             },
             {
                 "id": f"{prefix}_3",
                 "title": "Third Offer",
-                "price": round(offer_3, 2),
-                "margin": calculate_margin_percentage(offer_3, our_sale_price),
+                "price": rounded_offer_3,
+                "margin": calculate_margin_percentage(rounded_offer_3, our_sale_price),
                 "isHighlighted": True
             }
         ]
@@ -1089,10 +1102,13 @@ def cex_product_prices(request):
             offer_2 = max(cex_reference_buy_price * (second_offer_pct / 100.0), 0)
         else:
             offer_2 = (offer_1 + offer_3) / 2
+        rounded_offer_1 = _round_offer_price(offer_1)
+        rounded_offer_2 = _round_offer_price(offer_2)
+        rounded_offer_3 = _round_offer_price(offer_3)
         return [
-            {"id": f"{prefix}_1", "title": "First Offer", "price": round(offer_1, 2), "margin": calculate_margin_percentage(offer_1, our_sale_price)},
-            {"id": f"{prefix}_2", "title": "Second Offer", "price": round(offer_2, 2), "margin": calculate_margin_percentage(offer_2, our_sale_price)},
-            {"id": f"{prefix}_3", "title": "Third Offer", "price": round(offer_3, 2), "margin": calculate_margin_percentage(offer_3, our_sale_price), "isHighlighted": True},
+            {"id": f"{prefix}_1", "title": "First Offer", "price": rounded_offer_1, "margin": calculate_margin_percentage(rounded_offer_1, our_sale_price)},
+            {"id": f"{prefix}_2", "title": "Second Offer", "price": rounded_offer_2, "margin": calculate_margin_percentage(rounded_offer_2, our_sale_price)},
+            {"id": f"{prefix}_3", "title": "Third Offer", "price": rounded_offer_3, "margin": calculate_margin_percentage(rounded_offer_3, our_sale_price), "isHighlighted": True},
         ]
 
     cash_offers = generate_offer_set(cex_tradein_cash, "cash")

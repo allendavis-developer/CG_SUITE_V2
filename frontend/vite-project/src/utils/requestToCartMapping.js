@@ -3,6 +3,8 @@
  * Used when opening a QUOTE request from Requests Overview to continue editing.
  */
 
+import { roundOfferPrice, toVoucherOfferPrice, formatOfferPrice } from '@/utils/helpers';
+
 /**
  * Map request items from API to cart item format for Buyer/MainContent
  * @param {Array} items - request.items from API
@@ -24,6 +26,14 @@ export function mapRequestItemsToCartItems(items, transactionType) {
 
     let savedCashOffers = item.cash_offers_json || [];
     let savedVoucherOffers = item.voucher_offers_json || [];
+    savedCashOffers = (savedCashOffers || []).map((offer) => ({
+      ...offer,
+      price: roundOfferPrice(offer?.price),
+    }));
+    savedVoucherOffers = (savedVoucherOffers || []).map((offer) => ({
+      ...offer,
+      price: roundOfferPrice(offer?.price),
+    }));
 
     // Add from CeX: raw_data has id, title, and either CeX structure or no eBay fields
     // Include items with stats/selectedFilters (eBay research merged) when CeX structure is present
@@ -44,6 +54,14 @@ export function mapRequestItemsToCartItems(items, transactionType) {
       if (!Array.isArray(savedVoucherOffers) || savedVoucherOffers.length === 0) {
         savedVoucherOffers = rawData.voucher_offers || savedVoucherOffers;
       }
+      savedCashOffers = (savedCashOffers || []).map((offer) => ({
+        ...offer,
+        price: roundOfferPrice(offer?.price),
+      }));
+      savedVoucherOffers = (savedVoucherOffers || []).map((offer) => ({
+        ...offer,
+        price: roundOfferPrice(offer?.price),
+      }));
     }
 
     const isEbayResearchPayload = !!(
@@ -54,7 +72,7 @@ export function mapRequestItemsToCartItems(items, transactionType) {
       savedCashOffers = ebayResearchData.buyOffers.map((offer, idx) => ({
         id: `ebay-cash-${idx}`,
         title: ["1st Offer", "2nd Offer", "3rd Offer"][idx] || "Offer",
-        price: Number(offer.price),
+        price: roundOfferPrice(offer.price),
       }));
     }
 
@@ -66,7 +84,7 @@ export function mapRequestItemsToCartItems(items, transactionType) {
       savedVoucherOffers = savedCashOffers.map((offer) => ({
         id: `ebay-voucher-${offer.id}`,
         title: offer.title,
-        price: Number((offer.price * 1.1).toFixed(2)),
+        price: toVoucherOfferPrice(offer.price),
       }));
     }
 
@@ -159,7 +177,7 @@ export function mapRequestItemsToCartItems(items, transactionType) {
       subtitle,
       quantity: item.quantity,
       selectedOfferId: item.selected_offer_id,
-      manualOffer: item.manual_offer_gbp?.toString() || '',
+      manualOffer: item.manual_offer_gbp != null ? formatOfferPrice(item.manual_offer_gbp) : '',
       manualOfferUsed: item.manual_offer_used ?? item.selected_offer_id === 'manual',
       customerExpectation: item.customer_expectation_gbp?.toString() || '',
       ebayResearchData: isEbayResearchPayload ? ebayResearchData : null,
