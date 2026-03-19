@@ -1240,7 +1240,18 @@ const MainContent = ({
             hideBuyInPrice={isRepricing}
           />
 
-          {!isRepricing && offers.length > 0 && (
+          {isRepricing ? (
+            <div className="flex justify-end pt-4">
+              <Button
+                variant="primary"
+                icon="sell"
+                className="px-6 py-3 font-bold uppercase tracking-tight"
+                onClick={handleAddCeXToCart}
+              >
+                Add to Reprice List
+              </Button>
+            </div>
+          ) : offers.length > 0 && (
             <OfferSelection
               variant="cex"
               offers={offers}
