@@ -15,8 +15,12 @@ export function mapRequestItemsToCartItems(items, transactionType) {
 
   return items.map((item) => {
     const rawData = item.raw_data || null;
-    const ebayResearchData = rawData;
-    const cashConvertersResearchData = item.cash_converters_data || null;
+    const embeddedEbayResearchData = rawData?.ebayResearchData || null;
+    const ebayResearchData =
+      rawData?.stats && rawData?.selectedFilters
+        ? rawData
+        : embeddedEbayResearchData;
+    const cashConvertersResearchData = item.cash_converters_data || rawData?.cashConvertersResearchData || null;
 
     let savedCashOffers = item.cash_offers_json || [];
     let savedVoucherOffers = item.voucher_offers_json || [];

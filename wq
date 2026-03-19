@@ -1,0 +1,106 @@
+[33ma61cb69[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m huuuge rearchitecture
+[33mba856f8[m fix weird bug
+[33me8dfb57[m idk
+[33mfa2e77d[m further progress
+[33m3e1a617[m Progress
+[33m969125f[m qol
+[33m5a25543[m Progress
+[33mc30694d[m progress
+[33m578fce1[m big refactor
+[33m7abcc34[m progress
+[33mdf50265[m qol2
+[33mc552286[m qul
+[33m0a74275[m qol
+[33m1641c66[m made the attribute config & condition dropdowns appear horizontally instead of verticallY
+[33m9b16627[m selecting an item in the cart now correctly populates the details of that item in main content
+[33m7a448d8[m all requests page to requests overview
+[33m7b2d166[m progress
+[33mc851ad8[m progress
+[33m5f92bc4[m progress
+[33mc13b1ee[m Migrate
+[33m9165db3[m migration
+[33m5ab6651[m Huge cleanup
+[33m10a8632[m progress
+[33mce09209[m progress
+[33ma170f20[m progress
+[33m4d05365[m progress
+[33m6d1c636[m add raw data field
+[33m03f1267[m at the point where i can rewrite the requests backend flow
+[33m50b62e9[m progress
+[33mae3cb16[m offer min and max on cart side bar in product selection screen
+[33me23c27a[m get voucher prices from backend and show them in negotiation screen
+[33me0cd241[m QOL changes
+[33mb2f3d27[m progress
+[33m9e85222[m progress
+[33m007b2fa[m offer cards on ebay research screen
+[33m3831e91[m round ebay search form data to nearest 5
+[33m24ef7f8[m Negotation screen almost functionally done
+[33mc1f4d42[m progress
+[33mc5fa5b8[m working on summary page
+[33m8bdc65b[m changes
+[33mbc07d49[m cart sidebar shows all three offers
+[33m92d15cf[m ebay research form has histogram on right hand side plus togglable
+[33mc22ec41[m make ebay research modal full screen
+[33m74f50a7[m setup code for nospos search
+[33m6e453fb[m remove basic filters from generated filters
+[33m4229e6b[m seperate extension bridge and client to diff file
+[33m2e10b79[m think i got the bundled setup working
+[33m77e1ed5[m reopen ebay modal + behave like ebay checkbox
+[33ma14f715[m ebay research form hyperlinks to the listings
+[33mfbe622b[m improvements
+[33m48d353e[m clear attribute selection button@
+[33md61d1e1[m remove useless variant selector component now and make the searchable dropdown update placeholder
+[33mc8a8493[m improve attribute config
+[33maba18da[m improve ebay research form ux
+[33md0155b7[m drilling down into price on ebay research form
+[33mbdecd44[m improve attribute assignment to look for any kind of listings
+[33m93b7115[m major refactor splitting Buyer.jsx into several files
+[33m333594c[m manufacturer table populated for android phones
+[33m5de160b[m add manufacturer table
+[33m2b8506e[m change check= to condition= to keep up with latest django
+[33m599e2f0[m Changes
+[33m71587ed[m ebay research form has slider based buckets
+[33m6a83e8a[m changes
+[33m43cc71e[m make first screen on buyer a product select screen
+[33m93eb4ab[m price histogram
+[33mfdd2903[m remove individual customer expectation
+[33m2d694e8[m audited ipad products and got them in
+[33me98131b[m Buyer shows ebay data after research
+[33m4f17742[m Improve ebay research modal
+[33m7ca321d[m auto select options if only one option
+[33m0e81d66[m progress made on ebay modal
+[33m77039c3[m requests seem to work fully
+[33m1e56dbd[m creating requests
+[33m4d37644[m cr shows up on cart screen
+[33mdc1199c[m progress on customer intake form
+[33mc5167d4[m customer intake modal now includes a dp or bb option
+[33m030c12e[m customer intake modal
+[33m9963217[m New models
+[33m81aad88[m remove cex_data jsonl files
+[33m9a310ec[m Get our sale price displayed on the screen
+[33m3b2d52d[m various qol
+[33m31ce651[m add to cart button working with actual data
+[33m40ac00c[m select an offer
+[33m3137b5b[m make offers selectable
+[33m0e0281d[m return suggestive price and display on frontend
+[33m8a04290[m Progress
+[33m1082cfb[m ebay setup complete, now we can actually connect it to our apis
+[33m5327037[m Ebay Modal setup
+[33m11d38dd[m ebay setup start@
+[33m9a2e69f[m fetching variant data from db and displaying it@
+[33m7d6d853[m auto select attributes options if only one exist@
+[33m757a293[m step by step variant filering
+[33m685fe78[m improvements
+[33m78036c0[m ui improvements
+[33maaa31e5[m ui cleanup
+[33m166f3e5[m set up attributes working with the frontend
+[33md187162[m Frontend for attribute selection done. Now an API endpoint must be created'
+[33m42bc808[m Replace product model dropdown with searchable variation@
+[33m5d0ab35[m Load all product models. note: this needs to be optimised as it slows down the browser
+[33me831483[m product categories displaying correctly on the left hand side of the buyer
+[33m63c37eb[m Set up design into react
+[33mfeb6e8a[m Set up shadcn-ui
+[33mab22932[m Set up React
+[33m9b9301b[m Change models_v2 and imported variants into db
+[33m596d29f[m Set up sqlite@
+[33m645364b[m Init

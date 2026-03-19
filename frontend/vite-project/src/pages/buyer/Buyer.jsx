@@ -765,8 +765,12 @@ export default function Buyer({ mode = 'buyer' }) {
   };
 
   const handleCartItemSelect = async (item) => {
-    // If clicking the same item, deselect it
+    // In repricing, repeated clicks on the active item should not clear selection
+    // while pricing/models are still hydrating.
     if (selectedCartItem?.id === item.id) {
+      if (isRepricing) {
+        return;
+      }
       setSelectedCartItem(null);
       return;
     }
@@ -922,7 +926,7 @@ export default function Buyer({ mode = 'buyer' }) {
           };
 
           if (item.request_item_id) {
-            updateRequestItemRawData(item.request_item_id, ebayData).catch(() => {});
+            updateRequestItemRawData(item.request_item_id, { raw_data: ebayData }).catch(() => {});
           }
 
           return updatedItem;
@@ -940,6 +944,9 @@ export default function Buyer({ mode = 'buyer' }) {
     setCartItems(prevItems => {
       return prevItems.map(item => {
         if (item.variantId === variantId) {
+          if (item.request_item_id) {
+            updateRequestItemRawData(item.request_item_id, { cash_converters_data: ccData }).catch(() => {});
+          }
           return {
             ...item,
             cashConvertersResearchData: ccData

@@ -18,6 +18,7 @@ import OfferSelection from './OfferSelection';
 import { useProductAttributes } from '@/pages/buyer/hooks/useProductAttributes';
 import { fetchVariantPrices } from '@/services/api';
 import { createRequest, addRequestItem, updateRequestItemRawData } from '@/services/api';
+import { mapTransactionTypeToIntent } from '@/utils/transactionConstants';
 
 import { formatGBP } from '@/utils/helpers';
 
@@ -513,11 +514,23 @@ const MainContent = ({
     }
   }, [selectedCartItem, variants, useVoucherOffers, resolveVariantFromCartItem]);
 
-  const createOrAppendRequestItem = async ({ variantId, rawData, cexSku, cashOffers, voucherOffers, selectedOfferId, manualOffer, ourSalePrice }) => {
+  const createOrAppendRequestItem = async ({
+    variantId,
+    rawData,
+    cashConvertersData,
+    cexSku,
+    cashOffers,
+    voucherOffers,
+    selectedOfferId,
+    manualOffer,
+    ourSalePrice
+  }) => {
+    const resolvedIntent = intent || mapTransactionTypeToIntent(customerData?.transactionType);
     const itemPayload = {
       variant: variantId ?? null,
       expectation_gbp: null,
       raw_data: rawData,
+      cash_converters_data: cashConvertersData,
       notes: ''
     };
     if (cexSku != null) {
@@ -545,13 +558,13 @@ const MainContent = ({
       if (!customerData?.id) {
         throw new Error('Customer must be selected before adding items');
       }
-      if (!intent) {
+      if (!resolvedIntent) {
         throw new Error('Transaction type must be selected before adding items');
       }
       
       const payload = {
         customer_id: customerData.id,
-        intent,
+        intent: resolvedIntent,
         item: itemPayload,
         ...(customerData && { customer_enrichment: customerData })
       };
@@ -647,6 +660,7 @@ const MainContent = ({
       const requestItemId = await createOrAppendRequestItem({
         variantId: cartItem.variantId,
         rawData: cartItem.ebayResearchData,
+        cashConvertersData: cartItem.cashConvertersResearchData,
         cashOffers: cartItem.cashOffers,
         voucherOffers: cartItem.voucherOffers,
         selectedOfferId: cartItem.selectedOfferId,
@@ -704,6 +718,7 @@ const MainContent = ({
         const requestItemId = await createOrAppendRequestItem({
           variantId: cartItem.variantId,
           rawData: cartItem.ebayResearchData,
+          cashConvertersData: cartItem.cashConvertersResearchData,
           cashOffers: cartItem.cashOffers,
           voucherOffers: cartItem.voucherOffers,
           selectedOfferId: cartItem.selectedOfferId,
@@ -798,6 +813,7 @@ const MainContent = ({
               cash_offers: cashOffers,
               voucher_offers: voucherOffers,
             },
+            cashConvertersData: null,
             cashOffers,
             voucherOffers,
             selectedOfferId: customCartItem.selectedOfferId,
@@ -888,7 +904,8 @@ const MainContent = ({
         } else {
           const requestItemId = await createOrAppendRequestItem({
             variantId: null,
-            rawData: data,
+            rawData: null,
+            cashConvertersData: data,
             cashOffers: customCartItem.cashOffers,
             voucherOffers: customCartItem.voucherOffers,
             selectedOfferId: customCartItem.selectedOfferId,
@@ -1121,6 +1138,7 @@ const MainContent = ({
           const requestItemId = await createOrAppendRequestItem({
             variantId: null,
             rawData: cexProductData,
+            cashConvertersData: cexProductData.cashConvertersResearchData || null,
             cexSku: cexProductData.id,
             cashOffers: customCartItem.cashOffers,
             voucherOffers: customCartItem.voucherOffers,
@@ -1150,6 +1168,7 @@ const MainContent = ({
           const requestItemId = await createOrAppendRequestItem({
             variantId: null,
             rawData: cexProductData,
+            cashConvertersData: cexProductData.cashConvertersResearchData || null,
             cexSku: cexProductData.id,
             cashOffers: customCartItem.cashOffers,
             voucherOffers: customCartItem.voucherOffers,

@@ -554,31 +554,47 @@ def update_request_item(request, request_item_id):
 @api_view(['POST'])
 def update_request_item_raw_data(request, request_item_id):
     """
-    POST: Update raw_data field for a specific request item
+    POST: Update research data fields for a specific request item
     """
     existing_item = get_object_or_404(RequestItem, request_item_id=request_item_id)
 
-    new_raw_data = request.data.get('raw_data')
-    if new_raw_data is None:
+    has_raw_data = 'raw_data' in request.data
+    has_cash_converters_data = 'cash_converters_data' in request.data
+    if not has_raw_data and not has_cash_converters_data:
         return Response(
-            {"error": "Missing 'raw_data' field in request data"},
+            {"error": "Provide 'raw_data' and/or 'cash_converters_data' in request data"},
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    # Optional: ensure it's a valid JSON object
-    if not isinstance(new_raw_data, dict):
-        return Response(
-            {"error": "'raw_data' must be a JSON object/dict"},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+    update_fields = []
 
-    existing_item.raw_data = new_raw_data
-    existing_item.save(update_fields=['raw_data'])
+    if has_raw_data:
+        new_raw_data = request.data.get('raw_data')
+        if new_raw_data is not None and not isinstance(new_raw_data, dict):
+            return Response(
+                {"error": "'raw_data' must be a JSON object/dict or null"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        existing_item.raw_data = new_raw_data
+        update_fields.append('raw_data')
+
+    if has_cash_converters_data:
+        new_cash_converters_data = request.data.get('cash_converters_data')
+        if new_cash_converters_data is not None and not isinstance(new_cash_converters_data, dict):
+            return Response(
+                {"error": "'cash_converters_data' must be a JSON object/dict or null"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        existing_item.cash_converters_data = new_cash_converters_data
+        update_fields.append('cash_converters_data')
+
+    existing_item.save(update_fields=update_fields)
 
     return Response(
         {
             "request_item_id": existing_item.request_item_id,
-            "raw_data": existing_item.raw_data
+            "raw_data": existing_item.raw_data,
+            "cash_converters_data": existing_item.cash_converters_data,
         },
         status=status.HTTP_200_OK
     )
@@ -920,6 +936,11 @@ def variant_prices(request):
         if applicable_rule and applicable_rule.first_offer_pct_of_cex is not None
         else None
     )
+    second_offer_pct = (
+        float(applicable_rule.second_offer_pct_of_cex)
+        if applicable_rule and applicable_rule.second_offer_pct_of_cex is not None
+        else None
+    )
 
     # --- Calculation Helpers ---
     def calculate_margin_percentage(offer_price, sale_price):
@@ -933,7 +954,8 @@ def variant_prices(request):
         - Third: Match CeX trade-in price exactly
         - First: If first_offer_pct is set, use (cex_reference_buy_price * pct/100);
                  otherwise use the same absolute margin as CeX (our_sale_price - cex_abs_margin)
-        - Second: Midpoint between First and Third
+        - Second: If second_offer_pct is set, use (cex_reference_buy_price * pct/100);
+                  otherwise use the midpoint between First and Third
         """
         # Third Offer: Match CeX trade-in price exactly
         offer_3 = cex_reference_buy_price
@@ -945,8 +967,11 @@ def variant_prices(request):
             cex_abs_margin = cex_sale_price - cex_reference_buy_price
             offer_1 = max(our_sale_price - cex_abs_margin, 0)
 
-        # Second Offer: Midpoint
-        offer_2 = (offer_1 + offer_3) / 2
+        # Second Offer
+        if second_offer_pct is not None:
+            offer_2 = max(cex_reference_buy_price * (second_offer_pct / 100.0), 0)
+        else:
+            offer_2 = (offer_1 + offer_3) / 2
 
         return [
             {
@@ -982,6 +1007,7 @@ def variant_prices(request):
         "percentage_used": percentage_used,
         "cex_out_of_stock": cex_out_of_stock,
         "first_offer_pct_of_cex": first_offer_pct,
+        "second_offer_pct_of_cex": second_offer_pct,
     }
     if image_urls:
         reference_data["cex_image_urls"] = {
@@ -1035,10 +1061,16 @@ def cex_product_prices(request):
             if global_rule.first_offer_pct_of_cex is not None
             else None
         )
+        second_offer_pct = (
+            float(global_rule.second_offer_pct_of_cex)
+            if global_rule.second_offer_pct_of_cex is not None
+            else None
+        )
     else:
         percentage_used = 85.0
         our_sale_price = cex_sale_price * 0.85
         first_offer_pct = None
+        second_offer_pct = None
 
     def calculate_margin_percentage(offer_price, sale_price):
         if sale_price <= 0:
@@ -1053,7 +1085,10 @@ def cex_product_prices(request):
         else:
             cex_abs_margin = cex_sale_price - cex_reference_buy_price
             offer_1 = max(our_sale_price - cex_abs_margin, 0)
-        offer_2 = (offer_1 + offer_3) / 2
+        if second_offer_pct is not None:
+            offer_2 = max(cex_reference_buy_price * (second_offer_pct / 100.0), 0)
+        else:
+            offer_2 = (offer_1 + offer_3) / 2
         return [
             {"id": f"{prefix}_1", "title": "First Offer", "price": round(offer_1, 2), "margin": calculate_margin_percentage(offer_1, our_sale_price)},
             {"id": f"{prefix}_2", "title": "Second Offer", "price": round(offer_2, 2), "margin": calculate_margin_percentage(offer_2, our_sale_price)},
@@ -1070,6 +1105,7 @@ def cex_product_prices(request):
         "cex_based_sale_price": round(our_sale_price, 2),
         "percentage_used": percentage_used,
         "first_offer_pct_of_cex": first_offer_pct,
+        "second_offer_pct_of_cex": second_offer_pct,
     }
     image_url = data.get('image_url') or data.get('image')
     if image_url:
@@ -1101,6 +1137,10 @@ def _serialize_pricing_rule(rule):
         "first_offer_pct_of_cex": (
             float(rule.first_offer_pct_of_cex)
             if rule.first_offer_pct_of_cex is not None else None
+        ),
+        "second_offer_pct_of_cex": (
+            float(rule.second_offer_pct_of_cex)
+            if rule.second_offer_pct_of_cex is not None else None
         ),
     }
 
@@ -1137,9 +1177,17 @@ def pricing_rules_view(request):
         except InvalidOperation:
             return Response({"error": "first_offer_pct_of_cex must be a number"}, status=400)
 
+    second_offer_pct = data.get('second_offer_pct_of_cex')
+    if second_offer_pct is not None:
+        try:
+            second_offer_pct = Decimal(str(second_offer_pct))
+        except InvalidOperation:
+            return Response({"error": "second_offer_pct_of_cex must be a number"}, status=400)
+
     kwargs = {
         'sell_price_multiplier': multiplier,
         'first_offer_pct_of_cex': first_offer_pct,
+        'second_offer_pct_of_cex': second_offer_pct,
         'is_global_default': is_global_default,
     }
 
@@ -1196,6 +1244,16 @@ def pricing_rule_detail(request, rule_id):
                 rule.first_offer_pct_of_cex = Decimal(str(val))
             except InvalidOperation:
                 return Response({"error": "first_offer_pct_of_cex must be a number"}, status=400)
+
+    if 'second_offer_pct_of_cex' in data:
+        val = data['second_offer_pct_of_cex']
+        if val is None or val == '':
+            rule.second_offer_pct_of_cex = None
+        else:
+            try:
+                rule.second_offer_pct_of_cex = Decimal(str(val))
+            except InvalidOperation:
+                return Response({"error": "second_offer_pct_of_cex must be a number"}, status=400)
 
     try:
         rule.save()

@@ -140,48 +140,11 @@ const AttributeConfiguration = ({
   const handleAttributeChangeWrapper = (code, value) => {
     // When user manually changes attributes, clear the dropdown flag
     setSelectedViaDropdown(false);
-    
-    // Call the regular handler (this will clear subsequent attributes)
+
+    // Manual edits should branch from the changed dropdown:
+    // clear later dropdowns and let the user reselect instead of auto-refilling.
+    onUserSetVariant(null);
     handleAttributeChange(code, value);
-    
-    // After the change, check if there's exactly one matching variant
-    requestAnimationFrame(() => {
-      const changedAttrIndex = attributes.findIndex(a => a.code === code);
-      
-      // Calculate what the new attribute values will be after this change
-      const newValues = { ...attributeValues, [code]: value };
-      
-      // Clear subsequent attributes (matching the hook's behavior)
-      attributes.forEach((attr, index) => {
-        if (index > changedAttrIndex) {
-          newValues[attr.code] = '';
-        }
-      });
-      
-      // Find matching variants with these new values
-      const matchingVariants = variants.filter(v => {
-        return Object.entries(newValues).every(([attrCode, attrValue]) => {
-          if (!attrValue) return true;
-          return v.attribute_values[attrCode] === attrValue;
-        });
-      });
-      
-      if (matchingVariants.length === 1) {
-        // Exactly one match - auto-populate remaining attributes and select variant
-        const matchedVariant = matchingVariants[0];
-        
-        setSelectedViaDropdown(true);
-        setVariant(matchedVariant.cex_sku);
-        
-        // Populate all remaining attributes from this variant
-        if (setAllAttributeValues) {
-          setAllAttributeValues(matchedVariant.attribute_values);
-        }
-      } else {
-        // Multiple matches or no matches - clear variant selection
-        setVariant(null);
-      }
-    });
   };
 
   return (

@@ -170,7 +170,7 @@ class ConditionGrade(models.Model):
 class PricingRule(models.Model):
     """
     Determines what % of CeX sale price we should sell at, and optionally
-    what % of the CeX trade-in price to use for the First Offer.
+    what % of the CeX trade-in price to use for the First and Second Offers.
     Scoped to a specific product, category, or as the global default.
     """
 
@@ -212,6 +212,18 @@ class PricingRule(models.Model):
             "% of the CeX trade-in price offered as the First Offer. "
             "E.g. 90 means offer_1 = cex_tradein * 0.90. "
             "Leave blank to use the default (same absolute margin as CeX)."
+        )
+    )
+
+    second_offer_pct_of_cex = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text=(
+            "% of the CeX trade-in price offered as the Second Offer. "
+            "E.g. 95 means offer_2 = cex_tradein * 0.95. "
+            "Leave blank to use the default (midpoint between First and Third)."
         )
     )
 

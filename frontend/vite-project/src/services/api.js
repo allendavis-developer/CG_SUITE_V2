@@ -519,12 +519,12 @@ export const updateRequestItemOffer = async (requestItemId, data) => {
 };
 
 /**
- * Update raw_data field for a request item
+ * Update research payload fields for a request item
  * @param {number} requestItemId
- * @param {object} rawData - JSON object with new raw data
+ * @param {object} data - supports raw_data and/or cash_converters_data
  */
-export const updateRequestItemRawData = async (requestItemId, rawData) => {
-  if (!requestItemId || !rawData || typeof rawData !== 'object') return null;
+export const updateRequestItemRawData = async (requestItemId, data) => {
+  if (!requestItemId || !data || typeof data !== 'object') return null;
 
   try {
     const res = await fetch(`${API_BASE_URL}/request-items/${requestItemId}/update-raw/`, {
@@ -533,7 +533,7 @@ export const updateRequestItemRawData = async (requestItemId, rawData) => {
         'Content-Type': 'application/json',
         'X-CSRFToken': getCSRFToken()
       },
-      body: JSON.stringify({ raw_data: rawData })
+      body: JSON.stringify(data)
     });
 
     if (!res.ok) {
@@ -541,7 +541,7 @@ export const updateRequestItemRawData = async (requestItemId, rawData) => {
       throw new Error(errData.error || 'Failed to update request item raw data');
     }
 
-    return await res.json(); // { request_item_id, raw_data }
+    return await res.json();
   } catch (err) {
     console.error('Error updating request item raw data:', err);
     return null;

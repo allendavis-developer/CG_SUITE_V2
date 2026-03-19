@@ -1,6 +1,39 @@
 import { useState, useEffect } from 'react';
 import { fetchAttributes } from '@/services/api';
 
+const getRenderableOptionsForAttribute = (attributes, attributeValues, variants, attr, index) => {
+  const previousSelections = Object.entries(attributeValues).filter(([code]) => {
+    const attrIndex = attributes.findIndex(a => a.code === code);
+    return attrIndex < index && attributeValues[code];
+  });
+
+  const matchingVariants = variants.filter((variant) =>
+    previousSelections.every(([code, value]) => variant.attribute_values[code] === value)
+  );
+
+  const availableValues = new Set(
+    matchingVariants.map((variant) => variant.attribute_values[attr.code]).filter(Boolean)
+  );
+
+  let options = attr.values.filter((opt) => index === 0 || availableValues.has(opt));
+  if (options.length === 0 && availableValues.size > 0) {
+    options = Array.from(availableValues).sort();
+  }
+
+  return options;
+};
+
+const areAllRenderableAttributesSelected = (attributes, attributeValues, variants) => {
+  return attributes.every((attr, index) => {
+    if (attributeValues[attr.code]) {
+      return true;
+    }
+
+    const options = getRenderableOptionsForAttribute(attributes, attributeValues, variants, attr, index);
+    return options.length === 0;
+  });
+};
+
 /**
  * Custom hook for managing product attributes and variants
  */
@@ -57,47 +90,17 @@ export const useProductAttributes = (productId, variants) => {
     attributes.forEach((attr, index) => {
       if (attributeValues[attr.code]) return;
 
-      const previousSelections = Object.entries(attributeValues)
-        .filter(([code]) => {
-          const attrIndex = attributes.findIndex(a => a.code === code);
-          return attrIndex < index && attributeValues[code];
-        });
-
-      const matchingVariants = variants.filter(variant => {
-        return previousSelections.every(([code, value]) => {
-          return variant.attribute_values[code] === value;
-        });
-      });
-
-      const availableValues = new Set(
-        matchingVariants.map(v => v.attribute_values[attr.code])
-      );
-      
-      const options = attr.values.filter(opt => 
-        index === 0 || availableValues.has(opt)
-      );
+      const options = getRenderableOptionsForAttribute(attributes, attributeValues, variants, attr, index);
 
       const visiblePreviousAttrs = attributes.slice(0, index).filter((prevAttr, prevIndex) => {
-        const prevPreviousSelections = Object.entries(attributeValues)
-          .filter(([code]) => {
-            const attrIndex = attributes.findIndex(a => a.code === code);
-            return attrIndex < prevIndex && attributeValues[code];
-          });
-        
-        const prevMatchingVariants = variants.filter(variant => {
-          return prevPreviousSelections.every(([code, value]) => {
-            return variant.attribute_values[code] === value;
-          });
-        });
-        
-        const prevAvailableValues = new Set(
-          prevMatchingVariants.map(v => v.attribute_values[prevAttr.code])
+        const prevOptions = getRenderableOptionsForAttribute(
+          attributes,
+          attributeValues,
+          variants,
+          prevAttr,
+          prevIndex
         );
-        
-        const prevOptions = prevAttr.values.filter(opt => 
-          prevIndex === 0 || prevAvailableValues.has(opt)
-        );
-        
+
         return prevOptions.length > 0;
       });
 
@@ -140,6 +143,7 @@ export const useProductAttributes = (productId, variants) => {
 
     if (variants.length === 0 || Object.keys(attributeValues).length === 0) return;
 
+    const allSelected = areAllRenderableAttributesSelected(attributes, attributeValues, variants);
     const matchingVariants = variants.filter(v => {
       return Object.entries(attributeValues).every(([attrCode, attrValue]) => {
         if (!attrValue) return true;
@@ -147,15 +151,15 @@ export const useProductAttributes = (productId, variants) => {
       });
     });
 
-    if (matchingVariants.length === 1) {
+    if (matchingVariants.length === 1 && allSelected) {
       setVariant(matchingVariants[0].cex_sku);
-    } else if (matchingVariants.length > 1) {
+    } else if (variant) {
       const isCurrentVariantValid = matchingVariants.some(v => v.cex_sku === variant);
-      if (!isCurrentVariantValid) {
+      if (!allSelected || !isCurrentVariantValid) {
         setVariant('');
       }
     }
-  }, [attributeValues, variants, attributes]);
+  }, [attributeValues, variants, attributes, variant]);
 
   const handleAttributeChange = (code, value) => {
     const changedAttrIndex = attributes.findIndex(a => a.code === code);

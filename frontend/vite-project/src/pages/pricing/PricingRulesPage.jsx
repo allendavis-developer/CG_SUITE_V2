@@ -48,6 +48,11 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
       ? String(rule.first_offer_pct_of_cex)
       : ''
   );
+  const [secondOfferPct, setSecondOfferPct] = useState(
+    isEditing && rule.second_offer_pct_of_cex != null
+      ? String(rule.second_offer_pct_of_cex)
+      : ''
+  );
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
@@ -64,6 +69,7 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
     const payload = {
       sell_price_multiplier: (multiplierVal / 100).toFixed(4),
       first_offer_pct_of_cex: firstOfferPct !== '' ? parseFloat(firstOfferPct) : null,
+      second_offer_pct_of_cex: secondOfferPct !== '' ? parseFloat(secondOfferPct) : null,
       is_global_default: scopeKind === 'global',
     };
     if (scopeKind === 'category') payload.category_id = Number(categoryId);
@@ -75,6 +81,7 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
         saved = await updatePricingRule(rule.id, {
           sell_price_multiplier: payload.sell_price_multiplier,
           first_offer_pct_of_cex: payload.first_offer_pct_of_cex,
+          second_offer_pct_of_cex: payload.second_offer_pct_of_cex,
         });
       } else {
         saved = await createPricingRule(payload);
@@ -180,28 +187,54 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
             </p>
           </div>
 
-          {/* First offer % */}
-          <div>
-            <label className="block text-[10px] font-black uppercase tracking-wider text-gray-500 mb-1.5">
-              First Offer (% of CeX trade-in price){' '}
-              <span className="normal-case font-normal text-gray-400">— optional</span>
-            </label>
-            <div className="relative">
-              <input
-                type="number"
-                min="0"
-                max="200"
-                step="0.1"
-                value={firstOfferPct}
-                onChange={(e) => setFirstOfferPct(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="e.g. 90 (leave blank for default)"
-              />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold">%</span>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            {/* First offer % */}
+            <div>
+              <label className="block text-[10px] font-black uppercase tracking-wider text-gray-500 mb-1.5">
+                First Offer (% of CeX trade-in price){' '}
+                <span className="normal-case font-normal text-gray-400">— optional</span>
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  min="0"
+                  max="200"
+                  step="0.1"
+                  value={firstOfferPct}
+                  onChange={(e) => setFirstOfferPct(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="e.g. 90 (leave blank for default)"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold">%</span>
+              </div>
+              <p className="text-[10px] text-gray-400 mt-1">
+                First offer = CeX trade-in price × this %. Leave blank to use the same absolute margin as CeX.
+              </p>
             </div>
-            <p className="text-[10px] text-gray-400 mt-1">
-              First offer = CeX trade-in price × this %. Leave blank to use the same absolute margin as CeX.
-            </p>
+
+            {/* Second offer % */}
+            <div>
+              <label className="block text-[10px] font-black uppercase tracking-wider text-gray-500 mb-1.5">
+                Second Offer (% of CeX trade-in price){' '}
+                <span className="normal-case font-normal text-gray-400">— optional</span>
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  min="0"
+                  max="200"
+                  step="0.1"
+                  value={secondOfferPct}
+                  onChange={(e) => setSecondOfferPct(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="e.g. 95 (leave blank for midpoint)"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold">%</span>
+              </div>
+              <p className="text-[10px] text-gray-400 mt-1">
+                Second offer = CeX trade-in price × this %. Leave blank to keep using the midpoint between First and Third.
+              </p>
+            </div>
           </div>
         </div>
 
@@ -250,6 +283,9 @@ function RuleRow({ rule, onEdit, onDelete }) {
       </td>
       <td className="py-3 px-4 text-sm font-mono font-semibold text-purple-700">
         {fmtPct(rule.first_offer_pct_of_cex)}
+      </td>
+      <td className="py-3 px-4 text-sm font-mono font-semibold text-indigo-700">
+        {fmtPct(rule.second_offer_pct_of_cex)}
       </td>
       <td className="py-3 px-4">
         <div className="flex items-center gap-2 justify-end">
@@ -326,6 +362,7 @@ function RulesSection({ title, icon, rules, onEdit, onDelete, emptyText }) {
               <th className="text-left py-2.5 px-4 text-[10px] font-black uppercase tracking-wider text-gray-500">Scope</th>
               <th className="text-left py-2.5 px-4 text-[10px] font-black uppercase tracking-wider text-gray-500">Sale Price %</th>
               <th className="text-left py-2.5 px-4 text-[10px] font-black uppercase tracking-wider text-gray-500">First Offer %</th>
+              <th className="text-left py-2.5 px-4 text-[10px] font-black uppercase tracking-wider text-gray-500">Second Offer %</th>
               <th className="py-2.5 px-4" />
             </tr>
           </thead>
@@ -417,7 +454,7 @@ export default function PricingRulesPage() {
           <div>
             <h1 className="text-2xl font-black text-blue-900 mb-1">Pricing Rules</h1>
             <p className="text-sm text-gray-500 max-w-lg">
-              Control how our sale price and first offer are calculated relative to CeX prices.
+              Control how our sale price and early offers are calculated relative to CeX prices.
               Rules are matched by scope (category → global). Changes take effect immediately — just refresh the buying page.
             </p>
           </div>
@@ -443,7 +480,7 @@ export default function PricingRulesPage() {
             </div>
             <div>
               <p className="font-bold text-white mb-1">First Offer % of CeX trade-in</p>
-              <p>If set, First Offer = CeX trade-in price × this %. If blank, First Offer uses the same absolute margin as CeX. Second Offer is always the midpoint; Third matches CeX trade-in exactly.</p>
+              <p>If set, First Offer = CeX trade-in price × this %. If blank, First Offer uses the same absolute margin as CeX. Second Offer can also be configured as a % of CeX, otherwise it stays the midpoint; Third matches CeX trade-in exactly.</p>
             </div>
           </div>
         </div>

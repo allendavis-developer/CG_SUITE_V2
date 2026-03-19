@@ -188,6 +188,7 @@ class PricingRuleAdmin(admin.ModelAdmin):
         'get_scope',
         'sell_price_multiplier',
         'first_offer_pct_of_cex',
+        'second_offer_pct_of_cex',
         'is_global_default',
     )
     list_filter = ('is_global_default', 'category', 'product')
@@ -196,7 +197,7 @@ class PricingRuleAdmin(admin.ModelAdmin):
 
     fieldsets = (
         (None, {
-            'fields': ('sell_price_multiplier', 'first_offer_pct_of_cex', 'is_global_default')
+            'fields': ('sell_price_multiplier', 'first_offer_pct_of_cex', 'second_offer_pct_of_cex', 'is_global_default')
         }),
         ('Scope', {
             'fields': ('product', 'category'),
