@@ -53,12 +53,15 @@ def _decimal_or_none(value, field_name):
 
 
 def _round_offer_price(value):
+    """Nearest £5 if above £50, else nearest £2 (matches frontend `roundOfferPrice`)."""
     amount = Decimal(str(value or 0))
     if amount > Decimal("50"):
         return float(
             ((amount / Decimal("5")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)) * Decimal("5")
         )
-    return float(amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+    return float(
+        ((amount / Decimal("2")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)) * Decimal("2")
+    )
 
 
 def _round_sale_price(value):
@@ -1015,15 +1018,20 @@ def variant_prices(request):
             cex_abs_margin = cex_sale_price - cex_reference_buy_price
             offer_1 = max(our_sale_price - cex_abs_margin, 0)
 
-        # Second Offer
-        if second_offer_pct is not None:
-            offer_2 = max(cex_reference_buy_price * (second_offer_pct / 100.0), 0)
-        else:
-            offer_2 = (offer_1 + offer_3) / 2
-
+        # Round First and Third offers first
         rounded_offer_1 = _round_offer_price(offer_1)
-        rounded_offer_2 = _round_offer_price(offer_2)
         rounded_offer_3 = _round_offer_price(offer_3)
+
+        # Second Offer: if pct rule is set, use it; otherwise midpoint of
+        # the *already-rounded* First & Third so they don't collide after rounding.
+        if second_offer_pct is not None:
+            rounded_offer_2 = _round_offer_price(
+                max(cex_reference_buy_price * (second_offer_pct / 100.0), 0)
+            )
+        else:
+            rounded_offer_2 = _round_offer_price(
+                (rounded_offer_1 + rounded_offer_3) / 2
+            )
 
         return [
             {
@@ -1135,13 +1143,18 @@ def cex_product_prices(request):
         else:
             cex_abs_margin = cex_sale_price - cex_reference_buy_price
             offer_1 = max(our_sale_price - cex_abs_margin, 0)
-        if second_offer_pct is not None:
-            offer_2 = max(cex_reference_buy_price * (second_offer_pct / 100.0), 0)
-        else:
-            offer_2 = (offer_1 + offer_3) / 2
+        # Round First and Third first
         rounded_offer_1 = _round_offer_price(offer_1)
-        rounded_offer_2 = _round_offer_price(offer_2)
         rounded_offer_3 = _round_offer_price(offer_3)
+        # Second: if pct rule set, use it; otherwise midpoint of rounded First & Third
+        if second_offer_pct is not None:
+            rounded_offer_2 = _round_offer_price(
+                max(cex_reference_buy_price * (second_offer_pct / 100.0), 0)
+            )
+        else:
+            rounded_offer_2 = _round_offer_price(
+                (rounded_offer_1 + rounded_offer_3) / 2
+            )
         return [
             {"id": f"{prefix}_1", "title": "First Offer", "price": rounded_offer_1, "margin": calculate_margin_percentage(rounded_offer_1, our_sale_price)},
             {"id": f"{prefix}_2", "title": "Second Offer", "price": rounded_offer_2, "margin": calculate_margin_percentage(rounded_offer_2, our_sale_price)},

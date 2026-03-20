@@ -10,11 +10,12 @@ export const formatGBP = (value) =>
     minimumFractionDigits: 2
   }).format(value);
 
+/** Offer price: nearest £5 if above £50, else nearest £2 (matches backend `_round_offer_price`). */
 export const roundOfferPrice = (value) => {
   const amount = Number(value);
   if (!Number.isFinite(amount)) return 0;
   if (amount > 50) return Math.round(amount / 5) * 5;
-  return Math.round((amount + Number.EPSILON) * 100) / 100;
+  return Math.round(amount / 2) * 2;
 };
 
 /** Sale / retail price: nearest £5 if above £50, else nearest £2 (matches backend `_round_sale_price`). */
@@ -30,7 +31,7 @@ export const toVoucherOfferPrice = (cashOfferPrice) =>
 
 export const formatOfferPrice = (value) => {
   const rounded = roundOfferPrice(value);
-  return rounded > 50 ? String(rounded) : rounded.toFixed(2);
+  return String(rounded);
 };
 
 /**

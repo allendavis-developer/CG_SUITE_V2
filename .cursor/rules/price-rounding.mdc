@@ -1,0 +1,23 @@
+---
+description: Rounding rules for all monetary values (offers and sale prices)
+globs: "*.py,*.js,*.jsx,*.ts,*.tsx"
+---
+
+# Price Rounding Rules
+
+All offer prices and sale prices MUST follow these rounding rules everywhere in the codebase:
+
+| Value range | Rounding            |
+|-------------|---------------------|
+| > £50       | Nearest £5          |
+| ≤ £50       | Nearest £2          |
+
+These rules apply to **all** monetary values: sale prices, offer prices (1st, 2nd, 3rd), manual offers, voucher offers, and any derived price.
+
+## Implementations
+
+- **Backend**: `_round_offer_price()` and `_round_sale_price()` in [views_v2.py](mdc:pricing/views_v2.py)
+- **Frontend**: `roundOfferPrice()` and `roundSalePrice()` in [helpers.js](mdc:frontend/vite-project/src/utils/helpers.js)
+- **Voucher conversion**: `toVoucherOfferPrice()` in the same helpers file (applies `roundOfferPrice` after ×1.1)
+
+Always use these centralised helpers — never do ad-hoc rounding of prices inline.

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { scrapeEbay } from '@/services/extensionClient';
-import { roundSalePrice } from '@/utils/helpers';
+import { roundOfferPrice, roundSalePrice } from '@/utils/helpers';
 
 const BASIC_FILTER_OPTIONS = [
   "Used",
@@ -28,12 +28,16 @@ function parseSoldDate(soldStr) {
 function calculateBuyOffers(sellPrice) {
   if (!sellPrice || sellPrice <= 0) return [];
 
-  const margins = [0.6, 0.5, 0.4];
-
-  return margins.map(margin => ({
-    margin,
-    price: sellPrice * (1 - margin)
-  }));
+  // Round 1st (60% margin) and 3rd (40% margin) first, then derive 2nd as
+  // midpoint of the rounded values so they never collide after rounding.
+  const price1 = roundOfferPrice(sellPrice * 0.4);        // 60% margin
+  const price3 = roundOfferPrice(sellPrice * 0.6);        // 40% margin
+  const price2 = roundOfferPrice((price1 + price3) / 2);  // midpoint
+  return [
+    { margin: 0.6, price: price1 },
+    { margin: 0.5, price: price2 },
+    { margin: 0.4, price: price3 },
+  ];
 }
 
 /**

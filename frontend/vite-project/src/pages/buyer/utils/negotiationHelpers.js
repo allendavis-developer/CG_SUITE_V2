@@ -406,7 +406,7 @@ export function applyCashConvertersResearchToItem(item, updatedState, useVoucher
     newVoucherOffers = newCashOffers.map(offer => ({
       id: `cc-voucher-${offer.id}`,
       title: offer.title,
-      price: Number((offer.price * 1.10).toFixed(2)),
+      price: toVoucherOfferPrice(offer.price),
     }));
   }
   const displayOffers = useVoucherOffers ? newVoucherOffers : newCashOffers;
