@@ -247,7 +247,7 @@ export function mapRequestItemsToCartItems(items, transactionType) {
         voucher_offers: savedVoucherOffers,
         our_sale_price: ourSalePrice,
         cex_based_sale_price: ourSalePrice,
-        percentage_used: item.variant_details?.percentage_used ?? null,
+        percentage_used: item.variant_details?.percentage_used ?? rawData?.referenceData?.percentage_used ?? null,
       };
     } else if (isEbayResearchPayload) {
       cartItem.variantId = null;
@@ -286,7 +286,7 @@ export function mapRequestItemsToCartItems(items, transactionType) {
           voucher_offers: savedVoucherOffers,
           our_sale_price: ourSalePrice,
           cex_based_sale_price: ourSalePrice,
-          percentage_used: item.variant_details?.percentage_used ?? null,
+          percentage_used: item.variant_details?.percentage_used ?? rawData?.referenceData?.percentage_used ?? null,
         };
       }
     }

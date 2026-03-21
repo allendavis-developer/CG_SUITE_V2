@@ -267,7 +267,9 @@ const useAppStore = create(
               type === 'ebay' ? { ...item, ebayResearchData: data } : { ...item, cashConvertersResearchData: data };
             if (item.request_item_id) {
               const payload =
-                type === 'ebay' ? { raw_data: data } : { cash_converters_data: data };
+                type === 'ebay'
+                  ? { raw_data: item.referenceData ? { ...data, referenceData: item.referenceData } : data }
+                  : { cash_converters_data: data };
               updateRequestItemRawData(item.request_item_id, payload).catch(() => {});
             }
             return updated;

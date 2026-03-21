@@ -45,11 +45,16 @@ if (typeof document !== 'undefined' && !stylesInjected) {
 }
 
 // MEMOIZED LISTING CARD - prevents re-renders when parent updates
-const ListingCard = React.memo(function ListingCard({ item, origIdx, sortedIdx, displayIdx, onExcludeClick, showExcludeButton, readOnly }) {
+const ListingCard = React.memo(function ListingCard({ item, origIdx, sortedIdx, displayIdx, onExcludeClick, onExcludeRightClick, showExcludeButton, readOnly, isPivot }) {
   const handleExcludeClick = (e) => {
     e.preventDefault();
     e.stopPropagation();
     onExcludeClick?.(sortedIdx);
+  };
+  const handleExcludeRightClick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onExcludeRightClick?.(sortedIdx);
   };
   const animDelay = Math.min(displayIdx * 8, 80);
   return (
@@ -95,14 +100,15 @@ const ListingCard = React.memo(function ListingCard({ item, origIdx, sortedIdx, 
       {showExcludeButton && (
         <button
           className={`absolute top-2 right-2 z-10 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wide transition-all duration-150 ${
-            item.excluded ? 'bg-orange-500 text-white shadow-sm hover:bg-orange-600' : 'bg-white text-gray-600 border border-gray-300 shadow-sm hover:bg-red-50 hover:text-red-600 hover:border-red-300'
+            isPivot ? 'bg-blue-600 text-white shadow-md ring-2 ring-blue-300' : item.excluded ? 'bg-orange-500 text-white shadow-sm hover:bg-orange-600' : 'bg-white text-gray-600 border border-gray-300 shadow-sm hover:bg-red-50 hover:text-red-600 hover:border-red-300'
           }`}
           onClick={handleExcludeClick}
-          title={item.excluded ? 'Re-include this listing in stats' : 'Exclude this listing from stats'}
+          onContextMenu={handleExcludeRightClick}
+          title={isPivot ? 'Pivot — right-click another listing to select range' : item.excluded ? 'Left-click to re-include · Right-click to start range' : 'Left-click to exclude · Right-click to start range'}
           aria-label={item.excluded ? 'Re-include listing in stats' : 'Exclude listing from stats'}
         >
-          <span className="material-symbols-outlined text-[14px]">{item.excluded ? 'undo' : 'block'}</span>
-          <span>{item.excluded ? 'Excluded' : 'Exclude'}</span>
+          <span className="material-symbols-outlined text-[14px]">{isPivot ? 'swap_vert' : item.excluded ? 'undo' : 'block'}</span>
+          <span>{isPivot ? 'Pivot' : item.excluded ? 'Excluded' : 'Exclude'}</span>
         </button>
       )}
     </div>
@@ -422,20 +428,10 @@ export default function ResearchFormShell({
     [sortOrder, sortOptions]
   );
 
-  // Multi-select range for exclude: first two clicks act as a range select
-  const [firstExcludeClickIndex, setFirstExcludeClickIndex] = useState(null);
-  const [firstExcludeTargetExcluded, setFirstExcludeTargetExcluded] = useState(null);
-  const [hasInitialRangeSelection, setHasInitialRangeSelection] = useState(false);
-
-  // Reset multi-select when zero items are excluded so next two clicks work as range
-  const excludedCount = displayedListings ? displayedListings.filter(l => l.excluded).length : 0;
-  useEffect(() => {
-    if (excludedCount === 0) {
-      setHasInitialRangeSelection(false);
-      setFirstExcludeClickIndex(null);
-      setFirstExcludeTargetExcluded(null);
-    }
-  }, [excludedCount]);
+  // Right-click pivot state for range exclude selection
+  const [rightClickPivotIdx, setRightClickPivotIdx] = useState(null);
+  // The action to apply when the range is completed: true = exclude, false = un-exclude
+  const [rightClickPivotAction, setRightClickPivotAction] = useState(null);
   
   // Ref to maintain input focus
   const manualInputRef = useRef(null);
@@ -691,41 +687,35 @@ export default function ResearchFormShell({
     return Math.round(((salePrice - cleanManual) / salePrice) * 100);
   }, [displayedStats, manualOffer]);
 
-  // Handle clicking the exclude toggle on a listing card.
-  // First two clicks behave like a range select (apply to everything in between).
-  // Uses sortedIdx (index in sortedListings) so the range matches the visible sort order.
+  // Left-click handler: toggle a single listing's excluded state and clear any pivot.
   const handleExcludeClick = useCallback((sortedIdx) => {
     if (!onToggleExclude || !sortedListings || !sortedListings[sortedIdx]) return;
 
     const { item: clicked, origIdx } = sortedListings[sortedIdx];
-
     const id = clicked._id ?? clicked.id ?? `${clicked.url ?? clicked.title ?? 'listing'}-${origIdx}`;
+    onToggleExclude(id);
 
-    // If clicking the same item that set the anchor, treat as a plain toggle and reset
-    // (avoids the range-branch no-op that made un-excluding require multiple clicks).
-    if (firstExcludeClickIndex === sortedIdx) {
-      onToggleExclude(id);
-      setFirstExcludeClickIndex(null);
-      setFirstExcludeTargetExcluded(null);
+    // Clear pivot on any left-click
+    setRightClickPivotIdx(null);
+    setRightClickPivotAction(null);
+  }, [sortedListings, onToggleExclude]);
+
+  // Right-click handler: set pivot or complete a range selection.
+  const handleExcludeRightClick = useCallback((sortedIdx) => {
+    if (!onToggleExclude || !sortedListings || !sortedListings[sortedIdx]) return;
+
+    if (rightClickPivotIdx === null) {
+      // First right-click: set as pivot. The action (exclude / un-exclude) is determined
+      // by the current state of the pivot item: if not excluded → action is "exclude".
+      const pivotItem = sortedListings[sortedIdx]?.item;
+      setRightClickPivotIdx(sortedIdx);
+      setRightClickPivotAction(!pivotItem?.excluded); // true = exclude, false = un-exclude
       return;
     }
 
-    // If we've already done the initial range, or no anchor is set, treat as single toggle.
-    if (hasInitialRangeSelection || firstExcludeClickIndex === null) {
-      const shouldExclude = !clicked.excluded;
-      onToggleExclude(id);
-
-      if (!hasInitialRangeSelection) {
-        setFirstExcludeClickIndex(sortedIdx);
-        setFirstExcludeTargetExcluded(shouldExclude);
-      }
-      return;
-    }
-
-    // Second click in the initial sequence: apply to range between anchor and this index (in sorted order).
-    const anchor = firstExcludeClickIndex;
-    const start = Math.min(anchor, sortedIdx);
-    const end = Math.max(anchor, sortedIdx);
+    // Second right-click: apply action to the entire range between pivot and this item.
+    const start = Math.min(rightClickPivotIdx, sortedIdx);
+    const end = Math.max(rightClickPivotIdx, sortedIdx);
 
     for (let i = start; i <= end; i++) {
       const entry = sortedListings[i];
@@ -734,22 +724,16 @@ export default function ResearchFormShell({
       const currentlyExcluded = !!item.excluded;
 
       // Only toggle items that don't already match the target state.
-      if (currentlyExcluded !== firstExcludeTargetExcluded) {
+      if (currentlyExcluded !== rightClickPivotAction) {
         const id = item._id ?? item.id ?? `${item.url ?? item.title ?? 'listing'}-${origIdx}`;
         onToggleExclude(id);
       }
     }
 
-    setHasInitialRangeSelection(true);
-    setFirstExcludeClickIndex(null);
-    setFirstExcludeTargetExcluded(null);
-  }, [
-    sortedListings,
-    onToggleExclude,
-    firstExcludeClickIndex,
-    firstExcludeTargetExcluded,
-    hasInitialRangeSelection,
-  ]);
+    // Clear pivot after range is applied
+    setRightClickPivotIdx(null);
+    setRightClickPivotAction(null);
+  }, [sortedListings, onToggleExclude, rightClickPivotIdx, rightClickPivotAction]);
 
   const handleClearAllExclusions = useCallback(() => {
     if (onClearAllExclusions) {
@@ -762,9 +746,8 @@ export default function ResearchFormShell({
         }
       });
     }
-    setHasInitialRangeSelection(false);
-    setFirstExcludeClickIndex(null);
-    setFirstExcludeTargetExcluded(null);
+    setRightClickPivotIdx(null);
+    setRightClickPivotAction(null);
   }, [displayedListings, onToggleExclude, onClearAllExclusions]);
 
   // MEMOIZED BUY OFFERS DISPLAY with manual offer card and optional "Add to Cart" per-offer flow
@@ -1278,7 +1261,7 @@ export default function ResearchFormShell({
                   </div>
                   <div className="flex items-center gap-1.5 text-[11px] text-gray-600">
                     <span className="material-symbols-outlined text-[14px] text-gray-500">info</span>
-                    <span>Use the <strong className="font-semibold">Exclude</strong> button on a listing (or two listings to select a range) to remove it from calculations.</span>
+                    <span><strong className="font-semibold">Left-click</strong> Exclude to toggle one listing · <strong className="font-semibold">Right-click</strong> two listings to exclude/include a range.</span>
                   </div>
                 </div>
               )}
@@ -1320,8 +1303,10 @@ export default function ResearchFormShell({
                     sortedIdx={sortedIdx}
                     displayIdx={displayIdx}
                     onExcludeClick={handleExcludeClick}
+                    onExcludeRightClick={handleExcludeRightClick}
                     showExcludeButton={Boolean(onToggleExclude && !readOnly)}
                     readOnly={readOnly}
+                    isPivot={rightClickPivotIdx === sortedIdx}
                   />
                 ))}
               </div>

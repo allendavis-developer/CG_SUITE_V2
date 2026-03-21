@@ -103,7 +103,7 @@ export default function CexProductView({
             <EbayResearchForm
               mode="modal" category={{ name: 'CeX', path: ['CeX'] }} savedState={item.ebayResearchData}
               initialHistogramState={false} showManualOffer={false} referenceData={refData}
-              ourSalePrice={resolvedOurSalePrice} initialSearchQuery={item.model || item.title}
+              ourSalePrice={resolvedOurSalePrice} initialSearchQuery={item.title || item.model}
               marketComparisonContext={buildItemMarketContext()}
               hideOfferCards={isRepricing}
               useVoucherOffers={useVoucherOffers}
@@ -118,7 +118,7 @@ export default function CexProductView({
             <CashConvertersResearchForm
               mode="modal" category={{ name: 'CeX', path: ['CeX'] }} savedState={item.cashConvertersResearchData}
               initialHistogramState={false} referenceData={refData} ourSalePrice={resolvedOurSalePrice}
-              initialSearchQuery={item.model || item.title} marketComparisonContext={buildItemMarketContext()}
+              initialSearchQuery={item.title || item.model} marketComparisonContext={buildItemMarketContext()}
               useVoucherOffers={useVoucherOffers}
               onComplete={(d) => {
                 if (d?.cancel) { setCeXCashConvertersModalOpen(false); return; }
@@ -254,7 +254,7 @@ export default function CexProductView({
           <EbayResearchForm
             mode="modal" category={{ name: 'CeX', path: ['CeX'] }} savedState={data.ebayResearchData}
             initialHistogramState={false} showManualOffer={false} referenceData={refData}
-            ourSalePrice={cexBasedRounded != null ? cexBasedRounded : ''} initialSearchQuery={data.modelName || data.title}
+            ourSalePrice={cexBasedRounded != null ? cexBasedRounded : ''} initialSearchQuery={data.title || data.modelName}
             marketComparisonContext={buildCeXMarketContext()}
             useVoucherOffers={useVoucherOffers}
             onComplete={(d) => { if (d?.cancel) { setCeXEbayModalOpen(false); return; } setCexProductData?.((prev) => ({ ...prev, ebayResearchData: d })); setCeXEbayModalOpen(false); }}
@@ -264,7 +264,7 @@ export default function CexProductView({
           <CashConvertersResearchForm
             mode="modal" category={{ name: 'CeX', path: ['CeX'] }} savedState={data.cashConvertersResearchData}
             initialHistogramState={false} referenceData={refData} ourSalePrice={cexBasedRounded != null ? cexBasedRounded : ''}
-            initialSearchQuery={data.modelName || data.title} marketComparisonContext={buildCeXMarketContext()}
+            initialSearchQuery={data.title || data.modelName} marketComparisonContext={buildCeXMarketContext()}
             useVoucherOffers={useVoucherOffers}
             onComplete={(d) => { if (d?.cancel) { setCeXCashConvertersModalOpen(false); return; } setCexProductData?.((prev) => ({ ...prev, cashConvertersResearchData: d })); setCeXCashConvertersModalOpen(false); }}
           />

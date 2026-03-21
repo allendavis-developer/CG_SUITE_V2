@@ -23,8 +23,12 @@ export function buildItemSpecs(item) {
 }
 
 export function buildInitialSearchQuery(item) {
+  // Always prefer the variant name over the model name for research searches.
+  // variantName is the specific CeX variant title (e.g. "Apple iPhone 15 128GB Blue Unlocked")
+  // while title may be the generic model name (e.g. "Apple iPhone 15").
   return item?.ebayResearchData?.searchTerm
     || item?.ebayResearchData?.lastSearchedTerm
+    || item?.variantName
     || item?.title
     || undefined;
 }
@@ -127,7 +131,10 @@ export function buildFinishPayload(items, totalExpectation, targetOffer, useVouc
       if (item.isCustomCeXItem) {
         if (item.ebayResearchData && !rawData.ebayResearchData) rawData.ebayResearchData = item.ebayResearchData;
         if (item.cashConvertersResearchData && !rawData.cashConvertersResearchData) rawData.cashConvertersResearchData = item.cashConvertersResearchData;
-        if (item.referenceData && !rawData.referenceData && !rawData.reference_data) rawData.referenceData = item.referenceData;
+      }
+      // Always embed referenceData (with percentage_used etc.) so it survives round-trips
+      if (item.referenceData && !rawData.referenceData && !rawData.reference_data) {
+        rawData.referenceData = item.referenceData;
       }
       rawData.display_title = item.title ?? '';
       rawData.display_subtitle = item.subtitle ?? '';
@@ -239,6 +246,7 @@ export function mapApiItemToNegotiationItem(item, transactionType, mode) {
     subtitle: hasSavedDisplay
       ? (savedDisplaySubtitle ?? '')
       : (isCexItem ? '' : (ebaySubtitleFromFilters || 'No details')),
+    variantName: item.variant_details?.title || cexTitle || null,
     quantity: item.quantity,
     selectedOfferId: item.selected_offer_id,
     manualOffer: item.manual_offer_gbp?.toString() || '',
@@ -292,7 +300,10 @@ export function normalizeCartItemForNegotiation(item) {
     : null;
   let next = item;
   if (isCexItem) {
-    next = { ...item, title: cexName || item.title, subtitle: '' };
+    // Preserve the variant name (subtitle) before clearing it for display.
+    // subtitle from the buyer cart is the specific variant title (e.g. "Apple iPhone 15 128GB Blue Unlocked").
+    const variantName = item.subtitle || cexName || item.variantName || item.title || null;
+    next = { ...item, title: cexName || item.title, variantName, subtitle: '' };
   }
   return { ...next, selectedOfferId: resolvedSelectedOfferId };
 }

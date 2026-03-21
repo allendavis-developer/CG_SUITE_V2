@@ -781,7 +781,7 @@ const Negotiation = ({ mode }) => {
           readOnly={mode === 'view'}
           showManualOffer={true}
           useVoucherOffers={useVoucherOffers}
-          initialSearchQuery={cashConvertersResearchItem?.ebayResearchData?.searchTerm || cashConvertersResearchItem?.ebayResearchData?.lastSearchedTerm || cashConvertersResearchItem?.title || undefined}
+          initialSearchQuery={buildInitialSearchQuery(cashConvertersResearchItem)}
           marketComparisonContext={{
             cexSalePrice: cashConvertersResearchItem?.cexSellPrice ?? null,
             ourSalePrice: cashConvertersResearchItem?.ourSalePrice ?? null,

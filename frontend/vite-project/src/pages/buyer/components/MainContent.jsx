@@ -293,8 +293,11 @@ const MainContent = ({ mode = 'buyer' }) => {
         setPendingDuplicateItem(cartItem);
         setShowDuplicateDialog(true);
       } else {
+        const embeddedRawData = cartItem.ebayResearchData
+          ? { ...cartItem.ebayResearchData, referenceData: cartItem.referenceData }
+          : cartItem.referenceData ? { referenceData: cartItem.referenceData } : null;
         const reqItemId = await createOrAppendRequestItem({
-          variantId: cartItem.variantId, rawData: cartItem.ebayResearchData, cashConvertersData: cartItem.cashConvertersResearchData,
+          variantId: cartItem.variantId, rawData: embeddedRawData, cashConvertersData: cartItem.cashConvertersResearchData,
           cashOffers: cartItem.cashOffers, voucherOffers: cartItem.voucherOffers,
           selectedOfferId: cartItem.selectedOfferId, manualOffer: cartItem.manualOffer, ourSalePrice: cartItem.ourSalePrice,
         });
@@ -322,8 +325,11 @@ const MainContent = ({ mode = 'buyer' }) => {
     const cartItem = pendingDuplicateItem;
     setPendingDuplicateItem(null);
     try {
+      const embeddedRawData = cartItem.ebayResearchData
+        ? { ...cartItem.ebayResearchData, referenceData: cartItem.referenceData }
+        : cartItem.referenceData ? { referenceData: cartItem.referenceData } : null;
       const reqItemId = await createOrAppendRequestItem({
-        variantId: cartItem.variantId, rawData: cartItem.ebayResearchData, cashConvertersData: cartItem.cashConvertersResearchData,
+        variantId: cartItem.variantId, rawData: embeddedRawData, cashConvertersData: cartItem.cashConvertersResearchData,
         cashOffers: cartItem.cashOffers, voucherOffers: cartItem.voucherOffers,
         selectedOfferId: cartItem.selectedOfferId, manualOffer: cartItem.manualOffer, ourSalePrice: cartItem.ourSalePrice,
       });
@@ -500,7 +506,9 @@ const MainContent = ({ mode = 'buyer' }) => {
           const cartItem = useAppStore.getState()[useAppStore.getState().mode === 'repricing' ? 'repricingCartItems' : 'cartItems']
             .find((i) => i.id === itemId);
           if (cartItem?.request_item_id) {
-            const payload = type === 'ebay' ? { raw_data: data } : { cash_converters_data: data };
+            const payload = type === 'ebay'
+              ? { raw_data: cartItem.referenceData ? { ...data, referenceData: cartItem.referenceData } : data }
+              : { cash_converters_data: data };
             updateRequestItemRawData(cartItem.request_item_id, payload).catch(() => {});
           }
         }}
@@ -678,7 +686,7 @@ const MainContent = ({ mode = 'buyer' }) => {
             <EbayResearchForm
               mode="modal" category={selectedCategory} savedState={savedEbayState}
               initialHistogramState={false} showManualOffer={false} referenceData={referenceData}
-              ourSalePrice={ourSalePrice} initialSearchQuery={selectedModel?.name || undefined}
+              ourSalePrice={ourSalePrice} initialSearchQuery={variants.find(v => v.cex_sku === variant)?.title || selectedModel?.name || undefined}
               marketComparisonContext={buildMarketContext()}
               onComplete={(data) => { if (data?.cancel) { setEbayModalOpen(false); return; } handleEbayResearchComplete(data); setEbayModalOpen(false); }}
               useVoucherOffers={useVoucherOffers}
@@ -689,7 +697,7 @@ const MainContent = ({ mode = 'buyer' }) => {
             <CashConvertersResearchForm
               mode="modal" category={selectedCategory} savedState={savedCashConvertersState}
               initialHistogramState={false} referenceData={referenceData} ourSalePrice={ourSalePrice}
-              initialSearchQuery={ebayData?.searchTerm || selectedModel?.name || undefined}
+              initialSearchQuery={ebayData?.searchTerm || variants.find(v => v.cex_sku === variant)?.title || selectedModel?.name || undefined}
               marketComparisonContext={buildMarketContext()}
               onComplete={(data) => { if (data?.cancel) { setCashConvertersModalOpen(false); return; } handleCashConvertersResearchComplete(data); setCashConvertersModalOpen(false); }}
               useVoucherOffers={useVoucherOffers}
