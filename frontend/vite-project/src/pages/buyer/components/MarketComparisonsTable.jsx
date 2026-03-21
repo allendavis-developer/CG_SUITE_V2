@@ -1,6 +1,6 @@
 import React from 'react';
 import { Icon, Card, CardHeader, Button } from '@/components/ui/components';
-import { formatGBP } from '@/utils/helpers';
+import { formatGBP, toVoucherOfferPrice } from '@/utils/helpers';
 
 /**
  * Market comparisons table component
@@ -25,6 +25,7 @@ const MarketComparisonsTable = ({
   // fall back to competitorStats (DB snapshot) if referenceData isn't available yet.
   const cexSalePrice = referenceData?.cex_sale_price ?? competitorStats?.[0]?.salePrice ?? null;
   const cexBuyPrice  = referenceData?.cex_tradein_cash ?? competitorStats?.[0]?.buyPrice ?? null;
+  const cexVoucherPrice = referenceData?.cex_tradein_voucher ?? competitorStats?.[0]?.voucherPrice ?? null;
   const cexOutOfStock = referenceData?.cex_out_of_stock ?? competitorStats?.[0]?.outOfStock ?? false;
   const hasCexData = variant && cexSalePrice != null;
 
@@ -57,6 +58,7 @@ const MarketComparisonsTable = ({
             <th className="p-4 bg-yellow-500/10 border-x border-yellow-500/20">OUR SALE PRICE</th>
             <th className="p-4 text-xs font-semibold text-gray-700">Method</th>
             {!hideBuyInPrice && <th className="p-4">Buy-in Price (Cash)</th>}
+            {!hideBuyInPrice && <th className="p-4">Buy-in Price (Voucher)</th>}
             <th className="p-4 text-right">Action</th>
           </tr>
         </thead>
@@ -114,6 +116,26 @@ const MarketComparisonsTable = ({
                   )}
                 </td>
               )}
+              {!hideBuyInPrice && (
+                <td className="p-4 font-bold text-blue-900">
+                  {cexVoucherPrice != null ? (
+                    cexUrl ? (
+                      <a
+                        href={cexUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-700 underline decoration-dotted"
+                      >
+                        {formatGBP(cexVoucherPrice)}
+                      </a>
+                    ) : (
+                      formatGBP(cexVoucherPrice)
+                    )
+                  ) : (
+                    '—'
+                  )}
+                </td>
+              )}
               <td className="p-4 text-right">
                 <span className="text-emerald-600 inline-flex items-center gap-1 text-xs font-bold">
                   <Icon name="check_circle" className="text-xs" /> Live
@@ -133,6 +155,7 @@ const MarketComparisonsTable = ({
 
               <td className="p-4 text-gray-700 font-semibold text-sm">—</td>
 
+              {!hideBuyInPrice && <td className="p-4 italic text-gray-600/60">—</td>}
               {!hideBuyInPrice && <td className="p-4 italic text-gray-600/60">—</td>}
               <td className="p-4 text-right text-xs text-gray-600/60">—</td>
             </tr>
@@ -157,6 +180,18 @@ const MarketComparisonsTable = ({
                     const buyOffers = ebayData.buyOffers || [];
                     if (buyOffers.length === 0) return '—';
                     const prices = buyOffers.map(o => o.price);
+                    const min = Math.min(...prices);
+                    const max = Math.max(...prices);
+                    return min === max ? formatGBP(min) : `${formatGBP(min)} - ${formatGBP(max)}`;
+                  })()}
+                </td>
+              )}
+              {!hideBuyInPrice && (
+                <td className="p-4 font-bold text-blue-900">
+                  {(() => {
+                    const buyOffers = ebayData.buyOffers || [];
+                    if (buyOffers.length === 0) return '—';
+                    const prices = buyOffers.map(o => toVoucherOfferPrice(o.price));
                     const min = Math.min(...prices);
                     const max = Math.max(...prices);
                     return min === max ? formatGBP(min) : `${formatGBP(min)} - ${formatGBP(max)}`;
@@ -189,6 +224,7 @@ const MarketComparisonsTable = ({
 
               <td className="p-4 text-gray-700 font-semibold text-sm">—</td>
 
+              {!hideBuyInPrice && <td className="p-4 italic text-gray-600/60">—</td>}
               {!hideBuyInPrice && <td className="p-4 italic text-gray-600/60">—</td>}
               <td className="p-4">
                 {!readOnly && (
@@ -236,6 +272,19 @@ const MarketComparisonsTable = ({
                   })()}
                 </td>
               )}
+              {!hideBuyInPrice && (
+                <td className="p-4 font-bold text-blue-900">
+                  {(() => {
+                    const buyOffers = cashConvertersData.buyOffers || [];
+                    if (buyOffers.length === 0) return '—';
+                    const prices = buyOffers.map(o => toVoucherOfferPrice(o.price)).filter(p => p != null);
+                    if (prices.length === 0) return '—';
+                    const min = Math.min(...prices);
+                    const max = Math.max(...prices);
+                    return min === max ? formatGBP(min) : `${formatGBP(min)} - ${formatGBP(max)}`;
+                  })()}
+                </td>
+              )}
               <td className="p-4">
                 {!readOnly && (
                   <div className="flex justify-end">
@@ -262,6 +311,7 @@ const MarketComparisonsTable = ({
 
               <td className="p-4 text-gray-700 font-semibold text-sm">—</td>
 
+              {!hideBuyInPrice && <td className="p-4 italic text-gray-600/60">—</td>}
               {!hideBuyInPrice && <td className="p-4 italic text-gray-600/60">—</td>}
               <td className="p-4">
                 {!readOnly && (

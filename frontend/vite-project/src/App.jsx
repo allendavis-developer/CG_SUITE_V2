@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Buyer from "./pages/buyer/Buyer";
 import Negotiation from "./pages/buyer/Negotiation";
@@ -10,11 +10,16 @@ import RequestsOverview from "./pages/buyer/RequestsOverview";
 import LaunchpadPage from "./pages/launchpad/LaunchpadPage";
 import ReportsPage from "./pages/reports/ReportsPage";
 import PricingRulesPage from "./pages/pricing/PricingRulesPage";
+import useAppStore from "./store/useAppStore";
+
 function Home() {
   return <LaunchpadPage />;
 }
 
 export default function App() {
+  useEffect(() => {
+    useAppStore.getState().loadEbayOfferMargins();
+  }, []);
   return (
     <BrowserRouter>
       <Routes>

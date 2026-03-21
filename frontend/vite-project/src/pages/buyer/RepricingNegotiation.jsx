@@ -12,7 +12,7 @@ import { saveRepricingSession, createRepricingSessionDraft, updateRepricingSessi
 import { getCartKey, loadRepricingProgress, saveRepricingProgress, clearRepricingProgress } from "@/utils/repricingProgress";
 import { getEditableSalePriceState, resolveRepricingSalePrice } from "./utils/repricingDisplay";
 import useAppStore from '@/store/useAppStore';
-import { roundSalePrice } from '@/utils/helpers';
+import { normalizeExplicitSalePrice } from '@/utils/helpers';
 import { buildItemSpecs, buildInitialSearchQuery } from './utils/negotiationHelpers';
 
 // ─── Right-click context menu (remove only) ────────────────────────────────
@@ -114,20 +114,24 @@ const RepricingNegotiation = () => {
   const isCreatingSession = useRef(false);
   const hasPendingSave = useRef(false);
   const latestStateRef = useRef({ items, barcodes, nosposLookups });
-
-  useEffect(() => { latestStateRef.current = { items, barcodes, nosposLookups }; }, [items, barcodes, nosposLookups]);
+  // Keep ref in sync during render (not in an effect) so cleanup functions
+  // always read the latest state — eliminates the stale-ref-on-unmount race.
+  latestStateRef.current = { items, barcodes, nosposLookups };
 
   const buildSessionDataSnapshot = useCallback((state) => {
     const { items: snapshotItems, barcodes: snapshotBarcodes, nosposLookups: snapshotLookups } = state || latestStateRef.current;
     return {
-      items: snapshotItems.map(({ id, title, subtitle, category, model, cexSellPrice, cexBuyPrice, cexUrl,
-        ourSalePrice, ourSalePriceInput, cexOutOfStock, cexProductData, isCustomCeXItem, condition,
-        categoryObject, nosposBarcodes, ebayResearchData, cashConvertersResearchData, quantity,
-        isRemoved }) => ({
-        id, title, subtitle, category, model, cexSellPrice, cexBuyPrice, cexUrl,
-        ourSalePrice, ourSalePriceInput, cexOutOfStock, cexProductData, isCustomCeXItem, condition,
-        categoryObject, nosposBarcodes, ebayResearchData, cashConvertersResearchData, quantity,
-        isRemoved,
+      items: snapshotItems.map(({ id, title, subtitle, category, model, cexSellPrice, cexBuyPrice,
+        cexVoucherPrice, cexUrl, ourSalePrice, ourSalePriceInput, cexOutOfStock, cexProductData,
+        isCustomCeXItem, isCustomEbayItem, isCustomCashConvertersItem, condition, categoryObject,
+        nosposBarcodes, ebayResearchData, cashConvertersResearchData, quantity, isRemoved,
+        variantId, cexSku, attributeValues, referenceData, offers, cashOffers, voucherOffers,
+        image }) => ({
+        id, title, subtitle, category, model, cexSellPrice, cexBuyPrice, cexVoucherPrice, cexUrl,
+        ourSalePrice, ourSalePriceInput, cexOutOfStock, cexProductData, isCustomCeXItem,
+        isCustomEbayItem, isCustomCashConvertersItem, condition, categoryObject, nosposBarcodes,
+        ebayResearchData, cashConvertersResearchData, quantity, isRemoved, variantId, cexSku,
+        attributeValues, referenceData, offers, cashOffers, voucherOffers, image,
       })),
       barcodes: snapshotBarcodes,
       nosposLookups: snapshotLookups,
@@ -189,16 +193,24 @@ const RepricingNegotiation = () => {
     const ambiguousEntries = buildAmbiguousBarcodeEntries(payload);
 
     try {
-      if (savePayload.barcode_count > 0) {
+      if (dbSessionId) {
+        // Update the existing draft session with completion data instead of
+        // creating a separate session, avoiding duplicates in the overview.
+        const updateData = { status: 'COMPLETED' };
+        if (savePayload.barcode_count > 0) {
+          updateData.items_data = savePayload.items_data;
+          updateData.barcode_count = savePayload.barcode_count;
+          updateData.item_count = savePayload.item_count;
+          updateData.cart_key = savePayload.cart_key;
+        }
+        try {
+          await updateRepricingSession(dbSessionId, updateData);
+        } catch {}
+        if (savePayload.barcode_count > 0) clearRepricingProgress(activeCartKey);
+        useAppStore.setState({ repricingSessionId: null, repricingCartItems: [] });
+      } else if (savePayload.barcode_count > 0) {
         await saveRepricingSession(savePayload);
         clearRepricingProgress(activeCartKey);
-      }
-
-      // Mark the DB session as COMPLETED
-      if (dbSessionId) {
-        try {
-          await updateRepricingSession(dbSessionId, { status: 'COMPLETED' });
-        } catch {}
       }
 
       try {
@@ -236,6 +248,8 @@ const RepricingNegotiation = () => {
     hasInitialized.current = true;
 
     const resumeSessionId = location.state?.sessionId || useAppStore.getState().repricingSessionId;
+    const sessionBarcodes = location.state?.sessionBarcodes || null;
+    const sessionNosposLookups = location.state?.sessionNosposLookups || null;
 
     // If we have a sessionId AND cartItems, just attach to the existing DB session (no refetch)
     if (resumeSessionId && cartItems?.length) {
@@ -251,9 +265,17 @@ const RepricingNegotiation = () => {
     setItems(cartItems.map(item => ({ ...item })));
     const cartKey = getCartKey(cartItems);
     const saved = cartKey ? loadRepricingProgress(cartKey) : null;
-    if (saved) {
-      setBarcodes(saved.barcodes);
+
+    // Restore barcodes & nosposLookups with priority:
+    // 1. localStorage (most recent in-browser state)
+    // 2. DB session_data (passed via location.state from overview/back navigation)
+    // 3. Pre-populate from item nosposBarcodes (Quick Reprice)
+    if (saved && (Object.keys(saved.barcodes || {}).length > 0 || Object.keys(saved.nosposLookups || {}).length > 0)) {
+      setBarcodes(saved.barcodes || {});
       setNosposLookups(saved.nosposLookups || {});
+    } else if (sessionBarcodes && Object.keys(sessionBarcodes).length > 0) {
+      setBarcodes(sessionBarcodes);
+      setNosposLookups(sessionNosposLookups || {});
     } else {
       // Pre-populate barcodes from nosposBarcodes set by Quick Reprice (array of { barserial, href, name })
       const prePopulated = {};
@@ -287,16 +309,23 @@ const RepricingNegotiation = () => {
       const itemsSnapshot = cartItems.map(item => ({
         id: item.id, title: item.title, subtitle: item.subtitle, category: item.category,
         model: item.model, cexSellPrice: item.cexSellPrice, cexBuyPrice: item.cexBuyPrice,
-        cexUrl: item.cexUrl, ourSalePrice: item.ourSalePrice, cexOutOfStock: item.cexOutOfStock,
-        cexProductData: item.cexProductData, isCustomCeXItem: item.isCustomCeXItem,
+        cexVoucherPrice: item.cexVoucherPrice, cexUrl: item.cexUrl, ourSalePrice: item.ourSalePrice,
+        cexOutOfStock: item.cexOutOfStock, cexProductData: item.cexProductData,
+        isCustomCeXItem: item.isCustomCeXItem, isCustomEbayItem: item.isCustomEbayItem,
+        isCustomCashConvertersItem: item.isCustomCashConvertersItem,
         condition: item.condition, categoryObject: item.categoryObject,
         nosposBarcodes: item.nosposBarcodes, ebayResearchData: item.ebayResearchData,
         cashConvertersResearchData: item.cashConvertersResearchData, quantity: item.quantity,
+        variantId: item.variantId, cexSku: item.cexSku, attributeValues: item.attributeValues,
+        referenceData: item.referenceData, offers: item.offers, cashOffers: item.cashOffers,
+        voucherOffers: item.voucherOffers, image: item.image,
       }));
+      const restoredBarcodes = saved?.barcodes || sessionBarcodes || {};
+      const restoredLookups = saved?.nosposLookups || sessionNosposLookups || {};
       createRepricingSessionDraft({
         cart_key: cartKey,
         item_count: cartItems.length,
-        session_data: { items: itemsSnapshot, barcodes: saved?.barcodes || {}, nosposLookups: saved?.nosposLookups || {} },
+        session_data: { items: itemsSnapshot, barcodes: restoredBarcodes, nosposLookups: restoredLookups },
       }).then(resp => {
         if (resp?.repricing_session_id) {
           setDbSessionId(resp.repricing_session_id);
@@ -655,7 +684,7 @@ const RepricingNegotiation = () => {
           <div className="p-6 border-b" style={{ borderColor: '#e5e7eb' }}>
             <div className="flex items-center justify-between gap-6">
               <button
-                onClick={() => navigate('/repricing', { state: { preserveCart: true, cartItems: items } })}
+                onClick={() => navigate('/repricing', { state: { preserveCart: true, cartItems: items, sessionBarcodes: barcodes, sessionNosposLookups: nosposLookups } })}
                 className="flex items-center gap-2 px-4 py-2 rounded-lg border font-medium text-sm transition-all hover:shadow-md"
                 style={{ borderColor: '#e5e7eb', color: '#144584' }}
               >
@@ -730,7 +759,7 @@ const RepricingNegotiation = () => {
                         next.ourSalePrice = '';
                         return next;
                       }
-                      next.ourSalePrice = String(roundSalePrice(parsedTotal / qty));
+                      next.ourSalePrice = String(normalizeExplicitSalePrice(parsedTotal / qty));
                       return next;
                     }));
                   };
@@ -802,6 +831,12 @@ const RepricingNegotiation = () => {
                               );
                             }}
                             onBlur={handleOurSalePriceBlur}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                e.currentTarget.blur();
+                              }
+                            }}
                             onFocus={() => {
                               if (item.ourSalePriceInput === undefined && salePriceDisplayValue !== '') {
                                 setItems(prev =>

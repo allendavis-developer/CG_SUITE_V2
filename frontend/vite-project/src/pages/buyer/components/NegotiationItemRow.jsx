@@ -1,5 +1,5 @@
 import React from 'react';
-import { roundSalePrice } from '@/utils/helpers';
+import { normalizeExplicitSalePrice, roundSalePrice } from '@/utils/helpers';
 import { resolveOurSalePrice, getDisplayOffers } from '../utils/negotiationHelpers';
 
 // ─── Reusable offer cell (1st / 2nd / 3rd) ────────────────────────────────
@@ -90,9 +90,11 @@ export default function NegotiationItemRow({
           : (item.useResearchSuggestedPrice !== false && item.ebayResearchData?.stats?.suggestedPrice != null
               ? Number(item.ebayResearchData.stats.suggestedPrice)
               : null));
+  const fromExplicitOurSale =
+    item.ourSalePrice !== undefined && item.ourSalePrice !== null && item.ourSalePrice !== '';
   const perUnitOurPrice =
     perUnitOurPriceRaw != null && !Number.isNaN(perUnitOurPriceRaw) && perUnitOurPriceRaw > 0
-      ? roundSalePrice(perUnitOurPriceRaw)
+      ? (fromExplicitOurSale ? normalizeExplicitSalePrice(perUnitOurPriceRaw) : roundSalePrice(perUnitOurPriceRaw))
       : null;
   const totalOurPrice = perUnitOurPrice != null && !Number.isNaN(perUnitOurPrice) ? perUnitOurPrice * quantity : null;
   const isEditingRowTotal = item.ourSalePriceInput !== undefined;
@@ -243,6 +245,12 @@ export default function NegotiationItemRow({
               value={salePriceInputValue}
               onChange={(e) => onOurSalePriceChange(item.id, e.target.value.replace(/[£,]/g, '').trim())}
               onBlur={() => onOurSalePriceBlur(item)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  e.currentTarget.blur();
+                }
+              }}
               onFocus={() => {
                 if (item.ourSalePriceInput === undefined && salePriceInputValue !== '') {
                   onOurSalePriceFocus(item.id, salePriceInputValue);

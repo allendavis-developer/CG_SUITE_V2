@@ -35,6 +35,7 @@ urlpatterns = [
     path('api/repricing-sessions/<int:repricing_session_id>/', v2.repricing_session_detail, name='repricing_session_detail'),
     path('api/pricing-rules/', v2.pricing_rules_view, name='pricing_rules'),
     path('api/pricing-rules/<int:rule_id>/', v2.pricing_rule_detail, name='pricing_rule_detail'),
+    path('api/ebay-offer-margins/', v2.ebay_offer_margins, name='ebay_offer_margins'),
     path('api/address-lookup/<str:postcode>/', v2.address_lookup, name='address_lookup'),
     re_path(r'^(?:.*)/?$', v2.react_app, name='react_app_catchall'),
 

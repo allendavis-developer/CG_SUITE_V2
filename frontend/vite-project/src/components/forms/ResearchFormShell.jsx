@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { Button, Icon, HorizontalOfferCard, CustomDropdown } from '../ui/components';
+import { toVoucherOfferPrice } from '@/utils/helpers';
 
 // Add animation styles - MOVED OUTSIDE COMPONENT, RUNS ONCE
 const fadeInUpAnimation = `
@@ -388,6 +389,7 @@ export default function ResearchFormShell({
   enableRightClickManualOffer = false, // When true (eBay page mode), right-click on offer opens manual-offer dialog
   addActionLabel = "Add to Cart",
   hideOfferCards = false, // When true (e.g. repricing), hide the three offer cards and only show the single add action
+  useVoucherOffers = false, // When true (store credit), display voucher prices instead of cash
 }) {
   // Get current price range (latest in history, or null for full view)
   const currentPriceRange = drillHistory.length > 0 ? drillHistory[drillHistory.length - 1] : null;
@@ -641,12 +643,18 @@ export default function ResearchFormShell({
   }, [onManualOfferChange]);
 
   // Handler for clicking on an offer card (when opened from negotiation page)
+  // Auto-closes the modal and passes the displayed price directly to avoid stale-closure issues.
   const handleOfferClick = useCallback((price, index) => {
-    if (showManualOffer) {
-      setSelectedOfferIndex(index);
-      // Don't update manual offer input - only select the offer visually
+    if (showManualOffer && !readOnly) {
+      const priceStr = Number(price).toFixed(2);
+      if (onCompleteWithSelection) {
+        onCompleteWithSelection(index, priceStr);
+      } else {
+        onManualOfferChange?.(priceStr);
+        setSelectedOfferIndex(index);
+      }
     }
-  }, [showManualOffer]);
+  }, [showManualOffer, readOnly, onCompleteWithSelection, onManualOfferChange]);
 
   // Handler for clicking on manual offer card
   const handleManualOfferCardClick = useCallback(() => {
@@ -765,39 +773,59 @@ export default function ResearchFormShell({
     if (hideOfferCards && !useAddWithOfferFlow) return null;
     if (!hideOfferCards && !buyOffers.length && !showManualOffer) return null;
 
-    const offerLabels = ["1st Cash Offer", "2nd Cash Offer", "3rd Cash Offer"];
+    const offerLabels = useVoucherOffers
+      ? ["1st Voucher Offer", "2nd Voucher Offer", "3rd Voucher Offer"]
+      : ["1st Cash Offer", "2nd Cash Offer", "3rd Cash Offer"];
     const showRightClickManual = enableRightClickManualOffer && useAddWithOfferFlow && !hideOfferCards;
+    const offersAreInteractive = useAddWithOfferFlow || (showManualOffer && !readOnly);
 
     return (
       <div className="flex flex-wrap items-center gap-4">
-        {!hideOfferCards && buyOffers.map(({ price }, idx) => (
-          <div
-            key={idx}
-            onContextMenu={
-              showRightClickManual
-                ? (e) => {
-                    const basePrice = Number(price);
-                    const initialValue = Number.isFinite(basePrice) && basePrice > 0 ? basePrice.toFixed(2) : '';
-                    openManualOfferDialog(e, idx, initialValue);
-                  }
-                : undefined
-            }
-          >
-            <HorizontalOfferCard
-              title={offerLabels[idx] || `${idx + 1}th Offer`}
-              price={`£${formatStat(price)}`}
-              margin={Math.round([0.6, 0.5, 0.4][idx] * 100)}
-              isHighlighted={showManualOffer && selectedOfferIndex === idx}
-              onClick={
-                useAddWithOfferFlow
-                  ? () => onAddToCartWithOffer(idx)
-                  : showManualOffer && !readOnly
-                    ? () => handleOfferClick(price, idx)
-                    : undefined
+        {!hideOfferCards && buyOffers.map(({ price: rawPrice, margin }, idx) => {
+          const price = useVoucherOffers ? toVoucherOfferPrice(rawPrice) : rawPrice;
+          if (!offersAreInteractive) {
+            return (
+              <div key={idx} className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-blue-900/5 border border-blue-900/10">
+                <span className="text-[10px] font-bold text-gray-500 uppercase">{offerLabels[idx]}</span>
+                <span className="text-sm font-extrabold text-blue-900">£{formatStat(price)}</span>
+                {margin != null && (
+                  <>
+                    <span className="text-gray-300">·</span>
+                    <span className="text-[10px] font-bold text-yellow-600">{Math.round(margin * 100)}%</span>
+                  </>
+                )}
+              </div>
+            );
+          }
+          return (
+            <div
+              key={idx}
+              onContextMenu={
+                showRightClickManual
+                  ? (e) => {
+                      const basePrice = Number(price);
+                      const initialValue = Number.isFinite(basePrice) && basePrice > 0 ? basePrice.toFixed(2) : '';
+                      openManualOfferDialog(e, idx, initialValue);
+                    }
+                  : undefined
               }
-            />
-          </div>
-        ))}
+            >
+              <HorizontalOfferCard
+                title={offerLabels[idx] || `${idx + 1}th Offer`}
+                price={`£${formatStat(price)}`}
+                margin={margin != null ? Math.round(margin * 100) : Math.round([0.6, 0.5, 0.4][idx] * 100)}
+                isHighlighted={showManualOffer && selectedOfferIndex === idx}
+                onClick={
+                  useAddWithOfferFlow
+                    ? () => onAddToCartWithOffer(idx)
+                    : showManualOffer && !readOnly
+                      ? () => handleOfferClick(price, idx)
+                      : undefined
+                }
+              />
+            </div>
+          );
+        })}
         {useAddWithOfferFlow && (
           <div
             onClick={() => onAddToCartWithOffer(null)}
@@ -850,12 +878,16 @@ export default function ResearchFormShell({
                 placeholder="£0.00"
                 value={manualOffer}
                 onChange={(e) => {
-                  // Prevent the card click handler from immediately re-firing
                   e.stopPropagation();
                   handleManualOfferChange(e);
-                  // Ensure it stays selected when typing
                   if (!readOnly && showManualOffer && selectedOfferIndex !== 'manual') {
                     setSelectedOfferIndex('manual');
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleComplete();
                   }
                 }}
                 onFocus={() => {
@@ -878,7 +910,7 @@ export default function ResearchFormShell({
         )}
       </div>
     );
-  }, [buyOffers, showManualOffer, selectedOfferIndex, manualOffer, manualOfferMargin, onManualOfferChange, readOnly, handleOfferClick, handleManualOfferCardClick, handleManualOfferChange, onAddToCartWithOffer, formatStat, enableRightClickManualOffer, openManualOfferDialog, hideOfferCards, addActionLabel]);
+  }, [buyOffers, showManualOffer, selectedOfferIndex, manualOffer, manualOfferMargin, onManualOfferChange, readOnly, handleOfferClick, handleManualOfferCardClick, handleManualOfferChange, onAddToCartWithOffer, formatStat, enableRightClickManualOffer, openManualOfferDialog, hideOfferCards, addActionLabel, useVoucherOffers]);
 
   const content = (
     <>

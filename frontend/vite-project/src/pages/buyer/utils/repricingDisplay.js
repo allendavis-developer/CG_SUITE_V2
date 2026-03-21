@@ -1,4 +1,4 @@
-import { roundSalePrice } from '@/utils/helpers';
+import { normalizeExplicitSalePrice, roundSalePrice } from '@/utils/helpers';
 
 export const formatMoney = (value) => {
   const num = value == null ? null : Number(value);
@@ -13,7 +13,7 @@ export const getResearchMedian = (data) => {
 export const resolveRepricingSalePrice = (item) => {
   if (item?.ourSalePrice !== undefined && item.ourSalePrice !== null && item.ourSalePrice !== '') {
     const n = Number(item.ourSalePrice);
-    return Number.isFinite(n) && n > 0 ? roundSalePrice(n) : null;
+    return Number.isFinite(n) && n > 0 ? normalizeExplicitSalePrice(n) : null;
   }
   if (item?.ebayResearchData?.stats?.suggestedPrice != null) {
     const n = Number(item.ebayResearchData.stats.suggestedPrice);

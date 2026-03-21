@@ -227,6 +227,39 @@ class PricingRule(models.Model):
         )
     )
 
+    ebay_offer_margin_1_pct = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text=(
+            "Margin % for the first eBay/research-based offer. "
+            "E.g. 60 means offer = suggestedPrice * 0.40. Default 60."
+        )
+    )
+
+    ebay_offer_margin_2_pct = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text=(
+            "Margin % for the second eBay/research-based offer. "
+            "E.g. 50 means offer = suggestedPrice * 0.50. Default 50."
+        )
+    )
+
+    ebay_offer_margin_3_pct = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text=(
+            "Margin % for the third eBay/research-based offer. "
+            "E.g. 40 means offer = suggestedPrice * 0.60. Default 40."
+        )
+    )
+
     class Meta:
         db_table = 'pricing_rule'
         constraints = [

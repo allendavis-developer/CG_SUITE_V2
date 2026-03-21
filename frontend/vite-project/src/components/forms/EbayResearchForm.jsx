@@ -3,6 +3,7 @@ import { getDataFromListingPage, getDataFromRefine, cancelListingTab } from '@/s
 import ResearchFormShell from './ResearchFormShell';
 import { calculateStats, calculateBuyOffers } from './researchStats';
 import { Icon, Button } from '../ui/components';
+import useAppStore, { useEbayOfferMargins } from '@/store/useAppStore';
 
 /**
  * eBay Research Form – multi-step flow:
@@ -32,7 +33,13 @@ function EbayResearchForm({
   onAddNewItem = null,
   addActionLabel = 'Add to Cart',
   hideOfferCards = false,
+  useVoucherOffers = false,
 }) {
+  const categoryId = category?.id ?? null;
+  const ebayOfferMargins = useEbayOfferMargins(categoryId);
+  useEffect(() => {
+    if (categoryId) useAppStore.getState().loadEbayOfferMargins(categoryId);
+  }, [categoryId]);
   const [step, setStep] = useState(savedState?.listings?.length ? 'cards' : 'get-data');
   const [listings, setListings] = useState(() => ensureListingIds(savedState?.listings ?? []));
   const [searchTerm, setSearchTerm] = useState(savedState?.searchTerm ?? '');
@@ -160,8 +167,8 @@ function EbayResearchForm({
   }, [displayedListings, stats]);
 
   const buyOffers = useMemo(
-    () => calculateBuyOffers(displayedStats.suggestedPrice),
-    [displayedStats.suggestedPrice]
+    () => calculateBuyOffers(displayedStats.suggestedPrice, ebayOfferMargins),
+    [displayedStats.suggestedPrice, ebayOfferMargins]
   );
 
   const handleDrillDown = useCallback((rangeStart, rangeEnd) => {
@@ -191,7 +198,7 @@ function EbayResearchForm({
     });
   }, [onComplete, listings, showHistogram, drillHistory, displayedStats, buyOffers, searchTerm, listingPageUrl, manualOffer]);
 
-  const handleCompleteWithSelection = useCallback((selectedOfferIndex) => {
+  const handleCompleteWithSelection = useCallback((selectedOfferIndex, overrideManualOffer) => {
     const state = {
       listings,
       showHistogram,
@@ -202,7 +209,7 @@ function EbayResearchForm({
       listingPageUrl,
       selectedFilters: { basic: [], apiFilters: {} },
       filterOptions: [],
-      manualOffer,
+      manualOffer: overrideManualOffer ?? manualOffer,
     };
     if (showManualOffer) state.selectedOfferIndex = selectedOfferIndex;
     onComplete?.(state);
@@ -368,6 +375,7 @@ function EbayResearchForm({
       onResetSearch={!readOnly ? handleResetSearch : null}
       addActionLabel={addActionLabel}
       hideOfferCards={hideOfferCards}
+      useVoucherOffers={useVoucherOffers}
     />
     </>
   );

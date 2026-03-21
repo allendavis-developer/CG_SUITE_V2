@@ -3,6 +3,7 @@ import { getDataFromListingPage, getDataFromRefine } from '@/services/extensionC
 import ResearchFormShell from './ResearchFormShell';
 import { calculateStats, calculateBuyOffers } from './researchStats';
 import { Icon } from '../ui/components';
+import useAppStore, { useEbayOfferMargins } from '@/store/useAppStore';
 
 /**
  * Cash Converters Research Form – multi-step flow:
@@ -31,7 +32,13 @@ export default function CashConvertersResearchForm({
   resetDrillOnOpen = false,
   onAddNewItem = null,
   addActionLabel = 'Add to Cart',
+  useVoucherOffers = false,
 }) {
+  const categoryId = category?.id ?? null;
+  const ebayOfferMargins = useEbayOfferMargins(categoryId);
+  useEffect(() => {
+    if (categoryId) useAppStore.getState().loadEbayOfferMargins(categoryId);
+  }, [categoryId]);
   const [step, setStep] = useState(savedState?.listings?.length ? 'cards' : 'get-data');
   const [listings, setListings] = useState(() => ensureListingIds(savedState?.listings ?? []));
   const [searchTerm, setSearchTerm] = useState(savedState?.searchTerm ?? '');
@@ -136,8 +143,8 @@ export default function CashConvertersResearchForm({
   }, [displayedListings, stats]);
 
   const buyOffers = useMemo(
-    () => calculateBuyOffers(displayedStats.suggestedPrice),
-    [displayedStats.suggestedPrice]
+    () => calculateBuyOffers(displayedStats.suggestedPrice, ebayOfferMargins),
+    [displayedStats.suggestedPrice, ebayOfferMargins]
   );
 
   const handleDrillDown = useCallback((rangeStart, rangeEnd) => {
@@ -167,7 +174,7 @@ export default function CashConvertersResearchForm({
     });
   }, [onComplete, listings, showHistogram, drillHistory, displayedStats, buyOffers, searchTerm, listingPageUrl, manualOffer]);
 
-  const handleCompleteWithSelection = useCallback((selectedOfferIndex) => {
+  const handleCompleteWithSelection = useCallback((selectedOfferIndex, overrideManualOffer) => {
     const state = {
       listings,
       showHistogram,
@@ -178,7 +185,7 @@ export default function CashConvertersResearchForm({
       listingPageUrl,
       selectedFilters: { basic: [], apiFilters: {} },
       filterOptions: [],
-      manualOffer,
+      manualOffer: overrideManualOffer ?? manualOffer,
     };
     if (showManualOffer) state.selectedOfferIndex = selectedOfferIndex;
     onComplete?.(state);
@@ -308,6 +315,7 @@ export default function CashConvertersResearchForm({
       onAddNewItem={onAddNewItem}
       onResetSearch={!readOnly ? handleResetSearch : null}
       addActionLabel={addActionLabel}
+      useVoucherOffers={useVoucherOffers}
     />
   );
 }

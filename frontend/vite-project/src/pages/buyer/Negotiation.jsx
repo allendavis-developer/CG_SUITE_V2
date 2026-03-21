@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useCallback } from "react";
+import React, { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
 import AppHeader from "@/components/AppHeader";
 import EbayResearchForm from "@/components/forms/EbayResearchForm";
@@ -9,7 +9,7 @@ import { ItemContextMenu, TargetOfferModal, ItemOfferModal, SeniorMgmtModal, Mar
 import NewCustomerDetailsModal from '@/components/modals/NewCustomerDetailsModal';
 import SalePriceConfirmModal from '@/components/modals/SalePriceConfirmModal';
 import { finishRequest, fetchRequestDetail, updateCustomer, saveQuoteDraft } from '@/services/api';
-import { roundSalePrice } from '@/utils/helpers';
+import { normalizeExplicitSalePrice } from '@/utils/helpers';
 import { useNotification } from '@/contexts/NotificationContext';
 import useAppStore from '@/store/useAppStore';
 import { maybeShowSalePriceConfirm } from './utils/researchCompletionHelpers';
@@ -265,7 +265,7 @@ const Negotiation = ({ mode }) => {
       if (raw === '' || Number.isNaN(parsedTotal) || parsedTotal <= 0) {
         next.ourSalePrice = '';
       } else {
-        next.ourSalePrice = String(roundSalePrice(parsedTotal / quantity));
+        next.ourSalePrice = String(normalizeExplicitSalePrice(parsedTotal / quantity));
       }
       return next;
     }));
@@ -418,44 +418,48 @@ const Negotiation = ({ mode }) => {
     }
   }, [items, mode, customerData]);
 
-  // Draft auto-save (debounced)
-  useEffect(() => {
-    if (mode !== 'negotiate' || !actualRequestId || items.length === 0) {
-      draftPayloadRef.current = null;
-      return;
-    }
+  // Build draft payload synchronously during render so it's always fresh for
+  // cleanup functions (eliminates the race where an effect-based ref update
+  // hasn't run yet when the component unmounts).
+  const draftPayload = useMemo(() => {
+    if (mode !== 'negotiate' || !actualRequestId || items.length === 0) return null;
     const total = calculateTotalOfferPrice(items, useVoucherOffers);
-    const payload = buildFinishPayload(items, totalExpectation, targetOffer, useVoucherOffers, total);
-    draftPayloadRef.current = payload;
+    return buildFinishPayload(items, totalExpectation, targetOffer, useVoucherOffers, total);
+  }, [items, totalExpectation, targetOffer, useVoucherOffers, mode, actualRequestId]);
 
-    if (payload.items_data?.length === 0) return;
+  draftPayloadRef.current = draftPayload;
 
+  // Debounced auto-save
+  useEffect(() => {
+    if (!draftPayload?.items_data?.length || completedRef.current) return;
     const timer = setTimeout(() => {
       if (completedRef.current) return;
-      saveQuoteDraft(actualRequestId, payload).catch((err) => {
+      saveQuoteDraft(actualRequestId, draftPayloadRef.current).catch((err) => {
         console.warn('Quote draft save failed:', err);
       });
     }, 800);
     return () => clearTimeout(timer);
-  }, [items, totalExpectation, targetOffer, transactionType, mode, actualRequestId, useVoucherOffers]);
+  }, [draftPayload, actualRequestId]);
 
   // Save draft on unmount / tab close
   useEffect(() => {
     if (mode !== 'negotiate' || !actualRequestId) return;
 
-    const saveDraft = (opts = {}) => {
+    const flushDraft = (opts = {}) => {
       if (completedRef.current) return;
       const payload = draftPayloadRef.current;
-      if (payload) saveQuoteDraft(actualRequestId, payload, opts).catch(() => {});
+      if (payload?.items_data?.length) {
+        saveQuoteDraft(actualRequestId, payload, opts).catch(() => {});
+      }
     };
 
-    const handleUnload = () => saveDraft({ keepalive: true });
+    const handleUnload = () => flushDraft({ keepalive: true });
     window.addEventListener('beforeunload', handleUnload);
     window.addEventListener('pagehide', handleUnload);
     return () => {
       window.removeEventListener('beforeunload', handleUnload);
       window.removeEventListener('pagehide', handleUnload);
-      saveDraft();
+      flushDraft();
     };
   }, [mode, actualRequestId]);
 
@@ -751,6 +755,7 @@ const Negotiation = ({ mode }) => {
           readOnly={mode === 'view'}
           showManualOffer={true}
           initialSearchQuery={buildInitialSearchQuery(researchItem)}
+          useVoucherOffers={useVoucherOffers}
           marketComparisonContext={{
             cexSalePrice: researchItem?.cexSellPrice ?? null,
             ourSalePrice: researchItem?.ourSalePrice ?? null,
@@ -775,6 +780,7 @@ const Negotiation = ({ mode }) => {
           initialHistogramState={true}
           readOnly={mode === 'view'}
           showManualOffer={true}
+          useVoucherOffers={useVoucherOffers}
           initialSearchQuery={cashConvertersResearchItem?.ebayResearchData?.searchTerm || cashConvertersResearchItem?.ebayResearchData?.lastSearchedTerm || cashConvertersResearchItem?.title || undefined}
           marketComparisonContext={{
             cexSalePrice: cashConvertersResearchItem?.cexSellPrice ?? null,

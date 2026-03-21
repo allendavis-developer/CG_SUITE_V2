@@ -11,10 +11,11 @@ import {
   updateRequestItemRawData,
   deleteRequestItem,
   fetchRequestDetail,
+  fetchEbayOfferMargins,
 } from '@/services/api';
 import { getDataFromListingPage } from '@/services/extensionClient';
 import { mapTransactionTypeToIntent } from '@/utils/transactionConstants';
-import { roundOfferPrice, roundSalePrice, toVoucherOfferPrice, formatOfferPrice } from '@/utils/helpers';
+import { normalizeExplicitSalePrice, roundOfferPrice, roundSalePrice, toVoucherOfferPrice, formatOfferPrice } from '@/utils/helpers';
 import { mapRequestItemsToCartItems, mapRequestToCustomerData } from '@/utils/requestToCartMapping';
 
 const DEFAULT_CUSTOMER = {
@@ -94,6 +95,39 @@ const useAppStore = create(
 
       setMode: (mode) => set({ mode }),
       setRepricingSessionId: (id) => set({ repricingSessionId: id }),
+
+      // ─── eBay offer margins (fetched from backend config, per-category) ──
+      ebayOfferMargins: null,
+      _ebayMarginsByCategory: {},
+      loadEbayOfferMargins: async (categoryId) => {
+        try {
+          const data = await fetchEbayOfferMargins(categoryId);
+          const margins = [
+            data.ebay_offer_margin_1_pct,
+            data.ebay_offer_margin_2_pct,
+            data.ebay_offer_margin_3_pct,
+          ];
+          if (categoryId) {
+            set((s) => ({
+              _ebayMarginsByCategory: { ...s._ebayMarginsByCategory, [categoryId]: margins },
+            }));
+          } else {
+            set({ ebayOfferMargins: margins });
+          }
+          return margins;
+        } catch (err) {
+          console.warn('[CG Suite] Failed to load eBay offer margins:', err);
+          return null;
+        }
+      },
+      getEbayMarginsForCategory: (categoryId) => {
+        const s = get();
+        if (categoryId && s._ebayMarginsByCategory[categoryId]) {
+          return s._ebayMarginsByCategory[categoryId];
+        }
+        return s.ebayOfferMargins;
+      },
+      invalidateEbayMarginCache: () => set({ _ebayMarginsByCategory: {} }),
 
       // ─── Cart (buyer and repricing have separate arrays) ──────────────
       cartItems: [],
@@ -204,7 +238,7 @@ const useAppStore = create(
           }
           if (updatedOfferData.ourSalePrice !== undefined) {
             const parsed = parseFloat(String(updatedOfferData.ourSalePrice).replace(/[£,]/g, ''));
-            payload.our_sale_price_at_negotiation = !isNaN(parsed) && parsed > 0 ? roundSalePrice(parsed) : null;
+            payload.our_sale_price_at_negotiation = !isNaN(parsed) && parsed > 0 ? normalizeExplicitSalePrice(parsed) : null;
           }
           if (Array.isArray(updatedOfferData.cashOffers)) {
             payload.cash_offers_json = normalizeOffers(updatedOfferData.cashOffers);
@@ -353,7 +387,7 @@ const useAppStore = create(
           payload.manual_offer_gbp = roundOfferPrice(parseFloat(itemPayload.manualOffer));
         }
         if (itemPayload.ourSalePrice != null && itemPayload.ourSalePrice !== '' && !isNaN(parseFloat(itemPayload.ourSalePrice))) {
-          payload.our_sale_price_at_negotiation = roundSalePrice(parseFloat(itemPayload.ourSalePrice));
+          payload.our_sale_price_at_negotiation = normalizeExplicitSalePrice(parseFloat(itemPayload.ourSalePrice));
         }
 
         if (!request) {
@@ -441,7 +475,9 @@ const useAppStore = create(
         }
       },
 
-      setCexProductData: (data) => set({ cexProductData: data }),
+      setCexProductData: (dataOrFn) => set((state) => ({
+        cexProductData: typeof dataOrFn === 'function' ? dataOrFn(state.cexProductData) : dataOrFn,
+      })),
       clearCexProduct: () => set({ cexProductData: null }),
 
       // ─── UI State ──────────────────────────────────────────────────────
@@ -467,7 +503,23 @@ const useAppStore = create(
           return;
         }
 
-        set({ cexProductData: null, selectedCartItemId: item.id });
+        const isEbayOrCex = item.isCustomEbayItem || item.isCustomCeXItem;
+        const immediateUpdates = { cexProductData: null, selectedCartItemId: item.id };
+        if (item.categoryObject) {
+          immediateUpdates.selectedCategory = item.categoryObject;
+          if (!isEbayOrCex) {
+            const reqId = get()._modelsRequestId + 1;
+            immediateUpdates._modelsRequestId = reqId;
+            immediateUpdates.isLoadingModels = true;
+            fetchProductModels(item.categoryObject).then(models => {
+              if (get()._modelsRequestId !== reqId) return;
+              set({ availableModels: models, isLoadingModels: false });
+            }).catch(() => {
+              if (get()._modelsRequestId === reqId) set({ isLoadingModels: false });
+            });
+          }
+        }
+        set(immediateUpdates);
 
         let activeItem = item;
 
@@ -503,24 +555,24 @@ const useAppStore = create(
         }
 
         if (
-          !item.isCustomEbayItem &&
-          !item.isCustomCeXItem &&
-          !item.isCustomCashConvertersItem &&
-          item.variantId &&
-          item.cexSku &&
-          (!item.cashOffers?.length || !item.voucherOffers?.length)
+          !activeItem.isCustomEbayItem &&
+          !activeItem.isCustomCeXItem &&
+          !activeItem.isCustomCashConvertersItem &&
+          activeItem.variantId &&
+          activeItem.cexSku &&
+          (!activeItem.cashOffers?.length || !activeItem.voucherOffers?.length)
         ) {
           try {
-            const priceData = await fetchVariantPrices(item.cexSku);
-            const cashOffers = priceData.cash_offers || item.cashOffers || [];
-            const voucherOffers = priceData.voucher_offers || item.voucherOffers || [];
+            const priceData = await fetchVariantPrices(activeItem.cexSku);
+            const cashOffers = priceData.cash_offers || activeItem.cashOffers || [];
+            const voucherOffers = priceData.voucher_offers || activeItem.voucherOffers || [];
             const useVoucher = customerData?.transactionType === 'store_credit';
             activeItem = {
-              ...item,
+              ...activeItem,
               cashOffers,
               voucherOffers,
               offers: useVoucher ? voucherOffers : cashOffers,
-              referenceData: priceData.referenceData || item.referenceData || {},
+              referenceData: priceData.referenceData || activeItem.referenceData || {},
             };
             set((state) => ({
               [key]: state[key].map((ci) => (ci.id === item.id ? activeItem : ci)),
@@ -531,35 +583,35 @@ const useAppStore = create(
         }
 
         if (
-          item.isCustomCeXItem &&
-          !item.fromQuickReprice &&
-          (item.cexSku || item.cexProductData?.id) &&
-          (!item.cexProductData || (!item.cashOffers?.length && !item.voucherOffers?.length))
+          activeItem.isCustomCeXItem &&
+          !activeItem.fromQuickReprice &&
+          (activeItem.cexSku || activeItem.cexProductData?.id) &&
+          (!activeItem.cexProductData || (!activeItem.cashOffers?.length && !activeItem.voucherOffers?.length))
         ) {
           try {
-            const sku = item.cexSku || item.cexProductData?.id;
+            const sku = activeItem.cexSku || activeItem.cexProductData?.id;
             const priceData = await fetchCeXProductPrices({
-              sellPrice: item.cexSellPrice,
-              tradeInCash: item.cexBuyPrice,
-              tradeInVoucher: item.cexVoucherPrice,
-              title: item.title,
-              category: item.category || item.subtitle || 'CeX',
-              image: item.image || item.cexProductData?.image || '',
+              sellPrice: activeItem.cexSellPrice,
+              tradeInCash: activeItem.cexBuyPrice,
+              tradeInVoucher: activeItem.cexVoucherPrice,
+              title: activeItem.title,
+              category: activeItem.category || activeItem.subtitle || 'CeX',
+              image: activeItem.image || activeItem.cexProductData?.image || '',
               id: sku,
             });
             activeItem = {
-              ...item,
-              cashOffers: priceData.cash_offers || item.cashOffers || [],
-              voucherOffers: priceData.voucher_offers || item.voucherOffers || [],
-              offers: (priceData.cash_offers?.length ? priceData.cash_offers : item.cashOffers) || [],
-              referenceData: priceData.referenceData || item.referenceData || {},
+              ...activeItem,
+              cashOffers: priceData.cash_offers || activeItem.cashOffers || [],
+              voucherOffers: priceData.voucher_offers || activeItem.voucherOffers || [],
+              offers: (priceData.cash_offers?.length ? priceData.cash_offers : activeItem.cashOffers) || [],
+              referenceData: priceData.referenceData || activeItem.referenceData || {},
               cexProductData: {
                 id: sku,
-                title: item.title,
-                category: item.category || 'CeX',
-                image: item.image || item.cexProductData?.image || '',
-                specifications: item.cexProductData?.specifications || {},
-                ...item.cexProductData,
+                title: activeItem.title,
+                category: activeItem.category || 'CeX',
+                image: activeItem.image || activeItem.cexProductData?.image || '',
+                specifications: activeItem.cexProductData?.specifications || {},
+                ...activeItem.cexProductData,
               },
             };
             set((state) => ({
@@ -570,23 +622,6 @@ const useAppStore = create(
           }
         }
 
-        const isEbayOrCex = activeItem.isCustomEbayItem || activeItem.isCustomCeXItem;
-        if (isEbayOrCex && activeItem.categoryObject) {
-          set({ selectedCategory: activeItem.categoryObject });
-          return;
-        }
-
-        if (activeItem.categoryObject) {
-          const reqId = get()._modelsRequestId + 1;
-          set({ _modelsRequestId: reqId, selectedCategory: activeItem.categoryObject, isLoadingModels: true });
-          try {
-            const models = await fetchProductModels(activeItem.categoryObject);
-            if (get()._modelsRequestId !== reqId) return;
-            set({ availableModels: models });
-          } finally {
-            if (get()._modelsRequestId === reqId) set({ isLoadingModels: false });
-          }
-        }
       },
 
       deselectCartItem: () => set({ selectedCartItemId: null }),
@@ -619,7 +654,7 @@ const useAppStore = create(
             }
             if (item.ourSalePrice !== undefined) {
               const parsed = parseFloat(String(item.ourSalePrice).replace(/[£,]/g, ''));
-              payload.our_sale_price_at_negotiation = !isNaN(parsed) && parsed > 0 ? roundSalePrice(parsed) : null;
+              payload.our_sale_price_at_negotiation = !isNaN(parsed) && parsed > 0 ? normalizeExplicitSalePrice(parsed) : null;
             }
             if (Array.isArray(item.cashOffers)) {
               payload.cash_offers_json = normalizeOffers(item.cashOffers);
@@ -794,6 +829,13 @@ export const useRequest = () => useAppStore((s) => s.request);
 export const useMode = () => useAppStore((s) => s.mode);
 export const useIsRepricing = () => useAppStore((s) => s.mode === 'repricing');
 export const useUseVoucherOffers = () => useAppStore((s) => s.customerData?.transactionType === 'store_credit');
+export const useEbayOfferMargins = (categoryId) =>
+  useAppStore((s) => {
+    if (categoryId && s._ebayMarginsByCategory[categoryId]) {
+      return s._ebayMarginsByCategory[categoryId];
+    }
+    return s.ebayOfferMargins;
+  });
 
 export const useSelectedCartItem = () =>
   useAppStore((s) => {

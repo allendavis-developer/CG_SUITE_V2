@@ -48,6 +48,7 @@ export default function EbayCartItemView({
             initialHistogramState={false} showManualOffer={false} resetDrillOnOpen={true}
             onAddNewItem={onDeselectCartItem}
             addActionLabel={isRepricing ? 'Add to Reprice List' : 'Add to Cart'} hideOfferCards={true}
+            useVoucherOffers={useVoucherOffers}
           />
         ) : (
           <div className="text-center py-12">

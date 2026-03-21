@@ -1,4 +1,4 @@
-import { roundOfferPrice, roundSalePrice, toVoucherOfferPrice } from '@/utils/helpers';
+import { normalizeExplicitSalePrice, roundOfferPrice, roundSalePrice, toVoucherOfferPrice } from '@/utils/helpers';
 
 // ─── Pure helper functions for Negotiation page ─────────────────────────────
 
@@ -31,13 +31,15 @@ export function buildInitialSearchQuery(item) {
 
 export function resolveOurSalePrice(item) {
   let n = null;
+  let explicit = false;
   if (item.ourSalePrice !== undefined && item.ourSalePrice !== null && item.ourSalePrice !== '') {
     n = Number(item.ourSalePrice);
+    explicit = true;
   } else if (item.useResearchSuggestedPrice !== false && item.ebayResearchData?.stats?.suggestedPrice != null) {
     n = Number(item.ebayResearchData.stats.suggestedPrice);
   }
   if (n == null || Number.isNaN(n) || n <= 0) return null;
-  return roundSalePrice(n);
+  return explicit ? normalizeExplicitSalePrice(n) : roundSalePrice(n);
 }
 
 export function getDisplayOffers(item, useVoucherOffers) {
@@ -100,17 +102,20 @@ export function buildFinishPayload(items, totalExpectation, targetOffer, useVouc
       const parsedFromInput = rawInput !== undefined && rawInput !== ''
         ? parseFloat(String(rawInput).replace(/[£,]/g, ''))
         : NaN;
-      const ourSalePriceRaw =
-        !Number.isNaN(parsedFromInput) && parsedFromInput > 0
-          ? parsedFromInput / quantity
-          : (item.ourSalePrice !== undefined && item.ourSalePrice !== null && item.ourSalePrice !== ''
-              ? Number(item.ourSalePrice)
-              : (item.ebayResearchData?.stats?.suggestedPrice != null
-                  ? Number(item.ebayResearchData.stats.suggestedPrice)
-                  : null));
+      const fromActiveInput = !Number.isNaN(parsedFromInput) && parsedFromInput > 0;
+      const ourSalePriceRaw = fromActiveInput
+        ? parsedFromInput / quantity
+        : (item.ourSalePrice !== undefined && item.ourSalePrice !== null && item.ourSalePrice !== ''
+            ? Number(item.ourSalePrice)
+            : (item.ebayResearchData?.stats?.suggestedPrice != null
+                ? Number(item.ebayResearchData.stats.suggestedPrice)
+                : null));
+      const fromExplicit =
+        fromActiveInput ||
+        (item.ourSalePrice !== undefined && item.ourSalePrice !== null && item.ourSalePrice !== '');
       const ourSalePrice =
         ourSalePriceRaw != null && !Number.isNaN(ourSalePriceRaw) && ourSalePriceRaw > 0
-          ? roundSalePrice(ourSalePriceRaw)
+          ? (fromExplicit ? normalizeExplicitSalePrice(ourSalePriceRaw) : roundSalePrice(ourSalePriceRaw))
           : null;
 
       const rawDataSource =
@@ -254,13 +259,20 @@ export function mapApiItemToNegotiationItem(item, transactionType, mode) {
     cexOutOfStock: item.variant_details?.cex_out_of_stock ?? false,
     cexUrl,
     ourSalePrice: (() => {
-      const raw =
+      const fromSaved =
         mode === 'view' && item.our_sale_price_at_negotiation !== null
           ? parseFloat(item.our_sale_price_at_negotiation)
-          : ebayResearchData?.stats?.suggestedPrice != null
-            ? parseFloat(ebayResearchData.stats.suggestedPrice)
-            : null;
-      return raw != null && !Number.isNaN(raw) && raw > 0 ? roundSalePrice(raw) : null;
+          : null;
+      if (fromSaved != null && !Number.isNaN(fromSaved) && fromSaved > 0) {
+        return normalizeExplicitSalePrice(fromSaved);
+      }
+      const fromSuggested =
+        ebayResearchData?.stats?.suggestedPrice != null
+          ? parseFloat(ebayResearchData.stats.suggestedPrice)
+          : null;
+      return fromSuggested != null && !Number.isNaN(fromSuggested) && fromSuggested > 0
+        ? roundSalePrice(fromSuggested)
+        : null;
     })(),
     offers: displayOffers,
     cashOffers: savedCashOffers,
@@ -342,7 +354,8 @@ export function applyEbayResearchToItem(item, updatedState, useVoucherOffers) {
       if (hasCeXBasedOffers) {
         const clickedPrice = updatedState.buyOffers?.[updatedState.selectedOfferIndex]?.price;
         if (clickedPrice != null) {
-          newManualOffer = Number(clickedPrice).toFixed(2);
+          const effectivePrice = useVoucherOffers ? toVoucherOfferPrice(clickedPrice) : clickedPrice;
+          newManualOffer = Number(effectivePrice).toFixed(2);
           newSelectedOfferId = 'manual';
         }
       } else {
@@ -383,7 +396,8 @@ export function applyCashConvertersResearchToItem(item, updatedState, useVoucher
     } else if (typeof updatedState.selectedOfferIndex === 'number') {
       const clickedPrice = updatedState.buyOffers?.[updatedState.selectedOfferIndex]?.price;
       if (clickedPrice != null) {
-        newManualOffer = Number(clickedPrice).toFixed(2);
+        const effectivePrice = useVoucherOffers ? toVoucherOfferPrice(clickedPrice) : clickedPrice;
+        newManualOffer = Number(effectivePrice).toFixed(2);
         newSelectedOfferId = 'manual';
       }
     }

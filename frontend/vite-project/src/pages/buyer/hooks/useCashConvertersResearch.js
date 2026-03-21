@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { roundOfferPrice, roundSalePrice } from '@/utils/helpers';
+import useAppStore, { useEbayOfferMargins } from '@/store/useAppStore';
 
 // Flag to control pagination: set to true to fetch only first page, false to fetch all pages
 const FETCH_ONLY_FIRST_PAGE = true;
@@ -23,18 +24,18 @@ function parseSoldDate(soldStr) {
   return isNaN(parsed) ? null : parsed;
 }
 
-function calculateBuyOffers(sellPrice) {
+function calculateBuyOffers(sellPrice, margins) {
   if (!sellPrice || sellPrice <= 0) return [];
-
-  // Round 1st (60% margin) and 3rd (40% margin) first, then derive 2nd as
-  // midpoint of the rounded values so they never collide after rounding.
-  const price1 = roundOfferPrice(sellPrice * 0.4);        // 60% margin
-  const price3 = roundOfferPrice(sellPrice * 0.6);        // 40% margin
-  const price2 = roundOfferPrice((price1 + price3) / 2);  // midpoint
+  const m1 = (margins?.[0] ?? 60) / 100;
+  const m2 = (margins?.[1] ?? 50) / 100;
+  const m3 = (margins?.[2] ?? 40) / 100;
+  const price1 = roundOfferPrice(sellPrice * (1 - m1));
+  const price3 = roundOfferPrice(sellPrice * (1 - m3));
+  const price2 = roundOfferPrice((price1 + price3) / 2);
   return [
-    { margin: 0.6, price: price1 },
-    { margin: 0.5, price: price2 },
-    { margin: 0.4, price: price3 },
+    { margin: m1, price: price1 },
+    { margin: m2, price: price2 },
+    { margin: m3, price: price3 },
   ];
 }
 
@@ -210,7 +211,14 @@ function calculateStats(listingsData) {
  * @param {Object} savedState - Previously saved state to restore
  * @returns {Object} Research data and handlers
  */
-export function useCashConvertersResearch(category, savedState = null) {
+export function useCashConvertersResearch(category, savedState = null, { ebayOfferMargins: marginsProp } = {}) {
+  const categoryId = category?.id ?? null;
+  const storeMargins = useEbayOfferMargins(categoryId);
+  useEffect(() => {
+    if (categoryId) useAppStore.getState().loadEbayOfferMargins(categoryId);
+  }, [categoryId]);
+  const ebayOfferMargins = marginsProp ?? storeMargins;
+
   // Initialize state from savedState if available
   const [searchTerm, setSearchTerm] = useState(savedState?.searchTerm || "");
   const [filterOptions, setFilterOptions] = useState(savedState?.filterOptions || []);
@@ -407,8 +415,8 @@ export function useCashConvertersResearch(category, savedState = null) {
 
   // Calculate buy offers from displayed stats
   const buyOffers = useMemo(() => {
-    return calculateBuyOffers(displayedStats.suggestedPrice);
-  }, [displayedStats.suggestedPrice]);
+    return calculateBuyOffers(displayedStats.suggestedPrice, ebayOfferMargins);
+  }, [displayedStats.suggestedPrice, ebayOfferMargins]);
 
   // Helper to get current complete state for saving
   const getCurrentState = useCallback(() => {

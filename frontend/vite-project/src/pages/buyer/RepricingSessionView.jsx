@@ -4,9 +4,29 @@ import AppHeader from "@/components/AppHeader";
 import EbayResearchForm from "@/components/forms/EbayResearchForm";
 import CashConvertersResearchForm from "@/components/forms/CashConvertersResearchForm";
 import { useNotification } from "@/contexts/NotificationContext";
-import { fetchRepricingSessionDetail } from "@/services/api";
+import { fetchRepricingSessionDetail, updateRepricingSession } from "@/services/api";
 import { formatMoney, getResearchMedian } from "./utils/repricingDisplay";
 import { TableCheckbox } from "@/components/ui/components";
+import useAppStore from "@/store/useAppStore";
+
+function attachBarcodesFromSessionItems(cartItems, sessionItems) {
+  if (!Array.isArray(sessionItems) || sessionItems.length === 0) return cartItems;
+  const byItemId = {};
+  for (const si of sessionItems) {
+    const id = si.item_identifier;
+    if (!id || !si.stock_barcode) continue;
+    if (!byItemId[id]) byItemId[id] = [];
+    byItemId[id].push({
+      barserial: si.stock_barcode,
+      href: si.stock_url || '',
+      name: si.title || '',
+    });
+  }
+  return cartItems.map(item => {
+    const barcodes = byItemId[item.id];
+    return barcodes ? { ...item, nosposBarcodes: barcodes } : item;
+  });
+}
 
 const RepricingSessionView = () => {
   const navigate = useNavigate();
@@ -150,6 +170,30 @@ const RepricingSessionView = () => {
                   <span className="material-symbols-outlined text-base">print</span>
                   {selectedItemIds.size > 0 ? "Print Selected Barcodes" : "Print All Barcodes"}
                 </button>
+                {session.session_data?.items?.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const rawItems = session.session_data.items;
+                      const items = attachBarcodesFromSessionItems(rawItems, session.items);
+                      try {
+                        await updateRepricingSession(session.repricing_session_id, { status: 'IN_PROGRESS' });
+                      } catch {}
+                      useAppStore.setState({
+                        repricingCartItems: items,
+                        repricingSessionId: session.repricing_session_id,
+                        mode: 'repricing',
+                        isCustomerModalOpen: false,
+                      });
+                      navigate('/repricing');
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-xs uppercase tracking-wide transition-all hover:shadow-md border"
+                    style={{ borderColor: 'rgba(20,69,132,0.3)', color: 'var(--brand-blue)', background: 'white' }}
+                  >
+                    <span className="material-symbols-outlined text-base">refresh</span>
+                    Redo Repricing
+                  </button>
+                )}
                 <div className="text-right">
                   <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Session ID</p>
                   <p className="text-lg font-bold" style={{ color: 'var(--brand-blue)' }}>#{session.repricing_session_id}</p>

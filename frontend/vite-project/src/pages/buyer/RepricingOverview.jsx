@@ -2,8 +2,29 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import AppHeader from "@/components/AppHeader";
 import { useNotification } from "@/contexts/NotificationContext";
-import { fetchRepricingSessionsOverview } from "@/services/api";
+import { fetchRepricingSessionsOverview, updateRepricingSession } from "@/services/api";
 import useAppStore from "@/store/useAppStore";
+
+const STATUS_FILTERS = ['ALL', 'IN_PROGRESS', 'COMPLETED'];
+
+function attachBarcodesFromSessionItems(cartItems, sessionItems) {
+  if (!Array.isArray(sessionItems) || sessionItems.length === 0) return cartItems;
+  const byItemId = {};
+  for (const si of sessionItems) {
+    const id = si.item_identifier;
+    if (!id || !si.stock_barcode) continue;
+    if (!byItemId[id]) byItemId[id] = [];
+    byItemId[id].push({
+      barserial: si.stock_barcode,
+      href: si.stock_url || '',
+      name: si.title || '',
+    });
+  }
+  return cartItems.map(item => {
+    const barcodes = byItemId[item.id];
+    return barcodes ? { ...item, nosposBarcodes: barcodes } : item;
+  });
+}
 
 const RepricingOverview = () => {
   const navigate = useNavigate();
@@ -11,6 +32,7 @@ const RepricingOverview = () => {
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [filterStatus, setFilterStatus] = useState('ALL');
 
   useEffect(() => {
     const load = async () => {
@@ -30,6 +52,11 @@ const RepricingOverview = () => {
     load();
   }, [showNotification]);
 
+  const filteredSessions = useMemo(
+    () => filterStatus === 'ALL' ? sessions : sessions.filter(s => s.status === filterStatus),
+    [sessions, filterStatus]
+  );
+
   const totalBarcodeCount = useMemo(
     () => sessions.reduce((sum, session) => sum + (Number(session.barcode_count) || 0), 0),
     [sessions]
@@ -40,17 +67,56 @@ const RepricingOverview = () => {
     [sessions]
   );
 
+  const completedCount = useMemo(
+    () => sessions.filter(s => s.status === 'COMPLETED').length,
+    [sessions]
+  );
+
+  const getItemSummary = (session) => {
+    const items = session.session_data?.items;
+    if (!Array.isArray(items) || items.length === 0) return null;
+    const first = items[0]?.title || 'Untitled';
+    if (items.length === 1) return first;
+    return `${first} +${items.length - 1} more`;
+  };
+
   const handleSessionClick = (session) => {
     if (session.status === 'IN_PROGRESS' && session.session_data?.items?.length) {
       useAppStore.setState({
         repricingCartItems: session.session_data.items,
         repricingSessionId: session.repricing_session_id,
+        mode: 'repricing',
         isCustomerModalOpen: false,
       });
-      navigate('/repricing', { state: { preserveCart: true, cartItems: session.session_data.items } });
+      navigate('/repricing');
     } else {
       navigate(`/repricing-sessions/${session.repricing_session_id}/view`);
     }
+  };
+
+  const handleRedoRepricing = async (e, session) => {
+    e.stopPropagation();
+    const rawItems = session.session_data?.items;
+    if (!Array.isArray(rawItems) || rawItems.length === 0) {
+      showNotification('No item data available to redo this session.', 'error');
+      return;
+    }
+    const items = attachBarcodesFromSessionItems(rawItems, session.items);
+    try {
+      await updateRepricingSession(session.repricing_session_id, { status: 'IN_PROGRESS' });
+    } catch {}
+    useAppStore.setState({
+      repricingCartItems: items,
+      repricingSessionId: session.repricing_session_id,
+      mode: 'repricing',
+      isCustomerModalOpen: false,
+    });
+    navigate('/repricing');
+  };
+
+  const handleNewRepricing = () => {
+    useAppStore.setState({ repricingSessionId: null, repricingCartItems: [], mode: 'repricing' });
+    navigate('/repricing', { state: { freshStart: true } });
   };
 
   if (loading) {
@@ -106,20 +172,27 @@ const RepricingOverview = () => {
                 </div>
               </nav>
             </div>
-            <div className="space-y-4">
-              <div className="bg-white/5 p-3 rounded-lg border border-white/10">
-                <p className="text-white/50 text-[10px] font-bold uppercase tracking-wider">Sessions</p>
-                <p className="text-xl font-extrabold text-white mt-1">{sessions.length}</p>
-              </div>
-              {inProgressCount > 0 && (
-                <div className="bg-amber-500/10 p-3 rounded-lg border border-amber-400/30">
-                  <p className="text-amber-300/70 text-[10px] font-bold uppercase tracking-wider">In Progress</p>
-                  <p className="text-xl font-extrabold text-amber-300 mt-1">{inProgressCount}</p>
+            <div>
+              <h3 className="text-white/40 text-[10px] font-black uppercase tracking-widest mb-4">Stats</h3>
+              <div className="space-y-4">
+                <div className="bg-white/5 p-3 rounded-lg border border-white/10">
+                  <p className="text-white/50 text-[10px] font-bold uppercase tracking-wider">Total Sessions</p>
+                  <p className="text-xl font-extrabold text-white mt-1">{sessions.length}</p>
                 </div>
-              )}
-              <div className="bg-white/5 p-3 rounded-lg border border-white/10">
-                <p className="text-white/50 text-[10px] font-bold uppercase tracking-wider">Barcodes Repriced</p>
-                <p className="text-xl font-extrabold text-white mt-1">{totalBarcodeCount}</p>
+                {inProgressCount > 0 && (
+                  <div className="bg-amber-500/10 p-3 rounded-lg border border-amber-400/30">
+                    <p className="text-amber-300/70 text-[10px] font-bold uppercase tracking-wider">In Progress</p>
+                    <p className="text-xl font-extrabold text-amber-300 mt-1">{inProgressCount}</p>
+                  </div>
+                )}
+                <div className="bg-emerald-500/10 p-3 rounded-lg border border-emerald-400/30">
+                  <p className="text-emerald-300/70 text-[10px] font-bold uppercase tracking-wider">Completed</p>
+                  <p className="text-xl font-extrabold text-emerald-300 mt-1">{completedCount}</p>
+                </div>
+                <div className="bg-white/5 p-3 rounded-lg border border-white/10">
+                  <p className="text-white/50 text-[10px] font-bold uppercase tracking-wider">Barcodes Repriced</p>
+                  <p className="text-xl font-extrabold text-white mt-1">{totalBarcodeCount}</p>
+                </div>
               </div>
             </div>
           </div>
@@ -130,20 +203,37 @@ const RepricingOverview = () => {
             <div className="flex items-center gap-4">
               <h1 className="text-xl font-extrabold text-blue-900">Repricing Overview</h1>
               <span className="bg-blue-900/10 text-blue-900 text-[11px] font-black px-2.5 py-0.5 rounded-full">
-                {sessions.length} TOTAL
+                {filteredSessions.length} TOTAL
               </span>
             </div>
-            <button
-              className="flex items-center gap-2 px-4 py-2 bg-blue-900 text-white rounded-lg hover:bg-blue-800 transition-colors font-bold"
-              onClick={() => navigate('/repricing')}
-            >
-              <span className="material-symbols-outlined text-sm">add</span>
-              <span>New Repricing</span>
-            </button>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center rounded-lg border border-gray-200 overflow-hidden">
+                {STATUS_FILTERS.map(f => (
+                  <button
+                    key={f}
+                    onClick={() => setFilterStatus(f)}
+                    className={`px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider transition-colors ${
+                      filterStatus === f
+                        ? 'bg-blue-900 text-white'
+                        : 'bg-white text-gray-500 hover:bg-gray-50'
+                    }`}
+                  >
+                    {f === 'ALL' ? 'All' : f === 'IN_PROGRESS' ? 'In Progress' : 'Completed'}
+                  </button>
+                ))}
+              </div>
+              <button
+                className="flex items-center gap-2 px-4 py-2 bg-blue-900 text-white rounded-lg hover:bg-blue-800 transition-colors font-bold"
+                onClick={handleNewRepricing}
+              >
+                <span className="material-symbols-outlined text-sm">add</span>
+                <span>New Repricing</span>
+              </button>
+            </div>
           </div>
 
           <div className="overflow-auto flex-1">
-            {sessions.length === 0 ? (
+            {filteredSessions.length === 0 ? (
               <div className="flex items-center justify-center h-64">
                 <p className="text-gray-500 font-semibold">No repricing sessions found.</p>
               </div>
@@ -151,19 +241,21 @@ const RepricingOverview = () => {
               <table className="w-full data-table border-collapse text-left">
                 <thead>
                   <tr>
-                    <th className="w-28">Session</th>
+                    <th className="w-24">Session</th>
                     <th className="w-32">Status</th>
+                    <th className="min-w-[200px]">Items</th>
+                    <th className="w-24">Count</th>
+                    <th className="w-28">Barcodes</th>
                     <th className="w-40">Created</th>
                     <th className="w-40">Last Updated</th>
-                    <th className="w-32">Items</th>
-                    <th className="w-40">Barcodes</th>
-                    <th>Cart Key</th>
-                    <th className="w-16"></th>
+                    <th className="w-32">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="text-xs">
-                  {sessions.map((session) => {
+                  {filteredSessions.map((session) => {
                     const isInProgress = session.status === 'IN_PROGRESS';
+                    const itemSummary = getItemSummary(session);
+                    const hasSessionItems = Array.isArray(session.session_data?.items) && session.session_data.items.length > 0;
                     return (
                       <tr key={session.repricing_session_id} onClick={() => handleSessionClick(session)}>
                         <td className="font-bold text-gray-600">#{session.repricing_session_id}</td>
@@ -180,6 +272,15 @@ const RepricingOverview = () => {
                             </span>
                           )}
                         </td>
+                        <td>
+                          {itemSummary ? (
+                            <span className="text-blue-900 font-semibold text-[12px]">{itemSummary}</span>
+                          ) : (
+                            <span className="text-gray-400 italic">No item data</span>
+                          )}
+                        </td>
+                        <td className="font-semibold text-blue-900">{session.item_count || 0}</td>
+                        <td className="font-semibold text-blue-900">{session.barcode_count || 0}</td>
                         <td className="text-gray-600">
                           {new Date(session.created_at).toLocaleString('en-GB', {
                             day: '2-digit',
@@ -198,15 +299,38 @@ const RepricingOverview = () => {
                             minute: '2-digit'
                           }) : '—'}
                         </td>
-                        <td className="font-semibold text-blue-900">{session.item_count || 0}</td>
-                        <td className="font-semibold text-blue-900">{session.barcode_count || 0}</td>
-                        <td className="font-mono text-[11px] text-gray-500">{session.cart_key || '—'}</td>
-                        <td className="text-right">
-                          {isInProgress ? (
-                            <span className="material-symbols-outlined text-amber-500" title="Resume session">play_arrow</span>
-                          ) : (
-                            <span className="material-symbols-outlined text-slate-300">chevron_right</span>
-                          )}
+                        <td>
+                          <div className="flex items-center gap-2">
+                            {isInProgress ? (
+                              <span
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-colors"
+                                title="Resume session"
+                              >
+                                <span className="material-symbols-outlined text-[14px]">play_arrow</span>
+                                Resume
+                              </span>
+                            ) : (
+                              <>
+                                <span
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-bold bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100 transition-colors"
+                                  title="View session details"
+                                >
+                                  <span className="material-symbols-outlined text-[14px]">visibility</span>
+                                  View
+                                </span>
+                                {hasSessionItems && (
+                                  <button
+                                    onClick={(e) => handleRedoRepricing(e, session)}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
+                                    title="Start a new repricing session with the same items"
+                                  >
+                                    <span className="material-symbols-outlined text-[14px]">refresh</span>
+                                    Redo
+                                  </button>
+                                )}
+                              </>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -214,6 +338,12 @@ const RepricingOverview = () => {
                 </tbody>
               </table>
             )}
+          </div>
+
+          <div className="px-6 py-4 border-t border-gray-200 bg-slate-50 flex items-center justify-between">
+            <p className="text-[11px] text-gray-600 font-bold uppercase tracking-widest">
+              Showing {filteredSessions.length} of {sessions.length} sessions
+            </p>
           </div>
         </section>
       </main>

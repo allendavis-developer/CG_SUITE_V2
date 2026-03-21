@@ -3,7 +3,7 @@
  * Used when opening a QUOTE request from Requests Overview to continue editing.
  */
 
-import { roundOfferPrice, roundSalePrice, toVoucherOfferPrice, formatOfferPrice } from '@/utils/helpers';
+import { normalizeExplicitSalePrice, roundOfferPrice, roundSalePrice, toVoucherOfferPrice, formatOfferPrice } from '@/utils/helpers';
 
 /**
  * Map request items from API to cart item format for Buyer/MainContent
@@ -159,7 +159,9 @@ export function mapRequestItemsToCartItems(items, transactionType) {
             : null;
     const ourSalePrice =
       rawOurSale != null && !Number.isNaN(rawOurSale) && rawOurSale > 0
-        ? roundSalePrice(rawOurSale)
+        ? (item.our_sale_price_at_negotiation != null
+            ? normalizeExplicitSalePrice(rawOurSale)
+            : roundSalePrice(rawOurSale))
         : null;
 
     const title = hasSavedDisplay
@@ -234,6 +236,19 @@ export function mapRequestItemsToCartItems(items, transactionType) {
       cartItem.isCustomCeXItem = false;
       cartItem.isCustomEbayItem = false;
       cartItem.isCustomCashConvertersItem = false;
+      cartItem.referenceData = {
+        cex_sale_price: cexSellPrice,
+        cex_tradein_cash: cexBuyPrice,
+        cex_tradein_voucher: cexVoucherPrice,
+        cex_out_of_stock: item.variant_details?.cex_out_of_stock ?? false,
+        cex_sku: cexSku,
+        id: cexSku,
+        cash_offers: savedCashOffers,
+        voucher_offers: savedVoucherOffers,
+        our_sale_price: ourSalePrice,
+        cex_based_sale_price: ourSalePrice,
+        percentage_used: item.variant_details?.percentage_used ?? null,
+      };
     } else if (isEbayResearchPayload) {
       cartItem.variantId = null;
       cartItem.isCustomEbayItem = true;
@@ -259,6 +274,21 @@ export function mapRequestItemsToCartItems(items, transactionType) {
       cartItem.isCustomEbayItem = false;
       cartItem.isCustomCeXItem = !!isCexItem;
       cartItem.isCustomCashConvertersItem = false;
+      if (cexSellPrice != null || cexBuyPrice != null) {
+        cartItem.referenceData = {
+          cex_sale_price: cexSellPrice,
+          cex_tradein_cash: cexBuyPrice,
+          cex_tradein_voucher: cexVoucherPrice,
+          cex_out_of_stock: item.variant_details?.cex_out_of_stock ?? false,
+          cex_sku: cexSku,
+          id: cexSku,
+          cash_offers: savedCashOffers,
+          voucher_offers: savedVoucherOffers,
+          our_sale_price: ourSalePrice,
+          cex_based_sale_price: ourSalePrice,
+          percentage_used: item.variant_details?.percentage_used ?? null,
+        };
+      }
     }
 
     // Fallback: ensure Add from CeX items always have cexProductData for display

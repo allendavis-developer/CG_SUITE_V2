@@ -106,6 +106,7 @@ export default function CexProductView({
               ourSalePrice={resolvedOurSalePrice} initialSearchQuery={item.model || item.title}
               marketComparisonContext={buildItemMarketContext()}
               hideOfferCards={isRepricing}
+              useVoucherOffers={useVoucherOffers}
               onComplete={(d) => {
                 if (d?.cancel) { setCeXEbayModalOpen(false); return; }
                 onUpdateCartItemResearch?.(item.id, 'ebay', d);
@@ -118,6 +119,7 @@ export default function CexProductView({
               mode="modal" category={{ name: 'CeX', path: ['CeX'] }} savedState={item.cashConvertersResearchData}
               initialHistogramState={false} referenceData={refData} ourSalePrice={resolvedOurSalePrice}
               initialSearchQuery={item.model || item.title} marketComparisonContext={buildItemMarketContext()}
+              useVoucherOffers={useVoucherOffers}
               onComplete={(d) => {
                 if (d?.cancel) { setCeXCashConvertersModalOpen(false); return; }
                 onUpdateCartItemResearch?.(item.id, 'cashConverters', d);
@@ -132,8 +134,8 @@ export default function CexProductView({
 
   // ── "Add from CeX" flow ──
   const data = cexProduct;
-  const cashOffers = (data.cash_offers || []).map((o, idx) => ({ id: o.id || `cex-cash-${data.id ?? 'cex'}-${idx}`, title: o.title || ['First Offer', 'Second Offer', 'Third Offer'][idx], price: roundOfferPrice(o.price) }));
-  const voucherOffers = (data.voucher_offers || []).map((o, idx) => ({ id: o.id || `cex-voucher-${data.id ?? 'cex'}-${idx}`, title: o.title || ['First Offer', 'Second Offer', 'Third Offer'][idx], price: roundOfferPrice(o.price) }));
+  const cashOffers = (data.cash_offers || []).map((o, idx) => ({ id: o.id || `cex-cash-${data.id ?? 'cex'}-${idx}`, title: o.title || ['First Offer', 'Second Offer', 'Third Offer'][idx], price: o.price }));
+  const voucherOffers = (data.voucher_offers || []).map((o, idx) => ({ id: o.id || `cex-voucher-${data.id ?? 'cex'}-${idx}`, title: o.title || ['First Offer', 'Second Offer', 'Third Offer'][idx], price: o.price }));
   const offers = useVoucherOffers ? voucherOffers : cashOffers;
   const refData = data.referenceData || {};
   const cexBasedRounded =
@@ -254,6 +256,7 @@ export default function CexProductView({
             initialHistogramState={false} showManualOffer={false} referenceData={refData}
             ourSalePrice={cexBasedRounded != null ? cexBasedRounded : ''} initialSearchQuery={data.modelName || data.title}
             marketComparisonContext={buildCeXMarketContext()}
+            useVoucherOffers={useVoucherOffers}
             onComplete={(d) => { if (d?.cancel) { setCeXEbayModalOpen(false); return; } setCexProductData?.((prev) => ({ ...prev, ebayResearchData: d })); setCeXEbayModalOpen(false); }}
           />
         )}
@@ -262,6 +265,7 @@ export default function CexProductView({
             mode="modal" category={{ name: 'CeX', path: ['CeX'] }} savedState={data.cashConvertersResearchData}
             initialHistogramState={false} referenceData={refData} ourSalePrice={cexBasedRounded != null ? cexBasedRounded : ''}
             initialSearchQuery={data.modelName || data.title} marketComparisonContext={buildCeXMarketContext()}
+            useVoucherOffers={useVoucherOffers}
             onComplete={(d) => { if (d?.cancel) { setCeXCashConvertersModalOpen(false); return; } setCexProductData?.((prev) => ({ ...prev, cashConvertersResearchData: d })); setCeXCashConvertersModalOpen(false); }}
           />
         )}

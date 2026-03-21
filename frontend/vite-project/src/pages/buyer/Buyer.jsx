@@ -44,6 +44,25 @@ export default function Buyer({ mode = 'buyer' }) {
     setMode(mode);
   }, [mode, setMode]);
 
+  // Ensure customer intake modal is shown when entering buyer mode without a customer
+  useEffect(() => {
+    if (isRepricing) return;
+    if (!customerData?.id) {
+      setCustomerModalOpen(true);
+    }
+  }, [isRepricing, customerData?.id, setCustomerModalOpen]);
+
+  // Fresh-start repricing: clear stale session so a new draft is created
+  const hasFreshStarted = useRef(false);
+  useEffect(() => {
+    if (!isRepricing || hasFreshStarted.current) return;
+    if (location.state?.freshStart) {
+      hasFreshStarted.current = true;
+      useAppStore.setState({ repricingSessionId: null, repricingCartItems: [] });
+      window.history.replaceState({}, document.title);
+    }
+  }, [isRepricing, location.state]);
+
   // Restore from quote request (Requests Overview → continue editing)
   useEffect(() => {
     const req = location.state?.openQuoteRequest;
@@ -91,17 +110,32 @@ export default function Buyer({ mode = 'buyer' }) {
   const isCreatingDraft = useRef(false);
   const latestCartRef = useRef(cartItems);
   const hasPendingSave = useRef(false);
+  // Keep ref in sync during render (not in an effect) so cleanup functions
+  // always read the latest cart — eliminates stale-ref-on-unmount race.
+  latestCartRef.current = cartItems;
 
-  useEffect(() => { latestCartRef.current = cartItems; }, [cartItems]);
+  // If the repricing cart is empty but we have a stale session ID (e.g. the
+  // previous session was completed or the user navigated away), clear the ID
+  // so the next addToCart triggers a fresh draft creation.
+  useEffect(() => {
+    if (!isRepricing) return;
+    const sid = useAppStore.getState().repricingSessionId;
+    if (sid && cartItems.length === 0) {
+      useAppStore.setState({ repricingSessionId: null });
+    }
+  }, [isRepricing, cartItems.length]);
 
   const buildCartSnapshot = useCallback((items) => ({
     items: items.map(({ id, title, subtitle, category, model, cexSellPrice, cexBuyPrice,
-      cexUrl, ourSalePrice, cexOutOfStock, cexProductData, isCustomCeXItem, condition,
-      categoryObject, nosposBarcodes, ebayResearchData, cashConvertersResearchData, quantity,
-      offers, cashOffers, voucherOffers }) => ({
-      id, title, subtitle, category, model, cexSellPrice, cexBuyPrice, cexUrl, ourSalePrice,
-      cexOutOfStock, cexProductData, isCustomCeXItem, condition, categoryObject, nosposBarcodes,
+      cexVoucherPrice, cexUrl, ourSalePrice, cexOutOfStock, cexProductData, isCustomCeXItem,
+      isCustomEbayItem, isCustomCashConvertersItem, condition, categoryObject, nosposBarcodes,
       ebayResearchData, cashConvertersResearchData, quantity, offers, cashOffers, voucherOffers,
+      variantId, cexSku, attributeValues, referenceData, image }) => ({
+      id, title, subtitle, category, model, cexSellPrice, cexBuyPrice, cexVoucherPrice, cexUrl,
+      ourSalePrice, cexOutOfStock, cexProductData, isCustomCeXItem, isCustomEbayItem,
+      isCustomCashConvertersItem, condition, categoryObject, nosposBarcodes, ebayResearchData,
+      cashConvertersResearchData, quantity, offers, cashOffers, voucherOffers, variantId, cexSku,
+      attributeValues, referenceData, image,
     })),
   }), []);
 

@@ -152,6 +152,7 @@ const ProductCategoryContent = ({
           mode="modal"
           category={selectedCategory}
           savedState={savedEbayState}
+          useVoucherOffers={useVoucherOffers}
           onComplete={(data) => {
             handleEbayResearchComplete(data);
             onEbayModalClose(); // Use the prop for modal close handler

@@ -7,7 +7,8 @@ const EbayCategoryContent = ({
   handleEbayResearchComplete,
   savedEbayState,
   activeTab,
-  setActiveTab
+  setActiveTab,
+  useVoucherOffers = false,
 }) => {
   return (
     <>
@@ -23,6 +24,7 @@ const EbayCategoryContent = ({
           savedState={savedEbayState}
           initialHistogramState={false}
           showManualOffer={false}
+          useVoucherOffers={useVoucherOffers}
         />
       </div>
     </>

@@ -26,6 +26,13 @@ export const roundSalePrice = (value) => {
   return Math.round(amount / 2) * 2;
 };
 
+/** Typed or persisted per-unit sale price: keep value, only snap to pence (no £2/£5 grid). */
+export const normalizeExplicitSalePrice = (value) => {
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount <= 0) return 0;
+  return Math.round(amount * 100) / 100;
+};
+
 export const toVoucherOfferPrice = (cashOfferPrice) =>
   roundOfferPrice(Number(cashOfferPrice) * 1.1);
 

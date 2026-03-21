@@ -8,6 +8,7 @@ import {
   fetchAllCategoriesFlat,
 } from '@/services/api';
 import { useNotification } from '@/contexts/NotificationContext';
+import useAppStore from '@/store/useAppStore';
 
 function fmtMultiplier(v) {
   return v != null ? `${(v * 100).toFixed(1)}%` : '—';
@@ -53,6 +54,21 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
       ? String(rule.second_offer_pct_of_cex)
       : ''
   );
+  const [ebayMargin1, setEbayMargin1] = useState(
+    isEditing && rule.ebay_offer_margin_1_pct != null
+      ? String(rule.ebay_offer_margin_1_pct)
+      : ''
+  );
+  const [ebayMargin2, setEbayMargin2] = useState(
+    isEditing && rule.ebay_offer_margin_2_pct != null
+      ? String(rule.ebay_offer_margin_2_pct)
+      : ''
+  );
+  const [ebayMargin3, setEbayMargin3] = useState(
+    isEditing && rule.ebay_offer_margin_3_pct != null
+      ? String(rule.ebay_offer_margin_3_pct)
+      : ''
+  );
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
@@ -70,6 +86,9 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
       sell_price_multiplier: (multiplierVal / 100).toFixed(4),
       first_offer_pct_of_cex: firstOfferPct !== '' ? parseFloat(firstOfferPct) : null,
       second_offer_pct_of_cex: secondOfferPct !== '' ? parseFloat(secondOfferPct) : null,
+      ebay_offer_margin_1_pct: ebayMargin1 !== '' ? parseFloat(ebayMargin1) : null,
+      ebay_offer_margin_2_pct: ebayMargin2 !== '' ? parseFloat(ebayMargin2) : null,
+      ebay_offer_margin_3_pct: ebayMargin3 !== '' ? parseFloat(ebayMargin3) : null,
       is_global_default: scopeKind === 'global',
     };
     if (scopeKind === 'category') payload.category_id = Number(categoryId);
@@ -82,6 +101,9 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
           sell_price_multiplier: payload.sell_price_multiplier,
           first_offer_pct_of_cex: payload.first_offer_pct_of_cex,
           second_offer_pct_of_cex: payload.second_offer_pct_of_cex,
+          ebay_offer_margin_1_pct: payload.ebay_offer_margin_1_pct,
+          ebay_offer_margin_2_pct: payload.ebay_offer_margin_2_pct,
+          ebay_offer_margin_3_pct: payload.ebay_offer_margin_3_pct,
         });
       } else {
         saved = await createPricingRule(payload);
@@ -236,6 +258,42 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
               </p>
             </div>
           </div>
+
+          {/* eBay / Research offer margins */}
+          <div className="border-t border-gray-200 pt-5">
+            <label className="block text-[10px] font-black uppercase tracking-wider text-gray-500 mb-3">
+              eBay / Research Offer Margins
+              <span className="normal-case font-normal text-gray-400 ml-1">— optional, defaults: 60 / 50 / 40</span>
+            </label>
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { label: '1st Offer', value: ebayMargin1, setter: setEbayMargin1, placeholder: '60', color: 'emerald' },
+                { label: '2nd Offer', value: ebayMargin2, setter: setEbayMargin2, placeholder: '50', color: 'amber' },
+                { label: '3rd Offer', value: ebayMargin3, setter: setEbayMargin3, placeholder: '40', color: 'orange' },
+              ].map(({ label, value, setter, placeholder, color }) => (
+                <div key={label}>
+                  <label className="block text-[10px] font-semibold text-gray-500 mb-1">{label}</label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min="0"
+                      max="99"
+                      step="1"
+                      value={value}
+                      onChange={(e) => setter(e.target.value)}
+                      className={`w-full border border-gray-300 rounded-lg px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-${color}-500`}
+                      placeholder={placeholder}
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold">%</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="text-[10px] text-gray-400 mt-2">
+              Margin % applied to the eBay/Cash Converters suggested sell price to generate buy offers.
+              E.g. 60% margin → offer = sell price × 0.40. Leave blank to use defaults (60 / 50 / 40).
+            </p>
+          </div>
         </div>
 
         {/* Footer */}
@@ -260,6 +318,14 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
 }
 
 // ─── Rule Row ─────────────────────────────────────────────────────────────────
+
+function fmtMarginTriplet(m1, m2, m3) {
+  if (m1 == null && m2 == null && m3 == null) {
+    return <span className="text-gray-400 italic">60 / 50 / 40</span>;
+  }
+  const f = (v, d) => v != null ? `${Number(v).toFixed(0)}` : d;
+  return `${f(m1, '60')} / ${f(m2, '50')} / ${f(m3, '40')}`;
+}
 
 function RuleRow({ rule, onEdit, onDelete }) {
   const [confirming, setConfirming] = useState(false);
@@ -286,6 +352,9 @@ function RuleRow({ rule, onEdit, onDelete }) {
       </td>
       <td className="py-3 px-4 text-sm font-mono font-semibold text-indigo-700">
         {fmtPct(rule.second_offer_pct_of_cex)}
+      </td>
+      <td className="py-3 px-4 text-sm font-mono font-semibold text-emerald-700">
+        {fmtMarginTriplet(rule.ebay_offer_margin_1_pct, rule.ebay_offer_margin_2_pct, rule.ebay_offer_margin_3_pct)}
       </td>
       <td className="py-3 px-4">
         <div className="flex items-center gap-2 justify-end">
@@ -363,6 +432,7 @@ function RulesSection({ title, icon, rules, onEdit, onDelete, emptyText }) {
               <th className="text-left py-2.5 px-4 text-[10px] font-black uppercase tracking-wider text-gray-500">Sale Price %</th>
               <th className="text-left py-2.5 px-4 text-[10px] font-black uppercase tracking-wider text-gray-500">First Offer %</th>
               <th className="text-left py-2.5 px-4 text-[10px] font-black uppercase tracking-wider text-gray-500">Second Offer %</th>
+              <th className="text-left py-2.5 px-4 text-[10px] font-black uppercase tracking-wider text-gray-500">eBay Margins</th>
               <th className="py-2.5 px-4" />
             </tr>
           </thead>
@@ -429,11 +499,15 @@ export default function PricingRulesPage() {
       return [...prev, saved];
     });
     handleModalClose();
+    useAppStore.getState().invalidateEbayMarginCache();
+    useAppStore.getState().loadEbayOfferMargins();
   };
 
   const handleDelete = async (id) => {
     await deletePricingRule(id);
     setRules((prev) => prev.filter((r) => r.id !== id));
+    useAppStore.getState().invalidateEbayMarginCache();
+    useAppStore.getState().loadEbayOfferMargins();
   };
 
   const globalRules = rules.filter((r) => r.is_global_default);
@@ -473,14 +547,18 @@ export default function PricingRulesPage() {
             <span className="material-symbols-outlined text-yellow-400">info</span>
             <span className="text-sm font-black">How pricing rules work</span>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-blue-100">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs text-blue-100">
             <div>
               <p className="font-bold text-white mb-1">Sale Price %</p>
-              <p>Our sale price = CeX sell price × this percentage. A category rule overrides the global default. Child categories check their own rule first, then walk up to parents.</p>
+              <p>Our sale price = CeX sell price × this percentage. A category rule overrides the global default.</p>
             </div>
             <div>
-              <p className="font-bold text-white mb-1">First Offer % of CeX trade-in</p>
-              <p>If set, First Offer = CeX trade-in price × this %. If blank, First Offer uses the same absolute margin as CeX. Second Offer can also be configured as a % of CeX, otherwise it stays the midpoint; Third matches CeX trade-in exactly.</p>
+              <p className="font-bold text-white mb-1">CeX Offer %</p>
+              <p>First/Second Offer = CeX trade-in price × this %. If blank, First uses same absolute margin as CeX; Second is midpoint; Third matches CeX trade-in.</p>
+            </div>
+            <div>
+              <p className="font-bold text-white mb-1">eBay / Research Margins</p>
+              <p>Margin % applied to the eBay/Cash Converters suggested price. E.g. 60% margin → offer = price × 0.40. Defaults: 60 / 50 / 40. Changes take effect immediately.</p>
             </div>
           </div>
         </div>

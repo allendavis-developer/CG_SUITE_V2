@@ -494,10 +494,15 @@ def repricing_session_detail(request, repricing_session_id):
         return Response(serializer.data)
 
     # PATCH: auto-save session state
+    items_data = request.data.get('items_data') or []
     update_fields = []
 
     if 'session_data' in request.data:
-        session.session_data = request.data['session_data']
+        new_data = request.data['session_data']
+        if isinstance(new_data, dict) and isinstance(session.session_data, dict):
+            session.session_data = {**session.session_data, **new_data}
+        else:
+            session.session_data = new_data
         update_fields.append('session_data')
 
     if 'status' in request.data:
@@ -505,6 +510,10 @@ def repricing_session_detail(request, repricing_session_id):
         if new_status in RepricingSessionStatus.values:
             session.status = new_status
             update_fields.append('status')
+            if new_status == RepricingSessionStatus.IN_PROGRESS:
+                session.items.all().delete()
+                session.barcode_count = 0
+                update_fields.append('barcode_count')
 
     if 'cart_key' in request.data:
         session.cart_key = (request.data['cart_key'] or '').strip()
@@ -517,6 +526,34 @@ def repricing_session_detail(request, repricing_session_id):
     if 'barcode_count' in request.data:
         session.barcode_count = int(request.data['barcode_count'] or 0)
         update_fields.append('barcode_count')
+
+    if isinstance(items_data, list) and len(items_data) > 0:
+        with transaction.atomic():
+            for idx, item_data in enumerate(items_data):
+                barcode = (item_data.get('barcode') or '').strip()
+                if not barcode:
+                    return Response(
+                        {"error": f"items_data[{idx}].barcode is required"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                try:
+                    RepricingSessionItem.objects.create(
+                        repricing_session=session,
+                        item_identifier=str(item_data.get('item_identifier') or item_data.get('itemId') or '').strip(),
+                        title=(item_data.get('title') or '').strip(),
+                        quantity=max(1, int(item_data.get('quantity') or 1)),
+                        barcode=barcode,
+                        stock_barcode=(item_data.get('stock_barcode') or '').strip(),
+                        stock_url=(item_data.get('stock_url') or '').strip(),
+                        old_retail_price=_decimal_or_none(item_data.get('old_retail_price'), 'old_retail_price'),
+                        new_retail_price=_decimal_or_none(item_data.get('new_retail_price'), 'new_retail_price'),
+                        cex_sell_at_repricing=_decimal_or_none(item_data.get('cex_sell_at_repricing'), 'cex_sell_at_repricing'),
+                        our_sale_price_at_repricing=_decimal_or_none(item_data.get('our_sale_price_at_repricing'), 'our_sale_price_at_repricing'),
+                        raw_data=item_data.get('raw_data') or {},
+                        cash_converters_data=item_data.get('cash_converters_data') or {},
+                    )
+                except (ValueError, TypeError) as exc:
+                    return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
     if update_fields:
         session.save(update_fields=update_fields + ['updated_at'])
@@ -1002,36 +1039,32 @@ def variant_prices(request):
     def generate_offer_set(cex_reference_buy_price, prefix):
         """
         Generates First, Second, and Third offers based on a CeX reference price.
-        - Third: Match CeX trade-in price exactly
+        - Third: Match CeX trade-in price exactly (rounded to nearest £2/£5)
         - First: If first_offer_pct is set, use (cex_reference_buy_price * pct/100);
                  otherwise use the same absolute margin as CeX (our_sale_price - cex_abs_margin)
         - Second: If second_offer_pct is set, use (cex_reference_buy_price * pct/100);
-                  otherwise use the midpoint between First and Third
+                  if that collides with First after rounding, fall back to midpoint.
+                  Default (no pct): midpoint of First and Third, rounded to nearest whole number.
         """
-        # Third Offer: Match CeX trade-in price exactly
         offer_3 = cex_reference_buy_price
 
-        # First Offer
         if first_offer_pct is not None:
             offer_1 = max(cex_reference_buy_price * (first_offer_pct / 100.0), 0)
         else:
             cex_abs_margin = cex_sale_price - cex_reference_buy_price
             offer_1 = max(our_sale_price - cex_abs_margin, 0)
 
-        # Round First and Third offers first
         rounded_offer_1 = _round_offer_price(offer_1)
         rounded_offer_3 = _round_offer_price(offer_3)
 
-        # Second Offer: if pct rule is set, use it; otherwise midpoint of
-        # the *already-rounded* First & Third so they don't collide after rounding.
         if second_offer_pct is not None:
             rounded_offer_2 = _round_offer_price(
                 max(cex_reference_buy_price * (second_offer_pct / 100.0), 0)
             )
+            if rounded_offer_2 == rounded_offer_1:
+                rounded_offer_2 = round((rounded_offer_1 + rounded_offer_3) / 2)
         else:
-            rounded_offer_2 = _round_offer_price(
-                (rounded_offer_1 + rounded_offer_3) / 2
-            )
+            rounded_offer_2 = round((rounded_offer_1 + rounded_offer_3) / 2)
 
         return [
             {
@@ -1143,18 +1176,16 @@ def cex_product_prices(request):
         else:
             cex_abs_margin = cex_sale_price - cex_reference_buy_price
             offer_1 = max(our_sale_price - cex_abs_margin, 0)
-        # Round First and Third first
         rounded_offer_1 = _round_offer_price(offer_1)
         rounded_offer_3 = _round_offer_price(offer_3)
-        # Second: if pct rule set, use it; otherwise midpoint of rounded First & Third
         if second_offer_pct is not None:
             rounded_offer_2 = _round_offer_price(
                 max(cex_reference_buy_price * (second_offer_pct / 100.0), 0)
             )
+            if rounded_offer_2 == rounded_offer_1:
+                rounded_offer_2 = round((rounded_offer_1 + rounded_offer_3) / 2)
         else:
-            rounded_offer_2 = _round_offer_price(
-                (rounded_offer_1 + rounded_offer_3) / 2
-            )
+            rounded_offer_2 = round((rounded_offer_1 + rounded_offer_3) / 2)
         return [
             {"id": f"{prefix}_1", "title": "First Offer", "price": rounded_offer_1, "margin": calculate_margin_percentage(rounded_offer_1, our_sale_price)},
             {"id": f"{prefix}_2", "title": "Second Offer", "price": rounded_offer_2, "margin": calculate_margin_percentage(rounded_offer_2, our_sale_price)},
@@ -1208,6 +1239,18 @@ def _serialize_pricing_rule(rule):
             float(rule.second_offer_pct_of_cex)
             if rule.second_offer_pct_of_cex is not None else None
         ),
+        "ebay_offer_margin_1_pct": (
+            float(rule.ebay_offer_margin_1_pct)
+            if rule.ebay_offer_margin_1_pct is not None else None
+        ),
+        "ebay_offer_margin_2_pct": (
+            float(rule.ebay_offer_margin_2_pct)
+            if rule.ebay_offer_margin_2_pct is not None else None
+        ),
+        "ebay_offer_margin_3_pct": (
+            float(rule.ebay_offer_margin_3_pct)
+            if rule.ebay_offer_margin_3_pct is not None else None
+        ),
     }
 
 
@@ -1250,11 +1293,23 @@ def pricing_rules_view(request):
         except InvalidOperation:
             return Response({"error": "second_offer_pct_of_cex must be a number"}, status=400)
 
+    ebay_margins = {}
+    for field in ('ebay_offer_margin_1_pct', 'ebay_offer_margin_2_pct', 'ebay_offer_margin_3_pct'):
+        val = data.get(field)
+        if val is not None:
+            try:
+                ebay_margins[field] = Decimal(str(val))
+            except InvalidOperation:
+                return Response({"error": f"{field} must be a number"}, status=400)
+        else:
+            ebay_margins[field] = None
+
     kwargs = {
         'sell_price_multiplier': multiplier,
         'first_offer_pct_of_cex': first_offer_pct,
         'second_offer_pct_of_cex': second_offer_pct,
         'is_global_default': is_global_default,
+        **ebay_margins,
     }
 
     if category_id:
@@ -1321,12 +1376,72 @@ def pricing_rule_detail(request, rule_id):
             except InvalidOperation:
                 return Response({"error": "second_offer_pct_of_cex must be a number"}, status=400)
 
+    for field in ('ebay_offer_margin_1_pct', 'ebay_offer_margin_2_pct', 'ebay_offer_margin_3_pct'):
+        if field in data:
+            val = data[field]
+            if val is None or val == '':
+                setattr(rule, field, None)
+            else:
+                try:
+                    setattr(rule, field, Decimal(str(val)))
+                except InvalidOperation:
+                    return Response({"error": f"{field} must be a number"}, status=400)
+
     try:
         rule.save()
     except Exception as e:
         return Response({"error": str(e)}, status=400)
 
     return Response(_serialize_pricing_rule(rule))
+
+
+@api_view(['GET'])
+def ebay_offer_margins(request):
+    """Return the effective eBay offer margins, resolving by category hierarchy then global default.
+
+    Query param: ?category_id=<int>  (optional)
+    Walks up the category tree looking for a PricingRule with eBay margins set,
+    then falls back to the global default, then to hard-coded defaults [60, 50, 40].
+    """
+    defaults = [60, 50, 40]
+    category_id = request.GET.get('category_id')
+
+    def _extract_margins(rule):
+        if rule is None:
+            return None
+        m1 = rule.ebay_offer_margin_1_pct
+        m2 = rule.ebay_offer_margin_2_pct
+        m3 = rule.ebay_offer_margin_3_pct
+        if m1 is None and m2 is None and m3 is None:
+            return None
+        return [
+            float(m1) if m1 is not None else defaults[0],
+            float(m2) if m2 is not None else defaults[1],
+            float(m3) if m3 is not None else defaults[2],
+        ]
+
+    margins = None
+
+    if category_id:
+        try:
+            cat = ProductCategory.objects.get(pk=category_id)
+            for ancestor in cat.iter_ancestors():
+                rule = PricingRule.objects.filter(category=ancestor).first()
+                margins = _extract_margins(rule)
+                if margins:
+                    break
+        except ProductCategory.DoesNotExist:
+            pass
+
+    if not margins:
+        global_rule = PricingRule.objects.filter(is_global_default=True).first()
+        margins = _extract_margins(global_rule) or defaults
+
+    return Response({
+        "ebay_offer_margin_1_pct": margins[0],
+        "ebay_offer_margin_2_pct": margins[1],
+        "ebay_offer_margin_3_pct": margins[2],
+    })
 
 
 # react app

@@ -263,6 +263,8 @@ export const fetchPricingRules = () => apiFetch('/pricing-rules/');
 export const createPricingRule = (data) => apiFetch('/pricing-rules/', { method: 'POST', body: data });
 export const updatePricingRule = (id, data) => apiFetch(`/pricing-rules/${id}/`, { method: 'PATCH', body: data });
 export const deletePricingRule = (id) => apiFetch(`/pricing-rules/${id}/`, { method: 'DELETE' });
+export const fetchEbayOfferMargins = (categoryId) =>
+  apiFetch(`/ebay-offer-margins/${categoryId ? `?category_id=${categoryId}` : ''}`);
 
 // ─── Categories ────────────────────────────────────────────────────────────────
 

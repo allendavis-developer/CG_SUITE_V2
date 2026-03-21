@@ -1,7 +1,7 @@
 import React from 'react';
 import CashConvertersResearchForm from '@/components/forms/CashConvertersResearchForm.jsx';
 
-export default function CashConvertersCartItemView({ item, savedState, onDeselectCartItem }) {
+export default function CashConvertersCartItemView({ item, savedState, onDeselectCartItem, useVoucherOffers = false }) {
   return (
     <section className="buyer-main-content w-3/5 min-w-0 min-h-0 flex-1 bg-white flex flex-col overflow-y-auto buyer-panel-scroll">
       <div className="flex items-center px-8 bg-gray-50 border-b border-gray-200 sticky top-0 z-40">
@@ -27,6 +27,7 @@ export default function CashConvertersCartItemView({ item, savedState, onDeselec
             readOnly={true}
             resetDrillOnOpen={true}
             onAddNewItem={onDeselectCartItem}
+            useVoucherOffers={useVoucherOffers}
           />
         ) : (
           <div className="text-center py-12">
