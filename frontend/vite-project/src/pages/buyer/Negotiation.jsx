@@ -18,7 +18,6 @@ import {
   buildInitialSearchQuery,
   resolveOurSalePrice,
   calculateTotalOfferPrice,
-  calculateTotalFromItems,
   buildFinishPayload,
   mapApiItemToNegotiationItem,
   normalizeCartItemForNegotiation,
@@ -217,6 +216,21 @@ const Negotiation = ({ mode }) => {
           return;
         }
       }
+
+      const rawSaleInput = String(item.ourSalePriceInput ?? '').replace(/[£,]/g, '').trim();
+      if (rawSaleInput !== '') {
+        const parsedTotalSale = parseFloat(rawSaleInput);
+        if (!Number.isFinite(parsedTotalSale) || parsedTotalSale <= 0) {
+          showNotification(`Our sale price must be greater than £0 for item: ${item.title || 'Unknown Item'}`, 'error');
+          return;
+        }
+      }
+
+      const resolvedSalePrice = resolveOurSalePrice(item);
+      if (!Number.isFinite(Number(resolvedSalePrice)) || Number(resolvedSalePrice) <= 0) {
+        showNotification(`Please set a valid Our Sale Price above £0 for item: ${item.title || 'Unknown Item'}`, 'error');
+        return;
+      }
     }
 
     if (targetOffer) {
@@ -231,7 +245,14 @@ const Negotiation = ({ mode }) => {
       }
     }
 
-    const payload = buildFinishPayload(items, totalExpectation, targetOffer, useVoucherOffers, totalOfferPrice);
+    const payload = buildFinishPayload(
+      items,
+      totalExpectation,
+      targetOffer,
+      useVoucherOffers,
+      totalOfferPrice,
+      customerData
+    );
 
     if (customerData?.isNewCustomer) {
       setPendingFinishPayload(payload);
@@ -280,14 +301,23 @@ const Negotiation = ({ mode }) => {
       const parsedTotal = parseFloat(raw);
       const next = { ...i };
       delete next.ourSalePriceInput;
-      if (raw === '' || Number.isNaN(parsedTotal) || parsedTotal <= 0) {
+      if (raw === '') {
         next.ourSalePrice = '';
+      } else if (Number.isNaN(parsedTotal) || parsedTotal <= 0) {
+        // Keep prior persisted value and reject invalid/non-positive input.
       } else {
         next.ourSalePrice = String(normalizeExplicitSalePrice(parsedTotal / quantity));
       }
       return next;
     }));
-  }, []);
+    const rawEntered = String(item.ourSalePriceInput ?? '').replace(/[£,]/g, '').trim();
+    if (rawEntered !== '') {
+      const parsedEntered = parseFloat(rawEntered);
+      if (!Number.isFinite(parsedEntered) || parsedEntered <= 0) {
+        showNotification('Our sale price must be greater than £0', 'error');
+      }
+    }
+  }, [showNotification]);
 
   const handleOurSalePriceFocus = useCallback((itemId, currentValue) => {
     setItems(prev => prev.map(i => i.id === itemId ? { ...i, ourSalePriceInput: currentValue } : i));
@@ -382,6 +412,7 @@ const Negotiation = ({ mode }) => {
         if (initialCustomerData?.id && !customerData?.id) {
             setCustomerData(initialCustomerData);
             setTotalExpectation(initialCustomerData?.overall_expectation_gbp?.toString() || "");
+            setTargetOffer(initialCustomerData?.target_offer_gbp?.toString() || "");
             setTransactionType(initialCustomerData?.transactionType || 'sale');
         }
 
@@ -426,24 +457,21 @@ const Negotiation = ({ mode }) => {
     prevTransactionTypeRef.current = transactionType;
   }, [transactionType, mode]);
 
-  // Auto-calculate total expectation from per-item expectations
-  useEffect(() => {
-    const total = calculateTotalFromItems(items);
-    if (total > 0) {
-      setTotalExpectation(total.toFixed(2));
-    } else if (mode === 'view' && customerData?.id) {
-        setTotalExpectation(customerData.overall_expectation_gbp?.toFixed(2) || "");
-    }
-  }, [items, mode, customerData]);
-
   // Build draft payload synchronously during render so it's always fresh for
   // cleanup functions (eliminates the race where an effect-based ref update
   // hasn't run yet when the component unmounts).
   const draftPayload = useMemo(() => {
     if (mode !== 'negotiate' || !actualRequestId || items.length === 0) return null;
     const total = calculateTotalOfferPrice(items, useVoucherOffers);
-    return buildFinishPayload(items, totalExpectation, targetOffer, useVoucherOffers, total);
-  }, [items, totalExpectation, targetOffer, useVoucherOffers, mode, actualRequestId]);
+    return buildFinishPayload(
+      items,
+      totalExpectation,
+      targetOffer,
+      useVoucherOffers,
+      total,
+      customerData
+    );
+  }, [items, totalExpectation, targetOffer, useVoucherOffers, mode, actualRequestId, customerData]);
 
   draftPayloadRef.current = draftPayload;
 

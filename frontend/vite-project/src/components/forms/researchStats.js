@@ -40,17 +40,25 @@ export function calculateStats(listingsData) {
   return { average, median, suggestedPrice };
 }
 
-export function calculateBuyOffers(sellPrice, margins) {
+/**
+ * @param {number} sellPrice - Suggested sale price from research
+ * @param {[number, number, number]|null|undefined} pcts - Three % of sale values from rules (order need not be sorted)
+ */
+export function calculateBuyOffers(sellPrice, pcts) {
   if (!sellPrice || sellPrice <= 0) return [];
-  const m1 = (margins?.[0] ?? 60) / 100;
-  const m2 = (margins?.[1] ?? 50) / 100;
-  const m3 = (margins?.[2] ?? 40) / 100;
-  const price1 = roundOfferPrice(sellPrice * (1 - m1));
-  const price3 = roundOfferPrice(sellPrice * (1 - m3));
-  const price2 = roundOfferPrice((price1 + price3) / 2);
+  const defaults = [40, 50, 60];
+  const raw = [0, 1, 2].map((i) => {
+    const v = pcts?.[i];
+    return v != null && !Number.isNaN(Number(v)) ? Number(v) : defaults[i];
+  });
+  // 1st cash offer = lowest % / lowest £, then escalate to 3rd (avoids reversed rule fields or legacy ordering)
+  const [p1, p2, p3] = [...raw].sort((a, b) => a - b);
+  const price1 = roundOfferPrice(sellPrice * (p1 / 100));
+  const price2 = roundOfferPrice(sellPrice * (p2 / 100));
+  const price3 = roundOfferPrice(sellPrice * (p3 / 100));
   return [
-    { margin: m1, price: price1 },
-    { margin: m2, price: price2 },
-    { margin: m3, price: price3 },
+    { pctOfSale: p1, price: price1 },
+    { pctOfSale: p2, price: price2 },
+    { pctOfSale: p3, price: price3 },
   ];
 }

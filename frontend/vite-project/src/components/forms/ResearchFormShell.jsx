@@ -2,6 +2,18 @@ import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { Button, Icon, HorizontalOfferCard, CustomDropdown } from '../ui/components';
 import { toVoucherOfferPrice } from '@/utils/helpers';
 
+/** Resolve badge % for eBay / Cash Converters offers (new: pctOfSale; legacy saved: margin 0–1). */
+function displayPctOfSaleForOffer(offer, suggestedPrice) {
+  if (offer?.pctOfSale != null) return Math.round(Number(offer.pctOfSale));
+  if (offer?.margin != null) return Math.round((1 - Number(offer.margin)) * 100);
+  const sp = Number(suggestedPrice);
+  if (sp > 0 && offer?.price != null) {
+    const p = Number(offer.price);
+    if (Number.isFinite(p) && p > 0) return Math.round((p / sp) * 100);
+  }
+  return null;
+}
+
 // Add animation styles - MOVED OUTSIDE COMPONENT, RUNS ONCE
 const fadeInUpAnimation = `
   @keyframes fadeInUp {
@@ -338,7 +350,7 @@ const PriceHistogram = React.memo(function PriceHistogram({ listings, onBucketSe
  * @param {string} props.headerTitle - Title for modal header
  * @param {string} props.headerSubtitle - Subtitle for modal header
  * @param {string} props.headerIcon - Icon name for modal header
- * @param {Array} props.buyOffers - Calculated buy offers [{price, margin}, ...]
+ * @param {Array} props.buyOffers - Calculated buy offers [{ price, pctOfSale? }, ...]
  * @param {React.ReactNode} props.customControls - Custom controls to render in search area (e.g., "Behave like eBay" checkbox)
  * @param {boolean} props.allowHistogramToggle - Whether to show the histogram toggle checkbox (default: true)
  * @param {boolean} props.hideSearchAndFilters - When true, hide search input and filters sidebar (e.g. extension-sourced data); only histogram toggle bar is shown
@@ -677,14 +689,14 @@ export default function ResearchFormShell({
     }
   }, [showManualOffer, selectedOfferIndex, manualOffer, onManualOfferChange, onComplete, onCompleteWithSelection]);
 
-  // Calculate margin for manual offer
-  const manualOfferMargin = useMemo(() => {
+  // % of suggested sale for manual offer (buy price / sale price)
+  const manualOfferPctOfSale = useMemo(() => {
     if (!displayedStats?.suggestedPrice || !manualOffer) return null;
     const cleanManual = parseFloat(manualOffer.replace(/[£,]/g, ''));
     if (isNaN(cleanManual) || cleanManual <= 0) return null;
     const salePrice = displayedStats.suggestedPrice;
     if (salePrice <= 0) return null;
-    return Math.round(((salePrice - cleanManual) / salePrice) * 100);
+    return Math.round((cleanManual / salePrice) * 100);
   }, [displayedStats, manualOffer]);
 
   // Left-click handler: toggle a single listing's excluded state and clear any pivot.
@@ -764,17 +776,19 @@ export default function ResearchFormShell({
 
     return (
       <div className="flex flex-wrap items-center gap-4">
-        {!hideOfferCards && buyOffers.map(({ price: rawPrice, margin }, idx) => {
+        {!hideOfferCards && buyOffers.map((offer, idx) => {
+          const { price: rawPrice } = offer;
           const price = useVoucherOffers ? toVoucherOfferPrice(rawPrice) : rawPrice;
+          const pctOfSale = displayPctOfSaleForOffer(offer, displayedStats?.suggestedPrice);
           if (!offersAreInteractive) {
             return (
               <div key={idx} className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-blue-900/5 border border-blue-900/10">
                 <span className="text-[10px] font-bold text-gray-500 uppercase">{offerLabels[idx]}</span>
                 <span className="text-sm font-extrabold text-blue-900">£{formatStat(price)}</span>
-                {margin != null && (
+                {pctOfSale != null && (
                   <>
                     <span className="text-gray-300">·</span>
-                    <span className="text-[10px] font-bold text-yellow-600">{Math.round(margin * 100)}%</span>
+                    <span className="text-[10px] font-bold text-yellow-600">{pctOfSale}% sale</span>
                   </>
                 )}
               </div>
@@ -796,7 +810,7 @@ export default function ResearchFormShell({
               <HorizontalOfferCard
                 title={offerLabels[idx] || `${idx + 1}th Offer`}
                 price={`£${formatStat(price)}`}
-                margin={margin != null ? Math.round(margin * 100) : Math.round([0.6, 0.5, 0.4][idx] * 100)}
+                offerPctOfSale={pctOfSale != null ? pctOfSale : [40, 50, 60][idx]}
                 isHighlighted={showManualOffer && selectedOfferIndex === idx}
                 onClick={
                   useAddWithOfferFlow
@@ -883,17 +897,17 @@ export default function ResearchFormShell({
               />
             </div>
 
-            {/* Right Side: Margin Badge */}
-            {manualOfferMargin !== null && (
+            {/* Right Side: % of sale badge */}
+            {manualOfferPctOfSale !== null && (
               <div className="flex items-center justify-center bg-gradient-to-br from-yellow-400 to-yellow-500 text-blue-900 text-[10px] font-black uppercase px-2.5 py-1 rounded-full">
-                {manualOfferMargin}%
+                {manualOfferPctOfSale}% sale
               </div>
             )}
           </div>
         )}
       </div>
     );
-  }, [buyOffers, showManualOffer, selectedOfferIndex, manualOffer, manualOfferMargin, onManualOfferChange, readOnly, handleOfferClick, handleManualOfferCardClick, handleManualOfferChange, onAddToCartWithOffer, formatStat, enableRightClickManualOffer, openManualOfferDialog, hideOfferCards, addActionLabel, useVoucherOffers]);
+  }, [buyOffers, showManualOffer, selectedOfferIndex, manualOffer, manualOfferPctOfSale, onManualOfferChange, readOnly, handleOfferClick, handleManualOfferCardClick, handleManualOfferChange, onAddToCartWithOffer, formatStat, enableRightClickManualOffer, openManualOfferDialog, hideOfferCards, addActionLabel, useVoucherOffers, displayedStats?.suggestedPrice]);
 
   const content = (
     <>

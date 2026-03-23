@@ -88,7 +88,7 @@ export function calculateTotalFromItems(items) {
 
 // ─── Payload builders ──────────────────────────────────────────────────────
 
-export function buildFinishPayload(items, totalExpectation, targetOffer, useVoucherOffers, totalOfferPrice) {
+export function buildFinishPayload(items, totalExpectation, targetOffer, useVoucherOffers, totalOfferPrice, customerData = null) {
   const itemsData = items
     .filter(item => !item.isRemoved && item.request_item_id)
     .map(item => {
@@ -171,6 +171,7 @@ export function buildFinishPayload(items, totalExpectation, targetOffer, useVouc
     overall_expectation_gbp: overallExpectationValue,
     negotiated_grand_total_gbp: totalOfferPrice,
     ...(targetOfferValue && { target_offer_gbp: targetOfferValue }),
+    ...(customerData && { customer_enrichment: customerData }),
   };
 }
 

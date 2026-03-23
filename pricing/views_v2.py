@@ -740,6 +740,7 @@ def finish_request(request, request_id):
     overall_expectation_gbp = request.data.get('overall_expectation_gbp')
     negotiated_grand_total_gbp = request.data.get('negotiated_grand_total_gbp')
     target_offer_gbp = request.data.get('target_offer_gbp')
+    customer_enrichment = request.data.get('customer_enrichment')
 
     # Validate incoming data for main request
     if overall_expectation_gbp is not None:
@@ -769,7 +770,17 @@ def finish_request(request, request_id):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-    existing_request.save(update_fields=['overall_expectation_gbp', 'negotiated_grand_total_gbp', 'target_offer_gbp'])
+    update_request_fields = ['overall_expectation_gbp', 'negotiated_grand_total_gbp', 'target_offer_gbp']
+    if customer_enrichment is not None:
+        if not isinstance(customer_enrichment, dict):
+            return Response(
+                {"error": "customer_enrichment must be a JSON object"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        existing_request.customer_enrichment_json = customer_enrichment
+        update_request_fields.append('customer_enrichment_json')
+
+    existing_request.save(update_fields=update_request_fields)
 
     # Update individual request items
     for item_data in items_data:
@@ -1399,13 +1410,15 @@ def pricing_rule_detail(request, rule_id):
 
 @api_view(['GET'])
 def ebay_offer_margins(request):
-    """Return the effective eBay offer margins, resolving by category hierarchy then global default.
+    """Return effective eBay/Cash Converters offer % of sale price (three tiers).
+
+    Field names remain ebay_offer_margin_*_pct for API compatibility; values are
+    whole-number percentages of suggested sale (e.g. 40 => offer = sell × 0.40).
 
     Query param: ?category_id=<int>  (optional)
-    Walks up the category tree looking for a PricingRule with eBay margins set,
-    then falls back to the global default, then to hard-coded defaults [60, 50, 40].
+    Walks up the category tree, then global default, then [40, 50, 60].
     """
-    defaults = [60, 50, 40]
+    defaults = [40, 50, 60]
     category_id = request.GET.get('category_id')
 
     def _extract_margins(rule):

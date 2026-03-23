@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { OfferCard, Icon } from '@/components/ui/components';
-import { formatGBP, calculateMargin, roundOfferPrice, formatOfferPrice } from '@/utils/helpers';
+import { formatGBP, calculateMargin, formatOfferPrice, normalizeExplicitSalePrice } from '@/utils/helpers';
 
 /**
  * Offer selection component.
@@ -140,7 +140,7 @@ const OfferSelection = ({
     const raw = String(rawValue ?? localPrices[offerId] ?? '').replace(/[£,]/g, '').trim();
     const parsed = parseFloat(raw);
     if (!Number.isNaN(parsed) && parsed > 0) {
-      const normalized = roundOfferPrice(parsed);
+      const normalized = normalizeExplicitSalePrice(parsed);
       setLocalPrices(prev => ({ ...prev, [offerId]: formatOfferPrice(normalized) }));
       onOfferPriceChange(offerId, normalized);
     }

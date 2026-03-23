@@ -36,9 +36,12 @@ export const normalizeExplicitSalePrice = (value) => {
 export const toVoucherOfferPrice = (cashOfferPrice) =>
   roundOfferPrice(Number(cashOfferPrice) * 1.1);
 
+/** String for offer inputs / display: exact to pence (no £2/£5 grid). User-edited card prices use this. */
 export const formatOfferPrice = (value) => {
-  const rounded = roundOfferPrice(value);
-  return String(rounded);
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return '';
+  const n = Math.round(amount * 100) / 100;
+  return String(n);
 };
 
 /**

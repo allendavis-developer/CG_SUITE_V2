@@ -845,11 +845,12 @@ export const OfferCard = ({ title, price, margin, isHighlighted, onClick }) => (
 );
 
 
-// Horizontal Offer Card 
+// Horizontal Offer Card (offerPctOfSale: whole % of suggested sale; legacy `margin` = gross margin % on sale)
 export const HorizontalOfferCard = ({
   title,
   price,
   margin,
+  offerPctOfSale = null,
   isHighlighted,
   onClick
 }) => (
@@ -888,8 +889,12 @@ export const HorizontalOfferCard = ({
       <span>{price}</span>
       <span className="text-gray-400">/</span>
       <span className="flex items-center gap-1">
-        <span className="text-gray-500 font-bold">MARGIN</span>
-        <span className="text-yellow-500 font-bold">{margin}%</span>
+        <span className="text-gray-500 font-bold">
+          {offerPctOfSale != null ? '% OF SALE' : 'MARGIN'}
+        </span>
+        <span className="text-yellow-500 font-bold">
+          {offerPctOfSale != null ? offerPctOfSale : margin}%
+        </span>
       </span>
     </div>
   </div>

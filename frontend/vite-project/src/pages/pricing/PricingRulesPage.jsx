@@ -230,14 +230,14 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold">%</span>
               </div>
               <p className="text-[10px] text-gray-400 mt-1">
-                First offer = CeX trade-in price × this %. Leave blank to use the same absolute margin as CeX.
+                First offer = CeX cash price × this %. Leave blank to use the same absolute margin as CeX.
               </p>
             </div>
 
             {/* Second offer % */}
             <div>
               <label className="block text-[10px] font-black uppercase tracking-wider text-gray-500 mb-1.5">
-                Second Offer (% of CeX trade-in price){' '}
+                Second Offer (% of CeX cash price){' '}
                 <span className="normal-case font-normal text-gray-400">— optional</span>
               </label>
               <div className="relative">
@@ -254,22 +254,22 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold">%</span>
               </div>
               <p className="text-[10px] text-gray-400 mt-1">
-                Second offer = CeX trade-in price × this %. Leave blank to keep using the midpoint between First and Third.
+                Second offer = CeX cash price × this %. Leave blank to keep using the midpoint between First and Third.
               </p>
             </div>
           </div>
 
-          {/* eBay / Research offer margins */}
+          {/* eBay / Cash Converters offers as % of suggested sale */}
           <div className="border-t border-gray-200 pt-5">
             <label className="block text-[10px] font-black uppercase tracking-wider text-gray-500 mb-3">
-              eBay / Research Offer Margins
-              <span className="normal-case font-normal text-gray-400 ml-1">— optional, defaults: 60 / 50 / 40</span>
+              eBay / Cash Converters — % of sale price
+              <span className="normal-case font-normal text-gray-400 ml-1">— optional, defaults: 40 / 50 / 60</span>
             </label>
             <div className="grid grid-cols-3 gap-3">
               {[
-                { label: '1st Offer', value: ebayMargin1, setter: setEbayMargin1, placeholder: '60', color: 'emerald' },
+                { label: '1st Offer', value: ebayMargin1, setter: setEbayMargin1, placeholder: '40', color: 'emerald' },
                 { label: '2nd Offer', value: ebayMargin2, setter: setEbayMargin2, placeholder: '50', color: 'amber' },
-                { label: '3rd Offer', value: ebayMargin3, setter: setEbayMargin3, placeholder: '40', color: 'orange' },
+                { label: '3rd Offer', value: ebayMargin3, setter: setEbayMargin3, placeholder: '60', color: 'orange' },
               ].map(({ label, value, setter, placeholder, color }) => (
                 <div key={label}>
                   <label className="block text-[10px] font-semibold text-gray-500 mb-1">{label}</label>
@@ -277,7 +277,7 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
                     <input
                       type="number"
                       min="0"
-                      max="99"
+                      max="100"
                       step="1"
                       value={value}
                       onChange={(e) => setter(e.target.value)}
@@ -290,8 +290,9 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
               ))}
             </div>
             <p className="text-[10px] text-gray-400 mt-2">
-              Margin % applied to the eBay/Cash Converters suggested sell price to generate buy offers.
-              E.g. 60% margin → offer = sell price × 0.40. Leave blank to use defaults (60 / 50 / 40).
+              Each value is a % of the suggested sale (e.g. 40 → pay 40% of that price). The three numbers are applied
+              lowest → highest: 1st cash offer = smallest %, 3rd = largest (opening low, then escalate). Applies to
+              eBay and Cash Converters research. Leave blank for defaults (40 / 50 / 60).
             </p>
           </div>
         </div>
@@ -319,12 +320,12 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
 
 // ─── Rule Row ─────────────────────────────────────────────────────────────────
 
-function fmtMarginTriplet(m1, m2, m3) {
+function fmtEbayOfferPctTriplet(m1, m2, m3) {
   if (m1 == null && m2 == null && m3 == null) {
-    return <span className="text-gray-400 italic">60 / 50 / 40</span>;
+    return <span className="text-gray-400 italic">40 / 50 / 60</span>;
   }
   const f = (v, d) => v != null ? `${Number(v).toFixed(0)}` : d;
-  return `${f(m1, '60')} / ${f(m2, '50')} / ${f(m3, '40')}`;
+  return `${f(m1, '40')} / ${f(m2, '50')} / ${f(m3, '60')}`;
 }
 
 function RuleRow({ rule, onEdit, onDelete }) {
@@ -354,7 +355,7 @@ function RuleRow({ rule, onEdit, onDelete }) {
         {fmtPct(rule.second_offer_pct_of_cex)}
       </td>
       <td className="py-3 px-4 text-sm font-mono font-semibold text-emerald-700">
-        {fmtMarginTriplet(rule.ebay_offer_margin_1_pct, rule.ebay_offer_margin_2_pct, rule.ebay_offer_margin_3_pct)}
+        {fmtEbayOfferPctTriplet(rule.ebay_offer_margin_1_pct, rule.ebay_offer_margin_2_pct, rule.ebay_offer_margin_3_pct)}
       </td>
       <td className="py-3 px-4">
         <div className="flex items-center gap-2 justify-end">
@@ -432,7 +433,7 @@ function RulesSection({ title, icon, rules, onEdit, onDelete, emptyText }) {
               <th className="text-left py-2.5 px-4 text-[10px] font-black uppercase tracking-wider text-gray-500">Sale Price %</th>
               <th className="text-left py-2.5 px-4 text-[10px] font-black uppercase tracking-wider text-gray-500">First Offer %</th>
               <th className="text-left py-2.5 px-4 text-[10px] font-black uppercase tracking-wider text-gray-500">Second Offer %</th>
-              <th className="text-left py-2.5 px-4 text-[10px] font-black uppercase tracking-wider text-gray-500">eBay Margins</th>
+              <th className="text-left py-2.5 px-4 text-[10px] font-black uppercase tracking-wider text-gray-500">eBay / CC % of sale</th>
               <th className="py-2.5 px-4" />
             </tr>
           </thead>
@@ -557,8 +558,11 @@ export default function PricingRulesPage() {
               <p>First/Second Offer = CeX trade-in price × this %. If blank, First uses same absolute margin as CeX; Second is midpoint; Third matches CeX trade-in.</p>
             </div>
             <div>
-              <p className="font-bold text-white mb-1">eBay / Research Margins</p>
-              <p>Margin % applied to the eBay/Cash Converters suggested price. E.g. 60% margin → offer = price × 0.40. Defaults: 60 / 50 / 40. Changes take effect immediately.</p>
+              <p className="font-bold text-white mb-1">eBay / Cash Converters % of sale</p>
+              <p>
+                Three % of suggested sale; they are sorted low → high so the 1st offer is always the lowest cash % and
+                the 3rd the highest. Defaults: 40 / 50 / 60. Changes take effect immediately.
+              </p>
             </div>
           </div>
         </div>

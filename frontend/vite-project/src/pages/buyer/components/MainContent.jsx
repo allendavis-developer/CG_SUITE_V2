@@ -14,26 +14,11 @@ import CashConvertersCartItemView from './CashConvertersCartItemView';
 import { useProductAttributes } from '@/pages/buyer/hooks/useProductAttributes';
 import { fetchVariantPrices, updateRequestItemRawData } from '@/services/api';
 import { mapTransactionTypeToIntent } from '@/utils/transactionConstants';
-import { roundOfferPrice, roundSalePrice, toVoucherOfferPrice, formatOfferPrice } from '@/utils/helpers';
+import { normalizeExplicitSalePrice, roundOfferPrice, roundSalePrice, toVoucherOfferPrice, formatOfferPrice } from '@/utils/helpers';
 import useAppStore, { useCartItems, useSelectedCartItem, useIsRepricing, useUseVoucherOffers } from '@/store/useAppStore';
 import { useNotification } from '@/contexts/NotificationContext';
 
 const EBAY_TOP_LEVEL_CATEGORY = { name: 'eBay', path: ['eBay'] };
-const VARIANT_SELECTIONS_STORAGE_PREFIX = 'buyerMainContentVariantSelections';
-
-const loadPersistedVariantSelections = (mode) => {
-  try {
-    const raw = sessionStorage.getItem(`${VARIANT_SELECTIONS_STORAGE_PREFIX}:${mode}`);
-    return raw ? JSON.parse(raw) : {};
-  } catch { return {}; }
-};
-const savePersistedVariantSelections = (mode, selections) => {
-  try { sessionStorage.setItem(`${VARIANT_SELECTIONS_STORAGE_PREFIX}:${mode}`, JSON.stringify(selections)); } catch {}
-};
-const getPersistedVariantForKey = (selections, key) => {
-  const saved = selections?.[key];
-  return typeof saved === 'string' ? saved : (saved?.variant || '');
-};
 
 const MainContent = ({ mode = 'buyer' }) => {
   const isRepricing = useIsRepricing();
@@ -68,19 +53,12 @@ const MainContent = ({ mode = 'buyer' }) => {
   const [isCeXCashConvertersModalOpen, setCeXCashConvertersModalOpen] = useState(false);
   const [pendingDuplicateItem, setPendingDuplicateItem] = useState(null);
   const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
-  const persistedVariantSelectionsRef = React.useRef(null);
-  const [hydratedSelectionKey, setHydratedSelectionKey] = useState(null);
   const skipVariantFetchRef = useRef(false);
-
-  if (persistedVariantSelectionsRef.current === null) {
-    persistedVariantSelectionsRef.current = loadPersistedVariantSelections(mode);
-  }
 
   const { attributes, attributeValues, variant, setVariant, handleAttributeChange, setAllAttributeValues } =
     useProductAttributes(selectedModel?.product_id, variants);
 
   const isEbayCategory = selectedCategory?.path?.some((p) => p.toLowerCase() === 'ebay') || selectedCategory?.name?.toLowerCase() === 'ebay';
-  const variantSelectionKey = !isEbayCategory && selectedModel?.product_id ? `${selectedModel.product_id}` : null;
 
   const resolveVariantFromCartItem = useCallback(
     (cartItem) => {
@@ -123,28 +101,6 @@ const MainContent = ({ mode = 'buyer' }) => {
     loadVariants();
   }, [selectedModel]);
 
-  // Variant selection persistence
-  useEffect(() => { setHydratedSelectionKey(null); }, [variantSelectionKey]);
-
-  useEffect(() => {
-    if (!variantSelectionKey || hydratedSelectionKey === variantSelectionKey || selectedCartItem || isEbayCategory || cexProductData) return;
-    if (!selectedModel?.product_id || attributes.length === 0 || variants.length === 0) return;
-    const savedVariant = getPersistedVariantForKey(persistedVariantSelectionsRef.current, variantSelectionKey);
-    const matched = savedVariant ? variants.find((v) => v.cex_sku === savedVariant) : null;
-    if (matched) { setAllAttributeValues(matched.attribute_values || {}); setVariant(matched.cex_sku); }
-    setHydratedSelectionKey(variantSelectionKey);
-  }, [attributes.length, cexProductData, hydratedSelectionKey, isEbayCategory, selectedCartItem, selectedModel?.product_id, setAllAttributeValues, setVariant, variantSelectionKey, variants.length]);
-
-  useEffect(() => {
-    if (!variantSelectionKey || hydratedSelectionKey !== variantSelectionKey || selectedCartItem || isEbayCategory || cexProductData) return;
-    const prev = getPersistedVariantForKey(persistedVariantSelectionsRef.current, variantSelectionKey);
-    if (prev === (variant || '')) return;
-    const next = { ...(persistedVariantSelectionsRef.current || {}) };
-    if (variant) next[variantSelectionKey] = variant; else delete next[variantSelectionKey];
-    persistedVariantSelectionsRef.current = next;
-    savePersistedVariantSelections(mode, next);
-  }, [cexProductData, hydratedSelectionKey, isEbayCategory, mode, selectedCartItem, variant, variantSelectionKey]);
-
   // Load offers when variant changes
   useEffect(() => {
     if (!variant) { setOffers([]); setReferenceData(null); setOurSalePrice(''); setEbayData(null); setSavedEbayState(null); setCashConvertersData(null); setSavedCashConvertersState(null); return; }
@@ -186,7 +142,15 @@ const MainContent = ({ mode = 'buyer' }) => {
       return;
     }
     const modelToSet = availableModels.find((m) => m.name === selectedCartItem.model);
-    if (modelToSet && selectedModel?.product_id !== modelToSet.product_id) setSelectedModel(modelToSet);
+    const needsModelResolution = Boolean(selectedCartItem.model) && selectedModel?.name !== selectedCartItem.model;
+    if (needsModelResolution) {
+      if (modelToSet && selectedModel?.product_id !== modelToSet.product_id) {
+        setSelectedModel(modelToSet);
+      }
+      // Wait for the correct model to be selected before restoring attrs/variant.
+      // This prevents hydration against stale previous-model attributes.
+      return;
+    }
     const matched = resolveVariantFromCartItem(selectedCartItem);
     if (matched?.attribute_values) setAllAttributeValues(matched.attribute_values);
     else if (attributes.length > 0 && selectedCartItem.attributeValues) setAllAttributeValues(selectedCartItem.attributeValues);
@@ -215,6 +179,7 @@ const MainContent = ({ mode = 'buyer' }) => {
   // Variant + attribute restore from cart item (when variants load)
   useEffect(() => {
     if (!selectedCartItem || variants.length === 0 || selectedCartItem.isCustomEbayItem || selectedCartItem.isCustomCashConvertersItem) return;
+    if (selectedCartItem.model && selectedModel?.name !== selectedCartItem.model) return;
     const v = resolveVariantFromCartItem(selectedCartItem);
     if (v) {
       if (v.attribute_values) setAllAttributeValues(v.attribute_values);
@@ -438,7 +403,9 @@ const MainContent = ({ mode = 'buyer' }) => {
   // ── Offer editing callbacks ──
   const handleOfferPriceChange = useCallback((offerId, newPrice) => {
     if (!selectedCartItem) return;
-    const normalized = roundOfferPrice(Number(newPrice));
+    const n = Number(newPrice);
+    if (!Number.isFinite(n) || n <= 0) return;
+    const normalized = normalizeExplicitSalePrice(n);
     const update = (arr) => (arr || []).map((o) => (o.id === offerId ? { ...o, price: normalized } : o));
     updateCartItemOffers(selectedCartItem.id, { offers: update(selectedCartItem.offers), cashOffers: update(selectedCartItem.cashOffers), voucherOffers: update(selectedCartItem.voucherOffers) });
   }, [selectedCartItem, updateCartItemOffers]);

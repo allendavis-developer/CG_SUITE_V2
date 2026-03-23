@@ -4,7 +4,7 @@ import MarketComparisonsTable from './MarketComparisonsTable';
 import OfferSelection from './OfferSelection';
 import EbayResearchForm from '@/components/forms/EbayResearchForm.jsx';
 import CashConvertersResearchForm from '@/components/forms/CashConvertersResearchForm.jsx';
-import { roundOfferPrice, roundSalePrice } from '@/utils/helpers';
+import { normalizeExplicitSalePrice, roundSalePrice } from '@/utils/helpers';
 
 /**
  * Shared view for both:
@@ -150,7 +150,7 @@ export default function CexProductView({
     let selectedOfferId = null, manualOffer = null;
     if (offerArg && typeof offerArg === 'object' && offerArg.type === 'manual') {
       selectedOfferId = 'manual';
-      const rounded = roundOfferPrice(offerArg.amount);
+      const rounded = normalizeExplicitSalePrice(offerArg.amount);
       manualOffer = rounded > 50 ? String(rounded) : rounded.toFixed(2);
     } else if (typeof offerArg === 'string') {
       selectedOfferId = offerArg;

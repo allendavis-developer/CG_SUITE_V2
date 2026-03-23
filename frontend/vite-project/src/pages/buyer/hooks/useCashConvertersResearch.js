@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { roundOfferPrice, roundSalePrice } from '@/utils/helpers';
+import { roundSalePrice } from '@/utils/helpers';
+import { calculateBuyOffers } from '@/components/forms/researchStats';
 import useAppStore, { useEbayOfferMargins } from '@/store/useAppStore';
 
 // Flag to control pagination: set to true to fetch only first page, false to fetch all pages
@@ -22,21 +23,6 @@ function parseSoldDate(soldStr) {
   const datePart = soldStr.replace(/^Sold\s+/, '').trim();
   const parsed = new Date(datePart);
   return isNaN(parsed) ? null : parsed;
-}
-
-function calculateBuyOffers(sellPrice, margins) {
-  if (!sellPrice || sellPrice <= 0) return [];
-  const m1 = (margins?.[0] ?? 60) / 100;
-  const m2 = (margins?.[1] ?? 50) / 100;
-  const m3 = (margins?.[2] ?? 40) / 100;
-  const price1 = roundOfferPrice(sellPrice * (1 - m1));
-  const price3 = roundOfferPrice(sellPrice * (1 - m3));
-  const price2 = roundOfferPrice((price1 + price3) / 2);
-  return [
-    { margin: m1, price: price1 },
-    { margin: m2, price: price2 },
-    { margin: m3, price: price3 },
-  ];
 }
 
 /**

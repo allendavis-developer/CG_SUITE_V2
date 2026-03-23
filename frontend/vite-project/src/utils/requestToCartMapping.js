@@ -28,11 +28,11 @@ export function mapRequestItemsToCartItems(items, transactionType) {
     let savedVoucherOffers = item.voucher_offers_json || [];
     savedCashOffers = (savedCashOffers || []).map((offer) => ({
       ...offer,
-      price: roundOfferPrice(offer?.price),
+      price: normalizeExplicitSalePrice(offer?.price),
     }));
     savedVoucherOffers = (savedVoucherOffers || []).map((offer) => ({
       ...offer,
-      price: roundOfferPrice(offer?.price),
+      price: normalizeExplicitSalePrice(offer?.price),
     }));
 
     // Add from CeX: raw_data has id, title, and either CeX structure or no eBay fields
@@ -56,11 +56,11 @@ export function mapRequestItemsToCartItems(items, transactionType) {
       }
       savedCashOffers = (savedCashOffers || []).map((offer) => ({
         ...offer,
-        price: roundOfferPrice(offer?.price),
+        price: normalizeExplicitSalePrice(offer?.price),
       }));
       savedVoucherOffers = (savedVoucherOffers || []).map((offer) => ({
         ...offer,
-        price: roundOfferPrice(offer?.price),
+        price: normalizeExplicitSalePrice(offer?.price),
       }));
     }
 
@@ -352,5 +352,11 @@ export function mapRequestToCustomerData(request) {
     faultyRateRaw: enrichment.faultyRateRaw ?? null,
     buyingCount: enrichment.buyingCount ?? null,
     salesCount: enrichment.salesCount ?? null,
+    // Preserve negotiation-level values so reopening a QUOTE restores
+    // the top-row fields in Negotiation (total expectation / target).
+    overall_expectation_gbp:
+      request.overall_expectation_gbp != null ? Number(request.overall_expectation_gbp) : null,
+    target_offer_gbp:
+      request.target_offer_gbp != null ? Number(request.target_offer_gbp) : null,
   };
 }

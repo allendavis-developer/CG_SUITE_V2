@@ -537,6 +537,19 @@ const RepricingNegotiation = () => {
 
   const handleProceed = async () => {
     for (const item of activeItems) {
+      const rawSaleInput = String(item.ourSalePriceInput ?? '').replace(/[£,]/g, '').trim();
+      if (rawSaleInput !== '') {
+        const parsedTotalSale = parseFloat(rawSaleInput);
+        if (!Number.isFinite(parsedTotalSale) || parsedTotalSale <= 0) {
+          showNotification(`Our sale price must be greater than £0 for: ${item.title || 'Unknown Item'}`, 'error');
+          return;
+        }
+      }
+      const resolvedSalePrice = resolveRepricingSalePrice(item);
+      if (!Number.isFinite(Number(resolvedSalePrice)) || Number(resolvedSalePrice) <= 0) {
+        showNotification(`Set a valid new sale price above £0 for: ${item.title || 'Unknown Item'}`, 'error');
+        return;
+      }
       if (!(barcodes[item.id] || []).length) {
         showNotification(`Add at least one barcode for: ${item.title || 'Unknown Item'}`, 'error');
         return;
@@ -788,13 +801,20 @@ const RepricingNegotiation = () => {
                       if (i.id !== item.id) return i;
                       const next = { ...i };
                       delete next.ourSalePriceInput;
-                      if (raw === '' || Number.isNaN(parsedTotal) || parsedTotal <= 0) {
+                      if (raw === '') {
                         next.ourSalePrice = '';
+                        return next;
+                      }
+                      if (Number.isNaN(parsedTotal) || parsedTotal <= 0) {
+                        // Reject invalid/non-positive input and keep previous value.
                         return next;
                       }
                       next.ourSalePrice = String(normalizeExplicitSalePrice(parsedTotal / qty));
                       return next;
                     }));
+                    if (raw !== '' && (Number.isNaN(parsedTotal) || parsedTotal <= 0)) {
+                      showNotification('Our sale price must be greater than £0', 'error');
+                    }
                   };
 
                   return (

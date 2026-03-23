@@ -233,8 +233,8 @@ class PricingRule(models.Model):
         null=True,
         blank=True,
         help_text=(
-            "Margin % for the first eBay/research-based offer. "
-            "E.g. 60 means offer = suggestedPrice * 0.40. Default 60."
+            "First eBay/Cash Converters cash offer as % of suggested sale price. "
+            "E.g. 40 means offer = suggestedPrice × 0.40. Default 40."
         )
     )
 
@@ -244,8 +244,8 @@ class PricingRule(models.Model):
         null=True,
         blank=True,
         help_text=(
-            "Margin % for the second eBay/research-based offer. "
-            "E.g. 50 means offer = suggestedPrice * 0.50. Default 50."
+            "Second offer as % of suggested sale price. "
+            "E.g. 50 means offer = suggestedPrice × 0.50. Default 50."
         )
     )
 
@@ -255,8 +255,8 @@ class PricingRule(models.Model):
         null=True,
         blank=True,
         help_text=(
-            "Margin % for the third eBay/research-based offer. "
-            "E.g. 40 means offer = suggestedPrice * 0.60. Default 40."
+            "Third offer as % of suggested sale price. "
+            "E.g. 60 means offer = suggestedPrice × 0.60. Default 60."
         )
     )
 

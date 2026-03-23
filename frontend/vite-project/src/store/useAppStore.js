@@ -14,7 +14,7 @@ import {
 } from '@/services/api';
 import { getDataFromListingPage } from '@/services/extensionClient';
 import { mapTransactionTypeToIntent } from '@/utils/transactionConstants';
-import { normalizeExplicitSalePrice, roundOfferPrice, roundSalePrice, toVoucherOfferPrice, formatOfferPrice } from '@/utils/helpers';
+import { normalizeExplicitSalePrice, roundSalePrice, toVoucherOfferPrice, formatOfferPrice } from '@/utils/helpers';
 import { mapRequestItemsToCartItems, mapRequestToCustomerData } from '@/utils/requestToCartMapping';
 
 const DEFAULT_CUSTOMER = {
@@ -26,7 +26,7 @@ const DEFAULT_CUSTOMER = {
 
 function normalizeOffers(offers) {
   if (!Array.isArray(offers)) return [];
-  return offers.map((o) => ({ id: o.id, title: o.title, price: roundOfferPrice(o.price) }));
+  return offers.map((o) => ({ id: o.id, title: o.title, price: normalizeExplicitSalePrice(o.price) }));
 }
 
 function generateId() {
@@ -117,7 +117,7 @@ const useAppStore = create(
       },
       setRepricingSessionId: (id) => set({ repricingSessionId: id }),
 
-      // ─── eBay offer margins (fetched from backend config, per-category) ──
+      // ─── eBay / Cash Converters offer % of sale (API keys ebay_offer_margin_*; three tiers) ──
       ebayOfferMargins: null,
       _ebayMarginsByCategory: {},
       loadEbayOfferMargins: async (categoryId) => {
@@ -137,7 +137,7 @@ const useAppStore = create(
           }
           return margins;
         } catch (err) {
-          console.warn('[CG Suite] Failed to load eBay offer margins:', err);
+          console.warn('[CG Suite] Failed to load eBay/Cash Converters offer % of sale:', err);
           return null;
         }
       },
@@ -269,7 +269,7 @@ const useAppStore = create(
           }
           if (updatedOfferData.manualOffer !== undefined && updatedOfferData.manualOffer !== '') {
             const parsed = parseFloat(String(updatedOfferData.manualOffer).replace(/[£,]/g, ''));
-            payload.manual_offer_gbp = !isNaN(parsed) ? roundOfferPrice(parsed) : null;
+            payload.manual_offer_gbp = !isNaN(parsed) ? normalizeExplicitSalePrice(parsed) : null;
           }
           if (updatedOfferData.ourSalePrice !== undefined) {
             const parsed = parseFloat(String(updatedOfferData.ourSalePrice).replace(/[£,]/g, ''));
@@ -383,7 +383,7 @@ const useAppStore = create(
               };
               if (nextItem.manualOffer != null && nextItem.manualOffer !== '') {
                 const parsed = parseFloat(String(nextItem.manualOffer).replace(/[£,]/g, ''));
-                if (!isNaN(parsed)) payload.manual_offer_gbp = roundOfferPrice(parsed);
+                if (!isNaN(parsed)) payload.manual_offer_gbp = normalizeExplicitSalePrice(parsed);
               }
               updateRequestItemOffer(nextItem.request_item_id, payload).catch((err) => {
                 console.error('[Store] Persist offer after transaction type change failed:', err);
@@ -421,7 +421,7 @@ const useAppStore = create(
           payload.manual_offer_used = itemPayload.selectedOfferId === 'manual';
         }
         if (itemPayload.manualOffer != null && itemPayload.manualOffer !== '' && !isNaN(parseFloat(itemPayload.manualOffer))) {
-          payload.manual_offer_gbp = roundOfferPrice(parseFloat(itemPayload.manualOffer));
+          payload.manual_offer_gbp = normalizeExplicitSalePrice(parseFloat(itemPayload.manualOffer));
         }
         if (itemPayload.ourSalePrice != null && itemPayload.ourSalePrice !== '' && !isNaN(parseFloat(itemPayload.ourSalePrice))) {
           payload.our_sale_price_at_negotiation = normalizeExplicitSalePrice(parseFloat(itemPayload.ourSalePrice));
@@ -540,11 +540,20 @@ const useAppStore = create(
           return;
         }
 
-        const isEbayOrCex = item.isCustomEbayItem || item.isCustomCeXItem;
-        const immediateUpdates = { cexProductData: null, selectedCartItemId: item.id };
+        const isCustomResearchOnlyItem =
+          item.isCustomEbayItem || item.isCustomCeXItem || item.isCustomCashConvertersItem;
+        const immediateUpdates = {
+          cexProductData: null,
+          selectedCartItemId: item.id,
+          // Always clear model state first so MainContent cannot hydrate attributes
+          // against a stale product while we resolve the selected cart item's model.
+          selectedModel: null,
+          availableModels: [],
+          isLoadingModels: false,
+        };
         if (item.categoryObject) {
           immediateUpdates.selectedCategory = item.categoryObject;
-          if (!isEbayOrCex) {
+          if (!isCustomResearchOnlyItem) {
             const reqId = get()._modelsRequestId + 1;
             immediateUpdates._modelsRequestId = reqId;
             immediateUpdates.isLoadingModels = true;
@@ -687,7 +696,7 @@ const useAppStore = create(
             }
             if (item.manualOffer !== undefined && item.manualOffer !== '') {
               const parsed = parseFloat(String(item.manualOffer).replace(/[£,]/g, ''));
-              payload.manual_offer_gbp = !isNaN(parsed) ? roundOfferPrice(parsed) : null;
+              payload.manual_offer_gbp = !isNaN(parsed) ? normalizeExplicitSalePrice(parsed) : null;
             }
             if (item.ourSalePrice !== undefined) {
               const parsed = parseFloat(String(item.ourSalePrice).replace(/[£,]/g, ''));
