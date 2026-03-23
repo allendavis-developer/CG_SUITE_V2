@@ -49,6 +49,36 @@ const ContextMenu = ({ x, y, onClose, onRemove }) => {
   );
 };
 
+const getNosposIdFromUrl = (stockUrl) => {
+  if (!stockUrl) return "";
+  try {
+    const url = new URL(stockUrl);
+    const parts = url.pathname.split("/").filter(Boolean);
+    const idx = parts.indexOf("stock");
+    if (idx !== -1 && parts[idx + 1]) {
+      const candidate = parts[idx + 1];
+      return /^\d+$/.test(candidate) ? candidate : "";
+    }
+    return "";
+  } catch {
+    return "";
+  }
+};
+
+const openBarcodePrintTab = (itemsData) => {
+  if (!Array.isArray(itemsData) || !itemsData.length) return;
+  const ids = Array.from(
+    new Set(
+      itemsData
+        .map((item) => getNosposIdFromUrl(item.stock_url))
+        .filter((id) => id && id.trim() !== "")
+    )
+  );
+  if (!ids.length) return;
+  const stockIdsParam = encodeURIComponent(ids.join(","));
+  window.open(`https://nospos.com/print/barcode?stock_ids=${stockIdsParam}`, "_blank", "noopener");
+};
+
 const buildSessionSavePayload = (payload) => ({
   cart_key: payload?.cart_key || "",
   item_count: payload?.item_count || 0,
@@ -109,6 +139,7 @@ const RepricingNegotiation = () => {
   const [researchItem, setResearchItem] = useState(null);
   const [cashConvertersResearchItem, setCashConvertersResearchItem] = useState(null);
   const [isRepricingFinished, setIsRepricingFinished] = useState(false);
+  const [completedItemsData, setCompletedItemsData] = useState([]);
   const [ambiguousBarcodeModal, setAmbiguousBarcodeModal] = useState(null);
   const [unverifiedModal, setUnverifiedModal] = useState(null); // { entries: [] }
   const [repricingJob, setRepricingJob] = useState(null);
@@ -233,6 +264,11 @@ const RepricingNegotiation = () => {
 
       setIsRepricingFinished(true);
       setRepricingJob((prev) => prev ? { ...prev, running: false, done: true, step: 'completed', message: 'Repricing completed.' } : prev);
+
+      if (savePayload.barcode_count > 0) {
+        setCompletedItemsData(savePayload.items_data);
+        openBarcodePrintTab(savePayload.items_data);
+      }
 
       if (unverifiedEntries.length > 0) {
         setUnverifiedModal({ entries: unverifiedEntries });
@@ -1096,7 +1132,17 @@ const RepricingNegotiation = () => {
                 Verify a NoSpos barcode for every item before proceeding
               </p>
             )}
-            {isRepricingFinished && (
+            {isRepricingFinished && completedItemsData.length > 0 && (
+              <button
+                onClick={() => openBarcodePrintTab(completedItemsData)}
+                className="w-full font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
+                style={{ background: '#144584', color: '#fff' }}
+              >
+                <span className="material-symbols-outlined text-xl">print</span>
+                <span className="text-sm uppercase tracking-tight">Print Barcodes</span>
+              </button>
+            )}
+            {isRepricingFinished && completedItemsData.length === 0 && (
               <p className="text-[10px] text-center text-emerald-700 font-semibold -mt-2">
                 Repricing finished
               </p>

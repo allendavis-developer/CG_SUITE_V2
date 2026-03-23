@@ -153,7 +153,7 @@ const CartSidebar = ({ mode = 'buyer', onTransactionTypeChange = null }) => {
           }}
           disabled={cartItems.length === 0}
         >
-          {isRepricing ? 'View Reprice List' : 'Negotiate'}
+          {isRepricing ? 'View Reprice List' : 'Proceed'}
           <Icon name="arrow_forward" className="ml-2 text-sm group-hover:translate-x-1 transition-transform" />
         </Button>
       </div>

@@ -226,7 +226,7 @@ function addItemContextLog(data, item, prefix = 'Next item is') {
   const label = data?.lastLoggedItemId ? 'Next item is' : 'First item is';
   return appendRepricingLog(
     { ...(data || {}), lastLoggedItemId: item.itemId },
-    `${label} ${itemTitleForLog(item)} - doing barcodes ${formatBarcodeArrayForLog(item)}.`
+    `${label} ${itemTitleForLog(item)} - updating barcodes ${formatBarcodeArrayForLog(item)}.`
   );
 }
 

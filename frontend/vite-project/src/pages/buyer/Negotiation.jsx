@@ -483,6 +483,18 @@ const Negotiation = ({ mode }) => {
     return () => clearTimeout(timer);
   }, [draftPayload, actualRequestId]);
 
+  // Auto-sum per-item customer expectations into the overall field
+  useEffect(() => {
+    if (mode !== 'negotiate') return;
+    const activeItems = items.filter(i => !i.isRemoved);
+    if (activeItems.length === 0) return;
+    const parsed = activeItems.map(i => parseFloat(String(i.customerExpectation ?? '').replace(/[£,]/g, '').trim()));
+    if (parsed.every(v => Number.isFinite(v) && v >= 0)) {
+      const sum = parsed.reduce((acc, v) => acc + v, 0);
+      setTotalExpectation(sum.toFixed(2));
+    }
+  }, [items, mode]);
+
   // Save draft on unmount / tab close
   useEffect(() => {
     if (mode !== 'negotiate' || !actualRequestId) return;
