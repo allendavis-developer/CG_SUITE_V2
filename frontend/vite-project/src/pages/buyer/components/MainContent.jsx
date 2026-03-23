@@ -29,7 +29,7 @@ const MainContent = ({ mode = 'buyer' }) => {
     selectedCategory, availableModels, selectedModel, setSelectedModel, isLoadingModels,
     customerData, intent, request,
     cexProductData, setCexProductData, clearCexProduct,
-    addToCart, updateCartItemOffers, updateCartItemResearchData,
+    addToCart, updateCartItem, updateCartItemOffers, updateCartItemResearchData,
     createOrAppendRequestItem, onItemAddedToCart, deselectCartItem,
   } = useAppStore();
 
@@ -204,13 +204,13 @@ const MainContent = ({ mode = 'buyer' }) => {
   // ── Cart item creation ──
   const buildCartItem = (selectedOfferIdForItem, manualOfferPerUnit) => {
     const selectedVariant = variants.find((v) => v.cex_sku === variant);
-    const cashOffers = referenceData?.cash_offers?.map((o) => ({ id: o.id, title: o.title, price: roundOfferPrice(o.price) })) || [];
-    const voucherOffers = referenceData?.voucher_offers?.map((o) => ({ id: o.id, title: o.title, price: roundOfferPrice(o.price) })) || [];
+    const cashOffers = referenceData?.cash_offers?.map((o) => ({ id: o.id, title: o.title, price: o.id?.endsWith('_3') ? Number(o.price) : roundOfferPrice(o.price) })) || [];
+    const voucherOffers = referenceData?.voucher_offers?.map((o) => ({ id: o.id, title: o.title, price: o.id?.endsWith('_3') ? Number(o.price) : roundOfferPrice(o.price) })) || [];
     return {
       id: crypto.randomUUID?.() ?? `cart-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       title: selectedModel.name,
       subtitle: selectedVariant?.title || Object.values(attributeValues).filter((v) => v).join(' / ') || 'Standard',
-      offers: offers.map((o) => ({ id: o.id, title: o.title, price: roundOfferPrice(o.price) })),
+      offers: offers.map((o) => ({ id: o.id, title: o.title, price: o.id?.endsWith('_3') ? Number(o.price) : roundOfferPrice(o.price) })),
       cashOffers, voucherOffers, quantity: 1,
       variantId: selectedVariant?.variant_id,
       category: selectedCategory?.name,
@@ -400,6 +400,43 @@ const MainContent = ({ mode = 'buyer' }) => {
     }
   };
 
+  // ── eBay exclusion → live offer refresh ──
+  // Called by EbayResearchForm (via EbayCartItemView) whenever the user toggles
+  // an exclusion on an already-carted eBay item. Re-derives cash/voucher offers
+  // from the updated buyOffers and writes them back to the cart item so that
+  // the offer cards and sidebar both reflect the new prices immediately.
+  const handleEbayOffersChange = useCallback(({ buyOffers: newBuyOffers, listings: newListings, stats: newStats }) => {
+    if (!selectedCartItem?.isCustomEbayItem) return;
+
+    const cashOffers = (newBuyOffers || []).map((o, idx) => ({
+      id: `ebay-cash-${idx}`,
+      title: ['1st Offer', '2nd Offer', '3rd Offer'][idx] || 'Offer',
+      price: roundOfferPrice(o.price),
+    }));
+    const voucherOffers = cashOffers.map((o) => ({
+      id: `ebay-voucher-${o.id}`,
+      title: o.title,
+      price: toVoucherOfferPrice(o.price),
+    }));
+    const offers = useVoucherOffers ? voucherOffers : cashOffers;
+
+    updateCartItemOffers(selectedCartItem.id, { cashOffers, voucherOffers, offers });
+
+    const updatedResearchData = {
+      ...selectedCartItem.ebayResearchData,
+      listings: newListings,
+      buyOffers: newBuyOffers,
+      stats: newStats,
+    };
+    updateCartItem(selectedCartItem.id, { ebayResearchData: updatedResearchData });
+
+    if (selectedCartItem.request_item_id) {
+      updateRequestItemRawData(selectedCartItem.request_item_id, {
+        raw_data: updatedResearchData,
+      }).catch(() => {});
+    }
+  }, [selectedCartItem, updateCartItem, updateCartItemOffers, useVoucherOffers]);
+
   // ── Offer editing callbacks ──
   const handleSelectOfferForSelectedItem = useCallback((offerArg) => {
     if (!selectedCartItem) return;
@@ -514,6 +551,7 @@ const MainContent = ({ mode = 'buyer' }) => {
         onSelectOfferForCartItem={handleSelectOfferForSelectedItem}
         onEbayResearchComplete={handleEbayResearchComplete}
         onDeselectCartItem={deselectCartItem}
+        onOffersChange={handleEbayOffersChange}
       />
     );
   }

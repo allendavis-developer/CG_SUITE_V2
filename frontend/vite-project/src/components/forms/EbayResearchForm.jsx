@@ -35,6 +35,7 @@ function EbayResearchForm({
   addActionLabel = 'Add to Cart',
   hideOfferCards = false,
   useVoucherOffers = false,
+  onOffersChange = null,
 }) {
   const categoryId = category?.id ?? null;
   const ebayOfferMargins = useEbayOfferMargins(categoryId);
@@ -183,6 +184,25 @@ function EbayResearchForm({
     () => calculateBuyOffers(displayedStats.suggestedPrice, ebayOfferMargins),
     [displayedStats.suggestedPrice, ebayOfferMargins]
   );
+
+  // Fire onOffersChange whenever exclusions (listings) or derived buyOffers change,
+  // but skip the very first render so we don't trigger an update on initial load.
+  const onOffersChangeRef = useRef(onOffersChange);
+  useEffect(() => { onOffersChangeRef.current = onOffersChange; });
+  const offersChangeInitializedRef = useRef(false);
+  useEffect(() => {
+    if (!offersChangeInitializedRef.current) {
+      offersChangeInitializedRef.current = true;
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      onOffersChangeRef.current?.({ buyOffers, listings, stats: displayedStats });
+    }, 120);
+
+    return () => window.clearTimeout(timeoutId);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listings, buyOffers]);
 
   const handleDrillDown = useCallback((rangeStart, rangeEnd) => {
     setDrillHistory(prev => [...prev, { min: rangeStart, max: rangeEnd }]);

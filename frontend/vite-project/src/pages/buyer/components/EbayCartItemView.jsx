@@ -10,6 +10,7 @@ export default function EbayCartItemView({
   onSelectOfferForCartItem,
   onEbayResearchComplete,
   onDeselectCartItem,
+  onOffersChange,
 }) {
   const displayOffers = useVoucherOffers ? (item.voucherOffers || []) : (item.cashOffers || []);
   const handleOfferSelect = (offerArg) => {
@@ -51,6 +52,7 @@ export default function EbayCartItemView({
               onOfferSelect={handleOfferSelect}
               addActionLabel={isRepricing ? 'Add to Reprice List' : 'Add to Cart'} hideOfferCards={false}
               useVoucherOffers={useVoucherOffers}
+              onOffersChange={onOffersChange}
             />
           ) : (
             <div className="text-center py-12">

@@ -1085,7 +1085,7 @@ def variant_prices(request):
     def generate_offer_set(cex_reference_buy_price, prefix):
         """
         Generates First, Second, and Third offers based on a CeX reference price.
-        - Third: Match CeX trade-in price exactly (rounded to nearest £2/£5)
+        - Third: Match CeX trade-in price exactly (no rounding — always equals CeX)
         - First: If first_offer_pct is set, use (cex_reference_buy_price * pct/100);
                  otherwise use the same absolute margin as CeX (our_sale_price - cex_abs_margin)
         - Second: If second_offer_pct is set, use (cex_reference_buy_price * pct/100);
@@ -1101,7 +1101,7 @@ def variant_prices(request):
             offer_1 = max(our_sale_price - cex_abs_margin, 0)
 
         rounded_offer_1 = _round_offer_price(offer_1)
-        rounded_offer_3 = _round_offer_price(offer_3)
+        rounded_offer_3 = float(offer_3)
 
         if second_offer_pct is not None:
             rounded_offer_2 = _round_offer_price(
@@ -1223,7 +1223,7 @@ def cex_product_prices(request):
             cex_abs_margin = cex_sale_price - cex_reference_buy_price
             offer_1 = max(our_sale_price - cex_abs_margin, 0)
         rounded_offer_1 = _round_offer_price(offer_1)
-        rounded_offer_3 = _round_offer_price(offer_3)
+        rounded_offer_3 = float(offer_3)
         if second_offer_pct is not None:
             rounded_offer_2 = _round_offer_price(
                 max(cex_reference_buy_price * (second_offer_pct / 100.0), 0)

@@ -69,16 +69,23 @@ const ListingCard = React.memo(function ListingCard({ item, origIdx, sortedIdx, 
     onExcludeContextMenu?.(e, sortedIdx);
   };
   const animDelay = Math.min(displayIdx * 8, 80);
+  const hasPlayedEntryAnimationRef = useRef(false);
+  useEffect(() => {
+    hasPlayedEntryAnimationRef.current = true;
+  }, []);
+  const entryAnimationStyle = !hasPlayedEntryAnimationRef.current && animDelay > 0
+    ? { animationDelay: `${animDelay}ms`, opacity: 0, animation: 'fadeInUp 0.25s ease-out forwards' }
+    : undefined;
   return (
     <div className={`relative group ${item.excluded ? 'opacity-60' : ''}`} onContextMenu={handleExcludeContextMenu}>
       <a
         href={item.url}
         target="_blank"
         rel="noopener noreferrer"
-        className={`flex gap-4 rounded-xl border p-4 hover:shadow-md transition-all duration-200 ${
+        className={`flex gap-4 rounded-xl border p-4 hover:shadow-md transition-[background-color,border-color,box-shadow] duration-150 ${
           item.excluded ? 'bg-orange-50/60 border-orange-300' : 'bg-white border-gray-200'
         }`}
-        style={animDelay > 0 ? { animationDelay: `${animDelay}ms`, opacity: 0, animation: 'fadeInUp 0.25s ease-out forwards' } : undefined}
+        style={entryAnimationStyle}
       >
         <div className="w-32 h-32 bg-gray-200 rounded-lg flex items-center justify-center overflow-hidden shrink-0">
           {item.image ? (
@@ -111,7 +118,7 @@ const ListingCard = React.memo(function ListingCard({ item, origIdx, sortedIdx, 
       )}
       {showExcludeButton && (
         <button
-          className={`absolute top-2 right-2 z-10 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wide transition-all duration-150 ${
+          className={`absolute top-2 right-2 z-10 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wide transition-[background-color,border-color,color,box-shadow] duration-75 ${
             isPivot ? 'bg-blue-600 text-white shadow-md ring-2 ring-blue-300' : item.excluded ? 'bg-orange-500 text-white shadow-sm hover:bg-orange-600' : 'bg-white text-gray-600 border border-gray-300 shadow-sm hover:bg-red-50 hover:text-red-600 hover:border-red-300'
           }`}
           onClick={handleExcludeClick}
