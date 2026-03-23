@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { getDataFromListingPage, getDataFromRefine } from '@/services/extensionClient';
 import ResearchFormShell from './ResearchFormShell';
 import { calculateStats, calculateBuyOffers } from './researchStats';
@@ -32,6 +32,7 @@ export default function CashConvertersResearchForm({
   resetDrillOnOpen = false,
   onAddNewItem = null,
   addActionLabel = 'Add to Cart',
+  hideOfferCards = false,
   useVoucherOffers = false,
 }) {
   const categoryId = category?.id ?? null;
@@ -84,6 +85,18 @@ export default function CashConvertersResearchForm({
       setLoading(false);
     }
   }, [initialSearchQuery, marketComparisonContext]);
+
+  const autoTriggeredRef = useRef(false);
+  // Auto-trigger get data once on mount in modal mode only.
+  // Page mode is a persistent panel that resets after cart adds — firing there would open
+  // an unwanted tab every time the user adds an item to cart.
+  useEffect(() => {
+    if (mode === 'modal' && step === 'get-data' && !readOnly && !autoTriggeredRef.current) {
+      autoTriggeredRef.current = true;
+      handleGetData();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleRefineSearch = useCallback(async () => {
     setError(null);
@@ -315,6 +328,7 @@ export default function CashConvertersResearchForm({
       onAddNewItem={onAddNewItem}
       onResetSearch={!readOnly ? handleResetSearch : null}
       addActionLabel={addActionLabel}
+      hideOfferCards={hideOfferCards}
       useVoucherOffers={useVoucherOffers}
     />
   );

@@ -473,16 +473,20 @@ export default function ResearchFormShell({
   const closeManualOfferDialog = useCallback(() => setManualOfferDialog(null), []);
 
   const applyManualOfferDialog = useCallback(() => {
-    if (!manualOfferDialog || !onAddToCartWithOffer) return;
+    if (!manualOfferDialog) return;
     const raw = String(manualOfferDialog.value || '').replace(/[£,]/g, '').trim();
     const parsed = parseFloat(raw);
     if (Number.isNaN(parsed) || parsed <= 0) {
       closeManualOfferDialog();
       return;
     }
-    onAddToCartWithOffer({ type: 'manual', amount: parsed, baseIndex: manualOfferDialog.baseIndex });
+    if (onAddToCartWithOffer) {
+      onAddToCartWithOffer({ type: 'manual', amount: parsed, baseIndex: manualOfferDialog.baseIndex });
+    } else if (onCompleteWithSelection) {
+      onCompleteWithSelection('manual', parsed.toFixed(2));
+    }
     closeManualOfferDialog();
-  }, [manualOfferDialog, onAddToCartWithOffer, closeManualOfferDialog]);
+  }, [manualOfferDialog, onAddToCartWithOffer, onCompleteWithSelection, closeManualOfferDialog]);
 
   useEffect(() => {
     if (!manualOfferDialog) return;
@@ -838,7 +842,10 @@ export default function ResearchFormShell({
     const offerLabels = useVoucherOffers
       ? ["1st Voucher Offer", "2nd Voucher Offer", "3rd Voucher Offer"]
       : ["1st Cash Offer", "2nd Cash Offer", "3rd Cash Offer"];
-    const showRightClickManual = enableRightClickManualOffer && useAddWithOfferFlow && !hideOfferCards;
+    const showRightClickManual = !hideOfferCards && (
+      (enableRightClickManualOffer && useAddWithOfferFlow) ||
+      (showManualOffer && Boolean(onCompleteWithSelection) && !readOnly)
+    );
     const offersAreInteractive = useAddWithOfferFlow || (showManualOffer && !readOnly);
 
     return (
@@ -1081,7 +1088,11 @@ export default function ResearchFormShell({
                 options={sortOptionLabels}
                 onChange={(label) => {
                   const found = sortOptions.find(o => o.label === label);
-                  if (found) setSortOrder(found.value);
+                  if (found) {
+                    setSortOrder(found.value);
+                    setRightClickPivotIdx(null);
+                    setRightClickPivotAction(null);
+                  }
                 }}
                 labelPosition="left"
               />
@@ -1188,7 +1199,11 @@ export default function ResearchFormShell({
                 options={sortOptionLabels}
                 onChange={(label) => {
                   const found = sortOptions.find(o => o.label === label);
-                  if (found) setSortOrder(found.value);
+                  if (found) {
+                    setSortOrder(found.value);
+                    setRightClickPivotIdx(null);
+                    setRightClickPivotAction(null);
+                  }
                 }}
                 labelPosition="left"
               />
@@ -1446,13 +1461,17 @@ export default function ResearchFormShell({
                                 key={idx}
                                 type="button"
                                 className="flex flex-col text-left px-2.5 py-2 rounded-lg bg-blue-50 border border-blue-100 hover:bg-blue-100 active:bg-blue-200 transition-colors flex-1 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                                onClick={onAddToCartWithOffer ? () => onAddToCartWithOffer(idx) : undefined}
+                                onClick={
+                                  onAddToCartWithOffer
+                                    ? () => onAddToCartWithOffer(idx)
+                                    : (showManualOffer && !readOnly ? () => handleOfferClick(price, idx) : undefined)
+                                }
                                 onContextMenu={(e) => {
                                   e.preventDefault();
                                   const basePrice = Number(price);
                                   openManualOfferDialog(e, idx, Number.isFinite(basePrice) && basePrice > 0 ? basePrice.toFixed(2) : '');
                                 }}
-                                title="Left-click to add · Right-click for custom amount"
+                                title="Left-click to select · Right-click for custom amount"
                               >
                                 <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider leading-none mb-0.5">{offerLabels[idx]}</span>
                                 <span className="text-sm font-extrabold text-blue-900 leading-tight">£{formatStat(price)}</span>

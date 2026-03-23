@@ -664,6 +664,7 @@ const MainContent = ({ mode = 'buyer' }) => {
               ourSalePrice={ourSalePrice} initialSearchQuery={variants.find(v => v.cex_sku === variant)?.title || selectedModel?.name || undefined}
               marketComparisonContext={buildMarketContext()}
               onComplete={(data) => { if (data?.cancel) { setEbayModalOpen(false); return; } handleEbayResearchComplete(data); setEbayModalOpen(false); }}
+              hideOfferCards={isRepricing}
               useVoucherOffers={useVoucherOffers}
             />
           )}
@@ -675,6 +676,7 @@ const MainContent = ({ mode = 'buyer' }) => {
               initialSearchQuery={ebayData?.searchTerm || variants.find(v => v.cex_sku === variant)?.title || selectedModel?.name || undefined}
               marketComparisonContext={buildMarketContext()}
               onComplete={(data) => { if (data?.cancel) { setCashConvertersModalOpen(false); return; } handleCashConvertersResearchComplete(data); setCashConvertersModalOpen(false); }}
+              hideOfferCards={isRepricing}
               useVoucherOffers={useVoucherOffers}
             />
           )}

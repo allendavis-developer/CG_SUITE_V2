@@ -352,6 +352,7 @@ export function mapRequestToCustomerData(request) {
     faultyRateRaw: enrichment.faultyRateRaw ?? null,
     buyingCount: enrichment.buyingCount ?? null,
     salesCount: enrichment.salesCount ?? null,
+    bypassReason: enrichment.bypassReason ?? null,
     // Preserve negotiation-level values so reopening a QUOTE restores
     // the top-row fields in Negotiation (total expectation / target).
     overall_expectation_gbp:

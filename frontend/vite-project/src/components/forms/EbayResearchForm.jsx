@@ -125,6 +125,18 @@ function EbayResearchForm({
     }
   }, [listingPageUrl, marketComparisonContext, mode, onComplete]);
 
+  const autoTriggeredRef = useRef(false);
+  // Auto-trigger get data once on mount in modal mode only.
+  // Page mode is a persistent panel that resets after cart adds — firing there would open
+  // an unwanted tab every time the user adds an item to cart.
+  useEffect(() => {
+    if (mode === 'modal' && step === 'get-data' && !readOnly && !autoTriggeredRef.current) {
+      autoTriggeredRef.current = true;
+      handleGetData();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Cancel the active listing tab session without leaving the cards view.
   // The awaiting handleRefineSearch/handleGetData promise resolves but is ignored
   // because userCancelledRef is set, so no error or onComplete is triggered.

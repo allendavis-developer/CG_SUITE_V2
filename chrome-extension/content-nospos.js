@@ -398,6 +398,12 @@
     var d       = scrapeCustomerForm();
     var changes = scrapeCustomerChanges();
 
+    // If town is empty, store a flag so we can detect a native NosPos save
+    // and switch back to the system tab even if the CG modal isn't used.
+    if (!d.town) {
+      try { sessionStorage.setItem('cgWaitingForTownFix', JSON.stringify({ requestId: requestId })); } catch (e) {}
+    }
+
     var days          = daysSince(d.lastTransacted);
     var recentWarning = days !== null && days >= 0 && days <= 14;
 
@@ -899,7 +905,6 @@
       if (finalForename  !== d.forename)   updateNosposField('#customer-forename',   finalForename);
       if (finalSurname   !== d.surname)    updateNosposField('#customer-surname',     finalSurname);
       if (enteredPhone   && enteredPhone   !== d.mobile)    updateNosposField('#customer-mobile',    enteredPhone);
-      if (d.homePhone    && enteredPhone   !== d.homePhone) updateNosposField('#customer-home_phone', enteredPhone);
       if (enteredEmail   && enteredEmail   !== d.email)     updateNosposField('#customer-email',      enteredEmail);
       if (enteredPost    && enteredPost    !== d.postcode)  updateNosposField('#customer-postcode',   enteredPost);
       if (enteredAddr1   && enteredAddr1   !== d.address1)  updateNosposField('#customer-address1',   enteredAddr1);
@@ -1050,7 +1055,11 @@
     var pending = null;
     try {
       var raw = sessionStorage.getItem('cgCustomerPending');
-      if (raw) { pending = JSON.parse(raw); sessionStorage.removeItem('cgCustomerPending'); }
+      if (raw) {
+        pending = JSON.parse(raw);
+        sessionStorage.removeItem('cgCustomerPending');
+        sessionStorage.removeItem('cgWaitingForTownFix');
+      }
     } catch (e) {}
 
     if (pending && pending.requestId) {
@@ -1064,10 +1073,43 @@
       return; // don't show the modal again
     }
 
+    // If the user was prompted to fill in the town field and has now saved
+    // the NosPos form natively (without going through the CG modal save flow),
+    // detect the populated town and switch back to the system tab.
+    var townFixPending = null;
+    try {
+      var rawTownFix = sessionStorage.getItem('cgWaitingForTownFix');
+      if (rawTownFix) { townFixPending = JSON.parse(rawTownFix); }
+    } catch (e) {}
+
+    if (townFixPending && townFixPending.requestId) {
+      var townEl = document.querySelector('#customer-address3');
+      var currentTown = townEl ? (townEl.value || '').trim() : '';
+      if (currentTown) {
+        sessionStorage.removeItem('cgWaitingForTownFix');
+        var customer = scrapeCustomerForm();
+        customer.name    = (customer.forename + ' ' + customer.surname).trim();
+        customer.phone   = customer.mobile || customer.homePhone;
+        customer.address = [customer.address1, customer.address2, customer.town, customer.county, customer.postcode].filter(Boolean).join(', ');
+        chrome.runtime.sendMessage({
+          type: 'NOSPOS_CUSTOMER_DONE',
+          requestId: townFixPending.requestId,
+          cancelled: false,
+          customer: customer,
+          changes: [{ field: 'Town', from: '', to: currentTown }]
+        }).catch(function () {});
+        return;
+      }
+      // Town still empty — fall through to show the modal again
+    }
+
     // Normal flow: show modal
     chrome.runtime.sendMessage({ type: 'NOSPOS_CUSTOMER_DETAIL_READY' }, function (response) {
       if (response && response.ok && response.requestId) {
         showCustomerDetailModal(response.requestId);
+      } else {
+        // Background no longer has a pending entry — clear any stale flag
+        sessionStorage.removeItem('cgWaitingForTownFix');
       }
     });
   }

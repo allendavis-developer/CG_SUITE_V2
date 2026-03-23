@@ -931,7 +931,7 @@ async function handleNosposLoginRequired(message, sender) {
 
   for (const [requestId, entry] of Object.entries(pending)) {
     if (entry.listingTabId !== tabId) continue;
-    if (entry.type !== 'openNospos' && entry.type !== 'openNosposCustomerIntake' && entry.type !== 'openNosposCustomerIntakeWaiting') {
+    if (entry.type !== 'openNospos' && entry.type !== 'openNosposCustomerIntake' && entry.type !== 'openNosposCustomerIntakeWaiting' && entry.type !== 'openNosposCustomerIntakeSaveFailed') {
       continue;
     }
 
@@ -979,17 +979,31 @@ async function handleNosposCustomerDone(message, sender) {
   const entry = pending[requestId];
   if (!entry) return;
 
-  delete pending[requestId];
-  await setPending(pending);
+  if (message.saveFailed) {
+    // Keep the entry so the user can fix the save on NosPos and we can still
+    // switch them back. Change the type so NOSPOS_CUSTOMER_DETAIL_READY won't
+    // try to show the modal again while waiting for the fix.
+    pending[requestId] = { ...entry, type: 'openNosposCustomerIntakeSaveFailed' };
+    await setPending(pending);
+  } else {
+    delete pending[requestId];
+    await setPending(pending);
+  }
 
   if (entry.appTabId) {
-    chrome.tabs.sendMessage(entry.appTabId, {
-      type: 'EXTENSION_RESPONSE_TO_PAGE',
-      requestId,
-      response: cancelled
-        ? { ok: false, cancelled: true }
-        : { ok: true, customer: message.customer || null, changes: message.changes || [], saveFailed: !!message.saveFailed }
-    }).catch(() => {});
+    // If the entry was already in the saveFailed state, the app's promise listener
+    // was removed when we sent the first saveFailed response, so skip the redundant
+    // send. Just call focusAppTab to switch back to the system tab.
+    const isPostSaveFailedFix = entry.type === 'openNosposCustomerIntakeSaveFailed';
+    if (!isPostSaveFailedFix) {
+      chrome.tabs.sendMessage(entry.appTabId, {
+        type: 'EXTENSION_RESPONSE_TO_PAGE',
+        requestId,
+        response: cancelled
+          ? { ok: false, cancelled: true }
+          : { ok: true, customer: message.customer || null, changes: message.changes || [], saveFailed: !!message.saveFailed }
+      }).catch(() => {});
+    }
     if (!message.saveFailed) {
       await focusAppTab(entry.appTabId);
     }

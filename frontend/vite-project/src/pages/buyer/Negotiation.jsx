@@ -13,6 +13,7 @@ import { normalizeExplicitSalePrice, formatOfferPrice } from '@/utils/helpers';
 import { useNotification } from '@/contexts/NotificationContext';
 import useAppStore from '@/store/useAppStore';
 import { maybeShowSalePriceConfirm } from './utils/researchCompletionHelpers';
+import { mapRequestToCustomerData } from '@/utils/requestToCartMapping';
 import {
   buildItemSpecs,
   buildInitialSearchQuery,
@@ -377,12 +378,7 @@ const Negotiation = ({ mode }) => {
           const txType = data.intent === 'DIRECT_SALE' ? 'sale' : data.intent === 'BUYBACK' ? 'buyback' : 'store_credit';
           const isBookedOrComplete = status === 'BOOKED_FOR_TESTING' || status === 'COMPLETE';
 
-          setCustomerData({
-            id: data.customer_details.customer_id,
-            name: data.customer_details.name,
-            cancelRate: data.customer_details.cancel_rate,
-            transactionType: txType,
-          });
+          setCustomerData(mapRequestToCustomerData(data));
           setTotalExpectation(data.overall_expectation_gbp?.toString() || '');
           setTargetOffer(data.target_offer_gbp != null ? data.target_offer_gbp.toString() : '');
           setTransactionType(txType);
