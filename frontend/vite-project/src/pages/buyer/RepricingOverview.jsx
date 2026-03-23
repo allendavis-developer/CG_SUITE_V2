@@ -7,6 +7,17 @@ import useAppStore from "@/store/useAppStore";
 
 const STATUS_FILTERS = ['ALL', 'IN_PROGRESS', 'COMPLETED'];
 
+function deduplicateBarcodes(barcodes) {
+  if (!Array.isArray(barcodes)) return [];
+  const seen = new Set();
+  return barcodes.filter(b => {
+    const key = b.barserial || b.barcode || '';
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function attachBarcodesFromSessionItems(cartItems, sessionItems) {
   if (!Array.isArray(sessionItems) || sessionItems.length === 0) return cartItems;
   const byItemId = {};
@@ -21,8 +32,10 @@ function attachBarcodesFromSessionItems(cartItems, sessionItems) {
     });
   }
   return cartItems.map(item => {
-    const barcodes = byItemId[item.id];
-    return barcodes ? { ...item, nosposBarcodes: barcodes } : item;
+    const sessionBarcodes = byItemId[item.id] || [];
+    const existing = item.nosposBarcodes || [];
+    const merged = [...existing, ...sessionBarcodes];
+    return { ...item, nosposBarcodes: deduplicateBarcodes(merged) };
   });
 }
 
@@ -82,8 +95,12 @@ const RepricingOverview = () => {
 
   const handleSessionClick = (session) => {
     if (session.status === 'IN_PROGRESS' && session.session_data?.items?.length) {
+      const items = session.session_data.items.map(item => ({
+        ...item,
+        nosposBarcodes: deduplicateBarcodes(item.nosposBarcodes),
+      }));
       useAppStore.setState({
-        repricingCartItems: session.session_data.items,
+        repricingCartItems: items,
         repricingSessionId: session.repricing_session_id,
         mode: 'repricing',
         isCustomerModalOpen: false,

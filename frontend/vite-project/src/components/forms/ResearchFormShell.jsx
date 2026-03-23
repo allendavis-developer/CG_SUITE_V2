@@ -1152,7 +1152,7 @@ export default function ResearchFormShell({
       )}
 
       {/* Main content */}
-      <div className={`flex ${mode === "page" ? "h-[calc(100vh-200px)]" : "flex-1"} overflow-hidden`}>
+      <div className={`flex ${mode === "page" ? "flex-1 min-h-0" : "flex-1"} overflow-hidden`}>
         {/* Sidebar filters */}
         {filterOptions.length > 0 && (
           <aside className="w-64 border-r border-gray-200 overflow-y-auto bg-white p-4 space-y-6 histogram-scrollbar">
@@ -1234,9 +1234,9 @@ export default function ResearchFormShell({
 
         {/* Listings */}
         {listings && (
-          <main className="flex-1 overflow-y-auto bg-gray-100 flex">
+          <main className="flex-1 min-h-0 overflow-hidden bg-gray-100 flex">
             {/* Listings Column */}
-            <div className="flex-1 overflow-y-auto p-6 histogram-scrollbar">
+            <div className="flex-1 min-h-0 overflow-y-auto p-6 histogram-scrollbar">
               {/* Records / Excluded banner */}
               {displayedListings && displayedListings.length > 0 && (
                 <div className="mb-4 flex flex-col items-center gap-1.5 py-2.5 px-4 rounded-lg bg-gray-200/80 text-gray-700 border border-gray-300/60">

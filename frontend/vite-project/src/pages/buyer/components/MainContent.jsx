@@ -582,7 +582,11 @@ const MainContent = ({ mode = 'buyer' }) => {
 
   // ── Main product/eBay view ──
   return (
-    <section className="buyer-main-content w-3/5 min-w-0 min-h-0 flex-1 bg-white flex flex-col overflow-y-auto buyer-panel-scroll">
+    <section
+      className={`buyer-main-content w-3/5 min-w-0 min-h-0 flex-1 bg-white flex flex-col buyer-panel-scroll ${
+        isEbayCategory ? 'overflow-hidden' : 'overflow-y-auto'
+      }`}
+    >
       {!isEbayCategory && (
         <div className="sticky top-0 z-40 flex flex-col bg-white border-b border-gray-200">
           <div className="flex items-center px-8 bg-gray-50 border-b border-gray-200">
@@ -614,24 +618,26 @@ const MainContent = ({ mode = 'buyer' }) => {
       
       {isEbayCategory && (
         <>
-        <div className="flex items-center px-8 bg-gray-50 border-b border-gray-200 sticky top-0 z-40">
+        <div className="flex items-center px-8 bg-gray-50 border-b border-gray-200 sticky top-0 z-40 shrink-0">
           <Tab icon="analytics" label="eBay Research" isActive={activeTab === 'research'} onClick={() => setActiveTab('research')} />
         </div>
-        <div className="p-8">
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden p-8">
           {!savedEbayState && cartItems.some((ci) => ci.isCustomEbayItem) && (
-            <div className="mb-6 px-4 py-3 rounded-lg bg-blue-50 border border-blue-200 flex items-center gap-3">
+            <div className="mb-6 shrink-0 px-4 py-3 rounded-lg bg-blue-50 border border-blue-200 flex items-center gap-3">
               <span className="material-symbols-outlined text-blue-600 text-xl">info</span>
                 <p className="text-sm text-blue-900">Click on an item on the right to view its per-item research data.</p>
             </div>
           )}
-          <EbayResearchForm
-            key={savedEbayState ? 'ebay-with-data' : 'ebay-empty'}
+          <div className="flex-1 min-h-0 min-w-0 flex flex-col">
+            <EbayResearchForm
+              key={savedEbayState ? 'ebay-with-data' : 'ebay-empty'}
               mode="page" category={EBAY_TOP_LEVEL_CATEGORY}
               onComplete={handleEbayResearchComplete} savedState={savedEbayState}
               initialHistogramState={false} showManualOffer={false}
               addActionLabel={isRepricing ? 'Add to Reprice List' : 'Add to Cart'} hideOfferCards={isRepricing}
               useVoucherOffers={useVoucherOffers}
-          />
+            />
+          </div>
         </div>
         </>
       )}

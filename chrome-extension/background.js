@@ -699,6 +699,7 @@ async function handleBridgeForward(message, sender) {
       currentBarcodeIndex: null,
       skippedBarcodes: {},
       ambiguousBarcodes: [],
+      unverifiedBarcodes: [],
       justSaved: false,
       verifyRetries: 0,
       done: false,
@@ -1098,13 +1099,15 @@ function markBarcodeAsAmbiguous(data, next) {
 function buildRepricingCompletionPayload(data) {
   const verifiedChanges = [...(data?.verifiedChanges || [])];
   const ambiguousBarcodes = [...(data?.ambiguousBarcodes || [])];
+  const unverifiedBarcodes = [...(data?.unverifiedBarcodes || [])];
 
   return {
     cart_key: data?.cartKey || '',
     item_count: [...new Set(verifiedChanges.map((item) => item.item_identifier).filter(Boolean))].length,
     barcode_count: verifiedChanges.length,
     items_data: verifiedChanges,
-    ambiguous_barcodes: ambiguousBarcodes
+    ambiguous_barcodes: ambiguousBarcodes,
+    unverified_barcodes: unverifiedBarcodes
   };
 }
 
@@ -1161,6 +1164,7 @@ async function handleNosposStockSearchReady(message, sender) {
           currentBarcodeIndex: null,
           skippedBarcodes: {},
           ambiguousBarcodes: [],
+          unverifiedBarcodes: [],
           justSaved: false,
           verifyRetries: 0,
           done: false,
@@ -1435,16 +1439,48 @@ async function handleNosposPageLoaded(message, sender) {
           chrome.tabs.sendMessage(tabId, { type: 'NOSPOS_VERIFY_RETAIL_PRICE' }).catch(() => {});
         }, 800);
       } else {
-        const failedVerify = appendRepricingLog(
-          { ...data, verifyRetries: retries },
-          `Could not verify saved price for ${data.pendingCompletion?.barcode || stockBarcode || 'barcode'} after ${retries} attempts.`,
+        // Max retries exceeded — skip this barcode, record it as unverified, and move to the next one.
+        const pendingCompletion = data.pendingCompletion || {};
+        const unverifiedItem = (data.repricingData || []).find(entry => String(entry?.itemId) === String(pendingCompletion.itemId));
+        const unverifiedBarcodes = [...(data.unverifiedBarcodes || [])];
+        const alreadyTracked = unverifiedBarcodes.some(
+          e => String(e?.itemId) === String(pendingCompletion.itemId) && e?.barcodeIndex === pendingCompletion.barcodeIndex
+        );
+        if (!alreadyTracked && pendingCompletion.itemId != null) {
+          unverifiedBarcodes.push({
+            itemId: pendingCompletion.itemId,
+            itemTitle: unverifiedItem?.title || '',
+            barcodeIndex: pendingCompletion.barcodeIndex,
+            barcode: pendingCompletion.barcode || '',
+            stockBarcode: pendingCompletion.stockBarcode || stockBarcode || '',
+            stockUrl: pendingCompletion.stockUrl || ''
+          });
+        }
+
+        const nextQueue = removeQueueHead(getActiveQueue(data), pendingCompletion);
+        const skippedData = appendRepricingLog(
+          {
+            ...data,
+            unverifiedBarcodes,
+            queue: nextQueue,
+            justSaved: false,
+            verifyRetries: 0,
+            pendingCompletion: null
+          },
+          `Could not verify saved price for "${pendingCompletion.barcode || stockBarcode || 'barcode'}" after ${retries} attempts — skipping and moving on.`,
           'warning'
         );
-        await chrome.storage.session.set({ cgNosposRepricingData: failedVerify });
-        await broadcastRepricingStatus(data.appTabId, failedVerify, {
-          step: 'verifying',
-          message: `Still waiting to verify ${data.pendingCompletion?.barcode || stockBarcode || 'barcode'}…`
-        });
+
+        if (nextQueue.length === 0) {
+          await finalizeNosposRepricing(skippedData, tabId);
+        } else {
+          await chrome.storage.session.set({ cgNosposRepricingData: skippedData });
+          await broadcastRepricingStatus(data.appTabId, skippedData, {
+            step: 'search',
+            message: `Verification failed for "${pendingCompletion.barcode || 'barcode'}". Moving to next item…`
+          });
+          if (tabId) await chrome.tabs.update(tabId, { url: 'https://nospos.com/stock/search' });
+        }
       }
     }
     return;

@@ -65,6 +65,16 @@ const buildAmbiguousBarcodeEntries = (payload) =>
     replacementBarcode: "",
   }));
 
+const buildUnverifiedBarcodeEntries = (payload) =>
+  (Array.isArray(payload?.unverified_barcodes) ? payload.unverified_barcodes : []).map((entry) => ({
+    itemId: entry?.itemId,
+    itemTitle: entry?.itemTitle || "Unknown Item",
+    barcodeIndex: entry?.barcodeIndex,
+    barcode: entry?.barcode || "",
+    stockBarcode: entry?.stockBarcode || "",
+    stockUrl: entry?.stockUrl || "",
+  }));
+
 // ─── Main component ────────────────────────────────────────────────────────────
 const RepricingNegotiation = () => {
   const navigate = useNavigate();
@@ -100,6 +110,7 @@ const RepricingNegotiation = () => {
   const [cashConvertersResearchItem, setCashConvertersResearchItem] = useState(null);
   const [isRepricingFinished, setIsRepricingFinished] = useState(false);
   const [ambiguousBarcodeModal, setAmbiguousBarcodeModal] = useState(null);
+  const [unverifiedModal, setUnverifiedModal] = useState(null); // { entries: [] }
   const [repricingJob, setRepricingJob] = useState(null);
 
   // Right-click context menu
@@ -191,6 +202,7 @@ const RepricingNegotiation = () => {
 
     const savePayload = buildSessionSavePayload(payload);
     const ambiguousEntries = buildAmbiguousBarcodeEntries(payload);
+    const unverifiedEntries = buildUnverifiedBarcodeEntries(payload);
 
     try {
       if (dbSessionId) {
@@ -222,15 +234,29 @@ const RepricingNegotiation = () => {
       setIsRepricingFinished(true);
       setRepricingJob((prev) => prev ? { ...prev, running: false, done: true, step: 'completed', message: 'Repricing completed.' } : prev);
 
+      if (unverifiedEntries.length > 0) {
+        setUnverifiedModal({ entries: unverifiedEntries });
+      }
+
       if (ambiguousEntries.length > 0) {
         setAmbiguousBarcodeModal({ entries: ambiguousEntries, isRetrying: false });
         if (savePayload.barcode_count > 0) {
-          showNotification("Saved the repriced items. Some barcodes need to be more specific.", "warning");
+          showNotification(
+            unverifiedEntries.length > 0
+              ? `Saved repriced items. ${unverifiedEntries.length} barcode(s) couldn't be verified — check below.`
+              : "Saved the repriced items. Some barcodes need to be more specific.",
+            "warning"
+          );
         } else {
           showNotification("No items were repriced. Enter more specific barcodes to retry.", "warning");
         }
       } else if (savePayload.barcode_count > 0) {
-        showNotification("Repricing is done and has been saved.", "success");
+        showNotification(
+          unverifiedEntries.length > 0
+            ? `Repricing done. ${unverifiedEntries.length} barcode(s) couldn't be auto-verified — check the items below.`
+            : "Repricing is done and has been saved.",
+          unverifiedEntries.length > 0 ? "warning" : "success"
+        );
       } else {
         showNotification("No items were repriced.", "info");
       }
@@ -281,7 +307,14 @@ const RepricingNegotiation = () => {
       const prePopulated = {};
       const prePopulatedLookups = {};
       for (const item of cartItems) {
-        const barcodes = item.nosposBarcodes || [];
+        const rawBarcodes = item.nosposBarcodes || [];
+        const seen = new Set();
+        const barcodes = rawBarcodes.filter(b => {
+          const key = b.barserial || '';
+          if (!key || seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
         if (barcodes.length > 0) {
           prePopulated[item.id] = barcodes.map(b => b.barserial);
           barcodes.forEach((b, index) => {
@@ -1145,6 +1178,95 @@ const RepricingNegotiation = () => {
                   ))}
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {unverifiedModal && (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setUnverifiedModal(null)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden">
+            <div className="px-6 py-5 border-b" style={{ borderColor: 'rgba(20,69,132,0.15)' }}>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-[11px] font-black uppercase tracking-wider text-amber-600">
+                    Manual Verification Required
+                  </p>
+                  <p className="text-sm mt-1 font-semibold" style={{ color: '#1a1a1a' }}>
+                    {unverifiedModal.entries.length} barcode{unverifiedModal.entries.length !== 1 ? 's' : ''} couldn't be automatically verified after saving.
+                  </p>
+                  <p className="text-xs mt-1" style={{ color: '#475569' }}>
+                    The price was likely saved correctly — NosPos just didn't confirm it in time.
+                    Please open each link below and double-check the retail price is set correctly.
+                  </p>
+                </div>
+                <button onClick={() => setUnverifiedModal(null)} className="text-slate-400 hover:text-slate-600 transition-colors">
+                  <span className="material-symbols-outlined text-[20px]">close</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="px-6 py-5 space-y-3 overflow-y-auto max-h-[55vh]">
+              {unverifiedModal.entries.map((entry, index) => (
+                <div key={`${entry.itemId}-${entry.barcodeIndex}-${index}`} className="rounded-xl border p-4" style={{ borderColor: 'rgba(247,185,24,0.4)', background: '#fffbeb' }}>
+                  <p className="text-sm font-bold mb-3" style={{ color: '#144584' }}>
+                    {entry.itemTitle}
+                  </p>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-wider mb-1" style={{ color: '#64748b' }}>
+                        Typed Barcode
+                      </p>
+                      <div className="px-3 py-2 rounded-lg border text-sm font-mono bg-white" style={{ borderColor: 'rgba(20,69,132,0.15)', color: '#144584' }}>
+                        {entry.barcode || '—'}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-wider mb-1" style={{ color: '#64748b' }}>
+                        NosPos Barcode
+                      </p>
+                      <div className="px-3 py-2 rounded-lg border text-sm font-mono bg-white" style={{ borderColor: 'rgba(20,69,132,0.15)', color: '#144584' }}>
+                        {entry.stockBarcode || '—'}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-wider mb-1" style={{ color: '#64748b' }}>
+                        NosPos Link
+                      </p>
+                      {entry.stockUrl ? (
+                        <a
+                          href={entry.stockUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-semibold bg-white hover:bg-blue-50 transition-colors"
+                          style={{ borderColor: 'rgba(20,69,132,0.3)', color: '#144584' }}
+                        >
+                          <span className="material-symbols-outlined text-[14px]">open_in_new</span>
+                          Open in NosPos
+                        </a>
+                      ) : (
+                        <div className="px-3 py-2 rounded-lg border text-sm bg-white text-slate-400 italic" style={{ borderColor: 'rgba(20,69,132,0.15)' }}>
+                          No link available
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="px-6 py-4 border-t flex items-center justify-between gap-3" style={{ borderColor: 'rgba(20,69,132,0.15)', background: '#f8fafc' }}>
+              <p className="text-xs" style={{ color: '#64748b' }}>
+                The price was saved in NosPos — this is just a confirmation check that timed out.
+              </p>
+              <button
+                className="px-4 py-2 rounded-lg text-sm font-bold transition-all hover:opacity-90"
+                style={{ background: '#144584', color: 'white' }}
+                onClick={() => setUnverifiedModal(null)}
+              >
+                Got it
+              </button>
             </div>
           </div>
         </div>

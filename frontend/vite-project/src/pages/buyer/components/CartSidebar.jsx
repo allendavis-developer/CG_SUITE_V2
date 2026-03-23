@@ -59,7 +59,7 @@ const CartSidebar = ({ mode = 'buyer', onTransactionTypeChange = null }) => {
               </p>
             </div>
           </div>
-          {!isRepricing && (
+          {!isRepricing ? (
             <button
               type="button"
               onClick={() => resetBuyer()}
@@ -68,6 +68,19 @@ const CartSidebar = ({ mode = 'buyer', onTransactionTypeChange = null }) => {
             >
               <Icon name="refresh" className="text-sm" />
               New Buy
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                resetBuyer();
+                navigate('/repricing');
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold text-blue-200 hover:text-white hover:bg-white/10 transition-colors"
+              title="Clear reprice list and start a new repricing session"
+            >
+              <Icon name="refresh" className="text-sm" />
+              New Repricing
             </button>
           )}
         </div>
@@ -108,21 +121,15 @@ const CartSidebar = ({ mode = 'buyer', onTransactionTypeChange = null }) => {
 
       {/* Footer */}
       <div className="p-6 bg-white border-t border-blue-900/20 space-y-4">
-        {!isRepricing && (
-          <div className="space-y-1">
-            <OfferRow label="Offer Min" value={offerMin} type={customerData.transactionType} />
-            <OfferRow label="Offer Max" value={offerMax} type={customerData.transactionType} />
-            {allItemsHaveOffer && (
-              <div className="flex justify-between items-baseline pt-2 border-t border-blue-900/10">
-                <div className="flex flex-col">
-                  <span className="text-2xl font-black uppercase tracking-widest text-blue-900">Total Offer</span>
-                  <span className="text-[9px] text-gray-500 font-bold">
-                    {customerData.transactionType === 'store_credit' ? '(Voucher)' : '(Cash)'}
-                  </span>
-                </div>
-                <span className="text-3xl font-black text-blue-900 tabular-nums">£{totalOffer.toFixed(2)}</span>
-              </div>
-            )}
+        {!isRepricing && allItemsHaveOffer && (
+          <div className="flex justify-between items-baseline">
+            <div className="flex flex-col">
+              <span className="text-2xl font-black uppercase tracking-widest text-blue-900">Total Offer</span>
+              <span className="text-[9px] text-gray-500 font-bold">
+                {customerData.transactionType === 'store_credit' ? '(Voucher)' : '(Cash)'}
+              </span>
+            </div>
+            <span className="text-3xl font-black text-blue-900 tabular-nums">£{totalOffer.toFixed(2)}</span>
           </div>
         )}
 
@@ -153,22 +160,6 @@ const CartSidebar = ({ mode = 'buyer', onTransactionTypeChange = null }) => {
     </aside>
   );
 };
-
-function OfferRow({ label, value, type }) {
-  return (
-    <div className="flex justify-between items-baseline">
-      <div className="flex flex-col">
-        <span className="text-2xl font-black uppercase tracking-widest text-blue-900">{label}</span>
-        <span className="text-[9px] text-gray-500 font-bold">
-          {type === 'store_credit' ? '(Voucher)' : '(Cash)'}
-        </span>
-      </div>
-      <span className="text-3xl font-black text-blue-900 tabular-nums">
-        {value !== null ? `£${formatOfferPrice(value)}` : '—'}
-      </span>
-    </div>
-  );
-}
 
 function CartItemCard({ item, isSelected, isRepricing, customerData, onSelect, onRemove, onIncrement, onDecrement, onQuantityChange }) {
   const displayOffers = item.offers?.length

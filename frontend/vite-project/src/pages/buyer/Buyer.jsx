@@ -114,14 +114,18 @@ export default function Buyer({ mode = 'buyer' }) {
   // always read the latest cart — eliminates stale-ref-on-unmount race.
   latestCartRef.current = cartItems;
 
-  // If the repricing cart is empty but we have a stale session ID (e.g. the
-  // previous session was completed or the user navigated away), clear the ID
-  // so the next addToCart triggers a fresh draft creation.
+  // If the repricing cart transitions from non-empty to empty while we have a
+  // session ID, clear the ID so the next addToCart triggers a fresh draft.
+  // We track the previous length to avoid clearing on initial mount when the
+  // overview just set the session ID alongside the cart items.
+  const prevCartLenRef = useRef(cartItems.length);
   useEffect(() => {
     if (!isRepricing) return;
-    const sid = useAppStore.getState().repricingSessionId;
-    if (sid && cartItems.length === 0) {
-      useAppStore.setState({ repricingSessionId: null });
+    const prevLen = prevCartLenRef.current;
+    prevCartLenRef.current = cartItems.length;
+    if (prevLen > 0 && cartItems.length === 0) {
+      const sid = useAppStore.getState().repricingSessionId;
+      if (sid) useAppStore.setState({ repricingSessionId: null });
     }
   }, [isRepricing, cartItems.length]);
 
@@ -262,7 +266,7 @@ export default function Buyer({ mode = 'buyer' }) {
           customerData={isRepricing ? null : customerData}
           onTransactionTypeChange={isRepricing ? null : handleTransactionTypeChange}
         />
-        <MainContent mode={mode} onTransactionTypeChange={handleTransactionTypeChange} />
+        <MainContent key={resetKey} mode={mode} onTransactionTypeChange={handleTransactionTypeChange} />
         <CartSidebar mode={mode} onTransactionTypeChange={!isRepricing ? handleTransactionTypeChange : null} />
       </main>
 

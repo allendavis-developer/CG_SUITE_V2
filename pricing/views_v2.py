@@ -498,11 +498,7 @@ def repricing_session_detail(request, repricing_session_id):
     update_fields = []
 
     if 'session_data' in request.data:
-        new_data = request.data['session_data']
-        if isinstance(new_data, dict) and isinstance(session.session_data, dict):
-            session.session_data = {**session.session_data, **new_data}
-        else:
-            session.session_data = new_data
+        session.session_data = request.data['session_data']
         update_fields.append('session_data')
 
     if 'status' in request.data:
@@ -630,6 +626,12 @@ def update_request_item(request, request_item_id):
     if 'voucher_offers_json' in request.data:
         existing_item.voucher_offers_json = request.data['voucher_offers_json'] or []
         update_fields.append('voucher_offers_json')
+    if 'quantity' in request.data:
+        try:
+            existing_item.quantity = max(1, int(request.data['quantity']))
+            update_fields.append('quantity')
+        except (ValueError, TypeError):
+            pass
 
     if update_fields:
         existing_item.save(update_fields=update_fields)

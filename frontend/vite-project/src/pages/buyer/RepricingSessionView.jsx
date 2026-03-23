@@ -70,7 +70,9 @@ const RepricingSessionView = () => {
       const parts = url.pathname.split("/").filter(Boolean);
       const idx = parts.indexOf("stock");
       if (idx !== -1 && parts[idx + 1]) {
-        return parts[idx + 1];
+        const candidate = parts[idx + 1];
+        // Only return valid numeric NosPos stock IDs — reject path segments like 'search' or 'edit'
+        return /^\d+$/.test(candidate) ? candidate : "";
       }
       return "";
     } catch {

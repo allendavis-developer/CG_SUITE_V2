@@ -97,7 +97,7 @@ export function mapRequestItemsToCartItems(items, transactionType) {
 
     const cexTitle = item.variant_details?.title;
     const variantId = item.variant_details?.variant_id ?? null;
-    const rawCeXTitle = !isEbayResearchPayload
+    const rawCeXTitle = (!isEbayResearchPayload || isAddFromCeXPayload)
       ? rawData?.title || rawData?.modelName
       : null;
     const rawEbayTitle = isEbayResearchPayload
@@ -237,18 +237,19 @@ export function mapRequestItemsToCartItems(items, transactionType) {
       cartItem.isCustomEbayItem = false;
       cartItem.isCustomCashConvertersItem = false;
       cartItem.referenceData = {
-        cex_sale_price: cexSellPrice,
-        cex_tradein_cash: cexBuyPrice,
-        cex_tradein_voucher: cexVoucherPrice,
-        cex_out_of_stock: item.variant_details?.cex_out_of_stock ?? false,
-        cex_sku: cexSku,
-        id: cexSku,
-        cash_offers: savedCashOffers,
-        voucher_offers: savedVoucherOffers,
-        our_sale_price: ourSalePrice,
-        cex_based_sale_price: ourSalePrice,
-        percentage_used: item.variant_details?.percentage_used ?? rawData?.referenceData?.percentage_used ?? null,
-      };
+          cex_sale_price: cexSellPrice,
+          cex_tradein_cash: cexBuyPrice,
+          cex_tradein_voucher: cexVoucherPrice,
+          cex_out_of_stock: item.variant_details?.cex_out_of_stock ?? false,
+          cex_sku: cexSku,
+          id: cexSku,
+          cash_offers: savedCashOffers,
+          voucher_offers: savedVoucherOffers,
+          our_sale_price: ourSalePrice,
+          cex_based_sale_price: ourSalePrice,
+          percentage_used: item.variant_details?.percentage_used ?? rawData?.referenceData?.percentage_used ?? null,
+          ...(rawData?.referenceData?.cex_image_urls ? { cex_image_urls: rawData.referenceData.cex_image_urls } : {}),
+        };
     } else if (isEbayResearchPayload) {
       cartItem.variantId = null;
       cartItem.isCustomEbayItem = true;
@@ -287,6 +288,7 @@ export function mapRequestItemsToCartItems(items, transactionType) {
           our_sale_price: ourSalePrice,
           cex_based_sale_price: ourSalePrice,
           percentage_used: item.variant_details?.percentage_used ?? rawData?.referenceData?.percentage_used ?? null,
+          ...(rawData?.referenceData?.cex_image_urls ? { cex_image_urls: rawData.referenceData.cex_image_urls } : {}),
         };
       }
     }

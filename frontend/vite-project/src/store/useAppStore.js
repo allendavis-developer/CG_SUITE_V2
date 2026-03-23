@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 import { useShallow } from 'zustand/react/shallow';
 import {
   fetchProductModels,
@@ -81,8 +80,9 @@ function recalcOffersForTransactionType(item, prevUseVoucher, newUseVoucher) {
   };
 }
 
+try { sessionStorage.removeItem('cg-suite-store'); } catch {}
+
 const useAppStore = create(
-  persist(
     (set, get) => {
 
       const _cartKey = () => get().mode === 'repricing' ? 'repricingCartItems' : 'cartItems';
@@ -93,7 +93,28 @@ const useAppStore = create(
       mode: 'buyer',
       repricingSessionId: null,
 
-      setMode: (mode) => set({ mode }),
+      setMode: (newMode) => {
+        const { mode: currentMode } = get();
+        if (newMode === currentMode) return;
+        set({
+          mode: newMode,
+          cartItems: [],
+          repricingCartItems: [],
+          repricingSessionId: null,
+          customerData: { ...DEFAULT_CUSTOMER },
+          intent: null,
+          request: null,
+          selectedCategory: null,
+          availableModels: [],
+          selectedModel: null,
+          selectedCartItemId: null,
+          cexProductData: null,
+          cexLoading: false,
+          isQuickRepriceOpen: false,
+          isCustomerModalOpen: false,
+          resetKey: get().resetKey + 1,
+        });
+      },
       setRepricingSessionId: (id) => set({ repricingSessionId: id }),
 
       // ─── eBay offer margins (fetched from backend config, per-category) ──
@@ -206,6 +227,20 @@ const useAppStore = create(
 
       updateCartItem: (itemId, updates) => {
         const key = _cartKey();
+        const { mode } = get();
+        const isRepricing = mode === 'repricing';
+
+        // Persist quantity changes to the backend immediately so reopening
+        // the request form always shows the latest quantity.
+        if (!isRepricing && updates.quantity != null) {
+          const item = get()[key]?.find((i) => i.id === itemId);
+          if (item?.request_item_id) {
+            updateRequestItemOffer(item.request_item_id, { quantity: updates.quantity }).catch((err) => {
+              console.error('[Store] Failed to persist quantity:', err);
+            });
+          }
+        }
+
         set((state) => ({
           [key]: state[key].map((i) => (i.id === itemId ? { ...i, ...updates } : i)),
         }));
@@ -774,53 +809,7 @@ const useAppStore = create(
         }
         showNotification?.(`${count} item${count !== 1 ? 's' : ''} added to reprice list`, 'success');
       },
-    });},
-    {
-      name: 'cg-suite-store',
-      storage: {
-        getItem: (name) => {
-          try {
-            const raw = sessionStorage.getItem(name);
-            return raw ? JSON.parse(raw) : null;
-          } catch {
-            return null;
-          }
-        },
-        setItem: (name, value) => {
-          try {
-            sessionStorage.setItem(name, JSON.stringify(value));
-          } catch {}
-        },
-        removeItem: (name) => {
-          try {
-            sessionStorage.removeItem(name);
-          } catch {}
-        },
-      },
-      partialize: (state) => ({
-        mode: state.mode,
-        cartItems: state.cartItems,
-        repricingCartItems: state.repricingCartItems,
-        repricingSessionId: state.repricingSessionId,
-        customerData: state.customerData,
-        intent: state.intent,
-        selectedCategory: state.selectedCategory,
-        availableModels: state.availableModels,
-        selectedModel: state.selectedModel,
-        selectedCartItemId: state.selectedCartItemId,
-        isCustomerModalOpen: state.isCustomerModalOpen,
-        cexProductData: state.cexProductData,
-        requestId: state.request?.request_id ?? null,
-      }),
-      onRehydrate: (state) => {
-        return (rehydrated) => {
-          if (rehydrated?.requestId) {
-            rehydrated.hydrateFromRequest(rehydrated.requestId);
-          }
-        };
-      },
-    }
-  )
+    });}
 );
 
 // ─── Selectors ────────────────────────────────────────────────────────────────

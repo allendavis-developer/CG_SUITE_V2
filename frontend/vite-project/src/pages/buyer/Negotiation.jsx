@@ -9,7 +9,7 @@ import { ItemContextMenu, TargetOfferModal, ItemOfferModal, SeniorMgmtModal, Mar
 import NewCustomerDetailsModal from '@/components/modals/NewCustomerDetailsModal';
 import SalePriceConfirmModal from '@/components/modals/SalePriceConfirmModal';
 import { finishRequest, fetchRequestDetail, updateCustomer, saveQuoteDraft } from '@/services/api';
-import { normalizeExplicitSalePrice } from '@/utils/helpers';
+import { normalizeExplicitSalePrice, formatOfferPrice } from '@/utils/helpers';
 import { useNotification } from '@/contexts/NotificationContext';
 import useAppStore from '@/store/useAppStore';
 import { maybeShowSalePriceConfirm } from './utils/researchCompletionHelpers';
@@ -126,6 +126,24 @@ const Negotiation = ({ mode }) => {
   const targetMatched = hasTarget && Math.abs(targetDelta) <= 0.005;
   const targetShortfall = hasTarget && totalOfferPrice < parsedTarget ? parsedTarget - totalOfferPrice : 0;
   const targetExcess = hasTarget && totalOfferPrice > parsedTarget ? totalOfferPrice - parsedTarget : 0;
+
+  const { offerMin, offerMax } = useMemo(() => {
+    const activeItems = items.filter(i => !i.isRemoved);
+    if (activeItems.length === 0) return { offerMin: null, offerMax: null };
+    let min = 0, max = 0;
+    for (const item of activeItems) {
+      const qty = item.quantity || 1;
+      const displayOffers = useVoucherOffers
+        ? (item.voucherOffers || item.offers || [])
+        : (item.cashOffers || item.offers || []);
+      const prices = displayOffers.map(o => Number(o.price)).filter(p => !isNaN(p) && p >= 0);
+      if (prices.length > 0) {
+        min += Math.min(...prices) * qty;
+        max += Math.max(...prices) * qty;
+      }
+    }
+    return { offerMin: min, offerMax: max };
+  }, [items, useVoucherOffers]);
 
   // ─── Manual offer application (with senior mgmt & margin checks) ───────
 
@@ -508,8 +526,8 @@ const Negotiation = ({ mode }) => {
                 {mode === 'view' ? 'Back to Requests' : 'Back to Cart'}
               </button>
 
-              <div className="flex-1 max-w-xl">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="flex-1">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <div className="p-4 rounded-lg border" style={{ borderColor: 'rgba(247, 185, 24, 0.5)', background: 'rgba(247, 185, 24, 0.05)' }}>
                     <label className="block text-[10px] font-black uppercase tracking-wider mb-2" style={{ color: 'var(--brand-blue)' }}>
                       Customer Total Expectation
@@ -525,6 +543,36 @@ const Negotiation = ({ mode }) => {
                         placeholder="0.00"
                         readOnly={mode === 'view'}
                       />
+                    </div>
+                  </div>
+
+                  <div className="p-4 rounded-lg border" style={{ borderColor: 'rgba(20, 69, 132, 0.15)', background: 'rgba(20, 69, 132, 0.02)' }}>
+                    <label className="block text-[10px] font-black uppercase tracking-wider mb-1" style={{ color: 'var(--brand-blue)' }}>
+                      Offer Min
+                    </label>
+                    <p className="text-[9px] mb-2" style={{ color: 'var(--text-muted)' }}>
+                      {useVoucherOffers ? '(Voucher)' : '(Cash)'}
+                    </p>
+                    <div className="flex items-baseline gap-1">
+                      <span className="font-bold text-base" style={{ color: 'var(--brand-blue)' }}>£</span>
+                      <span className="text-xl font-black tracking-tight" style={{ color: 'var(--brand-blue)' }}>
+                        {offerMin !== null ? formatOfferPrice(offerMin) : '—'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="p-4 rounded-lg border" style={{ borderColor: 'rgba(20, 69, 132, 0.15)', background: 'rgba(20, 69, 132, 0.02)' }}>
+                    <label className="block text-[10px] font-black uppercase tracking-wider mb-1" style={{ color: 'var(--brand-blue)' }}>
+                      Offer Max
+                    </label>
+                    <p className="text-[9px] mb-2" style={{ color: 'var(--text-muted)' }}>
+                      {useVoucherOffers ? '(Voucher)' : '(Cash)'}
+                    </p>
+                    <div className="flex items-baseline gap-1">
+                      <span className="font-bold text-base" style={{ color: 'var(--brand-blue)' }}>£</span>
+                      <span className="text-xl font-black tracking-tight" style={{ color: 'var(--brand-blue)' }}>
+                        {offerMax !== null ? formatOfferPrice(offerMax) : '—'}
+                      </span>
                     </div>
                   </div>
 
