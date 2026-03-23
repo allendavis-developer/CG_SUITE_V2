@@ -589,7 +589,7 @@ export const Sidebar = ({ onCategorySelect, onAddFromCeX, isCeXLoading, onQuickR
             <div className="p-3 space-y-2">
               {/* Name + transaction type */}
               <div>
-                <p className="text-xs font-black text-white leading-tight truncate">{customerData.name}</p>
+                <p className="text-2xl font-black text-white leading-tight truncate">{customerData.name}</p>
                 {onTransactionTypeChange ? (
                   <div className={`mt-1 ${transaction.className}`}>
                     <CustomDropdown
@@ -621,10 +621,10 @@ export const Sidebar = ({ onCategorySelect, onAddFromCeX, isCeXLoading, onQuickR
                   <div className="grid grid-cols-2 gap-1.5">
                     {customerData.lastTransacted && (
                       <div className="bg-white/5 rounded-lg px-2 py-1.5">
-                        <p className="text-[9px] font-bold uppercase tracking-wider text-white/30 mb-0.5">Last Transacted</p>
-                        <p className="text-xs font-bold text-white/80 leading-tight">{customerData.lastTransacted.split(',')[0]}</p>
+                        <p className="text-[15px] font-bold uppercase tracking-wider text-white mb-0.5">Last Transacted</p>
+                        <p className="text-xs font-bold text-white leading-tight">{customerData.lastTransacted.split(',')[0]}</p>
                         {ltDays !== null && (
-                          <p className={`text-sm font-black leading-tight mt-0.5 ${ltDays <= 14 ? 'text-amber-400' : 'text-white/50'}`}>
+                          <p className="text-sm font-black leading-tight mt-0.5 text-white">
                             {ltDays}d ago
                           </p>
                         )}
@@ -632,10 +632,10 @@ export const Sidebar = ({ onCategorySelect, onAddFromCeX, isCeXLoading, onQuickR
                     )}
                     {customerData.joined && (
                       <div className="bg-white/5 rounded-lg px-2 py-1.5">
-                        <p className="text-[9px] font-bold uppercase tracking-wider text-white/30 mb-0.5">Joined</p>
-                        <p className="text-xs font-bold text-white/80 leading-tight">{customerData.joined.split(',')[0]}</p>
+                        <p className="text-[15px] font-bold uppercase tracking-wider text-white mb-0.5">Joined</p>
+                        <p className="text-xs font-bold text-white leading-tight">{customerData.joined.split(',')[0]}</p>
                         {jDays !== null && (
-                          <p className="text-sm font-black text-white/50 leading-tight mt-0.5">
+                          <p className="text-sm font-black text-white leading-tight mt-0.5">
                             {jDays >= 365 ? `${Math.floor(jDays / 365)}y` : `${jDays}d`} ago
                           </p>
                         )}

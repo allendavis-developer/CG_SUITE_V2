@@ -7,7 +7,7 @@ import { formatGBP, calculateMargin, formatOfferPrice, normalizeExplicitSalePric
  * When onAddToCart is provided: clicking an offer adds with that offer selected;
  * Add to Cart button adds with no offer selected.
  * Right-click on an offer card opens a context menu to pick an offer and add to cart on Enter.
- * When editMode is true: shows editable price inputs; hides Add to Cart card.
+ * When showAddActionCard is false: keeps card interactions but hides Add to Cart action card.
  */
 const OfferSelection = ({
   variant,
@@ -20,6 +20,7 @@ const OfferSelection = ({
   onOfferPriceChange = null,
   onSelectedOfferChange = null,
   syncKey = null,
+  showAddActionCard = true,
 }) => {
   const formatPriceInput = (value) => {
     const parsed = Number(value);
@@ -98,6 +99,7 @@ const OfferSelection = ({
 
   const ourSalePrice = referenceData?.our_sale_price;
   const showAddToCart = Boolean(onAddToCart) && !editMode;
+  const showAddAction = showAddToCart && showAddActionCard;
 
   const handleOfferClick = (offerId) => {
     setSelectedOfferId(offerId);
@@ -146,7 +148,7 @@ const OfferSelection = ({
     }
   };
 
-  const gridCols = showAddToCart ? 'grid-cols-4' : 'grid-cols-3';
+  const gridCols = showAddAction ? 'grid-cols-4' : 'grid-cols-3';
 
   return (
     <div>
@@ -242,7 +244,7 @@ const OfferSelection = ({
             </div>
           );
         })}
-        {showAddToCart && (
+        {showAddAction && (
           <div
             role="button"
             tabIndex={0}
@@ -267,13 +269,13 @@ const OfferSelection = ({
           className="fixed z-[100] w-72 bg-white rounded-lg border border-gray-200 shadow-xl p-3"
           style={{ left: contextMenu.x, top: contextMenu.y }}
           role="dialog"
-          aria-label="Set manual offer and add to cart"
+          aria-label="Set manual offer"
         >
           <p className="text-[11px] font-bold uppercase tracking-wider text-gray-600 mb-2">
             Custom offer for this item
           </p>
           <p className="text-[11px] text-gray-500 mb-3">
-            Type a per-item offer amount and press Enter or click Okay to add to cart with this manual offer.
+            Type a per-item offer amount and press Enter or click Okay to apply this manual offer.
           </p>
           <div className="flex items-center gap-2 mb-2">
             <div className="relative flex-1">

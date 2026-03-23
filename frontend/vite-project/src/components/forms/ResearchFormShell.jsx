@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { Button, Icon, HorizontalOfferCard, CustomDropdown } from '../ui/components';
+import { Button, Icon, CustomDropdown } from '../ui/components';
 import { toVoucherOfferPrice } from '@/utils/helpers';
 
 /** Resolve badge % for eBay / Cash Converters offers (new: pctOfSale; legacy saved: margin 0–1). */
@@ -57,20 +57,20 @@ if (typeof document !== 'undefined' && !stylesInjected) {
 }
 
 // MEMOIZED LISTING CARD - prevents re-renders when parent updates
-const ListingCard = React.memo(function ListingCard({ item, origIdx, sortedIdx, displayIdx, onExcludeClick, onExcludeRightClick, showExcludeButton, readOnly, isPivot }) {
+const ListingCard = React.memo(function ListingCard({ item, origIdx, sortedIdx, displayIdx, onExcludeClick, onExcludeContextMenu, showExcludeButton, readOnly, isPivot }) {
   const handleExcludeClick = (e) => {
     e.preventDefault();
     e.stopPropagation();
     onExcludeClick?.(sortedIdx);
   };
-  const handleExcludeRightClick = (e) => {
+  const handleExcludeContextMenu = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    onExcludeRightClick?.(sortedIdx);
+    onExcludeContextMenu?.(e, sortedIdx);
   };
   const animDelay = Math.min(displayIdx * 8, 80);
   return (
-    <div className={`relative group ${item.excluded ? 'opacity-60' : ''}`}>
+    <div className={`relative group ${item.excluded ? 'opacity-60' : ''}`} onContextMenu={handleExcludeContextMenu}>
       <a
         href={item.url}
         target="_blank"
@@ -115,8 +115,7 @@ const ListingCard = React.memo(function ListingCard({ item, origIdx, sortedIdx, 
             isPivot ? 'bg-blue-600 text-white shadow-md ring-2 ring-blue-300' : item.excluded ? 'bg-orange-500 text-white shadow-sm hover:bg-orange-600' : 'bg-white text-gray-600 border border-gray-300 shadow-sm hover:bg-red-50 hover:text-red-600 hover:border-red-300'
           }`}
           onClick={handleExcludeClick}
-          onContextMenu={handleExcludeRightClick}
-          title={isPivot ? 'Pivot — right-click another listing to select range' : item.excluded ? 'Left-click to re-include · Right-click to start range' : 'Left-click to exclude · Right-click to start range'}
+          title={isPivot ? 'Click to exclude · Click another item to select range' : item.excluded ? 'Click to re-include' : 'Click to set pivot'}
           aria-label={item.excluded ? 'Re-include listing in stats' : 'Exclude listing from stats'}
         >
           <span className="material-symbols-outlined text-[14px]">{isPivot ? 'swap_vert' : item.excluded ? 'undo' : 'block'}</span>
@@ -403,9 +402,11 @@ export default function ResearchFormShell({
   onClearAllExclusions = null,
   onAddNewItem = null, // When set, replaces Add to Cart with "Add new item" button (e.g. when viewing saved research)
   onAddToCartWithOffer = null, // When set (e.g. eBay page), clicking an offer adds with that offer; 4th "Add to Cart" adds with no offer. Called with (offerIndex) where offerIndex is 0, 1, 2, or null.
+  showInlineOfferAction = true, // When false, keep interactive offers but hide inline add-action button
   onResetSearch = null,
   enableRightClickManualOffer = false, // When true (eBay page mode), right-click on offer opens manual-offer dialog
   addActionLabel = "Add to Cart",
+  disableAddAction = false,
   hideOfferCards = false, // When true (e.g. repricing), hide the three offer cards and only show the single add action
   useVoucherOffers = false, // When true (store credit), display voucher prices instead of cash
 }) {
@@ -440,10 +441,14 @@ export default function ResearchFormShell({
     [sortOrder, sortOptions]
   );
 
-  // Right-click pivot state for range exclude selection
+  // Pivot state for range exclude selection (single-click sets pivot, second click completes range)
   const [rightClickPivotIdx, setRightClickPivotIdx] = useState(null);
   // The action to apply when the range is completed: true = exclude, false = un-exclude
   const [rightClickPivotAction, setRightClickPivotAction] = useState(null);
+
+  // Context menu state for right-click "exclude all before / after"
+  const [excludeContextMenu, setExcludeContextMenu] = useState(null); // { x, y, sortedIdx } | null
+  const excludeContextMenuRef = useRef(null);
   
   // Ref to maintain input focus
   const manualInputRef = useRef(null);
@@ -457,7 +462,11 @@ export default function ResearchFormShell({
   const openManualOfferDialog = useCallback((e, idx, initialValue) => {
     e.preventDefault();
     e.stopPropagation();
-    setManualOfferDialog({ x: e.clientX, y: e.clientY, value: initialValue, baseIndex: idx });
+    const dialogWidth = 288; // w-72
+    const x = (e.clientX + dialogWidth > window.innerWidth)
+      ? e.clientX - dialogWidth
+      : e.clientX;
+    setManualOfferDialog({ x, y: e.clientY, value: initialValue, baseIndex: idx });
     manualOfferDidFocusRef.current = false;
   }, []);
 
@@ -498,6 +507,23 @@ export default function ResearchFormShell({
     manualOfferDidFocusRef.current = true;
   }, [manualOfferDialog]);
   
+  // Close exclude context menu on click-outside or Escape
+  useEffect(() => {
+    if (!excludeContextMenu) return;
+    const handleClickOutside = (e) => {
+      if (excludeContextMenuRef.current && !excludeContextMenuRef.current.contains(e.target)) setExcludeContextMenu(null);
+    };
+    const handleEscape = (e) => {
+      if (e.key === 'Escape') setExcludeContextMenu(null);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [excludeContextMenu]);
+
   // Maintain focus when manual offer is selected
   useEffect(() => {
     if (selectedOfferIndex === 'manual' && manualInputRef.current && document.activeElement !== manualInputRef.current) {
@@ -699,53 +725,93 @@ export default function ResearchFormShell({
     return Math.round((cleanManual / salePrice) * 100);
   }, [displayedStats, manualOffer]);
 
-  // Left-click handler: toggle a single listing's excluded state and clear any pivot.
+  // Single-click handler: three-state cycle — unexcluded → pivot → excluded → unexcluded.
   const handleExcludeClick = useCallback((sortedIdx) => {
     if (!onToggleExclude || !sortedListings || !sortedListings[sortedIdx]) return;
 
     const { item: clicked, origIdx } = sortedListings[sortedIdx];
     const id = clicked._id ?? clicked.id ?? `${clicked.url ?? clicked.title ?? 'listing'}-${origIdx}`;
-    onToggleExclude(id);
 
-    // Clear pivot on any left-click
-    setRightClickPivotIdx(null);
-    setRightClickPivotAction(null);
-  }, [sortedListings, onToggleExclude]);
-
-  // Right-click handler: set pivot or complete a range selection.
-  const handleExcludeRightClick = useCallback((sortedIdx) => {
-    if (!onToggleExclude || !sortedListings || !sortedListings[sortedIdx]) return;
-
-    if (rightClickPivotIdx === null) {
-      // First right-click: set as pivot. The action (exclude / un-exclude) is determined
-      // by the current state of the pivot item: if not excluded → action is "exclude".
-      const pivotItem = sortedListings[sortedIdx]?.item;
-      setRightClickPivotIdx(sortedIdx);
-      setRightClickPivotAction(!pivotItem?.excluded); // true = exclude, false = un-exclude
+    // Excluded → unexclude
+    if (clicked.excluded) {
+      onToggleExclude(id);
+      setRightClickPivotIdx(null);
+      setRightClickPivotAction(null);
       return;
     }
 
-    // Second right-click: apply action to the entire range between pivot and this item.
-    const start = Math.min(rightClickPivotIdx, sortedIdx);
-    const end = Math.max(rightClickPivotIdx, sortedIdx);
+    // Pivot → exclude (and clear pivot)
+    if (rightClickPivotIdx === sortedIdx) {
+      onToggleExclude(id);
+      setRightClickPivotIdx(null);
+      setRightClickPivotAction(null);
+      return;
+    }
 
-    for (let i = start; i <= end; i++) {
+    // Another item clicked while a pivot exists — complete range selection
+    if (rightClickPivotIdx !== null) {
+      const start = Math.min(rightClickPivotIdx, sortedIdx);
+      const end = Math.max(rightClickPivotIdx, sortedIdx);
+      for (let i = start; i <= end; i++) {
+        const entry = sortedListings[i];
+        if (!entry) continue;
+        const { item: rangeItem, origIdx: rangeOrigIdx } = entry;
+        const currentlyExcluded = !!rangeItem.excluded;
+        if (currentlyExcluded !== rightClickPivotAction) {
+          const rangeId = rangeItem._id ?? rangeItem.id ?? `${rangeItem.url ?? rangeItem.title ?? 'listing'}-${rangeOrigIdx}`;
+          onToggleExclude(rangeId);
+        }
+      }
+      setRightClickPivotIdx(null);
+      setRightClickPivotAction(null);
+      return;
+    }
+
+    // Unexcluded, no pivot — set as pivot
+    setRightClickPivotIdx(sortedIdx);
+    setRightClickPivotAction(true);
+  }, [sortedListings, onToggleExclude, rightClickPivotIdx, rightClickPivotAction]);
+
+  // Right-click handler: show context menu with "exclude all before" / "exclude all after".
+  const handleExcludeContextMenu = useCallback((e, sortedIdx) => {
+    if (!onToggleExclude || !sortedListings || !sortedListings[sortedIdx]) return;
+    setExcludeContextMenu({ x: e.clientX, y: e.clientY, sortedIdx });
+  }, [sortedListings, onToggleExclude]);
+
+  // Context menu actions
+  const handleExcludeAllBefore = useCallback(() => {
+    if (!excludeContextMenu || !onToggleExclude || !sortedListings) return;
+    const targetIdx = excludeContextMenu.sortedIdx;
+    for (let i = 0; i < targetIdx; i++) {
       const entry = sortedListings[i];
       if (!entry) continue;
       const { item, origIdx } = entry;
-      const currentlyExcluded = !!item.excluded;
-
-      // Only toggle items that don't already match the target state.
-      if (currentlyExcluded !== rightClickPivotAction) {
+      if (!item.excluded) {
         const id = item._id ?? item.id ?? `${item.url ?? item.title ?? 'listing'}-${origIdx}`;
         onToggleExclude(id);
       }
     }
-
-    // Clear pivot after range is applied
+    setExcludeContextMenu(null);
     setRightClickPivotIdx(null);
     setRightClickPivotAction(null);
-  }, [sortedListings, onToggleExclude, rightClickPivotIdx, rightClickPivotAction]);
+  }, [excludeContextMenu, sortedListings, onToggleExclude]);
+
+  const handleExcludeAllAfter = useCallback(() => {
+    if (!excludeContextMenu || !onToggleExclude || !sortedListings) return;
+    const targetIdx = excludeContextMenu.sortedIdx;
+    for (let i = targetIdx + 1; i < sortedListings.length; i++) {
+      const entry = sortedListings[i];
+      if (!entry) continue;
+      const { item, origIdx } = entry;
+      if (!item.excluded) {
+        const id = item._id ?? item.id ?? `${item.url ?? item.title ?? 'listing'}-${origIdx}`;
+        onToggleExclude(id);
+      }
+    }
+    setExcludeContextMenu(null);
+    setRightClickPivotIdx(null);
+    setRightClickPivotAction(null);
+  }, [excludeContextMenu, sortedListings, onToggleExclude]);
 
   const handleClearAllExclusions = useCallback(() => {
     if (onClearAllExclusions) {
@@ -760,9 +826,10 @@ export default function ResearchFormShell({
     }
     setRightClickPivotIdx(null);
     setRightClickPivotAction(null);
+    setExcludeContextMenu(null);
   }, [displayedListings, onToggleExclude, onClearAllExclusions]);
 
-  // MEMOIZED BUY OFFERS DISPLAY with manual offer card and optional "Add to Cart" per-offer flow
+  // MEMOIZED BUY OFFERS DISPLAY - inline stat-style layout, same row as stats
   const BuyOffersDisplay = useMemo(() => {
     const useAddWithOfferFlow = Boolean(onAddToCartWithOffer && !readOnly);
     if (hideOfferCards && !useAddWithOfferFlow) return null;
@@ -775,139 +842,126 @@ export default function ResearchFormShell({
     const offersAreInteractive = useAddWithOfferFlow || (showManualOffer && !readOnly);
 
     return (
-      <div className="flex flex-wrap items-center gap-4">
-        {!hideOfferCards && buyOffers.map((offer, idx) => {
-          const { price: rawPrice } = offer;
-          const price = useVoucherOffers ? toVoucherOfferPrice(rawPrice) : rawPrice;
-          const pctOfSale = displayPctOfSaleForOffer(offer, displayedStats?.suggestedPrice);
-          if (!offersAreInteractive) {
-            return (
-              <div key={idx} className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-blue-900/5 border border-blue-900/10">
-                <span className="text-[10px] font-bold text-gray-500 uppercase">{offerLabels[idx]}</span>
-                <span className="text-sm font-extrabold text-blue-900">£{formatStat(price)}</span>
+      <React.Fragment>
+        {/* Leading separator from preceding stats */}
+        <div className="w-px h-8 bg-gray-200" />
+        <div className="flex items-center gap-6 flex-wrap">
+          {!hideOfferCards && buyOffers.map((offer, idx) => {
+            const { price: rawPrice } = offer;
+            const price = useVoucherOffers ? toVoucherOfferPrice(rawPrice) : rawPrice;
+            const pctOfSale = displayPctOfSaleForOffer(offer, displayedStats?.suggestedPrice);
+            const isSelected = showManualOffer && selectedOfferIndex === idx;
+
+            const inner = (
+              <>
+                <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider leading-none">
+                  {offerLabels[idx]}
+                </span>
+                <span className={`text-lg font-extrabold leading-tight ${isSelected ? 'text-blue-900' : 'text-blue-900'}`}>
+                  £{formatStat(price)}
+                </span>
                 {pctOfSale != null && (
-                  <>
-                    <span className="text-gray-300">·</span>
-                    <span className="text-[10px] font-bold text-yellow-600">{pctOfSale}% sale</span>
-                  </>
+                  <span className="text-[10px] font-bold text-yellow-600">{pctOfSale}% sale</span>
+                )}
+              </>
+            );
+
+            return (
+              <React.Fragment key={idx}>
+                {idx > 0 && <div className="w-px h-8 bg-gray-200" />}
+                {offersAreInteractive ? (
+                  <div
+                    onContextMenu={showRightClickManual ? (e) => {
+                      const basePrice = Number(price);
+                      openManualOfferDialog(e, idx, Number.isFinite(basePrice) && basePrice > 0 ? basePrice.toFixed(2) : '');
+                    } : undefined}
+                  >
+                    <button
+                      type="button"
+                      className={`flex flex-col text-left cursor-pointer transition-opacity hover:opacity-75 focus:outline-none rounded ${
+                        isSelected ? 'ring-2 ring-blue-900 p-0.5' : ''
+                      }`}
+                      onClick={
+                        useAddWithOfferFlow
+                          ? () => onAddToCartWithOffer(idx)
+                          : (showManualOffer && !readOnly ? () => handleOfferClick(price, idx) : undefined)
+                      }
+                    >
+                      {inner}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col">{inner}</div>
+                )}
+              </React.Fragment>
+            );
+          })}
+
+          {useAddWithOfferFlow && showInlineOfferAction && (
+            <>
+              {buyOffers.length > 0 && <div className="w-px h-8 bg-gray-200" />}
+              <button
+                type="button"
+                onClick={() => onAddToCartWithOffer(null)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-blue-900 font-extrabold text-xs uppercase shadow-sm transition-all ${
+                  disableAddAction
+                    ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
+                    : 'bg-yellow-500 hover:bg-yellow-400 cursor-pointer'
+                }`}
+                disabled={disableAddAction}
+              >
+                <Icon name={addActionLabel === 'Add to Reprice List' ? 'sell' : 'add_shopping_cart'} className="text-sm" />
+                {addActionLabel}
+              </button>
+            </>
+          )}
+
+          {/* Manual Offer - inline stat style with bottom-border input */}
+          {!hideOfferCards && showManualOffer && onManualOfferChange && (
+            <>
+              {(buyOffers.length > 0 || useAddWithOfferFlow) && <div className="w-px h-8 bg-gray-200" />}
+              <div className="flex flex-col cursor-text" onClick={handleManualOfferCardClick}>
+                <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider leading-none">
+                  Manual Offer
+                </span>
+                <div className="flex items-center">
+                  <span className="text-lg font-extrabold text-blue-900 leading-tight">£</span>
+                  <input
+                    ref={manualInputRef}
+                    type="text"
+                    key="manual-offer-input"
+                    className={`text-lg font-extrabold text-blue-900 bg-transparent outline-none w-20 border-b-2 ml-0.5 transition-colors leading-tight ${
+                      selectedOfferIndex === 'manual' ? 'border-blue-900' : 'border-transparent focus:border-blue-200'
+                    }`}
+                    placeholder="0.00"
+                    value={manualOffer}
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      handleManualOfferChange(e);
+                      if (!readOnly && showManualOffer && selectedOfferIndex !== 'manual') {
+                        setSelectedOfferIndex('manual');
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') { e.preventDefault(); handleComplete(); }
+                    }}
+                    onFocus={() => {
+                      if (!readOnly && showManualOffer) setSelectedOfferIndex('manual');
+                    }}
+                    disabled={readOnly}
+                    readOnly={readOnly}
+                  />
+                </div>
+                {manualOfferPctOfSale !== null && (
+                  <span className="text-[10px] font-bold text-yellow-600">{manualOfferPctOfSale}% sale</span>
                 )}
               </div>
-            );
-          }
-          return (
-            <div
-              key={idx}
-              onContextMenu={
-                showRightClickManual
-                  ? (e) => {
-                      const basePrice = Number(price);
-                      const initialValue = Number.isFinite(basePrice) && basePrice > 0 ? basePrice.toFixed(2) : '';
-                      openManualOfferDialog(e, idx, initialValue);
-                    }
-                  : undefined
-              }
-            >
-              <HorizontalOfferCard
-                title={offerLabels[idx] || `${idx + 1}th Offer`}
-                price={`£${formatStat(price)}`}
-                offerPctOfSale={pctOfSale != null ? pctOfSale : [40, 50, 60][idx]}
-                isHighlighted={showManualOffer && selectedOfferIndex === idx}
-                onClick={
-                  useAddWithOfferFlow
-                    ? () => onAddToCartWithOffer(idx)
-                    : showManualOffer && !readOnly
-                      ? () => handleOfferClick(price, idx)
-                      : undefined
-                }
-              />
-            </div>
-          );
-        })}
-        {useAddWithOfferFlow && (
-          <div
-            onClick={() => onAddToCartWithOffer(null)}
-            className="flex items-center justify-center px-4 py-2 rounded-lg bg-yellow-500 hover:bg-yellow-400 cursor-pointer border-2 border-yellow-500 hover:border-yellow-400 text-blue-900 shadow-md shadow-yellow-500/10 hover:shadow-lg transition-all duration-150 ease-out"
-          >
-            <Icon name={addActionLabel === 'Add to Reprice List' ? 'sell' : 'add_shopping_cart'} className="text-blue-900 text-lg mr-2" />
-            <span className="text-blue-900 font-extrabold text-sm uppercase">{addActionLabel}</span>
-          </div>
-        )}
-        
-        {/* Manual Offer Card - styled like the other offers, with inline input (hidden when hideOfferCards) */}
-        {!hideOfferCards && showManualOffer && onManualOfferChange && (
-          <div
-            onClick={handleManualOfferCardClick}
-            className={`
-              flex items-center justify-between px-3 py-2 rounded-lg bg-white cursor-text relative
-              border transition-all duration-150 ease-out
-              ${
-                selectedOfferIndex === 'manual'
-                  ? `
-                    border-blue-900
-                    ring-1 ring-blue-900
-                    shadow-md
-                    scale-[1.02]
-                  `
-                  : `
-                    border-blue-900/30
-                    hover:border-blue-900
-                    hover:shadow-sm
-                  `
-              }
-            `}
-          >
-            {/* Left accent bar */}
-            <div
-              className={`absolute top-0 left-0 h-full w-1 rounded-l ${
-                selectedOfferIndex === 'manual' ? 'bg-yellow-500' : 'bg-yellow-500/60'
-              }`}
-            />
-
-            {/* Content row with inline input */}
-            <div className="flex items-center gap-2 flex-1 ml-2 text-blue-900 font-extrabold text-sm uppercase">
-              <span className="truncate">Manual Offer</span>
-              <span className="text-gray-400">/</span>
-              <input
-                ref={manualInputRef}
-                type="text"
-                key="manual-offer-input"
-                className="bg-transparent border-none outline-none text-blue-900 font-extrabold text-sm w-24"
-                placeholder="£0.00"
-                value={manualOffer}
-                onChange={(e) => {
-                  e.stopPropagation();
-                  handleManualOfferChange(e);
-                  if (!readOnly && showManualOffer && selectedOfferIndex !== 'manual') {
-                    setSelectedOfferIndex('manual');
-                  }
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleComplete();
-                  }
-                }}
-                onFocus={() => {
-                  if (!readOnly && showManualOffer) {
-                    setSelectedOfferIndex('manual');
-                  }
-                }}
-                disabled={readOnly}
-                readOnly={readOnly}
-              />
-            </div>
-
-            {/* Right Side: % of sale badge */}
-            {manualOfferPctOfSale !== null && (
-              <div className="flex items-center justify-center bg-gradient-to-br from-yellow-400 to-yellow-500 text-blue-900 text-[10px] font-black uppercase px-2.5 py-1 rounded-full">
-                {manualOfferPctOfSale}% sale
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+            </>
+          )}
+        </div>
+      </React.Fragment>
     );
-  }, [buyOffers, showManualOffer, selectedOfferIndex, manualOffer, manualOfferPctOfSale, onManualOfferChange, readOnly, handleOfferClick, handleManualOfferCardClick, handleManualOfferChange, onAddToCartWithOffer, formatStat, enableRightClickManualOffer, openManualOfferDialog, hideOfferCards, addActionLabel, useVoucherOffers, displayedStats?.suggestedPrice]);
+  }, [buyOffers, showManualOffer, selectedOfferIndex, manualOffer, manualOfferPctOfSale, onManualOfferChange, readOnly, handleOfferClick, handleManualOfferCardClick, handleManualOfferChange, onAddToCartWithOffer, formatStat, enableRightClickManualOffer, openManualOfferDialog, hideOfferCards, addActionLabel, disableAddAction, useVoucherOffers, displayedStats?.suggestedPrice, showInlineOfferAction]);
 
   const content = (
     <>
@@ -931,14 +985,14 @@ export default function ResearchFormShell({
         </header>
       )}
 
-      {/* Stats at top - Only show in page mode when we have results */}
-      {mode === "page" && listings && (
+      {/* Stats at top when no histogram is shown (both page and modal modes) */}
+      {!showHistogram && listings && (
         <div className="px-6 py-4 border-b border-gray-200 bg-white flex items-center justify-between gap-6 flex-wrap">
           <div className="flex items-center gap-6 flex-wrap">
             <StatsDisplay />
             {BuyOffersDisplay}
           </div>
-          {onAddNewItem && (
+          {mode === "page" && onAddNewItem && (
             <Button
               variant="primary"
               size="md"
@@ -950,17 +1004,32 @@ export default function ResearchFormShell({
             </Button>
           )}
           {/* When onAddToCartWithOffer is provided, the only Add to Cart control lives inline with the offers. */}
-          {!onAddNewItem && !onAddToCartWithOffer && (
+          {mode === "page" && !onAddNewItem && !onAddToCartWithOffer && (
             <Button
               variant="primary"
               size="md"
               onClick={readOnly ? undefined : handleComplete}
               className="shrink-0 mt-2 md:mt-0"
-              disabled={readOnly}
+              disabled={readOnly || disableAddAction}
             >
               <Icon name="add_shopping_cart" className="text-sm" />
               {addActionLabel}
             </Button>
+          )}
+          {mode === "modal" && (
+            <div className="flex gap-3 shrink-0 ml-auto">
+              <Button variant="outline" size="md" onClick={readOnly ? undefined : handleComplete} disabled={readOnly}>Cancel</Button>
+              {listings && (
+                <Button
+                  variant="primary"
+                  size="md"
+                  onClick={handleComplete}
+                  disabled={loading && !readOnly}
+                >
+                  OK
+                </Button>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -1249,37 +1318,49 @@ export default function ResearchFormShell({
         {/* Listings */}
         {listings && (
           <main className="flex-1 min-h-0 overflow-hidden bg-gray-100 flex">
-            {/* Listings Column */}
-            <div className="flex-1 min-h-0 overflow-y-auto p-6 histogram-scrollbar">
-              {/* Records / Excluded banner */}
+            {/* Listings column: frozen stats strip + scrollable grid (matches buyer freeze-pane pattern) */}
+            <div className="flex-1 min-h-0 min-w-0 flex flex-col">
+              <div
+                className={`flex-1 min-h-0 overflow-y-auto histogram-scrollbar ${
+                  displayedListings && displayedListings.length > 0 ? 'px-6 pb-6' : 'p-6'
+                }`}
+              >
               {displayedListings && displayedListings.length > 0 && (
-                <div className="mb-4 flex flex-col items-center gap-1.5 py-2.5 px-4 rounded-lg bg-gray-200/80 text-gray-700 border border-gray-300/60">
-                  <div className="flex items-center justify-center gap-6">
-                    <div className="flex items-baseline gap-1.5">
-                      <span className="text-xs font-medium uppercase tracking-wider text-gray-500">Records</span>
-                      <span className="text-lg font-semibold tabular-nums">{displayedListings.length}</span>
+                <div className="sticky top-0 z-20 -mx-6 px-6 pb-3 bg-gray-100 border-b border-gray-200 shadow-sm">
+                  <div className="flex flex-col items-center gap-1.5 py-2.5 px-4 rounded-lg bg-gray-200/80 text-gray-700 border border-gray-300/60">
+                    <div className="flex items-center justify-center gap-6 flex-wrap">
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="text-xs font-medium uppercase tracking-wider text-gray-500">Records</span>
+                        <span className="text-lg font-semibold tabular-nums">{displayedListings.length}</span>
+                      </div>
+                      <div className="w-px h-5 bg-gray-400 rounded-full" aria-hidden="true" />
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="text-xs font-medium uppercase tracking-wider text-gray-500">Displayed</span>
+                        <span className="text-lg font-semibold tabular-nums text-blue-900">{displayListings.length}</span>
+                      </div>
+                      <div className="w-px h-5 bg-gray-400 rounded-full" aria-hidden="true" />
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="text-xs font-medium uppercase tracking-wider text-gray-500">Excluded</span>
+                        <span className="text-lg font-semibold tabular-nums">{displayedListings.filter(l => l.excluded).length}</span>
+                      </div>
+                      {drillHistory.length > 0 && (
+                        <>
+                          <div className="w-px h-5 bg-gray-400 rounded-full" aria-hidden="true" />
+                          <div className="text-xs text-gray-500">
+                            from <span className="font-semibold text-gray-700">{listings.length}</span> total
+                          </div>
+                        </>
+                      )}
                     </div>
-                    <div className="w-px h-5 bg-gray-400 rounded-full" aria-hidden="true" />
-                    <div className="flex items-baseline gap-1.5">
-                      <span className="text-xs font-medium uppercase tracking-wider text-gray-500">Excluded</span>
-                      <span className="text-lg font-semibold tabular-nums">{displayedListings.filter(l => l.excluded).length}</span>
+                    <div className="flex items-center gap-1.5 text-[11px] text-gray-600 text-center max-w-3xl">
+                      <span className="material-symbols-outlined text-[14px] text-gray-500 shrink-0">info</span>
+                      <span><strong className="font-semibold">Click</strong> unexcluded to set pivot · <strong className="font-semibold">Click pivot</strong> to exclude · <strong className="font-semibold">Click excluded</strong> to re-include · <strong className="font-semibold">Click pivot then another</strong> to exclude range · <strong className="font-semibold">Right-click</strong> for before/after.</span>
                     </div>
-                    {drillHistory.length > 0 && (
-                      <>
-                        <div className="w-px h-5 bg-gray-400 rounded-full" aria-hidden="true" />
-                        <div className="text-xs text-gray-500">
-                          from <span className="font-semibold text-gray-700">{listings.length}</span> total
-                        </div>
-                      </>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1.5 text-[11px] text-gray-600">
-                    <span className="material-symbols-outlined text-[14px] text-gray-500">info</span>
-                    <span><strong className="font-semibold">Left-click</strong> Exclude to toggle one listing · <strong className="font-semibold">Right-click</strong> two listings to exclude/include a range.</span>
                   </div>
                 </div>
               )}
 
+              <div className={displayedListings && displayedListings.length > 0 ? 'pt-4' : undefined}>
               {/* Breadcrumb Navigation */}
               {showHistogram && drillHistory.length > 0 && (
                 <div className="mb-4 flex items-center gap-2 text-xs font-medium">
@@ -1317,54 +1398,112 @@ export default function ResearchFormShell({
                     sortedIdx={sortedIdx}
                     displayIdx={displayIdx}
                     onExcludeClick={handleExcludeClick}
-                    onExcludeRightClick={handleExcludeRightClick}
+                    onExcludeContextMenu={handleExcludeContextMenu}
                     showExcludeButton={Boolean(onToggleExclude && !readOnly)}
                     readOnly={readOnly}
                     isPivot={rightClickPivotIdx === sortedIdx}
                   />
                 ))}
               </div>
+              </div>
+              </div>
             </div>
 
             {/* --- HISTOGRAM COMPONENT (Right Side) --- */}
             {showHistogram && (
-              <aside className="w-80 border-l border-gray-200 overflow-hidden">
-                <PriceHistogram
-                  listings={histogramListings}
-                  onBucketSelect={onDrillDown}
-                  priceRange={currentPriceRange}
-                  onGoBack={onZoomOut}
-                  drillLevel={drillHistory.length}
-                  readOnly={readOnly}
-                />
+              <aside className="w-80 border-l border-gray-200 overflow-hidden flex flex-col shrink-0">
+                {/* Stats + offers + actions panel above the histogram */}
+                {listings && (
+                  <div className="p-4 border-b border-gray-200 bg-white shrink-0 overflow-y-auto" style={{ maxHeight: '55%' }}>
+                    {/* Stats */}
+                    {displayedStats && (
+                      <div className="grid grid-cols-3 gap-x-3 mb-3 pb-3 border-b border-gray-100">
+                        {[
+                          { label: 'Average',   value: displayedStats.average,        cls: 'text-blue-900'  },
+                          { label: 'Median',    value: displayedStats.median,          cls: 'text-blue-900'  },
+                          { label: 'Suggested', value: displayedStats.suggestedPrice,  cls: 'text-green-600' },
+                        ].map(({ label, value, cls }) => (
+                          <div key={label} className="flex flex-col">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-gray-500 leading-none mb-0.5">{label}</span>
+                            <span className={`text-sm font-extrabold leading-tight ${cls}`}>£{formatStat(value)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Offer cards — left-click to add, right-click for manual amount */}
+                    {!hideOfferCards && buyOffers.length > 0 && (() => {
+                      const offerLabels = useVoucherOffers
+                        ? ['1st Voucher', '2nd Voucher', '3rd Voucher']
+                        : ['1st Cash', '2nd Cash', '3rd Cash'];
+                      return (
+                        <div className="flex gap-1.5 mb-3">
+                          {buyOffers.map((offer, idx) => {
+                            const price = useVoucherOffers ? toVoucherOfferPrice(offer.price) : offer.price;
+                            const pctOfSale = displayPctOfSaleForOffer(offer, displayedStats?.suggestedPrice);
+                            return (
+                              <button
+                                key={idx}
+                                type="button"
+                                className="flex flex-col text-left px-2.5 py-2 rounded-lg bg-blue-50 border border-blue-100 hover:bg-blue-100 active:bg-blue-200 transition-colors flex-1 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                onClick={onAddToCartWithOffer ? () => onAddToCartWithOffer(idx) : undefined}
+                                onContextMenu={(e) => {
+                                  e.preventDefault();
+                                  const basePrice = Number(price);
+                                  openManualOfferDialog(e, idx, Number.isFinite(basePrice) && basePrice > 0 ? basePrice.toFixed(2) : '');
+                                }}
+                                title="Left-click to add · Right-click for custom amount"
+                              >
+                                <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider leading-none mb-0.5">{offerLabels[idx]}</span>
+                                <span className="text-sm font-extrabold text-blue-900 leading-tight">£{formatStat(price)}</span>
+                                {pctOfSale != null && <span className="text-[10px] font-bold text-yellow-600 leading-none mt-0.5">{pctOfSale}%</span>}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
+
+                    {/* Action buttons */}
+                    <div className="flex flex-col gap-2">
+                      {onAddNewItem && (
+                        <Button variant="primary" size="sm" onClick={onAddNewItem} className="w-full">
+                          <Icon name="add_circle" className="text-sm" />
+                          Add new item
+                        </Button>
+                      )}
+                      {!onAddNewItem && !onAddToCartWithOffer && mode !== "modal" && (
+                        <Button variant="primary" size="sm" onClick={readOnly ? undefined : handleComplete} disabled={readOnly || disableAddAction} className="w-full">
+                          <Icon name="add_shopping_cart" className="text-sm" />
+                          {addActionLabel}
+                        </Button>
+                      )}
+                      {mode === "modal" && (
+                        <div className="flex gap-2 mt-1">
+                          <Button variant="outline" size="sm" onClick={readOnly ? undefined : handleComplete} disabled={readOnly} className="flex-1">Cancel</Button>
+                          <Button variant="primary" size="sm" onClick={handleComplete} disabled={loading && !readOnly} className="flex-1">OK</Button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {/* Histogram fills remaining space */}
+                <div className="flex-1 min-h-0 overflow-hidden">
+                  <PriceHistogram
+                    listings={histogramListings}
+                    onBucketSelect={onDrillDown}
+                    priceRange={currentPriceRange}
+                    onGoBack={onZoomOut}
+                    drillLevel={drillHistory.length}
+                    readOnly={readOnly}
+                  />
+                </div>
               </aside>
             )}
           </main>
         )}
       </div>
 
-      {/* Footer - Only show in modal mode */}
-      {mode === "modal" && (
-        <footer className="px-6 py-4 border-t border-gray-200 bg-white flex justify-between items-center shrink-0">
-          <div className="flex items-center gap-6 flex-wrap">
-            <StatsDisplay />
-            {BuyOffersDisplay}
-          </div>
-          <div className="flex gap-3">
-            <Button variant="outline" size="md" onClick={readOnly ? undefined : handleComplete} disabled={readOnly}>Cancel</Button>
-            {listings && (
-              <Button 
-                variant="primary" 
-                size="md" 
-                onClick={handleComplete} 
-                disabled={loading && !readOnly}
-              >
-                OK
-              </Button>
-            )}
-          </div>
-        </footer>
-      )}
     </>
   );
 
@@ -1376,6 +1515,50 @@ export default function ResearchFormShell({
   const containerClasses = mode === "modal"
     ? "bg-white w-full h-full flex flex-col overflow-hidden"
     : "bg-white w-full h-full flex flex-col overflow-hidden";
+
+  const excludeContextMenuEl = excludeContextMenu && (
+    <div
+      ref={excludeContextMenuRef}
+      className="fixed z-[120] bg-white rounded-lg border border-gray-200 shadow-xl min-w-[200px]"
+      style={{
+        left: Math.min(excludeContextMenu.x, window.innerWidth - 220),
+        top: Math.min(excludeContextMenu.y, window.innerHeight - 100),
+      }}
+      role="menu"
+    >
+      <div className="flex items-center justify-between px-3 pt-2 pb-1">
+        <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Exclude</span>
+        <button
+          type="button"
+          className="p-0.5 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+          onClick={() => setExcludeContextMenu(null)}
+          aria-label="Close menu"
+        >
+          <span className="material-symbols-outlined text-[16px]">close</span>
+        </button>
+      </div>
+      <div className="py-1">
+        <button
+          type="button"
+          className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-900 flex items-center gap-2.5 transition-colors"
+          onClick={handleExcludeAllBefore}
+          role="menuitem"
+        >
+          <span className="material-symbols-outlined text-[16px]">vertical_align_top</span>
+          Exclude all before this
+        </button>
+        <button
+          type="button"
+          className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-900 flex items-center gap-2.5 transition-colors"
+          onClick={handleExcludeAllAfter}
+          role="menuitem"
+        >
+          <span className="material-symbols-outlined text-[16px]">vertical_align_bottom</span>
+          Exclude all after this
+        </button>
+      </div>
+    </div>
+  );
 
   const manualOfferDialogEl = manualOfferDialog && (
     <div
@@ -1439,12 +1622,14 @@ export default function ResearchFormShell({
       <div className={containerClasses}>
         {content}
         {manualOfferDialogEl}
+        {excludeContextMenuEl}
       </div>
     </div>
   ) : (
     <div className={containerClasses}>
       {content}
       {manualOfferDialogEl}
+      {excludeContextMenuEl}
     </div>
   );
 }

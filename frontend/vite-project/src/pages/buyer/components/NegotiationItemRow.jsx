@@ -9,7 +9,7 @@ function OfferCell({ offer, item, quantity, mode, isSelected, onSelect, ourSaleP
 
   return (
     <td
-      className={`font-semibold ${mode === 'view' ? '' : 'cursor-pointer'}`}
+      className={`align-top font-semibold ${mode === 'view' ? '' : 'cursor-pointer'}`}
       style={isSelected ? { background: 'rgba(34, 197, 94, 0.15)', fontWeight: 'bold', color: '#166534' } : {}}
       onClick={() => { if (offer && mode !== 'view') onSelect(offer.id); }}
     >
@@ -223,6 +223,12 @@ export default function NegotiationItemRow({
           type="text"
           value={item.customerExpectation || ''}
           onChange={isViewMode ? undefined : (e) => onCustomerExpectationChange(item.id, e.target.value)}
+          onKeyDown={isViewMode ? undefined : (e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              e.currentTarget.blur();
+            }
+          }}
           readOnly={isViewMode}
         />
       </td>

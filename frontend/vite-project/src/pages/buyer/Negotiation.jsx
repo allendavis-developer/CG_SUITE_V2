@@ -568,6 +568,12 @@ const Negotiation = ({ mode }) => {
                         type="text"
                         value={totalExpectation}
                         onChange={(e) => setTotalExpectation(e.target.value)}
+                        onKeyDown={mode === 'negotiate' ? (e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            e.currentTarget.blur();
+                          }
+                        } : undefined}
                         placeholder="0.00"
                         readOnly={mode === 'view'}
                       />
@@ -609,11 +615,19 @@ const Negotiation = ({ mode }) => {
                     <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>
                       {parsedTarget > 0 ? 'Exact total offer required' : 'Not set'}
                     </p>
-                    <div className="flex items-baseline gap-1">
+                    <div
+                      className={`flex items-baseline gap-1 ${mode === 'negotiate' ? 'cursor-pointer rounded-lg p-2 -mx-2 -mb-2 hover:bg-blue-50 transition-colors group' : ''}`}
+                      onClick={mode === 'negotiate' ? () => setShowTargetModal(true) : undefined}
+                      role={mode === 'negotiate' ? 'button' : undefined}
+                      title={mode === 'negotiate' ? 'Click to set target offer' : undefined}
+                    >
                       <span className="font-bold text-lg" style={{ color: 'var(--brand-blue)' }}>£</span>
                       <span className="text-2xl font-black tracking-tight" style={{ color: 'var(--brand-blue)' }}>
                         {parsedTarget > 0 ? parsedTarget.toFixed(2) : '0.00'}
                       </span>
+                      {mode === 'negotiate' && (
+                        <span className="material-symbols-outlined ml-1 text-blue-300 group-hover:text-blue-600 transition-colors align-middle" style={{ fontSize: '1.5rem' }}>edit</span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -690,22 +704,15 @@ const Negotiation = ({ mode }) => {
           <div className="flex-1 overflow-y-auto p-6 space-y-6" />
 
           <div className="p-6 bg-white border-t space-y-4" style={{ borderColor: 'rgba(20, 69, 132, 0.2)' }}>
-            <div
-                className={`flex justify-between items-end ${mode === 'negotiate' ? 'cursor-pointer rounded-lg p-2 -mx-2 hover:bg-blue-50 transition-colors group' : ''}`}
-              onClick={mode === 'negotiate' ? () => setShowTargetModal(true) : undefined}
-                title={mode === 'negotiate' ? 'Click to set target offer' : undefined}
-              >
+            <div className="flex justify-between items-end">
                 <div className="flex flex-col">
                 <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'var(--brand-blue)' }}>Grand Total</span>
                   <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
-                    {mode === 'negotiate' ? 'Click to set target' : 'Based on selected offers'}
+                    Based on selected offers
                   </span>
                 </div>
               <div className="text-right text-3xl font-black tracking-tighter leading-none" style={{ color: 'var(--brand-blue)' }}>
                 <span>£{totalOfferPrice.toFixed(2)}</span>
-                  {mode === 'negotiate' && (
-                  <span className="material-symbols-outlined ml-1 text-blue-300 group-hover:text-blue-600 transition-colors align-middle" style={{ fontSize: 'inherit' }}>edit</span>
-                  )}
                 </div>
               </div>
 

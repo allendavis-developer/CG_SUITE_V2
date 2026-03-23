@@ -14,7 +14,7 @@ import CashConvertersCartItemView from './CashConvertersCartItemView';
 import { useProductAttributes } from '@/pages/buyer/hooks/useProductAttributes';
 import { fetchVariantPrices, updateRequestItemRawData } from '@/services/api';
 import { mapTransactionTypeToIntent } from '@/utils/transactionConstants';
-import { normalizeExplicitSalePrice, roundOfferPrice, roundSalePrice, toVoucherOfferPrice, formatOfferPrice } from '@/utils/helpers';
+import { roundOfferPrice, roundSalePrice, toVoucherOfferPrice, formatOfferPrice } from '@/utils/helpers';
 import useAppStore, { useCartItems, useSelectedCartItem, useIsRepricing, useUseVoucherOffers } from '@/store/useAppStore';
 import { useNotification } from '@/contexts/NotificationContext';
 
@@ -401,18 +401,21 @@ const MainContent = ({ mode = 'buyer' }) => {
   };
 
   // ── Offer editing callbacks ──
-  const handleOfferPriceChange = useCallback((offerId, newPrice) => {
+  const handleSelectOfferForSelectedItem = useCallback((offerArg) => {
     if (!selectedCartItem) return;
-    const n = Number(newPrice);
-    if (!Number.isFinite(n) || n <= 0) return;
-    const normalized = normalizeExplicitSalePrice(n);
-    const update = (arr) => (arr || []).map((o) => (o.id === offerId ? { ...o, price: normalized } : o));
-    updateCartItemOffers(selectedCartItem.id, { offers: update(selectedCartItem.offers), cashOffers: update(selectedCartItem.cashOffers), voucherOffers: update(selectedCartItem.voucherOffers) });
-  }, [selectedCartItem, updateCartItemOffers]);
-
-  const handleSelectedOfferChange = useCallback((offerId) => {
-    if (!selectedCartItem) return;
-    updateCartItemOffers(selectedCartItem.id, { selectedOfferId: offerId });
+    if (offerArg && typeof offerArg === 'object' && offerArg.type === 'manual') {
+      const amount = Number(offerArg.amount);
+      if (!Number.isFinite(amount) || amount <= 0) return;
+      updateCartItemOffers(selectedCartItem.id, {
+        selectedOfferId: 'manual',
+        manualOffer: formatOfferPrice(amount),
+      });
+      return;
+    }
+    updateCartItemOffers(selectedCartItem.id, {
+      selectedOfferId: offerArg,
+      manualOffer: null,
+    });
   }, [selectedCartItem, updateCartItemOffers]);
 
   const isViewingCartItem = Boolean(selectedCartItem) && !selectedCartItem?.isCustomEbayItem && !selectedCartItem?.isCustomCashConvertersItem && !selectedCartItem?.isCustomCeXItem;
@@ -465,8 +468,7 @@ const MainContent = ({ mode = 'buyer' }) => {
         isRepricing={isRepricing}
         useVoucherOffers={useVoucherOffers}
         customerData={customerData}
-        onOfferPriceChange={handleOfferPriceChange}
-        onSelectedOfferChange={handleSelectedOfferChange}
+        onSelectOfferForCartItem={handleSelectOfferForSelectedItem}
         onUpdateCartItemResearch={(itemId, type, data) => {
           const field = type === 'ebay' ? 'ebayResearchData' : 'cashConvertersResearchData';
           useAppStore.getState().updateCartItem(itemId, { [field]: data });
@@ -509,8 +511,7 @@ const MainContent = ({ mode = 'buyer' }) => {
         item={selectedCartItem}
         isRepricing={isRepricing}
         useVoucherOffers={useVoucherOffers}
-              onOfferPriceChange={handleOfferPriceChange}
-              onSelectedOfferChange={handleSelectedOfferChange}
+        onSelectOfferForCartItem={handleSelectOfferForSelectedItem}
         onEbayResearchComplete={handleEbayResearchComplete}
         onDeselectCartItem={deselectCartItem}
       />
@@ -646,9 +647,10 @@ const MainContent = ({ mode = 'buyer' }) => {
                 variant={variant}
                 offers={useVoucherOffers ? (selectedCartItem.voucherOffers?.length ? selectedCartItem.voucherOffers : offers) : (selectedCartItem.cashOffers?.length ? selectedCartItem.cashOffers : offers)}
                 referenceData={referenceData} offerType={useVoucherOffers ? 'voucher' : 'cash'}
-                initialSelectedOfferId={selectedCartItem?.selectedOfferId ?? null} editMode={true}
+                initialSelectedOfferId={selectedCartItem?.selectedOfferId ?? null}
                 syncKey={`${selectedCartItem?.id ?? variant ?? 'item'}:${useVoucherOffers ? 'voucher' : 'cash'}`}
-                onOfferPriceChange={handleOfferPriceChange} onSelectedOfferChange={handleSelectedOfferChange}
+                onAddToCart={handleSelectOfferForSelectedItem}
+                showAddActionCard={false}
               />
             ) : (
               <OfferSelection variant={variant} offers={offers} referenceData={referenceData} offerType={useVoucherOffers ? 'voucher' : 'cash'} onAddToCart={handleAddToCart} />

@@ -1,4 +1,5 @@
 # serializers.py
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 from .models_v2 import ( ProductCategory, Product, Variant, Attribute, AttributeValue, Customer, Request, RequestItem, RequestStatus,
     RequestStatusHistory, Variant, RequestIntent, RepricingSession, RepricingSessionItem )
@@ -183,8 +184,15 @@ class RequestItemSerializer(serializers.ModelSerializer):
         ]
     
     def validate_customer_expectation_gbp(self, value):
-        if value is not None and value < 0:
+        if value is None:
+            return value
+        if value < 0:
             raise serializers.ValidationError("Customer expectation cannot be negative")
+        field = RequestItem._meta.get_field("customer_expectation_gbp")
+        try:
+            field.clean(value, None)
+        except DjangoValidationError as e:
+            raise serializers.ValidationError(e.messages)
         return value
 
 

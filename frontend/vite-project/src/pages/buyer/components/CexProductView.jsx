@@ -17,8 +17,7 @@ export default function CexProductView({
   isRepricing,
   useVoucherOffers,
   customerData,
-  onOfferPriceChange,
-  onSelectedOfferChange,
+  onSelectOfferForCartItem,
   readOnly = false,
   onAddToCart,
   createOrAppendRequestItem,
@@ -93,9 +92,10 @@ export default function CexProductView({
             <OfferSelection
               variant="cex" offers={displayOffers} referenceData={refWithOurSale}
               offerType={useVoucherOffers ? 'voucher' : 'cash'}
-              initialSelectedOfferId={item?.selectedOfferId ?? null} editMode={true}
+              initialSelectedOfferId={item?.selectedOfferId ?? null}
               syncKey={`${item?.id ?? 'cex'}:${useVoucherOffers ? 'voucher' : 'cash'}`}
-              onOfferPriceChange={onOfferPriceChange} onSelectedOfferChange={onSelectedOfferChange}
+              onAddToCart={onSelectOfferForCartItem}
+              showAddActionCard={false}
             />
           )}
 

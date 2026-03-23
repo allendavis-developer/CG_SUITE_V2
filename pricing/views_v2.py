@@ -1,6 +1,7 @@
 from django.shortcuts import render, get_object_or_404
 from django.db import transaction
 from django.http import JsonResponse
+from django.core.exceptions import ValidationError as DjangoValidationError
 
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -833,29 +834,53 @@ def finish_request(request, request_id):
             update_fields.append('selected_offer_id')
         if 'manual_offer_gbp' in item_data:
             try:
-                request_item.manual_offer_gbp = Decimal(str(item_data['manual_offer_gbp'])) if item_data['manual_offer_gbp'] is not None else None
+                dec = Decimal(str(item_data['manual_offer_gbp'])) if item_data['manual_offer_gbp'] is not None else None
+                if dec is not None:
+                    RequestItem._meta.get_field("manual_offer_gbp").clean(dec, request_item)
+                request_item.manual_offer_gbp = dec
                 update_fields.append('manual_offer_gbp')
             except InvalidOperation:
                 return Response(
                     {"error": f"Invalid format for manual_offer_gbp for item {request_item_id}"},
                     status=status.HTTP_400_BAD_REQUEST
                 )
+            except DjangoValidationError as e:
+                return Response(
+                    {"error": f"manual_offer_gbp for item {request_item_id}: {e.messages[0]}"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
         if 'customer_expectation_gbp' in item_data:
             try:
-                request_item.customer_expectation_gbp = Decimal(str(item_data['customer_expectation_gbp'])) if item_data['customer_expectation_gbp'] is not None else None
+                dec = Decimal(str(item_data['customer_expectation_gbp'])) if item_data['customer_expectation_gbp'] is not None else None
+                if dec is not None:
+                    RequestItem._meta.get_field("customer_expectation_gbp").clean(dec, request_item)
+                request_item.customer_expectation_gbp = dec
                 update_fields.append('customer_expectation_gbp')
             except InvalidOperation:
                 return Response(
                     {"error": f"Invalid format for customer_expectation_gbp for item {request_item_id}"},
                     status=status.HTTP_400_BAD_REQUEST
                 )
+            except DjangoValidationError as e:
+                return Response(
+                    {"error": f"customer_expectation_gbp for item {request_item_id}: {e.messages[0]}"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
         if 'negotiated_price_gbp' in item_data:
             try:
-                request_item.negotiated_price_gbp = Decimal(str(item_data['negotiated_price_gbp'])) if item_data['negotiated_price_gbp'] is not None else None
+                dec = Decimal(str(item_data['negotiated_price_gbp'])) if item_data['negotiated_price_gbp'] is not None else None
+                if dec is not None:
+                    RequestItem._meta.get_field("negotiated_price_gbp").clean(dec, request_item)
+                request_item.negotiated_price_gbp = dec
                 update_fields.append('negotiated_price_gbp')
             except InvalidOperation:
                 return Response(
                     {"error": f"Invalid format for negotiated_price_gbp for item {request_item_id}"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            except DjangoValidationError as e:
+                return Response(
+                    {"error": f"negotiated_price_gbp for item {request_item_id}: {e.messages[0]}"},
                     status=status.HTTP_400_BAD_REQUEST
                 )
         if 'raw_data' in item_data:
@@ -876,11 +901,19 @@ def finish_request(request, request_id):
         
         if 'our_sale_price_at_negotiation' in item_data:
             try:
-                request_item.our_sale_price_at_negotiation = Decimal(str(item_data['our_sale_price_at_negotiation'])) if item_data['our_sale_price_at_negotiation'] is not None else None
+                dec = Decimal(str(item_data['our_sale_price_at_negotiation'])) if item_data['our_sale_price_at_negotiation'] is not None else None
+                if dec is not None:
+                    RequestItem._meta.get_field("our_sale_price_at_negotiation").clean(dec, request_item)
+                request_item.our_sale_price_at_negotiation = dec
                 update_fields.append('our_sale_price_at_negotiation')
             except InvalidOperation:
                 return Response(
                     {"error": f"Invalid format for our_sale_price_at_negotiation for item {request_item_id}"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            except DjangoValidationError as e:
+                return Response(
+                    {"error": f"our_sale_price_at_negotiation for item {request_item_id}: {e.messages[0]}"},
                     status=status.HTTP_400_BAD_REQUEST
                 )
 

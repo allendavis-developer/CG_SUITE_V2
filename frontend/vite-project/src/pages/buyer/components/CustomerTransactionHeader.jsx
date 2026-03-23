@@ -45,7 +45,7 @@ const CustomerTransactionHeader = ({
 
   return (
     <div className={`bg-white p-6 ${containerClassName}`}>
-      <h1 className="text-xl font-extrabold tracking-tight text-blue-900">
+      <h1 className="text-3xl font-extrabold tracking-tight text-blue-900">
         {customer.name}
       </h1>
 
@@ -68,7 +68,9 @@ const CustomerTransactionHeader = ({
 
       {detailRows.length > 0 && (
         <div className="mt-3 grid grid-cols-1 gap-2 text-sm">
-          {detailRows.map((row) => (
+          {detailRows.map((row) => {
+            const isDateRow = row.label === 'Joined' || row.label === 'Last Transacted';
+            return (
             <div key={row.label} className="flex items-center justify-between gap-3 rounded-md bg-blue-50/60 px-2.5 py-1.5">
               <span className="font-semibold text-blue-900/75">{row.label}</span>
               <span className="text-right font-bold text-blue-900">
@@ -82,7 +84,7 @@ const CustomerTransactionHeader = ({
                 )}
               </span>
             </div>
-          ))}
+          )})}
         </div>
       )}
 

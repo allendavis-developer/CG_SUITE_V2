@@ -31,6 +31,7 @@ function EbayResearchForm({
   marketComparisonContext = null,
   resetDrillOnOpen = false,
   onAddNewItem = null,
+  onOfferSelect = null,
   addActionLabel = 'Add to Cart',
   hideOfferCards = false,
   useVoucherOffers = false,
@@ -243,6 +244,11 @@ function EbayResearchForm({
     onComplete?.(state);
   }, [onComplete, listings, showHistogram, drillHistory, displayedStats, buyOffers, searchTerm, listingPageUrl, manualOffer]);
 
+  const handleOfferSelect = useCallback((offerArg) => {
+    if (!onOfferSelect) return;
+    onOfferSelect(offerArg);
+  }, [onOfferSelect]);
+
   const handleResetSearch = useCallback(() => {
     // If a listing tab is currently open and waiting, cancel it first
     if (loading) {
@@ -349,7 +355,10 @@ function EbayResearchForm({
       onNavigateToDrillLevel={handleNavigateToDrillLevel}
       onComplete={showManualOffer ? undefined : handleComplete}
       onCompleteWithSelection={showManualOffer ? handleCompleteWithSelection : undefined}
-      onAddToCartWithOffer={mode === 'page' && onComplete && !onAddNewItem ? handleAddToCartWithOffer : undefined}
+      onAddToCartWithOffer={mode === 'page' && !readOnly
+        ? (onOfferSelect ? handleOfferSelect : (onComplete && !onAddNewItem ? handleAddToCartWithOffer : undefined))
+        : undefined}
+      showInlineOfferAction={mode !== 'page' && !onOfferSelect}
       enableRightClickManualOffer={mode === 'page'}
       mode={mode}
       readOnly={readOnly}

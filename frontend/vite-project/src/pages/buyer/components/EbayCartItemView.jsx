@@ -1,6 +1,5 @@
 import React from 'react';
 import EbayResearchForm from '@/components/forms/EbayResearchForm.jsx';
-import OfferSelection from './OfferSelection';
 
 const EBAY_TOP_LEVEL_CATEGORY = { name: 'eBay', path: ['eBay'] };
 
@@ -8,13 +7,23 @@ export default function EbayCartItemView({
   item,
   isRepricing,
   useVoucherOffers,
-  onOfferPriceChange,
-  onSelectedOfferChange,
+  onSelectOfferForCartItem,
   onEbayResearchComplete,
   onDeselectCartItem,
 }) {
   const displayOffers = useVoucherOffers ? (item.voucherOffers || []) : (item.cashOffers || []);
-  const offerReferenceData = item.ourSalePrice != null ? { our_sale_price: item.ourSalePrice } : null;
+  const handleOfferSelect = (offerArg) => {
+    if (!onSelectOfferForCartItem) return;
+    if (offerArg && typeof offerArg === 'object' && offerArg.type === 'manual') {
+      onSelectOfferForCartItem(offerArg);
+      return;
+    }
+    if (typeof offerArg === 'number') {
+      const selected = displayOffers[offerArg];
+      if (selected?.id) onSelectOfferForCartItem(selected.id);
+      return;
+    }
+  };
 
   return (
     <section className="buyer-main-content w-3/5 min-w-0 min-h-0 flex-1 bg-white flex flex-col overflow-y-auto buyer-panel-scroll">
@@ -31,15 +40,6 @@ export default function EbayCartItemView({
       </div>
 
       <div className="p-8 space-y-8">
-        {!isRepricing && displayOffers.length > 0 && (
-          <OfferSelection
-            variant="ebay" offers={displayOffers} referenceData={offerReferenceData}
-            offerType={useVoucherOffers ? 'voucher' : 'cash'}
-            initialSelectedOfferId={item?.selectedOfferId ?? null} editMode={true}
-            syncKey={`${item?.id ?? 'ebay'}:${useVoucherOffers ? 'voucher' : 'cash'}`}
-            onOfferPriceChange={onOfferPriceChange} onSelectedOfferChange={onSelectedOfferChange}
-          />
-        )}
         {item.ebayResearchData ? (
           <EbayResearchForm
             key={item.id}
@@ -47,7 +47,8 @@ export default function EbayCartItemView({
             onComplete={onEbayResearchComplete} savedState={item.ebayResearchData}
             initialHistogramState={false} showManualOffer={false} resetDrillOnOpen={true}
             onAddNewItem={onDeselectCartItem}
-            addActionLabel={isRepricing ? 'Add to Reprice List' : 'Add to Cart'} hideOfferCards={true}
+            onOfferSelect={handleOfferSelect}
+            addActionLabel={isRepricing ? 'Add to Reprice List' : 'Add to Cart'} hideOfferCards={false}
             useVoucherOffers={useVoucherOffers}
           />
         ) : (

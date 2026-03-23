@@ -786,15 +786,72 @@
       return true;
     }
 
-    function proceedWithCustomerData(bypassReason) {
-      if (bypassReason && !recentWarning) {
-        var manualReason = window.prompt('Reason?');
-        if (manualReason == null) return;
-        manualReason = (manualReason || '').trim();
-        if (!manualReason) return;
-        bypassReason = manualReason;
+    function showBypassReasonPrompt(callback) {
+      var promptOverlay = document.createElement('div');
+      promptOverlay.id = 'cg-bypass-reason-overlay';
+      promptOverlay.style.cssText =
+        'position:fixed;inset:0;z-index:2147483648;background:rgba(15,23,42,0.65);' +
+        'display:flex;align-items:center;justify-content:center;pointer-events:auto;';
+      promptOverlay.innerHTML =
+        '<div style="background:white;border-radius:16px;padding:28px 32px;width:100%;max-width:400px;' +
+          'box-shadow:0 24px 60px rgba(0,0,0,0.55);font-family:system-ui,sans-serif;">' +
+          '<h3 style="margin:0 0 6px;font-size:17px;font-weight:800;color:#1e3a8a;">Bypass Reason</h3>' +
+          '<p style="margin:0 0 16px;font-size:13px;color:#64748b;">Please provide a reason for bypassing customer verification.</p>' +
+          '<input id="cg-bypass-reason-input" type="text" placeholder="Enter reason..." ' +
+            'style="width:100%;box-sizing:border-box;padding:10px 14px;border:1.5px solid #e5e7eb;border-radius:10px;' +
+            'font-size:14px;font-family:system-ui,sans-serif;outline:none;margin-bottom:18px;" />' +
+          '<div style="display:flex;gap:10px;justify-content:flex-end;">' +
+            '<button id="cg-bypass-cancel-btn" type="button" ' +
+              'style="padding:9px 20px;background:#f1f5f9;color:#475569;border:none;border-radius:9999px;' +
+              'font-weight:700;font-size:13px;cursor:pointer;font-family:system-ui,sans-serif;">Cancel</button>' +
+            '<button id="cg-bypass-ok-btn" type="button" ' +
+              'style="padding:9px 20px;background:#1e3a8a;color:white;border:none;border-radius:9999px;' +
+              'font-weight:700;font-size:13px;cursor:pointer;font-family:system-ui,sans-serif;">OK</button>' +
+          '</div>' +
+        '</div>';
+      document.body.appendChild(promptOverlay);
+
+      var input = document.getElementById('cg-bypass-reason-input');
+      var okBtn = document.getElementById('cg-bypass-ok-btn');
+      var cancelBtn = document.getElementById('cg-bypass-cancel-btn');
+
+      setTimeout(function () { input.focus(); }, 50);
+
+      function dismiss(reason) {
+        promptOverlay.remove();
+        callback(reason);
       }
 
+      okBtn.addEventListener('click', function () {
+        var val = (input.value || '').trim();
+        if (!val) {
+          input.style.borderColor = '#ef4444';
+          input.focus();
+          return;
+        }
+        dismiss(val);
+      });
+
+      cancelBtn.addEventListener('click', function () { dismiss(null); });
+
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { okBtn.click(); }
+        if (e.key === 'Escape') { cancelBtn.click(); }
+      });
+    }
+
+    function proceedWithCustomerData(bypassReason) {
+      if (bypassReason && !recentWarning) {
+        showBypassReasonPrompt(function (manualReason) {
+          if (manualReason == null) return;
+          _doProceedWithCustomerData(manualReason);
+        });
+        return;
+      }
+      _doProceedWithCustomerData(bypassReason);
+    }
+
+    function _doProceedWithCustomerData(bypassReason) {
       var enteredPhone   = getFieldVal('cg-field-mobile');
       var enteredEmail   = getFieldVal('cg-field-email');
       var enteredPost    = getFieldVal('cg-field-postcode');
