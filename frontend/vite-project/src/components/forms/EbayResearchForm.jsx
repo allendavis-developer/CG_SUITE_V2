@@ -370,7 +370,7 @@ function EbayResearchForm({
       onAddToCartWithOffer={mode === 'page' && !readOnly
         ? (onOfferSelect ? handleOfferSelect : (onComplete && !onAddNewItem ? handleAddToCartWithOffer : undefined))
         : undefined}
-      showInlineOfferAction={mode !== 'page' && !onOfferSelect}
+      showInlineOfferAction={mode === 'page' ? !onAddNewItem : !onOfferSelect}
       enableRightClickManualOffer={mode === 'page'}
       mode={mode}
       readOnly={readOnly}

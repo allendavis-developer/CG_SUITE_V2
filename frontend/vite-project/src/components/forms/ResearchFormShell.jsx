@@ -885,14 +885,18 @@ export default function ResearchFormShell({
                   >
                     <button
                       type="button"
-                      className={`flex flex-col text-left cursor-pointer transition-opacity hover:opacity-75 focus:outline-none rounded ${
-                        isSelected ? 'ring-2 ring-blue-900 p-0.5' : ''
+                      className={`flex flex-col text-left cursor-pointer transition-all focus:outline-none rounded-lg border px-2.5 py-1.5 shadow-sm ${
+                        isSelected
+                          ? 'ring-2 ring-blue-900 bg-blue-100 border-blue-300'
+                          : 'bg-blue-50 border-blue-200 hover:bg-blue-100 hover:border-blue-300 active:scale-[0.99]'
                       }`}
                       onClick={
                         useAddWithOfferFlow
                           ? () => onAddToCartWithOffer(idx)
                           : (showManualOffer && !readOnly ? () => handleOfferClick(price, idx) : undefined)
                       }
+                      title={useAddWithOfferFlow ? 'Add item with this offer' : 'Select this offer'}
+                      aria-label={useAddWithOfferFlow ? `Add item with ${offerLabels[idx]}` : `Select ${offerLabels[idx]}`}
                     >
                       {inner}
                     </button>
@@ -1460,7 +1464,7 @@ export default function ResearchFormShell({
                               <button
                                 key={idx}
                                 type="button"
-                                className="flex flex-col text-left px-2.5 py-2 rounded-lg bg-blue-50 border border-blue-100 hover:bg-blue-100 active:bg-blue-200 transition-colors flex-1 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                className="flex flex-col text-left px-2.5 py-2 rounded-lg bg-blue-50 border border-blue-100 hover:bg-blue-100 active:bg-blue-200 transition-colors flex-1 focus:outline-none focus:ring-2 focus:ring-blue-400 shadow-sm"
                                 onClick={
                                   onAddToCartWithOffer
                                     ? () => onAddToCartWithOffer(idx)
@@ -1476,6 +1480,9 @@ export default function ResearchFormShell({
                                 <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider leading-none mb-0.5">{offerLabels[idx]}</span>
                                 <span className="text-sm font-extrabold text-blue-900 leading-tight">£{formatStat(price)}</span>
                                 {pctOfSale != null && <span className="text-[10px] font-bold text-yellow-600 leading-none mt-0.5">{pctOfSale}%</span>}
+                                {onAddToCartWithOffer && (
+                                  <span className="text-[9px] font-semibold text-blue-700 leading-none mt-1">Add with this offer</span>
+                                )}
                               </button>
                             );
                           })}
@@ -1495,6 +1502,18 @@ export default function ResearchFormShell({
                         <Button variant="primary" size="sm" onClick={readOnly ? undefined : handleComplete} disabled={readOnly || disableAddAction} className="w-full">
                           <Icon name="add_shopping_cart" className="text-sm" />
                           {addActionLabel}
+                        </Button>
+                      )}
+                      {!onAddNewItem && onAddToCartWithOffer && mode !== "modal" && (
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          onClick={() => onAddToCartWithOffer(null)}
+                          disabled={readOnly || disableAddAction}
+                          className="w-full"
+                        >
+                          <Icon name={addActionLabel === 'Add to Reprice List' ? 'sell' : 'add_shopping_cart'} className="text-sm" />
+                          {addActionLabel} (No Offer)
                         </Button>
                       )}
                       {mode === "modal" && (
