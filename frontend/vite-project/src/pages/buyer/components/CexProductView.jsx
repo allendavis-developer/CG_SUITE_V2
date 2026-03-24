@@ -5,6 +5,7 @@ import OfferSelection from './OfferSelection';
 import EbayResearchForm from '@/components/forms/EbayResearchForm.jsx';
 import CashConvertersResearchForm from '@/components/forms/CashConvertersResearchForm.jsx';
 import { normalizeExplicitSalePrice, roundSalePrice } from '@/utils/helpers';
+import { validateBuyerCartItemOffers } from '@/utils/cartOfferValidation';
 
 /**
  * Shared view for both:
@@ -176,6 +177,13 @@ export default function CexProductView({
 
   const handleAdd = async (offerArg) => {
     const cartItem = buildCeXCartItem(offerArg);
+    if (!isRepricing) {
+      const offerErr = validateBuyerCartItemOffers(cartItem, useVoucherOffers);
+      if (offerErr) {
+        showNotification?.(offerErr, 'error');
+        return;
+      }
+    }
     const isDuplicate = cartItems.some((ci) => ci.isCustomCeXItem && ci.title === cartItem.title && ci.subtitle === cartItem.subtitle);
     try {
       if (isRepricing || isDuplicate) {

@@ -15,6 +15,7 @@ import { useProductAttributes } from '@/pages/buyer/hooks/useProductAttributes';
 import { fetchVariantPrices, updateRequestItemRawData } from '@/services/api';
 import { mapTransactionTypeToIntent } from '@/utils/transactionConstants';
 import { roundOfferPrice, roundSalePrice, toVoucherOfferPrice, formatOfferPrice } from '@/utils/helpers';
+import { validateBuyerCartItemOffers } from '@/utils/cartOfferValidation';
 import useAppStore, { useCartItems, useSelectedCartItem, useIsRepricing, useUseVoucherOffers } from '@/store/useAppStore';
 import { useNotification } from '@/contexts/NotificationContext';
 
@@ -235,19 +236,35 @@ const MainContent = ({ mode = 'buyer' }) => {
   };
 
   const handleAddToCart = async (offerArg) => {
-    if (!selectedModel || !variant) { alert('Please select a variant'); return; }
-    if (!isRepricing && (!offers || offers.length === 0)) { alert('No offers available.'); return; }
+    if (!selectedModel || !variant) {
+      showNotification('Please select a variant', 'error');
+      return;
+    }
+    if (!isRepricing && (!offers || offers.length === 0)) {
+      showNotification('No offers available.', 'error');
+      return;
+    }
 
     let selectedOfferIdForItem = null, manualOfferPerUnit = null;
     if (offerArg && typeof offerArg === 'object' && offerArg.type === 'manual') {
       selectedOfferIdForItem = 'manual';
       manualOfferPerUnit = Number(offerArg.amount);
-      if (!manualOfferPerUnit || manualOfferPerUnit <= 0) { alert('Please enter a valid amount.'); return; }
+      if (!manualOfferPerUnit || manualOfferPerUnit <= 0) {
+        showNotification('Please enter a valid amount.', 'error');
+        return;
+      }
     } else {
       selectedOfferIdForItem = isRepricing ? null : (offerArg === undefined ? (offers[0]?.id ?? null) : offerArg);
     }
 
     const cartItem = buildCartItem(selectedOfferIdForItem, manualOfferPerUnit);
+    if (!isRepricing) {
+      const offerErr = validateBuyerCartItemOffers(cartItem, customerData?.transactionType === 'store_credit');
+      if (offerErr) {
+        showNotification(offerErr, 'error');
+        return;
+      }
+    }
     const isDuplicate = cartItems.some((ci) => !ci.isCustomEbayItem && !ci.isCustomCashConvertersItem && ci.variantId === cartItem.variantId);
 
     try {
@@ -272,7 +289,7 @@ const MainContent = ({ mode = 'buyer' }) => {
       }
     } catch (err) {
       console.error('Failed to add item:', err);
-      alert('Failed to add item. Check console.');
+      showNotification(err?.message || 'Failed to add item.', 'error');
     }
   };
 
@@ -289,6 +306,11 @@ const MainContent = ({ mode = 'buyer' }) => {
     setShowDuplicateDialog(false);
     const cartItem = pendingDuplicateItem;
     setPendingDuplicateItem(null);
+    const offerErr = validateBuyerCartItemOffers(cartItem, customerData?.transactionType === 'store_credit');
+    if (offerErr) {
+      showNotification(offerErr, 'error');
+      return;
+    }
     try {
       const embeddedRawData = cartItem.ebayResearchData
         ? { ...cartItem.ebayResearchData, referenceData: cartItem.referenceData }
@@ -336,6 +358,14 @@ const MainContent = ({ mode = 'buyer' }) => {
         selectedOfferId, manualOffer: manualOfferValue,
       };
 
+      if (!isRepricing) {
+        const ebayOfferErr = validateBuyerCartItemOffers(customCartItem, useVoucherOffers);
+        if (ebayOfferErr) {
+          showNotification(ebayOfferErr, 'error');
+          return;
+        }
+      }
+
       const isDuplicate = cartItems.some((ci) => ci.isCustomEbayItem && ci.title === customCartItem.title && ci.category === customCartItem.category);
       try {
         if (isRepricing || isDuplicate) {
@@ -379,6 +409,14 @@ const MainContent = ({ mode = 'buyer' }) => {
         cashConvertersResearchData: data, isCustomCashConvertersItem: true, variantId: null, request_item_id: null,
         ourSalePrice: data.stats?.suggestedPrice != null ? roundSalePrice(Number(data.stats.suggestedPrice)) : null,
       };
+
+      if (!isRepricing) {
+        const ccOfferErr = validateBuyerCartItemOffers(customCartItem, useVoucherOffers);
+        if (ccOfferErr) {
+          showNotification(ccOfferErr, 'error');
+          return;
+        }
+      }
 
       const isDuplicate = cartItems.some((ci) => ci.isCustomCashConvertersItem && ci.title === customCartItem.title && ci.category === customCartItem.category);
       try {

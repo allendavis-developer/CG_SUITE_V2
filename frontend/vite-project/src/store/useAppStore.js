@@ -16,6 +16,7 @@ import { getDataFromListingPage } from '@/services/extensionClient';
 import { mapTransactionTypeToIntent } from '@/utils/transactionConstants';
 import { normalizeExplicitSalePrice, roundSalePrice, toVoucherOfferPrice, formatOfferPrice } from '@/utils/helpers';
 import { mapRequestItemsToCartItems, mapRequestToCustomerData } from '@/utils/requestToCartMapping';
+import { validateBuyerCartItemOffers } from '@/utils/cartOfferValidation';
 
 const DEFAULT_CUSTOMER = {
   id: null,
@@ -155,10 +156,19 @@ const useAppStore = create(
       repricingCartItems: [],
 
       addToCart: (item, { showNotification } = {}) => {
-        const { mode } = get();
+        const { mode, customerData } = get();
         const key = _cartKey();
         const cartItems = _getCart();
         const isRepricing = mode === 'repricing';
+
+        if (!isRepricing) {
+          const useVoucherOffers = customerData?.transactionType === 'store_credit';
+          const offerErr = validateBuyerCartItemOffers(item, useVoucherOffers);
+          if (offerErr) {
+            showNotification?.(offerErr, 'error');
+            return;
+          }
+        }
 
         if (item.forceNew) {
           const { forceNew: _, ...clean } = item;

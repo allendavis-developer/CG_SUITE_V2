@@ -589,7 +589,7 @@ export const Sidebar = ({ onCategorySelect, onAddFromCeX, isCeXLoading, onQuickR
             <div className="p-3 space-y-2">
               {/* Name + transaction type */}
               <div>
-                <p className="text-2xl font-black text-white leading-tight truncate">{customerData.name}</p>
+                <p className="text-2xl font-black text-white leading-tight break-words min-w-0">{customerData.name}</p>
                 {onTransactionTypeChange ? (
                   <div className={`mt-1 ${transaction.className}`}>
                     <CustomDropdown
