@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useNotification } from '@/contexts/NotificationContext';
 import useAppStore from '@/store/useAppStore';
@@ -90,6 +90,31 @@ const AppHeader = ({
   const showNegotiationItemBuilder = Boolean(buyerControls?.enableNegotiationItemBuilder);
   const useVoucherOffers = Boolean(buyerControls?.useVoucherOffers);
   const isRepricingWorkspace = Boolean(buyerControls?.onQuickReprice);
+
+  const buyerControlsRef = useRef(buyerControls);
+  buyerControlsRef.current = buyerControls;
+
+  /** Clears store category / CeX product and local builder state (models, variants, tree filter). */
+  const clearHeaderBuilderState = useCallback(() => {
+    const bc = buyerControlsRef.current;
+    bc?.onCategorySelect?.(null);
+    bc?.clearCexProduct?.();
+    setSelectedModel(null);
+    setVariants([]);
+    setOffers([]);
+    setReferenceData(null);
+    setOurSalePrice('');
+    setCategorySearch('');
+    setExpandedIds([]);
+  }, []);
+
+  /** Full reset: builder UI, top-level picker, workspace mode, marketplace dialog. */
+  const resetHeaderWorkspaceChrome = useCallback(() => {
+    clearHeaderBuilderState();
+    setActiveTopLevelId(null);
+    setWorkspaceMode('builder');
+    setMarketplaceSearchDialog(null);
+  }, [clearHeaderBuilderState]);
 
   const { attributes, attributeValues, variant, setVariant, handleAttributeChange, setAllAttributeValues } =
     useProductAttributes(selectedModel?.product_id, variants);
@@ -328,15 +353,13 @@ const AppHeader = ({
     }
     if (buyerControls?.cexProductData) return;
     if (!cexFetchStartedRef.current) return;
-    buyerControls?.clearCexProduct?.();
-    setActiveTopLevelId(null);
-    setWorkspaceMode('builder');
+    resetHeaderWorkspaceChrome();
   }, [
     showNegotiationItemBuilder,
     workspaceMode,
     buyerControls?.isCeXLoading,
     buyerControls?.cexProductData,
-    buyerControls?.clearCexProduct,
+    resetHeaderWorkspaceChrome,
   ]);
 
   useEffect(() => {
@@ -367,6 +390,12 @@ const AppHeader = ({
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [marketplaceSearchDialog, showBuyerControls]);
+
+  // When buyer workspace is not shown (e.g. view mode, other routes), drop all panel state.
+  useEffect(() => {
+    if (showBuyerControls && showNegotiationItemBuilder) return;
+    resetHeaderWorkspaceChrome();
+  }, [showBuyerControls, showNegotiationItemBuilder, resetHeaderWorkspaceChrome]);
 
   const handleCategorySelect = (category) => {
     const path = getCategoryPath(category.category_id, categories);
@@ -441,8 +470,7 @@ const AppHeader = ({
       request_item_id: null,
       referenceData,
     });
-    setActiveTopLevelId(null);
-    setWorkspaceMode('builder');
+    resetHeaderWorkspaceChrome();
   };
 
   const renderCategoryNode = (category) => {
@@ -575,6 +603,7 @@ const AppHeader = ({
                     key={category.category_id}
                     type="button"
                     onClick={() => {
+                      clearHeaderBuilderState();
                       setActiveTopLevelId((prev) =>
                         String(prev) === String(category.category_id) ? null : category.category_id
                       );
@@ -721,7 +750,7 @@ const AppHeader = ({
                   <div className="mt-2 border-t border-white/10 px-2 pt-2">
                     <button
                       type="button"
-                      onClick={() => setActiveTopLevelId(null)}
+                      onClick={resetHeaderWorkspaceChrome}
                       className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-white/80 hover:bg-white/10 hover:text-white"
                     >
                       <span className="material-symbols-outlined text-sm">close</span>
@@ -737,10 +766,7 @@ const AppHeader = ({
                       <div className="flex shrink-0 items-center justify-end border-b border-gray-200 bg-gray-50 px-3 py-2">
                         <WorkspaceCloseButton
                           title="Close workspace"
-                          onClick={() => {
-                            setActiveTopLevelId(null);
-                            setWorkspaceMode('builder');
-                          }}
+                          onClick={resetHeaderWorkspaceChrome}
                         />
                       </div>
                     )}
@@ -759,12 +785,11 @@ const AppHeader = ({
                           initialSearchQuery={headerSearch.trim() || undefined}
                           onComplete={(data) => {
                             if (data?.cancel) {
-                              setActiveTopLevelId(null);
-                              setWorkspaceMode('builder');
+                              resetHeaderWorkspaceChrome();
                               return;
                             }
                             buyerControls?.onEbayResearchComplete?.(data);
-                            setWorkspaceMode('builder');
+                            resetHeaderWorkspaceChrome();
                           }}
                           initialHistogramState={true}
                           showManualOffer={false}
@@ -783,11 +808,7 @@ const AppHeader = ({
                             customerData={buyerControls?.customerData}
                             onAddToCart={(item) => buyerControls?.onAddNegotiationItem?.(item)}
                             createOrAppendRequestItem={buyerControls?.createOrAppendRequestItem}
-                            onClearCeXProduct={() => {
-                              buyerControls?.clearCexProduct?.();
-                              setActiveTopLevelId(null);
-                              setWorkspaceMode('builder');
-                            }}
+                            onClearCeXProduct={resetHeaderWorkspaceChrome}
                             cartItems={buyerControls?.existingItems || []}
                             setCexProductData={buyerControls?.setCexProductData}
                             onItemAddedToCart={() => {}}
@@ -904,7 +925,7 @@ const AppHeader = ({
               Search term:{' '}
               <span className="font-semibold text-gray-900">“{marketplaceSearchDialog}”</span>
             </p>
-            <p className="mt-1 text-xs text-gray-500">Choose eBay for extension research, or CeX to load a listing.</p>
+            <p className="mt-1 text-xs text-gray-500">Choose eBay to research a search term, or CeX to add a product from CeX to cart.</p>
             {!ebayTopLevelCategory && (
               <p className="mt-3 text-xs font-medium text-amber-800">
                 eBay lookup is unavailable until categories load.

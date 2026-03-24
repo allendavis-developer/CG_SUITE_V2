@@ -472,6 +472,16 @@ const useAppStore = create(
       _modelsRequestId: 0,
 
       selectCategory: async (category) => {
+        if (category == null) {
+          set((s) => ({
+            _modelsRequestId: s._modelsRequestId + 1,
+            selectedCategory: null,
+            selectedModel: null,
+            availableModels: [],
+            isLoadingModels: false,
+          }));
+          return;
+        }
         const id = get()._modelsRequestId + 1;
         set({
           _modelsRequestId: id,

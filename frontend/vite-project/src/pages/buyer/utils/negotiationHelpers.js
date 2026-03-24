@@ -282,12 +282,22 @@ export function mapApiItemToNegotiationItem(item, transactionType, mode) {
     cexOutOfStock: item.variant_details?.cex_out_of_stock ?? false,
     cexUrl,
     ourSalePrice: (() => {
-      const fromSaved =
-        mode === 'view' && item.our_sale_price_at_negotiation !== null
+      // Always hydrate from DB when resuming a QUOTE in negotiate mode (not only view).
+      // Match requestToCartMapping: explicit column → referenceData CeX calc → eBay suggested.
+      const rawSaved =
+        item.our_sale_price_at_negotiation != null && item.our_sale_price_at_negotiation !== ''
           ? parseFloat(item.our_sale_price_at_negotiation)
           : null;
-      if (fromSaved != null && !Number.isNaN(fromSaved) && fromSaved > 0) {
-        return normalizeExplicitSalePrice(fromSaved);
+      if (rawSaved != null && !Number.isNaN(rawSaved) && rawSaved > 0) {
+        return normalizeExplicitSalePrice(rawSaved);
+      }
+      const refRaw =
+        ebayResearchData?.referenceData?.cex_based_sale_price ??
+        ebayResearchData?.reference_data?.cex_based_sale_price;
+      const fromRef =
+        refRaw != null && refRaw !== '' ? parseFloat(refRaw) : null;
+      if (fromRef != null && !Number.isNaN(fromRef) && fromRef > 0) {
+        return roundSalePrice(fromRef);
       }
       const fromSuggested =
         ebayResearchData?.stats?.suggestedPrice != null

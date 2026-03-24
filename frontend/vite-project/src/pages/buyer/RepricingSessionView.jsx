@@ -27,6 +27,50 @@ function attachBarcodesFromSessionItems(cartItems, sessionItems) {
   });
 }
 
+/** Listing title as shown on NosPos (from saved lookup / Quick Reprice metadata), not the reprice-list label. */
+function resolveNosposListingName(sessionData, lineItem) {
+  if (!sessionData || !lineItem) return '';
+  const id = String(lineItem.item_identifier || '').trim();
+  if (!id) return '';
+  const cartItem = (sessionData.items || []).find((it) => String(it.id) === id);
+  if (!cartItem) return '';
+
+  const stockBc = (lineItem.stock_barcode || '').trim();
+  if (stockBc) {
+    const fromPreset = (cartItem.nosposBarcodes || []).find(
+      (b) => b && String(b.barserial || '').trim() === stockBc
+    );
+    if (fromPreset?.name && String(fromPreset.name).trim()) return String(fromPreset.name).trim();
+  }
+
+  const typedBarcodes = sessionData.barcodes?.[cartItem.id];
+  if (Array.isArray(typedBarcodes) && lineItem.barcode != null && lineItem.barcode !== '') {
+    const idx = typedBarcodes.findIndex((c) => String(c).trim() === String(lineItem.barcode).trim());
+    if (idx >= 0) {
+      const lookup = sessionData.nosposLookups?.[`${cartItem.id}_${idx}`];
+      const name = lookup?.stockName;
+      if (name && String(name).trim()) return String(name).trim();
+    }
+  }
+  return '';
+}
+
+/** Research / list label: eBay or CC search term and saved display fields, then persisted list title. */
+function resolveResearchListName(lineItem) {
+  if (!lineItem) return '';
+  const raw = lineItem.raw_data;
+  if (raw && typeof raw === 'object') {
+    const t = raw.searchTerm || raw.display_title || raw.title;
+    if (t != null && String(t).trim()) return String(t).trim();
+  }
+  const cc = lineItem.cash_converters_data;
+  if (cc && typeof cc === 'object') {
+    const t = cc.searchTerm || cc.display_title || cc.title;
+    if (t != null && String(t).trim()) return String(t).trim();
+  }
+  return (lineItem.title || '').trim();
+}
+
 const RepricingSessionView = () => {
   const navigate = useNavigate();
   const { repricingSessionId } = useParams();
@@ -234,12 +278,13 @@ const RepricingSessionView = () => {
                       }}
                     />
                   </th>
-                  <th className="min-w-[220px]">Item</th>
+                  <th className="min-w-[180px]">NoSpos listing</th>
+                  <th className="min-w-[180px]">Research / list</th>
                   <th className="w-40">Typed Barcode</th>
                   <th className="w-40">Stock Barcode</th>
-                  <th className="w-28">NoSpos ID</th>
+                  <th className="w-28">NoSPos ID</th>
                   <th className="w-28">Old Retail</th>
-                  <th className="w-28">New Sale Price</th>
+                  <th className="w-28">New Retail</th>
                   <th className="w-28">CeX Sell</th>
                   <th className="w-28">eBay</th>
                   <th className="w-32">Cash Converters</th>
@@ -266,7 +311,14 @@ const RepricingSessionView = () => {
                       />
                     </td>
                     <td>
-                      <div className="font-bold text-[13px]" style={{ color: 'var(--brand-blue)' }}>{item.title || 'N/A'}</div>
+                      <div className="font-bold text-[13px] leading-snug" style={{ color: 'var(--brand-blue)' }}>
+                        {resolveNosposListingName(session.session_data, item) || '—'}
+                      </div>
+                    </td>
+                    <td>
+                      <div className="font-semibold text-[13px] leading-snug text-slate-800">
+                        {resolveResearchListName(item) || '—'}
+                      </div>
                     </td>
                     <td className="font-mono font-semibold">{item.barcode}</td>
                     <td className="font-mono font-semibold">{item.stock_barcode || item.barcode || 'N/A'}</td>

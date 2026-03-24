@@ -112,6 +112,12 @@ const RepricingOverview = () => {
   };
 
   const handleSessionClick = async (session) => {
+    // Completed sessions: summary table (per-barcode rows, print / redo), not the live workspace.
+    if (session.status === 'COMPLETED') {
+      navigate(`/repricing-sessions/${session.repricing_session_id}/view`);
+      return;
+    }
+
     let navState = buildWorkspaceNavigationState(session);
     if (!navState) {
       try {
@@ -125,13 +131,9 @@ const RepricingOverview = () => {
       navigate('/repricing', { state: navState });
       return;
     }
-    if (session.status === 'IN_PROGRESS') {
-      navigate('/repricing', {
-        state: { sessionId: session.repricing_session_id, cartItems: [] },
-      });
-      return;
-    }
-    navigate(`/repricing-sessions/${session.repricing_session_id}/view`);
+    navigate('/repricing', {
+      state: { sessionId: session.repricing_session_id, cartItems: [] },
+    });
   };
 
   const handleRedoRepricing = async (e, session) => {
