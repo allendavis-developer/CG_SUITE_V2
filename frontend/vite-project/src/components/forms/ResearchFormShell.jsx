@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { Button, Icon, CustomDropdown } from '../ui/components';
+import WorkspaceCloseButton from '../ui/WorkspaceCloseButton';
 import { toVoucherOfferPrice } from '@/utils/helpers';
 
 /** Resolve badge % for eBay / Cash Converters offers (new: pctOfSale; legacy saved: margin 0–1). */
@@ -349,6 +350,7 @@ const PriceHistogram = React.memo(function PriceHistogram({ listings, onBucketSe
  * @param {Function} props.onZoomOut - Handler for zoom out (removes last level)
  * @param {Function} props.onNavigateToDrillLevel - Handler for navigating to specific drill level
  * @param {Function} props.onComplete - Handler for completion
+ * @param {Function} props.onCancel - When mode is modal: dismiss without applying (header X, Cancel). Must not trigger onComplete success path.
  * @param {string} props.mode - "modal" or "page"
  * @param {boolean} props.readOnly - Read-only mode
  * @param {Array} props.basicFilterOptions - Options for basic filters (e.g., ["Completed & Sold", "Used", "UK Only"])
@@ -387,6 +389,7 @@ export default function ResearchFormShell({
   onNavigateToDrillLevel,
   onComplete,
   onCompleteWithSelection = null, // Optional callback that receives (getState, selectedOfferIndex)
+  onCancel = null,
   mode = "modal",
   readOnly = false,
   basicFilterOptions = ["Completed & Sold", "Used", "UK Only"],
@@ -416,6 +419,7 @@ export default function ResearchFormShell({
   disableAddAction = false,
   hideOfferCards = false, // When true (e.g. repricing), hide the three offer cards and only show the single add action
   useVoucherOffers = false, // When true (store credit), display voucher prices instead of cash
+  containModalInParent = false, // When true with mode="modal", render as absolute fill within parent panel
 }) {
   // Get current price range (latest in history, or null for full view)
   const currentPriceRange = drillHistory.length > 0 ? drillHistory[drillHistory.length - 1] : null;
@@ -709,6 +713,11 @@ export default function ResearchFormShell({
   }, [showManualOffer, readOnly]);
 
   // Handler for completing/closing modal - pass selected offer
+  const handleModalCancel = useCallback(() => {
+    if (readOnly) return;
+    onCancel?.();
+  }, [readOnly, onCancel]);
+
   const handleComplete = useCallback(() => {
     // Only update manual offer if manual offer card was selected
     if (showManualOffer && selectedOfferIndex === 'manual' && manualOffer) {
@@ -997,9 +1006,10 @@ export default function ResearchFormShell({
               </p>
             </div>
           </div>
-          <button className="text-white/60 hover:text-white transition-colors p-1" onClick={handleComplete}>
-            <Icon name="close" />
-          </button>
+          <WorkspaceCloseButton
+            title="Close"
+            onClick={onCancel ? handleModalCancel : handleComplete}
+          />
         </header>
       )}
 
@@ -1036,7 +1046,7 @@ export default function ResearchFormShell({
           )}
           {mode === "modal" && (
             <div className="flex gap-3 shrink-0 ml-auto">
-              <Button variant="outline" size="md" onClick={readOnly ? undefined : handleComplete} disabled={readOnly}>Cancel</Button>
+              <Button variant="outline" size="md" onClick={readOnly ? undefined : (onCancel ? handleModalCancel : handleComplete)} disabled={readOnly}>Cancel</Button>
               {listings && (
                 <Button
                   variant="primary"
@@ -1511,7 +1521,7 @@ export default function ResearchFormShell({
                           {addActionLabel}
                         </Button>
                       )}
-                      {!onAddNewItem && onAddToCartWithOffer && mode !== "modal" && (
+                      {!onAddNewItem && onAddToCartWithOffer && (
                         <Button
                           variant="primary"
                           size="sm"
@@ -1520,12 +1530,12 @@ export default function ResearchFormShell({
                           className="w-full"
                         >
                           <Icon name={addActionLabel === 'Add to Reprice List' ? 'sell' : 'add_shopping_cart'} className="text-sm" />
-                          {addActionLabel} (No Offer)
+                          {addActionLabel}
                         </Button>
                       )}
                       {mode === "modal" && (
                         <div className="flex gap-2 mt-1">
-                          <Button variant="outline" size="sm" onClick={readOnly ? undefined : handleComplete} disabled={readOnly} className="flex-1">Cancel</Button>
+                          <Button variant="outline" size="sm" onClick={readOnly ? undefined : (onCancel ? handleModalCancel : handleComplete)} disabled={readOnly} className="flex-1">Cancel</Button>
                           <Button variant="primary" size="sm" onClick={handleComplete} disabled={loading && !readOnly} className="flex-1">OK</Button>
                         </div>
                       )}
@@ -1554,12 +1564,20 @@ export default function ResearchFormShell({
 
   // Wrapper classes based on mode
   const wrapperClasses = mode === "modal"
-    ? "fixed inset-0 z-[100] flex items-start justify-center bg-black/40"
+    ? (
+      containModalInParent
+        ? "flex h-full min-h-0 w-full flex-col"
+        : "fixed inset-0 z-[100] flex items-start justify-center bg-black/40"
+    )
     : "";
 
   const containerClasses = mode === "modal"
-    ? "bg-white w-full h-full flex flex-col overflow-hidden"
-    : "bg-white w-full h-full flex flex-col overflow-hidden";
+    ? (
+      containModalInParent
+        ? "flex min-h-0 flex-1 flex-col overflow-hidden bg-white"
+        : "flex h-full w-full flex-col overflow-hidden bg-white"
+    )
+    : "flex h-full w-full flex-col overflow-hidden bg-white";
 
   const excludeContextMenuEl = excludeContextMenu && (
     <div

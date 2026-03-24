@@ -23,14 +23,28 @@ export function buildItemSpecs(item) {
 }
 
 export function buildInitialSearchQuery(item) {
-  // Always prefer the variant name over the model name for research searches.
-  // variantName is the specific CeX variant title (e.g. "Apple iPhone 15 128GB Blue Unlocked")
-  // while title may be the generic model name (e.g. "Apple iPhone 15").
-  return item?.ebayResearchData?.searchTerm
-    || item?.ebayResearchData?.lastSearchedTerm
-    || item?.variantName
-    || item?.title
-    || undefined;
+  // Saved research, then explicit variant line / subtitle, then title only (no spec concatenation).
+  if (!item) return undefined;
+  const fromResearch =
+    item.ebayResearchData?.searchTerm
+    || item.ebayResearchData?.lastSearchedTerm;
+  if (fromResearch) return fromResearch;
+
+  const variantLine = item.variantName != null && String(item.variantName).trim() !== '' ? String(item.variantName).trim() : null;
+  if (variantLine) return variantLine;
+
+  const subtitle = item.subtitle != null && String(item.subtitle).trim() !== '' ? String(item.subtitle).trim() : null;
+  if (subtitle) return subtitle;
+
+  const base = item.title != null && String(item.title).trim() !== '' ? String(item.title).trim() : '';
+  return base || undefined;
+}
+
+/** Initial eBay/CC search string for a live CeX extension product (add-from-CeX panel). Title only. */
+export function buildCeXProductResearchInitialQuery(cex) {
+  if (!cex) return undefined;
+  const base = String(cex.title || cex.modelName || '').trim();
+  return base || undefined;
 }
 
 export function resolveOurSalePrice(item) {
@@ -301,10 +315,25 @@ export function normalizeCartItemForNegotiation(item) {
     : null;
   let next = item;
   if (isCexItem) {
-    // Preserve the variant name (subtitle) before clearing it for display.
-    // subtitle from the buyer cart is the specific variant title (e.g. "Apple iPhone 15 128GB Blue Unlocked").
-    const variantName = item.subtitle || cexName || item.variantName || item.title || null;
+    // Prefer explicit variantName first (e.g. CeX add-from-browser: title + specs for eBay search).
+    // For custom CeX items subtitle is often only category — it must not overwrite variantName.
+    // Legacy buyer cart used subtitle as the specific variant line when variantName was unset.
+    const variantName =
+      item.variantName
+      || item.subtitle
+      || cexName
+      || item.title
+      || null;
     next = { ...item, title: cexName || item.title, variantName, subtitle: '' };
+  } else if (
+    !item.variantName &&
+    item.subtitle != null &&
+    String(item.subtitle).trim() !== '' &&
+    // eBay-primary rows use title as the search term; subtitle is often "eBay Research" or filters — must not replace the displayed name.
+    !(isEbayPayload && !isCexItem)
+  ) {
+    // Internal DB / header builder: variant line is often only in subtitle; copy for research queries.
+    next = { ...item, variantName: String(item.subtitle).trim() };
   }
   return { ...next, selectedOfferId: resolvedSelectedOfferId };
 }

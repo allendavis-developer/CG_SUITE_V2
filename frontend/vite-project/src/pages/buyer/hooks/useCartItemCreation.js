@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { createRequest, addRequestItem, updateRequestItemRawData } from '@/services/api';
 import { roundSalePrice } from '@/utils/helpers';
-
 export const useCartItemCreation = ({
   customerData,
   intent,
@@ -149,9 +148,13 @@ export const useCartItemCreation = ({
         ? allFilters.join(' / ')
         : (data.searchTerm || 'No filters applied');
 
+      const searchTitle =
+        data.searchTerm != null && String(data.searchTerm).trim() !== ''
+          ? String(data.searchTerm).trim().slice(0, 200)
+          : 'eBay Research Item';
       const customCartItem = {
         id: Date.now(),
-        title: data.searchTerm || "eBay Research Item",
+        title: searchTitle,
         subtitle: filterSubtitle,
         quantity: 1,
         category: selectedCategory?.name,

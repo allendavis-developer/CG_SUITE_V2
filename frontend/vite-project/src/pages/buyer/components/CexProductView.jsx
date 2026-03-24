@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
-import { Icon, Button, Breadcrumb } from '@/components/ui/components';
-import MarketComparisonsTable from './MarketComparisonsTable';
+import { Icon, Breadcrumb } from '@/components/ui/components';
+import WorkspaceCloseButton from '@/components/ui/WorkspaceCloseButton';
+import CexMarketPricingStrip from './CexMarketPricingStrip';
 import OfferSelection from './OfferSelection';
 import EbayResearchForm from '@/components/forms/EbayResearchForm.jsx';
 import CashConvertersResearchForm from '@/components/forms/CashConvertersResearchForm.jsx';
 import { normalizeExplicitSalePrice, roundSalePrice } from '@/utils/helpers';
 import { validateBuyerCartItemOffers } from '@/utils/cartOfferValidation';
+import { buildInitialSearchQuery, buildCeXProductResearchInitialQuery } from '@/pages/buyer/utils/negotiationHelpers';
 
 /**
  * Shared view for both:
@@ -81,13 +83,17 @@ export default function CexProductView({
         </div>
         <div className="p-8 space-y-8">
           <ProductDetailsCard title={item.title} imageUrl={imageUrl} specs={specs} stockStatus={item.cexProductData?.isOutOfStock || item.cexProductData?.stockStatus} />
-          <MarketComparisonsTable
-            variant="cex" competitorStats={cexCompetitorStats} ourSalePrice={resolvedOurSalePrice}
-            referenceData={refData} ebayData={item.ebayResearchData || null}
-            setEbayModalOpen={() => setCeXEbayModalOpen(true)}
+          <CexMarketPricingStrip
+            variant={item.cexProductData?.id || item.cexSku || 'cex'}
+            competitorStats={cexCompetitorStats}
+            ourSalePrice={resolvedOurSalePrice}
+            referenceData={refData}
+            ebayData={item.ebayResearchData || null}
             cashConvertersData={item.cashConvertersResearchData || null}
-            setCashConvertersModalOpen={() => setCeXCashConvertersModalOpen(true)}
-            cexSku={item.cexProductData?.id || item.cexSku} hideBuyInPrice={isRepricing}
+            onOpenEbayResearch={() => setCeXEbayModalOpen(true)}
+            onOpenCashConvertersResearch={() => setCeXCashConvertersModalOpen(true)}
+            cexSku={item.cexProductData?.id || item.cexSku}
+            hideBuyInPrice={isRepricing}
           />
           {!isRepricing && displayOffers.length > 0 && (
             <OfferSelection
@@ -104,7 +110,7 @@ export default function CexProductView({
             <EbayResearchForm
               mode="modal" category={{ name: 'CeX', path: ['CeX'] }} savedState={item.ebayResearchData}
               initialHistogramState={false} showManualOffer={false} referenceData={refData}
-              ourSalePrice={resolvedOurSalePrice} initialSearchQuery={item.title || item.model}
+              ourSalePrice={resolvedOurSalePrice} initialSearchQuery={buildInitialSearchQuery(item) ?? item.title ?? item.model}
               marketComparisonContext={buildItemMarketContext()}
               hideOfferCards={isRepricing}
               useVoucherOffers={useVoucherOffers}
@@ -119,7 +125,7 @@ export default function CexProductView({
             <CashConvertersResearchForm
               mode="modal" category={{ name: 'CeX', path: ['CeX'] }} savedState={item.cashConvertersResearchData}
               initialHistogramState={false} referenceData={refData} ourSalePrice={resolvedOurSalePrice}
-              initialSearchQuery={item.title || item.model} marketComparisonContext={buildItemMarketContext()}
+              initialSearchQuery={buildInitialSearchQuery(item) ?? item.title ?? item.model} marketComparisonContext={buildItemMarketContext()}
               useVoucherOffers={useVoucherOffers}
               onComplete={(d) => {
                 if (d?.cancel) { setCeXCashConvertersModalOpen(false); return; }
@@ -156,9 +162,13 @@ export default function CexProductView({
     } else if (typeof offerArg === 'string') {
       selectedOfferId = offerArg;
     }
+    const researchQuery = buildCeXProductResearchInitialQuery(data);
     return {
       id: crypto.randomUUID?.() ?? `cart-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      title: data.title || 'CeX Product', subtitle: data.category || '', quantity: 1,
+      title: data.title || 'CeX Product',
+      subtitle: data.category || '',
+      variantName: researchQuery || undefined,
+      quantity: 1,
       category: 'CeX', categoryObject: { name: 'CeX', path: ['CeX'] },
       offers, cashOffers, voucherOffers, isCustomCeXItem: true, variantId: null, request_item_id: null,
       referenceData: refData,
@@ -226,9 +236,7 @@ export default function CexProductView({
             <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight mt-2">{data.title || 'CeX Product'}</h1>
           </div>
           {onClearCeXProduct && (
-            <button type="button" onClick={onClearCeXProduct} className="text-gray-500 hover:text-gray-700 p-2" aria-label="Close">
-              <Icon name="close" />
-            </button>
+            <WorkspaceCloseButton title="Close CeX product" onClick={onClearCeXProduct} />
           )}
         </div>
       </div>
@@ -236,46 +244,34 @@ export default function CexProductView({
       <div className="p-8 space-y-8">
         <ProductDetailsCard title={data.title} imageUrl={imageUrl} specs={data.specifications} stockStatus={data.isOutOfStock || data.stockStatus} />
 
-        <MarketComparisonsTable
+        <CexMarketPricingStrip
           variant="cex"
-          competitorStats={refData.cex_sale_price != null ? [{ salePrice: refData.cex_sale_price, buyPrice: refData.cex_tradein_cash }] : []}
-          ourSalePrice={cexBasedRounded != null ? String(cexBasedRounded) : ''} referenceData={refData}
-          ebayData={data.ebayResearchData || null} setEbayModalOpen={setCexProductData ? () => setCeXEbayModalOpen(true) : () => {}}
-          cashConvertersData={data.cashConvertersResearchData || null}
-          setCashConvertersModalOpen={setCexProductData ? () => setCeXCashConvertersModalOpen(true) : () => {}}
-          cexSku={data.id} hideBuyInPrice={isRepricing}
+          competitorStats={
+            refData.cex_sale_price != null
+              ? [{ salePrice: refData.cex_sale_price, buyPrice: refData.cex_tradein_cash }]
+              : []
+          }
+          ourSalePrice={cexBasedRounded != null ? String(cexBasedRounded) : ''}
+          referenceData={refData}
+          cexSku={data.id}
+          hideBuyInPrice={isRepricing}
+          showEbayCcResearchActions={false}
         />
 
         {isRepricing ? (
           !cartItems.some((ci) => ci.isCustomCeXItem && ci.title === data.title && ci.subtitle === (data.category || '')) && (
-            <div className="flex justify-end pt-4">
-              <Button variant="primary" icon="sell" className="px-6 py-3 font-bold uppercase tracking-tight" onClick={() => handleAdd(null)}>
-                Add to Reprice List
-              </Button>
-            </div>
+            <button
+              type="button"
+              onClick={() => handleAdd(null)}
+              className="w-full py-4 rounded-xl font-bold text-sm uppercase tracking-wide transition-colors flex items-center justify-center gap-2"
+              style={{ background: '#f7b918', color: '#144584' }}
+            >
+              <span className="material-symbols-outlined text-[20px]">sell</span>
+              Add to reprice list
+            </button>
           )
         ) : offers.length > 0 && (
           <OfferSelection variant="cex" offers={offers} referenceData={refWithOurSale} offerType={useVoucherOffers ? 'voucher' : 'cash'} onAddToCart={handleAdd} />
-        )}
-
-        {isCeXEbayModalOpen && (
-          <EbayResearchForm
-            mode="modal" category={{ name: 'CeX', path: ['CeX'] }} savedState={data.ebayResearchData}
-            initialHistogramState={false} showManualOffer={false} referenceData={refData}
-            ourSalePrice={cexBasedRounded != null ? cexBasedRounded : ''} initialSearchQuery={data.title || data.modelName}
-            marketComparisonContext={buildCeXMarketContext()}
-            useVoucherOffers={useVoucherOffers}
-            onComplete={(d) => { if (d?.cancel) { setCeXEbayModalOpen(false); return; } setCexProductData?.((prev) => ({ ...prev, ebayResearchData: d })); setCeXEbayModalOpen(false); }}
-          />
-        )}
-        {isCeXCashConvertersModalOpen && (
-          <CashConvertersResearchForm
-            mode="modal" category={{ name: 'CeX', path: ['CeX'] }} savedState={data.cashConvertersResearchData}
-            initialHistogramState={false} referenceData={refData} ourSalePrice={cexBasedRounded != null ? cexBasedRounded : ''}
-            initialSearchQuery={data.title || data.modelName} marketComparisonContext={buildCeXMarketContext()}
-            useVoucherOffers={useVoucherOffers}
-            onComplete={(d) => { if (d?.cancel) { setCeXCashConvertersModalOpen(false); return; } setCexProductData?.((prev) => ({ ...prev, cashConvertersResearchData: d })); setCeXCashConvertersModalOpen(false); }}
-          />
         )}
       </div>
     </section>

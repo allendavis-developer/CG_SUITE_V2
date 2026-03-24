@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useState, useRef, useCallback } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useState, useRef, useCallback } from "react";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
 import AppHeader from "@/components/AppHeader";
 import EbayResearchForm from "@/components/forms/EbayResearchForm";
 import CashConvertersResearchForm from "@/components/forms/CashConvertersResearchForm";
 import CustomerTransactionHeader from './components/CustomerTransactionHeader';
+import CustomerIntakeModal from '@/components/modals/CustomerIntakeModal.jsx';
 import NegotiationItemRow from './components/NegotiationItemRow';
 import { ItemContextMenu, TargetOfferModal, ItemOfferModal, SeniorMgmtModal, MarginResultModal } from './components/NegotiationModals';
 import NewCustomerDetailsModal from '@/components/modals/NewCustomerDetailsModal';
@@ -14,6 +15,7 @@ import { useNotification } from '@/contexts/NotificationContext';
 import useAppStore from '@/store/useAppStore';
 import { maybeShowSalePriceConfirm } from './utils/researchCompletionHelpers';
 import { mapRequestToCustomerData } from '@/utils/requestToCartMapping';
+import { mapTransactionTypeToIntent } from '@/utils/transactionConstants';
 import {
   buildItemSpecs,
   buildInitialSearchQuery,
@@ -82,10 +84,23 @@ const Negotiation = ({ mode }) => {
   const storeCartItems = useAppStore((s) => s.cartItems);
   const storeCustomerData = useAppStore((s) => s.customerData);
   const storeRequest = useAppStore((s) => s.request);
+  const selectedCategory = useAppStore((s) => s.selectedCategory);
+  const selectCategory = useAppStore((s) => s.selectCategory);
+  const handleAddFromCeX = useAppStore((s) => s.handleAddFromCeX);
+  const cexLoading = useAppStore((s) => s.cexLoading);
+  const createOrAppendRequestItem = useAppStore((s) => s.createOrAppendRequestItem);
+  const setCustomerInStore = useAppStore((s) => s.setCustomer);
+  const setStoreTransactionType = useAppStore((s) => s.setTransactionType);
+  const cexProductData = useAppStore((s) => s.cexProductData);
+  const setCexProductData = useAppStore((s) => s.setCexProductData);
+  const clearCexProduct = useAppStore((s) => s.clearCexProduct);
 
   const initialCartItems = location.state?.cartItems ?? storeCartItems;
   const initialCustomerData = location.state?.customerData ?? storeCustomerData;
-  const initialRequestId = location.state?.currentRequestId ?? storeRequest?.request_id;
+  const initialRequestId =
+    location.state?.currentRequestId ??
+    location.state?.openQuoteRequest?.request_id ??
+    storeRequest?.request_id;
   const actualRequestId = mode === 'view' ? paramsRequestId : initialRequestId;
 
   // ─── Local negotiation state ───────────────────────────────────────────
@@ -108,6 +123,7 @@ const Negotiation = ({ mode }) => {
   const [seniorMgmtModal, setSeniorMgmtModal] = useState(null);
   const [marginResultModal, setMarginResultModal] = useState(null);
   const [salePriceConfirmModal, setSalePriceConfirmModal] = useState(null);
+  const [isCustomerModalOpen, setCustomerModalOpen] = useState(false);
 
   // Refs
   const hasInitializedNegotiateRef = useRef(false);
@@ -330,6 +346,82 @@ const Negotiation = ({ mode }) => {
     showNotification(`"${item.title || 'Item'}" removed from negotiation`, 'info');
   }, [showNotification]);
 
+  const handleAddNegotiationItem = useCallback(async (cartItem) => {
+    if (!cartItem) return;
+    try {
+      // CeX (and any other) flows may persist the request row before calling onAddToCart — skip a second POST.
+      let reqItemId = cartItem.request_item_id;
+      if (reqItemId == null || reqItemId === '') {
+        const embeddedRawData = cartItem.referenceData ? { referenceData: cartItem.referenceData } : null;
+        reqItemId = await createOrAppendRequestItem({
+          variantId: cartItem.variantId,
+          rawData: embeddedRawData,
+          cashConvertersData: cartItem.cashConvertersResearchData || null,
+          cashOffers: cartItem.cashOffers || [],
+          voucherOffers: cartItem.voucherOffers || [],
+          selectedOfferId: cartItem.selectedOfferId ?? null,
+          manualOffer: cartItem.manualOffer ?? null,
+          ourSalePrice: cartItem.ourSalePrice ?? null,
+          cexSku: cartItem.cexSku ?? null,
+        });
+      }
+      const withRequestId = { ...cartItem, request_item_id: reqItemId };
+      setItems((prev) => [...prev, normalizeCartItemForNegotiation(withRequestId)]);
+      showNotification(`Added "${cartItem.title}" to negotiation`, 'success');
+    } catch (err) {
+      console.error('Failed to add negotiation item:', err);
+      showNotification(err?.message || 'Failed to add item', 'error');
+    }
+  }, [createOrAppendRequestItem, showNotification]);
+
+  const handleEbayResearchCompleteFromHeader = useCallback(async (data) => {
+    if (!data) return;
+    const cashOffers = (data.buyOffers || []).map((o, idx) => ({
+      id: `ebay-cash-${Date.now()}-${idx}`,
+      title: ['1st Offer', '2nd Offer', '3rd Offer'][idx] || 'Offer',
+      price: Number(formatOfferPrice(o.price)),
+    }));
+    const voucherOffers = cashOffers.map((o) => ({
+      id: `ebay-voucher-${o.id}`,
+      title: o.title,
+      price: Number(formatOfferPrice(o.price * 1.1)),
+    }));
+    const displayOffers = useVoucherOffers ? voucherOffers : cashOffers;
+    let selectedOfferId = displayOffers[0]?.id ?? null;
+    let manualOffer = null;
+    if (data.selectedOfferIndex === null) {
+      selectedOfferId = null;
+    } else if (data.selectedOfferIndex === 'manual') {
+      selectedOfferId = 'manual';
+      manualOffer = data.manualOffer ?? null;
+    } else if (typeof data.selectedOfferIndex === 'number' && displayOffers[data.selectedOfferIndex]) {
+      selectedOfferId = displayOffers[data.selectedOfferIndex].id;
+    }
+    const searchTitle =
+      data.searchTerm != null && String(data.searchTerm).trim() !== ''
+        ? String(data.searchTerm).trim().slice(0, 200)
+        : 'eBay Research Item';
+    const customItem = {
+      id: crypto.randomUUID?.() ?? `neg-ebay-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      title: searchTitle,
+      subtitle: 'eBay Research',
+      quantity: 1,
+      category: 'eBay',
+      categoryObject: { name: 'eBay', path: ['eBay'] },
+      offers: displayOffers,
+      cashOffers,
+      voucherOffers,
+      ebayResearchData: data,
+      isCustomEbayItem: true,
+      selectedOfferId,
+      manualOffer,
+      ourSalePrice: data.stats?.suggestedPrice != null ? Number(formatOfferPrice(data.stats.suggestedPrice)) : null,
+      request_item_id: null,
+      variantId: null,
+    };
+    await handleAddNegotiationItem(customItem);
+  }, [handleAddNegotiationItem, useVoucherOffers]);
+
   // ─── Research handlers ─────────────────────────────────────────────────
 
   const handleResearchComplete = useCallback((updatedState) => {
@@ -361,6 +453,32 @@ const Negotiation = ({ mode }) => {
   }, [cashConvertersResearchItem, items, mode, useVoucherOffers]);
 
   // ─── Effects: initialization ───────────────────────────────────────────
+
+  // Resume QUOTE from Requests Overview: reset header/builder store before paint so AppHeader
+  // does not open the fixed workspace (eBay / category overlay) on stale selectedCategory.
+  useLayoutEffect(() => {
+    if (mode !== 'negotiate') return;
+    const rq = location.state?.openQuoteRequest;
+    if (!rq || rq.current_status !== 'QUOTE') return;
+
+    const txType =
+      rq.intent === 'DIRECT_SALE' ? 'sale'
+        : rq.intent === 'BUYBACK' ? 'buyback'
+        : 'store_credit';
+    const mappedCustomer = mapRequestToCustomerData(rq);
+    useAppStore.setState({
+      request: rq,
+      customerData: mappedCustomer,
+      intent: mapTransactionTypeToIntent(txType),
+      selectedCategory: null,
+      selectedModel: null,
+      selectedCartItemId: null,
+      cexProductData: null,
+      availableModels: [],
+      isLoadingModels: false,
+      isCustomerModalOpen: false,
+    });
+  }, [mode, location.state?.openQuoteRequest]);
 
   useEffect(() => {
     if (mode === 'view' && actualRequestId) {
@@ -399,6 +517,22 @@ const Negotiation = ({ mode }) => {
       };
       loadRequestDetails();
     } else if (mode === 'negotiate') {
+        const openQuoteRequest = location.state?.openQuoteRequest;
+        if (openQuoteRequest?.current_status === 'QUOTE' && !hasInitializedNegotiateRef.current) {
+          const txType =
+            openQuoteRequest.intent === 'DIRECT_SALE' ? 'sale'
+              : openQuoteRequest.intent === 'BUYBACK' ? 'buyback'
+              : 'store_credit';
+          setCustomerData(mapRequestToCustomerData(openQuoteRequest));
+          setTransactionType(txType);
+          setTotalExpectation(openQuoteRequest.overall_expectation_gbp?.toString() || '');
+          setTargetOffer(openQuoteRequest.target_offer_gbp != null ? openQuoteRequest.target_offer_gbp.toString() : '');
+          setItems((openQuoteRequest.items || []).map((apiItem) => mapApiItemToNegotiationItem(apiItem, txType, 'negotiate')));
+          hasInitializedNegotiateRef.current = true;
+          window.history.replaceState({}, document.title);
+          setIsLoading(false);
+          return;
+        }
         if (!hasInitializedNegotiateRef.current) {
         if (initialCartItems && initialCartItems.length > 0) {
           setItems(initialCartItems.map(normalizeCartItemForNegotiation));
@@ -412,17 +546,6 @@ const Negotiation = ({ mode }) => {
             setTransactionType(initialCustomerData?.transactionType || 'sale');
         }
 
-      if ((!initialCartItems || initialCartItems.length === 0 || !initialCustomerData?.id) && !isLoading) {
-            navigate("/buyer", { replace: true });
-            return;
-        }
-        if (!actualRequestId && !isLoading) {
-        console.warn("Negotiation page loaded without requestId.");
-            showNotification("Session expired. Please start a new negotiation from the buyer page.", "error");
-            navigate("/buyer", { replace: true });
-            return;
-        }
-
         setIsLoading(false);
     }
   }, [mode, actualRequestId, navigate, initialCustomerData, initialCartItems, showNotification]);
@@ -431,6 +554,20 @@ const Negotiation = ({ mode }) => {
   useEffect(() => {
     if (customerData?.transactionType) setTransactionType(customerData.transactionType);
   }, [customerData]);
+
+  useEffect(() => {
+    if (mode !== 'negotiate') return;
+    const hasCustomer = Boolean(customerData?.id) || Boolean(initialCustomerData?.id);
+    setCustomerModalOpen(!hasCustomer);
+  }, [mode, customerData?.id, initialCustomerData?.id]);
+
+  useEffect(() => {
+    if (mode !== 'negotiate') return;
+    if (!customerData?.id) return;
+    if (transactionType && transactionType !== customerData.transactionType) {
+      setStoreTransactionType(transactionType);
+    }
+  }, [mode, transactionType, customerData?.id, customerData?.transactionType, setStoreTransactionType]);
 
   // When transaction type changes in negotiate mode, remap selected offer indices
   useEffect(() => {
@@ -535,9 +672,42 @@ const Negotiation = ({ mode }) => {
       <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
       <style>{NEGOTIATION_STYLES}</style>
 
-      <AppHeader />
+      {mode === 'negotiate' && (
+        <CustomerIntakeModal
+          open={isCustomerModalOpen}
+          onClose={(info) => {
+            setCustomerModalOpen(false);
+            if (!info) return;
+            setCustomerInStore(info);
+            const nextCustomer = useAppStore.getState().customerData;
+            setCustomerData(nextCustomer);
+            setTransactionType(nextCustomer?.transactionType || 'sale');
+          }}
+        />
+      )}
 
-      <main className="flex flex-1 overflow-hidden h-[calc(100vh-61px)]">
+      <AppHeader
+        buyerControls={mode === 'negotiate' ? {
+          enabled: true,
+          selectedCategory,
+          onCategorySelect: selectCategory,
+          onAddFromCeX: (opts) => handleAddFromCeX({ showNotification, ...opts }),
+          isCeXLoading: cexLoading,
+          enableNegotiationItemBuilder: true,
+          useVoucherOffers,
+          onAddNegotiationItem: handleAddNegotiationItem,
+          onEbayResearchComplete: handleEbayResearchCompleteFromHeader,
+          cexProductData,
+          setCexProductData,
+          clearCexProduct,
+          createOrAppendRequestItem,
+          customerData,
+          existingItems: items,
+          showNotification,
+        } : null}
+      />
+
+      <main className="relative flex flex-1 overflow-hidden h-[calc(100vh-61px)]">
         {/* ── Main Table Section ── */}
         <section className="flex-1 bg-white flex flex-col overflow-hidden">
           {/* Top Controls */}
@@ -704,9 +874,12 @@ const Negotiation = ({ mode }) => {
         {/* ── Sidebar ── */}
         <aside className="w-80 border-l flex flex-col bg-white shrink-0" style={{ borderColor: 'rgba(20, 69, 132, 0.2)' }}>
           <CustomerTransactionHeader
-            customer={customerData}
+            customer={customerData?.id ? customerData : { name: 'No customer selected' }}
             transactionType={transactionType}
-            onTransactionChange={setTransactionType}
+            onTransactionChange={(nextType) => {
+              setTransactionType(nextType);
+              setStoreTransactionType(nextType);
+            }}
             readOnly={mode === 'view'}
           />
           <div className="flex-1 overflow-y-auto p-6 space-y-6" />
@@ -770,6 +943,65 @@ const Negotiation = ({ mode }) => {
             )}
           </div>
         </aside>
+
+        {(researchItem || cashConvertersResearchItem) && (
+          <div className="absolute inset-y-0 left-0 right-80 z-[90] min-h-0">
+            <div className="relative h-full w-full min-h-0">
+              {researchItem && (
+                <EbayResearchForm
+                  mode="modal"
+                  containModalInParent
+                  category={researchItem.categoryObject || { path: [researchItem.category], name: researchItem.category }}
+                  savedState={researchItem.ebayResearchData}
+                  onComplete={handleResearchComplete}
+                  initialHistogramState={true}
+                  readOnly={mode === 'view'}
+                  showManualOffer={true}
+                  initialSearchQuery={buildInitialSearchQuery(researchItem)}
+                  useVoucherOffers={useVoucherOffers}
+                  marketComparisonContext={{
+                    cexSalePrice: researchItem?.cexSellPrice ?? null,
+                    ourSalePrice: researchItem?.ourSalePrice ?? null,
+                    ebaySalePrice: researchItem?.ebayResearchData?.stats?.median ?? null,
+                    cashConvertersSalePrice: researchItem?.cashConvertersResearchData?.stats?.median ?? null,
+                    itemTitle: researchItem?.title || null,
+                    itemCondition: researchItem?.condition || null,
+                    itemSpecs: researchItem?.isCustomCeXItem ? null : buildItemSpecs(researchItem),
+                    cexSpecs: researchItem?.isCustomCeXItem ? buildItemSpecs(researchItem) : null,
+                    ebaySearchTerm: researchItem?.ebayResearchData?.searchTerm || null,
+                    cashConvertersSearchTerm: researchItem?.cashConvertersResearchData?.searchTerm || null,
+                  }}
+                />
+              )}
+              {cashConvertersResearchItem && (
+                <CashConvertersResearchForm
+                  mode="modal"
+                  containModalInParent
+                  category={cashConvertersResearchItem.categoryObject || { path: [cashConvertersResearchItem.category], name: cashConvertersResearchItem.category }}
+                  savedState={cashConvertersResearchItem.cashConvertersResearchData}
+                  onComplete={handleCashConvertersResearchComplete}
+                  initialHistogramState={true}
+                  readOnly={mode === 'view'}
+                  showManualOffer={true}
+                  useVoucherOffers={useVoucherOffers}
+                  initialSearchQuery={buildInitialSearchQuery(cashConvertersResearchItem)}
+                  marketComparisonContext={{
+                    cexSalePrice: cashConvertersResearchItem?.cexSellPrice ?? null,
+                    ourSalePrice: cashConvertersResearchItem?.ourSalePrice ?? null,
+                    ebaySalePrice: cashConvertersResearchItem?.ebayResearchData?.stats?.median ?? null,
+                    cashConvertersSalePrice: cashConvertersResearchItem?.cashConvertersResearchData?.stats?.median ?? null,
+                    itemTitle: cashConvertersResearchItem?.title || null,
+                    itemCondition: cashConvertersResearchItem?.condition || null,
+                    itemSpecs: cashConvertersResearchItem?.isCustomCeXItem ? null : buildItemSpecs(cashConvertersResearchItem),
+                    cexSpecs: cashConvertersResearchItem?.isCustomCeXItem ? buildItemSpecs(cashConvertersResearchItem) : null,
+                    ebaySearchTerm: cashConvertersResearchItem?.ebayResearchData?.searchTerm || null,
+                    cashConvertersSearchTerm: cashConvertersResearchItem?.cashConvertersResearchData?.searchTerm || null,
+                  }}
+                />
+              )}
+            </div>
+          </div>
+        )}
       </main>
 
       {/* ── Overlays & Modals ── */}
@@ -836,57 +1068,6 @@ const Negotiation = ({ mode }) => {
         initialName={customerData?.name || ""}
       />
 
-      {researchItem && (
-        <EbayResearchForm
-          mode="modal"
-          category={researchItem.categoryObject || { path: [researchItem.category], name: researchItem.category }}
-          savedState={researchItem.ebayResearchData}
-          onComplete={handleResearchComplete}
-          initialHistogramState={true}
-          readOnly={mode === 'view'}
-          showManualOffer={true}
-          initialSearchQuery={buildInitialSearchQuery(researchItem)}
-          useVoucherOffers={useVoucherOffers}
-          marketComparisonContext={{
-            cexSalePrice: researchItem?.cexSellPrice ?? null,
-            ourSalePrice: researchItem?.ourSalePrice ?? null,
-            ebaySalePrice: researchItem?.ebayResearchData?.stats?.median ?? null,
-            cashConvertersSalePrice: researchItem?.cashConvertersResearchData?.stats?.median ?? null,
-            itemTitle: researchItem?.title || null,
-            itemCondition: researchItem?.condition || null,
-            itemSpecs: researchItem?.isCustomCeXItem ? null : buildItemSpecs(researchItem),
-            cexSpecs: researchItem?.isCustomCeXItem ? buildItemSpecs(researchItem) : null,
-            ebaySearchTerm: researchItem?.ebayResearchData?.searchTerm || null,
-            cashConvertersSearchTerm: researchItem?.cashConvertersResearchData?.searchTerm || null,
-          }}
-        />
-      )}
-
-      {cashConvertersResearchItem && (
-        <CashConvertersResearchForm
-          mode="modal"
-          category={cashConvertersResearchItem.categoryObject || { path: [cashConvertersResearchItem.category], name: cashConvertersResearchItem.category }}
-          savedState={cashConvertersResearchItem.cashConvertersResearchData}
-          onComplete={handleCashConvertersResearchComplete}
-          initialHistogramState={true}
-          readOnly={mode === 'view'}
-          showManualOffer={true}
-          useVoucherOffers={useVoucherOffers}
-          initialSearchQuery={buildInitialSearchQuery(cashConvertersResearchItem)}
-          marketComparisonContext={{
-            cexSalePrice: cashConvertersResearchItem?.cexSellPrice ?? null,
-            ourSalePrice: cashConvertersResearchItem?.ourSalePrice ?? null,
-            ebaySalePrice: cashConvertersResearchItem?.ebayResearchData?.stats?.median ?? null,
-            cashConvertersSalePrice: cashConvertersResearchItem?.cashConvertersResearchData?.stats?.median ?? null,
-            itemTitle: cashConvertersResearchItem?.title || null,
-            itemCondition: cashConvertersResearchItem?.condition || null,
-            itemSpecs: cashConvertersResearchItem?.isCustomCeXItem ? null : buildItemSpecs(cashConvertersResearchItem),
-            cexSpecs: cashConvertersResearchItem?.isCustomCeXItem ? buildItemSpecs(cashConvertersResearchItem) : null,
-            ebaySearchTerm: cashConvertersResearchItem?.ebayResearchData?.searchTerm || null,
-            cashConvertersSearchTerm: cashConvertersResearchItem?.cashConvertersResearchData?.searchTerm || null,
-          }}
-        />
-      )}
     </div>
   );
 };

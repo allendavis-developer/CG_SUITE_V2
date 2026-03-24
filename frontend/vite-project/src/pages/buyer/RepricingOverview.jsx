@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import AppHeader from "@/components/AppHeader";
 import { useNotification } from "@/contexts/NotificationContext";
-import { fetchRepricingSessionsOverview, updateRepricingSession } from "@/services/api";
+import { fetchRepricingSessionsOverview, fetchRepricingSessionDetail, updateRepricingSession } from "@/services/api";
 import useAppStore from "@/store/useAppStore";
 
 const STATUS_FILTERS = ['ALL', 'IN_PROGRESS', 'COMPLETED'];
@@ -93,47 +93,83 @@ const RepricingOverview = () => {
     return `${first} +${items.length - 1} more`;
   };
 
-  const handleSessionClick = (session) => {
-    if (session.status === 'IN_PROGRESS' && session.session_data?.items?.length) {
-      const items = session.session_data.items.map(item => ({
-        ...item,
-        nosposBarcodes: deduplicateBarcodes(item.nosposBarcodes),
-      }));
-      useAppStore.setState({
-        repricingCartItems: items,
-        repricingSessionId: session.repricing_session_id,
-        mode: 'repricing',
-        isCustomerModalOpen: false,
-      });
-      navigate('/repricing');
-    } else {
-      navigate(`/repricing-sessions/${session.repricing_session_id}/view`);
+  /** Build React Router state for the main repricing workspace (`/repricing`). */
+  const buildWorkspaceNavigationState = (session, detail = null) => {
+    const sd = detail?.session_data ?? session.session_data;
+    if (!sd || !Array.isArray(sd.items) || sd.items.length === 0) return null;
+    const lineItems = detail?.items ?? session.items ?? [];
+    const mapped = sd.items.map((item) => ({
+      ...item,
+      nosposBarcodes: deduplicateBarcodes(item.nosposBarcodes),
+    }));
+    const cartItems = attachBarcodesFromSessionItems(mapped, lineItems);
+    return {
+      cartItems,
+      sessionId: session.repricing_session_id,
+      sessionBarcodes: sd.barcodes ?? null,
+      sessionNosposLookups: sd.nosposLookups ?? null,
+    };
+  };
+
+  const handleSessionClick = async (session) => {
+    let navState = buildWorkspaceNavigationState(session);
+    if (!navState) {
+      try {
+        const detail = await fetchRepricingSessionDetail(session.repricing_session_id);
+        if (detail) navState = buildWorkspaceNavigationState(session, detail);
+      } catch (err) {
+        showNotification(`Could not load session: ${err.message}`, 'error');
+      }
     }
+    if (navState) {
+      navigate('/repricing', { state: navState });
+      return;
+    }
+    if (session.status === 'IN_PROGRESS') {
+      navigate('/repricing', {
+        state: { sessionId: session.repricing_session_id, cartItems: [] },
+      });
+      return;
+    }
+    navigate(`/repricing-sessions/${session.repricing_session_id}/view`);
   };
 
   const handleRedoRepricing = async (e, session) => {
     e.stopPropagation();
-    const rawItems = session.session_data?.items;
-    if (!Array.isArray(rawItems) || rawItems.length === 0) {
+    let navState = buildWorkspaceNavigationState(session);
+    if (!navState) {
+      try {
+        const detail = await fetchRepricingSessionDetail(session.repricing_session_id);
+        if (detail) navState = buildWorkspaceNavigationState(session, detail);
+      } catch (err) {
+        showNotification(`Could not load session: ${err.message}`, 'error');
+        return;
+      }
+    }
+    if (!navState) {
       showNotification('No item data available to redo this session.', 'error');
       return;
     }
-    const items = attachBarcodesFromSessionItems(rawItems, session.items);
     try {
       await updateRepricingSession(session.repricing_session_id, { status: 'IN_PROGRESS' });
     } catch {}
-    useAppStore.setState({
-      repricingCartItems: items,
-      repricingSessionId: session.repricing_session_id,
-      mode: 'repricing',
-      isCustomerModalOpen: false,
-    });
-    navigate('/repricing');
+    navigate('/repricing', { state: navState });
   };
 
   const handleNewRepricing = () => {
-    useAppStore.setState({ repricingSessionId: null, repricingCartItems: [], mode: 'repricing' });
-    navigate('/repricing', { state: { freshStart: true } });
+    useAppStore.setState({
+      mode: 'repricing',
+      repricingSessionId: null,
+      repricingCartItems: [],
+      selectedCategory: null,
+      selectedModel: null,
+      selectedCartItemId: null,
+      cexProductData: null,
+      cexLoading: false,
+      isQuickRepriceOpen: false,
+    });
+    useAppStore.getState().bumpRepricingWorkspace();
+    navigate('/repricing');
   };
 
   if (loading) {

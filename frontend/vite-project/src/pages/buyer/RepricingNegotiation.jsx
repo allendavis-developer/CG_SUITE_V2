@@ -3,16 +3,17 @@ import { useNavigate, useLocation } from "react-router-dom";
 import AppHeader from "@/components/AppHeader";
 import EbayResearchForm from "@/components/forms/EbayResearchForm";
 import CashConvertersResearchForm from "@/components/forms/CashConvertersResearchForm";
+import QuickRepriceModal from "@/components/modals/QuickRepriceModal";
 import { useNotification } from "@/contexts/NotificationContext";
 import SalePriceConfirmModal from "@/components/modals/SalePriceConfirmModal";
 import TinyModal from "@/components/ui/TinyModal";
 import { maybeShowSalePriceConfirm } from "./utils/researchCompletionHelpers";
 import { cancelNosposRepricing, clearLastRepricingResult, getLastRepricingResult, getNosposRepricingStatus, openNospos, searchNosposBarcode } from "@/services/extensionClient";
-import { saveRepricingSession, createRepricingSessionDraft, updateRepricingSession, fetchRepricingSessionDetail } from "@/services/api";
+import { saveRepricingSession, createRepricingSessionDraft, updateRepricingSession } from "@/services/api";
 import { getCartKey, loadRepricingProgress, saveRepricingProgress, clearRepricingProgress } from "@/utils/repricingProgress";
 import { getEditableSalePriceState, resolveRepricingSalePrice } from "./utils/repricingDisplay";
 import useAppStore from '@/store/useAppStore';
-import { normalizeExplicitSalePrice } from '@/utils/helpers';
+import { normalizeExplicitSalePrice, formatOfferPrice, roundSalePrice } from '@/utils/helpers';
 import { buildItemSpecs, buildInitialSearchQuery } from './utils/negotiationHelpers';
 
 // ─── Right-click context menu (remove only) ────────────────────────────────
@@ -111,10 +112,22 @@ const RepricingNegotiation = () => {
   const location = useLocation();
   const { showNotification } = useNotification();
 
-  const storeCartItems = useAppStore((s) => s.repricingCartItems);
-  const cartItems = location.state?.cartItems ?? storeCartItems;
+  // Store selectors for header item builder
+  const selectedCategory = useAppStore((s) => s.selectedCategory);
+  const selectCategory = useAppStore((s) => s.selectCategory);
+  const handleAddFromCeX = useAppStore((s) => s.handleAddFromCeX);
+  const cexLoading = useAppStore((s) => s.cexLoading);
+  const cexProductData = useAppStore((s) => s.cexProductData);
+  const setCexProductData = useAppStore((s) => s.setCexProductData);
+  const clearCexProduct = useAppStore((s) => s.clearCexProduct);
+
+  // Cart items only come from navigation state (session restore / overview)
+  const cartItems = location.state?.cartItems || [];
+  // Track whether we started with an empty cart so we know to create a session on first item add
+  const isCartInitiallyEmptyRef = useRef(cartItems.length === 0);
 
   const [items, setItems] = useState([]);
+  const [isQuickRepriceOpen, setIsQuickRepriceOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   // Barcode state: { [itemId]: string[] }
@@ -224,6 +237,31 @@ const RepricingNegotiation = () => {
     return () => window.removeEventListener('beforeunload', handleUnload);
   }, [flushNegotiationSave]);
 
+  // For fresh-start sessions (no initial cartItems), create a draft DB session when the first item is added
+  const prevItemsLengthRef = useRef(0);
+  useEffect(() => {
+    const prevLen = prevItemsLengthRef.current;
+    prevItemsLengthRef.current = items.length;
+    if (!isCartInitiallyEmptyRef.current) return;
+    if (prevLen > 0 || items.length === 0) return;
+    if (dbSessionId || isCreatingSession.current) return;
+    isCreatingSession.current = true;
+    createRepricingSessionDraft({
+      cart_key: getCartKey(items),
+      item_count: items.length,
+      session_data: buildSessionDataSnapshot({ items, barcodes: {}, nosposLookups: {} }),
+    }).then(resp => {
+      if (resp?.repricing_session_id) {
+        setDbSessionId(resp.repricing_session_id);
+        useAppStore.getState().setRepricingSessionId(resp.repricing_session_id);
+      }
+    }).catch(err => {
+      console.warn('[CG Suite] Failed to create draft session:', err);
+    }).finally(() => {
+      isCreatingSession.current = false;
+    });
+  }, [items.length, dbSessionId, buildSessionDataSnapshot]);
+
   const persistCompletedRepricing = async (payload) => {
     if (!payload?.cart_key || payload.cart_key !== activeCartKey) return false;
 
@@ -318,9 +356,9 @@ const RepricingNegotiation = () => {
       setDbSessionId(resumeSessionId);
     }
 
-    // Normal flow: starting fresh from cart items
+    // Empty start — just mark as ready; items will be added via the header builder
     if (!cartItems || cartItems.length === 0) {
-      navigate('/repricing', { replace: true });
+      setIsLoading(false);
       return;
     }
 
@@ -532,6 +570,135 @@ const RepricingNegotiation = () => {
     setItems(prev => prev.filter(i => i.id !== item.id));
     showNotification(`"${item.title || 'Item'}" removed from reprice list`, 'info');
   };
+
+  // ── Add items from the header builder (category/CeX/eBay) ──────────────────
+  const addItemsWithBarcodePrepopulation = useCallback((newItems) => {
+    const newBarcodes = {};
+    const newLookups = {};
+    newItems.forEach(item => {
+      const rawBarcodes = item.nosposBarcodes || [];
+      const seen = new Set();
+      const uniqueBarcodes = rawBarcodes.filter(b => {
+        const key = b.barserial || '';
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      if (uniqueBarcodes.length > 0) {
+        newBarcodes[item.id] = uniqueBarcodes.map(b => b.barserial);
+        uniqueBarcodes.forEach((b, index) => {
+          newLookups[`${item.id}_${index}`] = {
+            status: 'selected',
+            results: b.href ? [{ barserial: b.barserial, href: b.href.replace(/^https:\/\/nospos\.com/i, '') }] : [],
+            stockBarcode: b.barserial,
+            stockName: b.name || '',
+            stockUrl: b.href || '',
+          };
+        });
+      }
+    });
+    setItems(prev => [...prev, ...newItems]);
+    if (Object.keys(newBarcodes).length > 0) {
+      setBarcodes(prev => ({ ...prev, ...newBarcodes }));
+      setNosposLookups(prev => ({ ...prev, ...newLookups }));
+    }
+  }, []);
+
+  const handleAddRepricingItem = useCallback((cartItem) => {
+    if (!cartItem) return;
+    const item = {
+      ...cartItem,
+      id: cartItem.id || (crypto.randomUUID?.() ?? `reprice-item-${Date.now()}`),
+      quantity: cartItem.quantity || 1,
+      nosposBarcodes: cartItem.nosposBarcodes || [],
+      ebayResearchData: cartItem.ebayResearchData || null,
+      cashConvertersResearchData: cartItem.cashConvertersResearchData || null,
+      isRemoved: false,
+    };
+    addItemsWithBarcodePrepopulation([item]);
+    showNotification(`Added "${item.title || 'Item'}" to reprice list`, 'success');
+  }, [addItemsWithBarcodePrepopulation, showNotification]);
+
+  const handleEbayResearchCompleteFromHeader = useCallback((data) => {
+    if (!data) return;
+    const searchTitle = data.searchTerm?.trim()?.slice(0, 200) || 'eBay Research Item';
+    const customItem = {
+      id: crypto.randomUUID?.() ?? `reprice-ebay-${Date.now()}`,
+      title: searchTitle,
+      subtitle: 'eBay Research',
+      quantity: 1,
+      category: 'eBay',
+      categoryObject: { name: 'eBay', path: ['eBay'] },
+      offers: [],
+      cashOffers: [],
+      voucherOffers: [],
+      ebayResearchData: data,
+      isCustomEbayItem: true,
+      selectedOfferId: null,
+      ourSalePrice: data.stats?.suggestedPrice != null ? Number(formatOfferPrice(data.stats.suggestedPrice)) : null,
+      nosposBarcodes: [],
+      cashConvertersResearchData: null,
+      referenceData: null,
+      variantId: null,
+      cexSku: null,
+      cexSellPrice: null,
+      cexBuyPrice: null,
+      cexVoucherPrice: null,
+      cexUrl: null,
+      cexOutOfStock: false,
+      attributeValues: {},
+      condition: null,
+      image: null,
+      isRemoved: false,
+    };
+    addItemsWithBarcodePrepopulation([customItem]);
+    showNotification(`Added "${customItem.title}" to reprice list`, 'success');
+  }, [addItemsWithBarcodePrepopulation, showNotification]);
+
+  const handleQuickRepriceItems = useCallback((foundItems) => {
+    if (!foundItems?.length) return;
+    const newItems = foundItems.map(result => {
+      const itemId = crypto.randomUUID?.() ?? `reprice-qr-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const nosposBarcodes = result.nosposBarcodes || [];
+      return {
+        id: itemId,
+        title: result.title || '',
+        subtitle: result.subtitle || result.condition || '',
+        model: result.product_name || result.title || '',
+        category: result.category_name || '',
+        categoryObject: result.category_name ? {
+          ...(result.category_id != null ? { id: result.category_id } : {}),
+          name: result.category_name,
+          path: [result.category_name],
+        } : null,
+        condition: result.condition || '',
+        attributeValues: result.attribute_values || {},
+        variantId: result.variant_id ?? null,
+        cexSku: result.cex_sku || null,
+        cexSellPrice: result.cex_sale_price ?? null,
+        cexBuyPrice: result.cex_tradein_cash ?? null,
+        cexVoucherPrice: result.cex_tradein_voucher ?? null,
+        cexUrl: result.cex_sku ? `https://uk.webuy.com/product-detail?id=${result.cex_sku}` : null,
+        ourSalePrice: result.our_sale_price != null && Number.isFinite(Number(result.our_sale_price))
+          ? roundSalePrice(Number(result.our_sale_price)) : null,
+        image: result.image || '',
+        nosposBarcodes,
+        isCustomCeXItem: !result.in_db,
+        fromQuickReprice: true,
+        offers: [],
+        cashOffers: [],
+        voucherOffers: [],
+        selectedOfferId: null,
+        ebayResearchData: null,
+        cashConvertersResearchData: null,
+        referenceData: null,
+        quantity: 1,
+        isRemoved: false,
+      };
+    });
+    addItemsWithBarcodePrepopulation(newItems);
+    showNotification(`${newItems.length} item${newItems.length !== 1 ? 's' : ''} added to reprice list`, 'success');
+  }, [addItemsWithBarcodePrepopulation, showNotification]);
 
   const handleResearchComplete = (updatedState) => {
     if (updatedState?.cancel) { setResearchItem(null); return; }
@@ -755,7 +922,25 @@ const RepricingNegotiation = () => {
         .reprice-table tr:hover { background: rgba(20,69,132,0.05); }
       `}</style>
 
-      <AppHeader />
+      <AppHeader
+        buyerControls={{
+          enabled: true,
+          selectedCategory,
+          onCategorySelect: selectCategory,
+          onAddFromCeX: (opts) => handleAddFromCeX({ showNotification, ...opts }),
+          isCeXLoading: cexLoading,
+          enableNegotiationItemBuilder: true,
+          useVoucherOffers: false,
+          onAddNegotiationItem: handleAddRepricingItem,
+          onEbayResearchComplete: handleEbayResearchCompleteFromHeader,
+          cexProductData,
+          setCexProductData,
+          clearCexProduct,
+          existingItems: items,
+          showNotification,
+          onQuickReprice: () => setIsQuickRepriceOpen(true),
+        }}
+      />
 
       <main className="flex flex-1 overflow-hidden h-[calc(100vh-61px)]">
 
@@ -766,12 +951,12 @@ const RepricingNegotiation = () => {
           <div className="p-6 border-b" style={{ borderColor: '#e5e7eb' }}>
             <div className="flex items-center justify-between gap-6">
               <button
-                onClick={() => navigate('/repricing', { state: { preserveCart: true, cartItems: items, sessionBarcodes: barcodes, sessionNosposLookups: nosposLookups } })}
+                onClick={() => navigate('/repricing-overview')}
                 className="flex items-center gap-2 px-4 py-2 rounded-lg border font-medium text-sm transition-all hover:shadow-md"
                 style={{ borderColor: '#e5e7eb', color: '#144584' }}
               >
-                <span className="material-symbols-outlined text-lg">arrow_back</span>
-                Back to Reprice List
+                <span className="material-symbols-outlined text-lg">history</span>
+                Session History
               </button>
 
               <div
@@ -1773,6 +1958,13 @@ const RepricingNegotiation = () => {
             ebaySearchTerm: cashConvertersResearchItem?.ebayResearchData?.searchTerm || null,
             cashConvertersSearchTerm: cashConvertersResearchItem?.cashConvertersResearchData?.searchTerm || null,
           }}
+        />
+      )}
+
+      {isQuickRepriceOpen && (
+        <QuickRepriceModal
+          onClose={() => setIsQuickRepriceOpen(false)}
+          onAddItems={handleQuickRepriceItems}
         />
       )}
     </div>

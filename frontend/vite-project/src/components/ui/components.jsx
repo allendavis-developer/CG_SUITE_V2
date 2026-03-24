@@ -115,7 +115,7 @@ export const CustomDropdown = ({ label, value, options, onChange, labelPosition 
   const dropdownMenu = isOpen && filteredOptions.length > 0 && menuRect && createPortal(
     <div
       ref={menuRef}
-      className="fixed z-[9999] bg-white border border-gray-200 rounded-lg shadow-lg overflow-y-auto max-h-60 overflow-x-hidden"
+      className="cg-portal-dropdown-menu fixed z-[9999] bg-white border border-gray-200 rounded-lg shadow-lg overflow-y-auto max-h-60 overflow-x-hidden"
       style={{ top: menuRect.top, left: menuRect.left, width: menuRect.width, minWidth: 120 }}
     >
       {filteredOptions.map((option) => (
@@ -183,7 +183,15 @@ export const CustomDropdown = ({ label, value, options, onChange, labelPosition 
   );
 };
 
-export const SearchableDropdown = ({ label, value, options, onChange, placeholder = "Select...", clearable, onClear }) => {
+export const SearchableDropdown = ({
+  label,
+  value,
+  options,
+  onChange,
+  placeholder = "Select...",
+  clearable,
+  onClear,
+}) => {
   const selectRef = useRef(null);
   const tomSelectInstance = useRef(null);
   const onChangeRef = useRef(onChange);
@@ -251,6 +259,7 @@ export const SearchableDropdown = ({ label, value, options, onChange, placeholde
       }
     }
   }, [value]);
+
 
   return (
     <div className="searchable-dropdown-match flex flex-col gap-1.5">
@@ -446,11 +455,16 @@ export const RecentItem = ({ image, title, sku, onClick }) => (
 
 
 // Sidebar Component
-export const Sidebar = ({ onCategorySelect, onAddFromCeX, isCeXLoading, onQuickReprice, customerData, onTransactionTypeChange }) => {
+export const Sidebar = ({ onCategorySelect, onAddFromCeX, isCeXLoading, onQuickReprice, customerData, onTransactionTypeChange, selectedCategoryId = null }) => {
   const [categories, setCategories] = useState([]);
   const [expandedCategories, setExpandedCategories] = useState([]);
   const [filterText, setFilterText] = useState('');
   const [selectedCategory, setSelectedCategory] = useState(null);
+
+  useEffect(() => {
+    if (selectedCategoryId == null) return;
+    setSelectedCategory(selectedCategoryId);
+  }, [selectedCategoryId]);
 
   useEffect(() => {
     // Use mock data for now - replace with actual API call

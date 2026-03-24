@@ -567,10 +567,10 @@ async function handleBridgeForward(message, sender) {
         ? `https://www.cashconverters.co.uk/search-results?Sort=default&page=1&query=${encodeURIComponent(searchQuery)}`
         : 'https://www.cashconverters.co.uk/';
     } else if (competitor === 'CeX') {
-      // For CeX, always open the clean homepage. We no longer append any
-      // tracking/query parameters (cgReq, keyword, etc.) so the user only ever
-      // sees a simple `https://uk.webuy.com/` URL.
-      url = 'https://uk.webuy.com/';
+      // With a header search term: CeX site search. Without: homepage (unchanged).
+      url = searchQuery
+        ? `https://uk.webuy.com/search?stext=${encodeURIComponent(searchQuery)}`
+        : 'https://uk.webuy.com/';
     } else {
       // Always enforce: Completed items (LH_Complete=1), Sold items (LH_Sold=1), UK Only (LH_PrefLoc=1)
       url = searchQuery
@@ -1604,7 +1604,11 @@ chrome.tabs.onRemoved.addListener(async (removedTabId) => {
       chrome.tabs.sendMessage(entry.appTabId, {
         type: 'EXTENSION_RESPONSE_TO_PAGE',
         requestId,
-        response: { success: false, error: 'Tab was closed. You can try again when ready.' }
+        response: {
+          success: false,
+          cancelled: true,
+          error: 'Tab was closed. You can try again when ready.',
+        }
       }).catch(() => {});
       break;
     }

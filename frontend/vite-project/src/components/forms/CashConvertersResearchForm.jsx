@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { getDataFromListingPage, getDataFromRefine } from '@/services/extensionClient';
+import { getDataFromListingPage, getDataFromRefine, isExtensionListingFlowAborted } from '@/services/extensionClient';
 import ResearchFormShell from './ResearchFormShell';
+import WorkspaceCloseButton from '@/components/ui/WorkspaceCloseButton';
 import { calculateStats, calculateBuyOffers } from './researchStats';
 import { Icon } from '../ui/components';
 import useAppStore, { useEbayOfferMargins } from '@/store/useAppStore';
@@ -34,6 +35,7 @@ export default function CashConvertersResearchForm({
   addActionLabel = 'Add to Cart',
   hideOfferCards = false,
   useVoucherOffers = false,
+  containModalInParent = false,
 }) {
   const categoryId = category?.id ?? null;
   const ebayOfferMargins = useEbayOfferMargins(categoryId);
@@ -72,7 +74,7 @@ export default function CashConvertersResearchForm({
         setListingPageUrl(result.listingPageUrl || null);
         setDrillHistory([]);
         setStep('cards');
-      } else if (result?.cancelled) {
+      } else if (isExtensionListingFlowAborted(result)) {
         if (mode === 'modal') {
           onComplete?.({ cancel: true });
         }
@@ -91,7 +93,13 @@ export default function CashConvertersResearchForm({
   // Page mode is a persistent panel that resets after cart adds — firing there would open
   // an unwanted tab every time the user adds an item to cart.
   useEffect(() => {
-    if (mode === 'modal' && step === 'get-data' && !readOnly && !autoTriggeredRef.current) {
+    if (
+      mode === 'modal'
+      && step === 'get-data'
+      && !readOnly
+      && savedState == null
+      && !autoTriggeredRef.current
+    ) {
       autoTriggeredRef.current = true;
       handleGetData();
     }
@@ -109,7 +117,7 @@ export default function CashConvertersResearchForm({
         setListingPageUrl(result.listingPageUrl || null);
         setDrillHistory([]);
         setError(null);
-      } else if (result?.cancelled) {
+      } else if (isExtensionListingFlowAborted(result)) {
         if (mode === 'modal') {
           onComplete?.({ cancel: true });
         }
@@ -204,6 +212,10 @@ export default function CashConvertersResearchForm({
     onComplete?.(state);
   }, [onComplete, listings, showHistogram, drillHistory, displayedStats, buyOffers, searchTerm, listingPageUrl, manualOffer, showManualOffer]);
 
+  const handleResearchCancel = useCallback(() => {
+    onComplete?.({ cancel: true });
+  }, [onComplete]);
+
   const handleResetSearch = useCallback(() => {
     // Go back to the initial "get data" step and clear current research state
     setListings([]);
@@ -237,9 +249,12 @@ export default function CashConvertersResearchForm({
     );
 
     if (mode === 'modal') {
+      const modalWrapperClass = containModalInParent
+        ? 'flex h-full min-h-0 w-full flex-col'
+        : 'fixed inset-0 z-[100] flex items-start justify-center bg-black/40';
       return (
-        <div className="fixed inset-0 z-[100] flex items-start justify-center bg-black/40">
-          <div className="bg-white w-full h-full flex flex-col overflow-hidden">
+        <div className={modalWrapperClass}>
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white">
             <header className="bg-blue-900 px-6 py-4 flex items-center justify-between text-white shrink-0">
               <div className="flex items-center gap-3">
                 <div className="bg-white/10 p-1.5 rounded">
@@ -252,14 +267,10 @@ export default function CashConvertersResearchForm({
                   </p>
                 </div>
               </div>
-              <button
-                type="button"
-                className="text-white/60 hover:text-white transition-colors p-1"
+              <WorkspaceCloseButton
+                title="Close Cash Converters research"
                 onClick={() => onComplete?.({ cancel: true })}
-                aria-label="Close"
-              >
-                <Icon name="close" />
-              </button>
+              />
             </header>
             <main className="flex-1 overflow-auto bg-gray-50 flex flex-col">
               {getDataBody}
@@ -304,6 +315,7 @@ export default function CashConvertersResearchForm({
       onNavigateToDrillLevel={handleNavigateToDrillLevel}
       onComplete={showManualOffer ? undefined : handleComplete}
       onCompleteWithSelection={showManualOffer ? handleCompleteWithSelection : undefined}
+      onCancel={handleResearchCancel}
       mode={mode}
       readOnly={readOnly}
       basicFilterOptions={[]}
@@ -330,6 +342,7 @@ export default function CashConvertersResearchForm({
       addActionLabel={addActionLabel}
       hideOfferCards={hideOfferCards}
       useVoucherOffers={useVoucherOffers}
+      containModalInParent={containModalInParent}
     />
   );
 }

@@ -76,6 +76,7 @@ export default function NegotiationItemRow({
   const cashConvertersData = item.cashConvertersResearchData;
   const ourSalePrice = resolveOurSalePrice(item);
   const cexOutOfStock = item.cexOutOfStock || item.cexProductData?.isOutOfStock || false;
+  const primaryItemName = item.variantName || item.title || 'N/A';
 
   const manualValue = item.manualOffer ? parseFloat(item.manualOffer.replace(/[£,]/g, '')) : null;
   const manualMargin = manualValue && ourSalePrice ? ((ourSalePrice - manualValue) / ourSalePrice) * 100 : null;
@@ -130,7 +131,7 @@ export default function NegotiationItemRow({
       {/* Item Name & Attributes */}
       <td>
         <div className="font-bold text-[13px] flex items-center gap-2 flex-wrap" style={{ color: 'var(--brand-blue)' }}>
-          {item.title || 'N/A'}
+          {primaryItemName}
           {item.isRemoved && (
             <span className="text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-red-100 text-red-700">
               Removed from cart

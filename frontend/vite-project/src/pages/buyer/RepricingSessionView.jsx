@@ -7,7 +7,6 @@ import { useNotification } from "@/contexts/NotificationContext";
 import { fetchRepricingSessionDetail, updateRepricingSession } from "@/services/api";
 import { formatMoney, getResearchMedian } from "./utils/repricingDisplay";
 import { TableCheckbox } from "@/components/ui/components";
-import useAppStore from "@/store/useAppStore";
 
 function attachBarcodesFromSessionItems(cartItems, sessionItems) {
   if (!Array.isArray(sessionItems) || sessionItems.length === 0) return cartItems;
@@ -181,13 +180,14 @@ const RepricingSessionView = () => {
                       try {
                         await updateRepricingSession(session.repricing_session_id, { status: 'IN_PROGRESS' });
                       } catch {}
-                      useAppStore.setState({
-                        repricingCartItems: items,
-                        repricingSessionId: session.repricing_session_id,
-                        mode: 'repricing',
-                        isCustomerModalOpen: false,
+                      navigate('/repricing', {
+                        state: {
+                          cartItems: items,
+                          sessionId: session.repricing_session_id,
+                          sessionBarcodes: session.session_data?.barcodes || null,
+                          sessionNosposLookups: session.session_data?.nosposLookups || null,
+                        },
                       });
-                      navigate('/repricing');
                     }}
                     className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-xs uppercase tracking-wide transition-all hover:shadow-md border"
                     style={{ borderColor: 'rgba(20,69,132,0.3)', color: 'var(--brand-blue)', background: 'white' }}

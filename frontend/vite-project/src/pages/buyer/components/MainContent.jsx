@@ -5,7 +5,7 @@ import CashConvertersResearchForm from '@/components/forms/CashConvertersResearc
 import EmptyState from './EmptyState';
 import ProductSelection from './ProductSelection';
 import AttributeConfiguration from './AttributeConfiguration';
-import MarketComparisonsTable from './MarketComparisonsTable';
+import CexMarketPricingStrip from './CexMarketPricingStrip';
 import OfferSelection from './OfferSelection';
 import CexProductView from './CexProductView';
 import EbayCartItemView from './EbayCartItemView';
@@ -348,9 +348,13 @@ const MainContent = ({ mode = 'buyer' }) => {
         selectedOfferId = displayOffers[data.selectedOfferIndex].id;
       }
 
+      const searchTitle =
+        data.searchTerm != null && String(data.searchTerm).trim() !== ''
+          ? String(data.searchTerm).trim().slice(0, 200)
+          : 'eBay Research Item';
       const customCartItem = {
         id: crypto.randomUUID?.() ?? `cart-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        title: data.searchTerm || 'eBay Research Item', subtitle: filterSubtitle, quantity: 1,
+        title: searchTitle, subtitle: filterSubtitle, quantity: 1,
         category: EBAY_TOP_LEVEL_CATEGORY.name, categoryObject: EBAY_TOP_LEVEL_CATEGORY,
         offers: displayOffers, cashOffers, voucherOffers, ebayResearchData: data, isCustomEbayItem: true,
         variantId: null, request_item_id: null,
@@ -619,7 +623,12 @@ const MainContent = ({ mode = 'buyer' }) => {
   if (!selectedModel && !isEbayCategory) {
     return (
       <section className="buyer-main-content w-3/5 min-w-0 min-h-0 flex-1 bg-white flex flex-col overflow-y-auto buyer-panel-scroll">
-        <ProductSelection availableModels={availableModels} setSelectedModel={setSelectedModel} isLoading={isLoadingModels} />
+        <ProductSelection
+          key={selectedCategory?.id ?? 'no-cat'}
+          availableModels={availableModels}
+          setSelectedModel={setSelectedModel}
+          isLoading={isLoadingModels}
+        />
       </section>
     );
   }
@@ -697,11 +706,17 @@ const MainContent = ({ mode = 'buyer' }) => {
             />
 
             {variant && (
-              <MarketComparisonsTable
-                variant={variant} competitorStats={[]} ourSalePrice={ourSalePrice} referenceData={referenceData}
-                ebayData={ebayData} setEbayModalOpen={setEbayModalOpen}
-                cashConvertersData={cashConvertersData} setCashConvertersModalOpen={setCashConvertersModalOpen}
-                cexSku={variant} hideBuyInPrice={isRepricing}
+              <CexMarketPricingStrip
+                variant={variant}
+                competitorStats={[]}
+                ourSalePrice={ourSalePrice}
+                referenceData={referenceData}
+                ebayData={ebayData}
+                cashConvertersData={cashConvertersData}
+                onOpenEbayResearch={() => setEbayModalOpen(true)}
+                onOpenCashConvertersResearch={() => setCashConvertersModalOpen(true)}
+                cexSku={variant}
+                hideBuyInPrice={isRepricing}
               />
             )}
 

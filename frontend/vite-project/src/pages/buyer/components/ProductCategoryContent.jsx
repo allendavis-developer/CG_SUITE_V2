@@ -9,7 +9,7 @@ import {
 
 import EbayResearchForm from "@/components/forms/EbayResearchForm.jsx";
 import AttributeConfiguration from './AttributeConfiguration';
-import MarketComparisonsTable from './MarketComparisonsTable';
+import CexMarketPricingStrip from './CexMarketPricingStrip';
 import OfferSelection from './OfferSelection';
 
 const ProductCategoryContent = ({
@@ -89,13 +89,13 @@ const ProductCategoryContent = ({
           setVariant={setVariant}
         />
 
-        <MarketComparisonsTable
+        <CexMarketPricingStrip
           variant={variant}
           competitorStats={competitorStats}
           ourSalePrice={ourSalePrice}
           referenceData={referenceData}
           ebayData={ebayData}
-          setEbayModalOpen={setEbayModalOpen}
+          onOpenEbayResearch={() => setEbayModalOpen(true)}
         />
 
 

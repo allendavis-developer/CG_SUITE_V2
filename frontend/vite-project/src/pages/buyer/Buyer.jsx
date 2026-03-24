@@ -260,7 +260,7 @@ export default function Buyer({ mode = 'buyer' }) {
       <main className="flex flex-1 min-h-0 overflow-hidden">
         <Sidebar
           onCategorySelect={selectCategory}
-          onAddFromCeX={() => handleAddFromCeX({ showNotification })}
+          onAddFromCeX={null}
           isCeXLoading={cexLoading}
           onQuickReprice={isRepricing ? () => setQuickRepriceOpen(true) : null}
           customerData={isRepricing ? null : customerData}

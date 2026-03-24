@@ -34,7 +34,7 @@ export default function EbayCartItemView({
             <span className="material-symbols-outlined text-yellow-400 text-sm">analytics</span>
           </div>
           <div>
-            <h2 className="text-sm font-bold text-blue-900">eBay Research Item</h2>
+            <h2 className="text-sm font-bold text-blue-900">{item.title || 'eBay Research Item'}</h2>
             <p className="text-[10px] text-gray-500 uppercase tracking-wider">Viewing saved research</p>
           </div>
         </div>

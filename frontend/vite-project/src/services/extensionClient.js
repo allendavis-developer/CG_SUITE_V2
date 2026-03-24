@@ -55,6 +55,18 @@ export async function cancelListingTab() {
 }
 
 /**
+ * True when getData / refine resolved without data because the user closed the listing tab
+ * or cancelled. Handles `{ cancelled: true }` and payloads that only include the tab-closed message.
+ */
+export function isExtensionListingFlowAborted(result) {
+  if (result == null) return false;
+  if (result.cancelled === true) return true;
+  if (result.success === true) return false;
+  const msg = String(result.error || '');
+  return /tab was closed/i.test(msg);
+}
+
+/**
  * Open a URL in a new tab via the Chrome extension (e.g. nospos.com for repricing).
  * Falls back to window.open if the extension is not available.
  * @param {string} url - Full URL to open (e.g. 'https://nospos.com')

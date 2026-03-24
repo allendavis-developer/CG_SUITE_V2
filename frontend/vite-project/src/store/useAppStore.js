@@ -93,6 +93,11 @@ const useAppStore = create(
       // ─── Mode ───────────────────────────────────────────────────────────
       mode: 'buyer',
       repricingSessionId: null,
+      /** Incremented when starting a blank repricing workspace so the route remounts even if path is unchanged. */
+      repricingWorkspaceNonce: 0,
+
+      bumpRepricingWorkspace: () =>
+        set((s) => ({ repricingWorkspaceNonce: s.repricingWorkspaceNonce + 1 })),
 
       setMode: (newMode) => {
         const { mode: currentMode } = get();
@@ -492,10 +497,14 @@ const useAppStore = create(
       cexProductData: null,
       cexLoading: false,
 
-      handleAddFromCeX: async ({ showNotification } = {}) => {
+      handleAddFromCeX: async ({ showNotification, searchQuery } = {}) => {
+        const trimmedQuery =
+          searchQuery != null && String(searchQuery).trim() !== ''
+            ? String(searchQuery).trim()
+            : undefined;
         set({ cexLoading: true, cexProductData: null });
         try {
-          const data = await getDataFromListingPage('CeX');
+          const data = await getDataFromListingPage('CeX', trimmedQuery);
           if (data?.success && Array.isArray(data.results) && data.results.length > 0) {
             const product = data.results[0];
             const payload = {
@@ -511,6 +520,8 @@ const useAppStore = create(
             const merged = { ...product, ...priceData, listingPageUrl: data.listingPageUrl };
             set({ cexProductData: merged });
             showNotification?.('CeX product loaded', 'success');
+          } else if (data?.cancelled) {
+            // Tab closed or extension cancelled — workspace closes in AppHeader; no error toast
           } else {
             showNotification?.(data?.error || 'No data returned', 'error');
           }

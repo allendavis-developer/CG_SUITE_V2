@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { getDataFromListingPage, getDataFromRefine, cancelListingTab } from '@/services/extensionClient';
+import { getDataFromListingPage, getDataFromRefine, cancelListingTab, isExtensionListingFlowAborted } from '@/services/extensionClient';
 import ResearchFormShell from './ResearchFormShell';
+import WorkspaceCloseButton from '@/components/ui/WorkspaceCloseButton';
 import { calculateStats, calculateBuyOffers } from './researchStats';
 import { Icon, Button } from '../ui/components';
 import useAppStore, { useEbayOfferMargins } from '@/store/useAppStore';
@@ -36,6 +37,7 @@ function EbayResearchForm({
   hideOfferCards = false,
   useVoucherOffers = false,
   onOffersChange = null,
+  containModalInParent = false,
 }) {
   const categoryId = category?.id ?? null;
   const ebayOfferMargins = useEbayOfferMargins(categoryId);
@@ -44,7 +46,15 @@ function EbayResearchForm({
   }, [categoryId]);
   const [step, setStep] = useState(savedState?.listings?.length ? 'cards' : 'get-data');
   const [listings, setListings] = useState(() => ensureListingIds(savedState?.listings ?? []));
-  const [searchTerm, setSearchTerm] = useState(savedState?.searchTerm ?? '');
+  const [searchTerm, setSearchTerm] = useState(() => {
+    if (savedState?.searchTerm != null && String(savedState.searchTerm).trim() !== '') {
+      return String(savedState.searchTerm).trim();
+    }
+    if (initialSearchQuery != null && String(initialSearchQuery).trim() !== '') {
+      return String(initialSearchQuery).trim();
+    }
+    return '';
+  });
   const [listingPageUrl, setListingPageUrl] = useState(savedState?.listingPageUrl ?? null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -81,7 +91,7 @@ function EbayResearchForm({
         setListingPageUrl(result.listingPageUrl || null);
         setDrillHistory([]);
         setStep('cards');
-      } else if (result?.cancelled) {
+      } else if (isExtensionListingFlowAborted(result)) {
         if (mode === 'modal') {
           onComplete?.({ cancel: true });
         }
@@ -110,7 +120,7 @@ function EbayResearchForm({
         setListingPageUrl(result.listingPageUrl || null);
         setDrillHistory([]);
         setError(null);
-      } else if (result?.cancelled) {
+      } else if (isExtensionListingFlowAborted(result)) {
         if (mode === 'modal') {
           onComplete?.({ cancel: true });
         }
@@ -131,7 +141,16 @@ function EbayResearchForm({
   // Page mode is a persistent panel that resets after cart adds — firing there would open
   // an unwanted tab every time the user adds an item to cart.
   useEffect(() => {
-    if (mode === 'modal' && step === 'get-data' && !readOnly && !autoTriggeredRef.current) {
+    // Only auto-open the extension flow for a fresh header "add from eBay" session (no savedState).
+    // Resumed quote rows often have savedState without listings[] (API-shaped); skipping avoids
+    // immediately hijacking the UI with the get-data step.
+    if (
+      mode === 'modal'
+      && step === 'get-data'
+      && !readOnly
+      && savedState == null
+      && !autoTriggeredRef.current
+    ) {
       autoTriggeredRef.current = true;
       handleGetData();
     }
@@ -281,6 +300,10 @@ function EbayResearchForm({
     onOfferSelect(offerArg);
   }, [onOfferSelect]);
 
+  const handleResearchCancel = useCallback(() => {
+    onComplete?.({ cancel: true });
+  }, [onComplete]);
+
   const handleResetSearch = useCallback(() => {
     // If a listing tab is currently open and waiting, cancel it first
     if (loading) {
@@ -319,9 +342,12 @@ function EbayResearchForm({
     );
 
     if (mode === 'modal') {
+      const modalWrapperClass = containModalInParent
+        ? 'flex h-full min-h-0 w-full flex-col'
+        : 'fixed inset-0 z-[100] flex items-start justify-center bg-black/40';
       return (
-        <div className="fixed inset-0 z-[100] flex items-start justify-center bg-black/40">
-          <div className="bg-white w-full h-full flex flex-col overflow-hidden">
+        <div className={modalWrapperClass}>
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white">
             <header className="bg-blue-900 px-6 py-4 flex items-center justify-between text-white shrink-0">
               <div className="flex items-center gap-3">
                 <div className="bg-white/10 p-1.5 rounded">
@@ -334,14 +360,10 @@ function EbayResearchForm({
                   </p>
                 </div>
               </div>
-              <button
-                type="button"
-                className="text-white/60 hover:text-white transition-colors p-1"
+              <WorkspaceCloseButton
+                title="Close eBay research"
                 onClick={() => onComplete?.({ cancel: true })}
-                aria-label="Close"
-              >
-                <Icon name="close" />
-              </button>
+              />
             </header>
             <main className="flex-1 overflow-auto bg-gray-50 flex flex-col">
               {getDataBody}
@@ -387,8 +409,9 @@ function EbayResearchForm({
       onNavigateToDrillLevel={handleNavigateToDrillLevel}
       onComplete={showManualOffer ? undefined : handleComplete}
       onCompleteWithSelection={showManualOffer ? handleCompleteWithSelection : undefined}
-      onAddToCartWithOffer={mode === 'page' && !readOnly
-        ? (onOfferSelect ? handleOfferSelect : (onComplete && !onAddNewItem ? handleAddToCartWithOffer : undefined))
+      onCancel={handleResearchCancel}
+      onAddToCartWithOffer={!readOnly
+        ? (onOfferSelect ? handleOfferSelect : (onComplete && !showManualOffer ? handleAddToCartWithOffer : undefined))
         : undefined}
       showInlineOfferAction={mode === 'page' ? !onAddNewItem : !onOfferSelect}
       enableRightClickManualOffer={mode === 'page'}
@@ -417,6 +440,7 @@ function EbayResearchForm({
       addActionLabel={addActionLabel}
       hideOfferCards={hideOfferCards}
       useVoucherOffers={useVoucherOffers}
+      containModalInParent={containModalInParent}
     />
     </>
   );

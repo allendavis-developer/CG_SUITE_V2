@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useRef } from 'react';
+import React, { createContext, useContext, useState, useRef, useCallback } from 'react';
 import NotificationToast from '@/components/ui/NotificationToast';
 
 const NotificationContext = createContext();
@@ -8,27 +8,28 @@ export const NotificationProvider = ({ children }) => {
   const idCounterRef = useRef(0);
 
   const showNotification = (message, type = 'info') => {
-    // Use counter + timestamp to ensure unique IDs even with rapid calls
-    // Using useRef to avoid state update delays
     const id = `${Date.now()}-${idCounterRef.current++}`;
     setNotifications((prev) => [...prev, { id, message, type }]);
   };
 
-  const removeNotification = (id) => {
+  /** Stable ref so toasts' auto-dismiss timers are not reset on every provider re-render. */
+  const dismissNotification = useCallback((id) => {
     setNotifications((prev) => prev.filter((notif) => notif.id !== id));
-  };
+  }, []);
 
   return (
     <NotificationContext.Provider value={{ showNotification }}>
       {children}
-      <div className="fixed top-4 right-4 flex flex-col items-end space-y-2 z-[1000]"> {/* Added zIndex */}
+      <div className="pointer-events-none fixed top-3 right-3 z-[1000] flex max-w-[min(100vw-1.5rem,20rem)] flex-col items-end gap-1.5 sm:max-w-xs">
         {notifications.map((notif) => (
-          <NotificationToast
-            key={notif.id}
-            message={notif.message}
-            type={notif.type}
-            onClose={() => removeNotification(notif.id)}
-          />
+          <div key={notif.id} className="pointer-events-auto w-full">
+            <NotificationToast
+              id={notif.id}
+              message={notif.message}
+              type={notif.type}
+              onDismiss={dismissNotification}
+            />
+          </div>
         ))}
       </div>
     </NotificationContext.Provider>
