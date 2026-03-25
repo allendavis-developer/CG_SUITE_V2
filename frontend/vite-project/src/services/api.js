@@ -46,20 +46,6 @@ export const fetchProductModels = async (category) => {
   }
 };
 
-export const fetchCompetitorStats = async (cexSku) => {
-  if (!cexSku) return [];
-  const data = await apiFetch(`/market-stats/?sku=${cexSku}`);
-  return [{
-    platform: data.platform,
-    salePrice: Number(data.sale_price_gbp),
-    buyPrice: Number(data.tradein_cash_gbp),
-    voucherPrice: Number(data.tradein_voucher_gbp),
-    verified: true,
-    outOfStock: data.cex_out_of_stock,
-    lastUpdated: data.last_updated,
-  }];
-};
-
 export const fetchAttributes = async (productId) => {
   if (!productId) return null;
   try {
@@ -145,26 +131,6 @@ export const saveQuoteDraft = async (requestId, payload, { keepalive = false } =
     body: { ...payload, request_not_completed: true },
     keepalive,
   });
-};
-
-export const cancelRequest = async (requestId) => {
-  if (!requestId) return null;
-  try {
-    return await apiFetch(`/requests/${requestId}/cancel/`, { method: 'POST' });
-  } catch (err) {
-    console.error('Error cancelling request:', err);
-    return null;
-  }
-};
-
-export const updateRequestIntent = async (requestId, intent) => {
-  if (!requestId || !intent) return null;
-  try {
-    return await apiFetch(`/requests/${requestId}/update-intent/`, { method: 'POST', body: { intent } });
-  } catch (err) {
-    console.error('Error updating request intent:', err);
-    return null;
-  }
 };
 
 // ─── Request Items ─────────────────────────────────────────────────────────────
@@ -268,5 +234,4 @@ export const fetchEbayOfferMargins = (categoryId) =>
 
 // ─── Categories ────────────────────────────────────────────────────────────────
 
-export const fetchCategories = () => apiFetch('/product-categories/');
 export const fetchAllCategoriesFlat = () => apiFetch('/all-categories/');

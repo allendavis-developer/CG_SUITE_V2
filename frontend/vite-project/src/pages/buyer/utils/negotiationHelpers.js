@@ -66,7 +66,7 @@ export function getDisplayOffers(item, useVoucherOffers) {
     : (item.cashOffers || item.offers);
 }
 
-export function getItemOfferTotal(item, useVoucherOffers) {
+function getItemOfferTotal(item, useVoucherOffers) {
   if (item.isRemoved) return 0;
   const qty = item.quantity || 1;
   if (item.selectedOfferId === 'manual' && item.manualOffer) {
@@ -87,17 +87,6 @@ export function calculateItemTargetContribution(itemId, items, targetOffer, useV
 
 export function calculateTotalOfferPrice(items, useVoucherOffers) {
   return items.reduce((sum, item) => sum + getItemOfferTotal(item, useVoucherOffers), 0);
-}
-
-export function calculateTotalFromItems(items) {
-  return items.reduce((sum, item) => {
-    if (item.isRemoved) return sum;
-    if (item.customerExpectation) {
-      const value = parseFloat(item.customerExpectation.replace(/[£,]/g, '')) || 0;
-      return sum + value * (item.quantity || 1);
-    }
-    return sum;
-  }, 0);
 }
 
 // ─── Payload builders ──────────────────────────────────────────────────────

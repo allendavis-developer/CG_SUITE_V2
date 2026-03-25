@@ -64,26 +64,6 @@ export const Badge = ({ children, variant = 'default', className = '' }) => {
   );
 };
 
-// Card Component
-export const Card = ({ children, className = '', noPadding = false }) => (
-  <div className={`bg-white rounded-xl border border-gray-200 overflow-hidden ${className}`}>
-    <div className={noPadding ? '' : 'p-6'}>
-      {children}
-    </div>
-  </div>
-);
-
-// Card Header Component
-export const CardHeader = ({ title, subtitle, actions }) => (
-  <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
-    <div>
-      <h3 className="text-sm font-bold text-gray-900">{title}</h3>
-      {subtitle && <p className="text-xs text-gray-500 mt-1">{subtitle}</p>}
-    </div>
-    {actions && <div className="flex items-center gap-2">{actions}</div>}
-  </div>
-);
-
 export const CustomDropdown = ({ label, value, options, onChange, labelPosition = 'left', includeSelected = false }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [menuRect, setMenuRect] = useState(null);
@@ -288,25 +268,6 @@ export const SearchableDropdown = ({
   );
 };
 
-// Input Component
-export const Input = ({ placeholder, icon, value, onChange, className = '' }) => (
-  <label className={`flex flex-col min-w-64 h-9 ${className}`}>
-    <div className="flex w-full flex-1 items-stretch rounded-lg h-full overflow-hidden border border-white/20">
-      {icon && (
-        <div className="text-white/60 flex bg-white/10 items-center justify-center pl-3">
-          <Icon name={icon} className="text-sm" />
-        </div>
-      )}
-      <input 
-        className="form-input flex w-full min-w-0 flex-1 resize-none overflow-hidden text-white focus:outline-0 focus:ring-0 border-none bg-white/10 h-full placeholder:text-white/40 text-sm font-normal px-2" 
-        placeholder={placeholder}
-        value={value}
-        onChange={onChange}
-      />
-    </div>
-  </label>
-);
-
 // Tab Component
 export const Tab = ({ icon, label, isActive, onClick }) => (
   <button 
@@ -337,61 +298,6 @@ export const Breadcrumb = ({ items }) => (
     ))}
   </nav>
 );
-
-// ==================== LAYOUT COMPONENTS ====================
-
-// Header Component
-export const Header = ({
-  onSearch,
-  userName = "JD",
-  customerData = null,
-  onTransactionTypeChange = null,
-}) => {
-  const transaction = customerData
-    ? (TRANSACTION_META[customerData.transactionType] || { label: 'Unknown', className: 'text-gray-400' })
-    : null;
-
-  return (
-    <header className="flex shrink-0 items-center justify-between whitespace-nowrap border-b border-gray-200 bg-blue-900 px-6 py-3 sticky top-0 z-50">
-      <div className="flex items-center gap-4 text-yellow-500">
-        <div className="size-6 flex items-center justify-center bg-yellow-500 text-blue-900 rounded">
-          <Icon name="currency_exchange" className="text-sm font-bold" />
-        </div>
-        <h2 className="text-white text-lg font-bold leading-tight tracking-tight">CashGenerator</h2>
-      </div>
-      <div className="flex flex-1 justify-end gap-6 items-center">
-        {customerData?.id && customerData?.name && (
-          <div className="flex items-center gap-4 pr-6 border-r border-white/20">
-            <div className="text-right">
-              <p className="text-white font-bold text-sm">{customerData.name}</p>
-              <p className="text-white/70 text-xs">Cancel Rate: {customerData.cancelRate ?? 0}%</p>
-            </div>
-            {transaction && onTransactionTypeChange && (
-              <div className={transaction.className}>
-                <CustomDropdown
-                  value={transaction.label}
-                  options={TRANSACTION_OPTIONS.map(o => o.label)}
-                  onChange={(label) => {
-                    const selected = TRANSACTION_OPTIONS.find(o => o.label === label);
-                    if (selected) onTransactionTypeChange(selected.value);
-                  }}
-                />
-              </div>
-            )}
-          </div>
-        )}
-        <nav className="flex items-center gap-6">
-          <a href="/requests-overview" className="text-white/70 hover:text-white text-sm font-medium transition-colors">
-            All Requests
-          </a>
-          <a href="/repricing-overview" className="text-white/70 hover:text-white text-sm font-medium transition-colors">
-            Repricing History
-          </a>
-        </nav>
-      </div>
-    </header>
-  );
-};
 
 // ==================== SIDEBAR COMPONENTS ====================
 
@@ -772,40 +678,6 @@ export const Sidebar = ({ onCategorySelect, onAddFromCeX, isCeXLoading, onQuickR
 
 // ==================== PRODUCT COMPONENTS ====================
 
-// Market Comparison Row
-export const MarketRow = ({ platform, salePrice, buyPrice, verified, onResearch }) => (
-  <tr className="hover:bg-gray-50 transition-colors">
-    <td className="p-4 font-medium text-gray-900">{platform}</td>
-    {salePrice && buyPrice ? (
-      <>
-        <td className="p-4 font-bold text-gray-500">{salePrice}</td>
-        <td className="p-4 font-bold text-blue-900">{buyPrice}</td>
-        <td className="p-4 text-right">
-          {verified && (
-            <span className="text-emerald-600 inline-flex items-center gap-1 text-xs font-bold">
-              <Icon name="check_circle" className="text-xs" /> Verified
-            </span>
-          )}
-        </td>
-      </>
-    ) : (
-      <>
-        <td className="p-4 italic text-gray-400" colSpan="2">No data - Run research</td>
-        <td className="p-4 text-right">
-          <Button 
-            variant="primary"
-            size="sm"
-            icon="search_insights"
-            onClick={onResearch}
-          >
-            Research
-          </Button>
-        </td>
-      </>
-    )}
-  </tr>
-);
-
 // Offer Card Component
 export const OfferCard = ({ title, price, margin, isHighlighted, onClick }) => (
   <div
@@ -859,89 +731,6 @@ export const OfferCard = ({ title, price, margin, isHighlighted, onClick }) => (
 );
 
 
-// Horizontal Offer Card (offerPctOfSale: whole % of suggested sale; legacy `margin` = gross margin % on sale)
-export const HorizontalOfferCard = ({
-  title,
-  price,
-  margin,
-  offerPctOfSale = null,
-  isHighlighted,
-  onClick
-}) => (
-  <div
-    onClick={onClick}
-    className={`
-      flex items-center justify-between px-3 py-2 rounded-lg bg-white cursor-pointer relative
-      border transition-all duration-150 ease-out
-      ${
-        isHighlighted
-          ? `
-            border-blue-900
-            ring-1 ring-blue-900
-            shadow-md
-            scale-[1.02]
-          `
-          : `
-            border-blue-900/30
-            hover:border-blue-900
-            hover:shadow-sm
-          `
-      }
-    `}
-  >
-    {/* Left accent bar */}
-    <div
-      className={`absolute top-0 left-0 h-full w-1 rounded-l ${
-        isHighlighted ? 'bg-yellow-500' : 'bg-yellow-500/60'
-      }`}
-    />
-
-    {/* Content Row */}
-    <div className="flex items-center gap-2 flex-1 ml-2 text-blue-900 font-extrabold text-sm uppercase">
-      <span className="truncate">{title}</span>
-      <span className="text-gray-400">/</span>
-      <span>{price}</span>
-      <span className="text-gray-400">/</span>
-      <span className="flex items-center gap-1">
-        <span className="text-gray-500 font-bold">
-          {offerPctOfSale != null ? '% OF SALE' : 'MARGIN'}
-        </span>
-        <span className="text-yellow-500 font-bold">
-          {offerPctOfSale != null ? offerPctOfSale : margin}%
-        </span>
-      </span>
-    </div>
-  </div>
-);
-
-
-// ==================== CART COMPONENTS ====================
-
-// Cart Item Component
-export const CartItem = ({ title, subtitle, price, isHighlighted, onRemove }) => (
-  <div className={`group relative p-4 rounded-lg border transition-all ${
-    isHighlighted 
-      ? 'bg-slate-50 border-blue-900/10 hover:border-yellow-500 border-l-4 border-l-yellow-500' 
-      : 'bg-white border-blue-900/10 hover:border-yellow-500'
-  }`}>
-    <div className="flex justify-between mb-2">
-      <Badge variant={isHighlighted ? 'default' : 'default'}>
-        <span className={isHighlighted ? 'text-white bg-blue-900 -mx-2 px-2 -my-1 py-1 rounded' : ''}>
-          Trade-In
-        </span>
-      </Badge>
-      <button onClick={onRemove} className="text-blue-900/30 hover:text-red-500 transition-colors">
-        <Icon name="delete" className="text-sm" />
-      </button>
-    </div>
-    <p className="text-sm font-bold text-blue-900 line-clamp-1">{title}</p>
-    <div className="flex justify-between items-end mt-2">
-      <p className="text-[11px] text-slate-500 font-medium">{subtitle}</p>
-      <p className="text-sm font-extrabold text-slate-900">{price}</p>
-    </div>
-  </div>
-);
-
 // ==================== TABLE CHECKBOX ====================
 
 /**
@@ -990,15 +779,4 @@ export const TableCheckbox = ({ checked, onChange, indeterminate = false, 'aria-
   );
 };
 
-export const Modal = ({ open, onClose, children }) => {
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl p-6 w-[600px] relative">
-        {children}
-        <button className="absolute top-2 right-2" onClick={onClose}>×</button>
-      </div>
-    </div>
-  );
-};
 

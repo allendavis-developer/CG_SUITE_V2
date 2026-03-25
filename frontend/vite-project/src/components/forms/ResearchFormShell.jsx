@@ -2,6 +2,9 @@ import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { Button, Icon, CustomDropdown } from '../ui/components';
 import WorkspaceCloseButton from '../ui/WorkspaceCloseButton';
 import { toVoucherOfferPrice } from '@/utils/helpers';
+import { DualRangeSlider, DualDateRangeSlider, formatSoldDateMs } from './sliders';
+import ListingCard from './ListingCard';
+import PriceHistogram from './PriceHistogram';
 
 /** Resolve badge % for eBay / Cash Converters offers (new: pctOfSale; legacy saved: margin 0–1). */
 function displayPctOfSaleForOffer(offer, suggestedPrice) {
@@ -12,20 +15,6 @@ function displayPctOfSaleForOffer(offer, suggestedPrice) {
     const p = Number(offer.price);
     if (Number.isFinite(p) && p > 0) return Math.round((p / sp) * 100);
   }
-  return null;
-}
-
-/** Parse a sold-date string into a "Mon YYYY" group label. Returns null if unparseable. */
-function parseSoldDateGroup(soldStr) {
-  if (!soldStr) return null;
-  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const lower = soldStr.toLowerCase();
-  const yearMatch = lower.match(/\b(20\d{2})\b/);
-  const year = yearMatch ? yearMatch[1] : null;
-  let monthIdx = -1;
-  MONTHS.forEach((m, i) => { if (lower.includes(m.toLowerCase())) monthIdx = i; });
-  if (year && monthIdx >= 0) return `${MONTHS[monthIdx]} ${year}`;
-  if (year) return year;
   return null;
 }
 
@@ -104,368 +93,7 @@ if (typeof document !== 'undefined' && !stylesInjected) {
   stylesInjected = true;
 }
 
-/** Two-handle price range slider — no external dependencies. */
-function DualRangeSlider({ min, max, valueMin, valueMax, onMinChange, onMaxChange, stepOverride = null }) {
-  const range = max - min;
-  const step = stepOverride != null
-    ? stepOverride
-    : range > 500 ? 5 : range > 100 ? 1 : range > 20 ? 0.5 : 0.01;
-  const pctMin = range > 0 ? ((valueMin - min) / range) * 100 : 0;
-  const pctMax = range > 0 ? ((valueMax - min) / range) * 100 : 100;
-
-  return (
-    <div className="px-1 select-none">
-      <div className="relative h-8 flex items-center">
-        {/* Track background */}
-        <div className="absolute left-0 right-0 h-1.5 bg-gray-200 rounded-full pointer-events-none" />
-        {/* Active range fill */}
-        <div
-          className="absolute h-1.5 bg-blue-900 rounded-full pointer-events-none"
-          style={{ left: `${pctMin}%`, right: `${100 - pctMax}%` }}
-        />
-        <input
-          type="range" min={min} max={max} step={step} value={valueMin}
-          onChange={e => { const v = parseFloat(e.target.value); if (v < valueMax) onMinChange(v); }}
-          className="dual-range-input"
-          style={{ zIndex: 3 }}
-        />
-        <input
-          type="range" min={min} max={max} step={step} value={valueMax}
-          onChange={e => { const v = parseFloat(e.target.value); if (v > valueMin) onMaxChange(v); }}
-          className="dual-range-input"
-          style={{ zIndex: 4 }}
-        />
-      </div>
-      <div className="flex justify-between mt-2">
-        <span className="text-[11px] font-bold text-blue-900 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5">
-          £{valueMin.toFixed(2)}
-        </span>
-        <span className="text-[11px] font-bold text-blue-900 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5">
-          £{valueMax.toFixed(2)}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function formatSoldDateMs(ms) {
-  if (!Number.isFinite(ms)) return '';
-  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const dt = new Date(ms);
-  return `${dt.getUTCDate()} ${MONTHS[dt.getUTCMonth()]} ${dt.getUTCFullYear()}`;
-}
-
-/** Two-handle date slider in UTC ms, stepping 1 calendar day. */
-function DualDateRangeSlider({ minMs, maxMs, valueMinMs, valueMaxMs, onMinChange, onMaxChange }) {
-  const stepMs = 24 * 60 * 60 * 1000;
-  const range = maxMs - minMs;
-  const pctMin = range > 0 ? ((valueMinMs - minMs) / range) * 100 : 0;
-  const pctMax = range > 0 ? ((valueMaxMs - minMs) / range) * 100 : 100;
-
-  return (
-    <div className="px-1 select-none">
-      <div className="relative h-8 flex items-center">
-        <div className="absolute left-0 right-0 h-1.5 bg-gray-200 rounded-full pointer-events-none" />
-        <div
-          className="absolute h-1.5 bg-blue-900 rounded-full pointer-events-none"
-          style={{ left: `${pctMin}%`, right: `${100 - pctMax}%` }}
-        />
-        <input
-          type="range"
-          min={minMs}
-          max={maxMs}
-          step={stepMs}
-          value={valueMinMs}
-          onChange={e => {
-            const v = parseFloat(e.target.value);
-            if (v < valueMaxMs) onMinChange(v);
-          }}
-          className="dual-range-input"
-          style={{ zIndex: 3 }}
-        />
-        <input
-          type="range"
-          min={minMs}
-          max={maxMs}
-          step={stepMs}
-          value={valueMaxMs}
-          onChange={e => {
-            const v = parseFloat(e.target.value);
-            if (v > valueMinMs) onMaxChange(v);
-          }}
-          className="dual-range-input"
-          style={{ zIndex: 4 }}
-        />
-      </div>
-      <div className="flex justify-between mt-2">
-        <span className="text-[11px] font-bold text-blue-900 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5">
-          {formatSoldDateMs(valueMinMs)}
-        </span>
-        <span className="text-[11px] font-bold text-blue-900 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5">
-          {formatSoldDateMs(valueMaxMs)}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-/** Two-handle discrete (integer) slider for selecting an index range on a derived timeline. */
-function DualIndexRangeSlider({ min, max, valueMin, valueMax, onMinChange, onMaxChange, getLabel }) {
-  const range = max - min;
-  const pctMin = range > 0 ? ((valueMin - min) / range) * 100 : 0;
-  const pctMax = range > 0 ? ((valueMax - min) / range) * 100 : 100;
-
-  return (
-    <div className="px-1 select-none">
-      <div className="relative h-8 flex items-center">
-        <div className="absolute left-0 right-0 h-1.5 bg-gray-200 rounded-full pointer-events-none" />
-        <div
-          className="absolute h-1.5 bg-blue-900 rounded-full pointer-events-none"
-          style={{ left: `${pctMin}%`, right: `${100 - pctMax}%` }}
-        />
-        <input
-          type="range"
-          min={min}
-          max={max}
-          step={1}
-          value={valueMin}
-          onChange={e => {
-            const v = parseInt(e.target.value, 10);
-            if (v < valueMax) onMinChange(v);
-          }}
-          className="dual-range-input"
-          style={{ zIndex: 3 }}
-        />
-        <input
-          type="range"
-          min={min}
-          max={max}
-          step={1}
-          value={valueMax}
-          onChange={e => {
-            const v = parseInt(e.target.value, 10);
-            if (v > valueMin) onMaxChange(v);
-          }}
-          className="dual-range-input"
-          style={{ zIndex: 4 }}
-        />
-      </div>
-      <div className="flex justify-between mt-2">
-        <span className="text-[11px] font-bold text-blue-900 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5">
-          {getLabel(valueMin)}
-        </span>
-        <span className="text-[11px] font-bold text-blue-900 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5">
-          {getLabel(valueMax)}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-// MEMOIZED LISTING CARD - prevents re-renders when parent updates
-const ListingCard = React.memo(function ListingCard({ item, origIdx, sortedIdx, displayIdx, onExcludeClick, onExcludeContextMenu, showExcludeButton, readOnly, isPivot }) {
-  const handleExcludeClick = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    onExcludeClick?.(sortedIdx);
-  };
-  const handleExcludeContextMenu = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    onExcludeContextMenu?.(e, sortedIdx);
-  };
-  const animDelay = Math.min(displayIdx * 8, 80);
-  const hasPlayedEntryAnimationRef = useRef(false);
-  useEffect(() => {
-    hasPlayedEntryAnimationRef.current = true;
-  }, []);
-  const entryAnimationStyle = !hasPlayedEntryAnimationRef.current && animDelay > 0
-    ? { animationDelay: `${animDelay}ms`, opacity: 0, animation: 'fadeInUp 0.25s ease-out forwards' }
-    : undefined;
-  return (
-    <div className={`relative group ${item.excluded ? 'opacity-60' : ''}`} onContextMenu={handleExcludeContextMenu}>
-      <a
-        href={item.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className={`flex gap-4 rounded-xl border p-4 hover:shadow-md transition-[background-color,border-color,box-shadow] duration-150 ${
-          item.excluded ? 'bg-orange-50/60 border-orange-300' : 'bg-white border-gray-200'
-        }`}
-        style={entryAnimationStyle}
-      >
-        <div className="w-32 h-32 bg-gray-200 rounded-lg flex items-center justify-center overflow-hidden shrink-0">
-          {item.image ? (
-            <img src={item.image} alt={item.title || "listing"} className="w-full h-full object-cover" loading="lazy" />
-          ) : (
-            <span className="text-xs text-gray-500">No image</span>
-          )}
-        </div>
-        <div className="flex flex-col justify-between flex-1 min-w-0">
-          <div>
-            <h4 className="text-sm font-bold text-blue-900 line-clamp-2 leading-tight cursor-pointer hover:underline">{item.title}</h4>
-            {item.shop && <p className="text-[11px] text-gray-500 mt-0.5">Shop: {item.shop}</p>}
-            {item.sold && <p className="text-[11px] text-green-600 font-bold mt-1">{item.sold}</p>}
-            {item.sellerInfo && (
-              <p className="text-[10px] text-gray-400 mt-0.5 truncate">
-                <span className="font-medium text-gray-500">Seller:</span> {item.sellerInfo}
-              </p>
-            )}
-          </div>
-          <div className="flex items-end justify-between mt-2">
-            <p className="text-lg font-extrabold text-gray-900 leading-none">£{item.price}</p>
-            {item.itemId && <span className="text-[9px] text-gray-400 font-mono tabular-nums">#{item.itemId}</span>}
-          </div>
-        </div>
-      </a>
-      {item.excluded && (
-        <div className="absolute top-2 left-3 z-10 pointer-events-none">
-          <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 tracking-wider border border-orange-200">Excluded</span>
-        </div>
-      )}
-      {showExcludeButton && (
-        <button
-          className={`absolute top-2 right-2 z-10 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wide transition-[background-color,border-color,color,box-shadow] duration-75 ${
-            isPivot ? 'bg-blue-600 text-white shadow-md ring-2 ring-blue-300' : item.excluded ? 'bg-orange-500 text-white shadow-sm hover:bg-orange-600' : 'bg-white text-gray-600 border border-gray-300 shadow-sm hover:bg-red-50 hover:text-red-600 hover:border-red-300'
-          }`}
-          onClick={handleExcludeClick}
-          title={isPivot ? 'Click to exclude · Click another item to select range' : item.excluded ? 'Click to re-include' : 'Click to set pivot'}
-          aria-label={item.excluded ? 'Re-include listing in stats' : 'Exclude listing from stats'}
-        >
-          <span className="material-symbols-outlined text-[14px]">{isPivot ? 'swap_vert' : item.excluded ? 'undo' : 'block'}</span>
-          <span>{isPivot ? 'Pivot' : item.excluded ? 'Excluded' : 'Exclude'}</span>
-        </button>
-      )}
-    </div>
-  );
-});
-
-// MEMOIZED HISTOGRAM COMPONENT
-const PriceHistogram = React.memo(function PriceHistogram({ listings, onBucketSelect, priceRange, onGoBack, drillLevel, readOnly }) {
-  const [bucketCount, setBucketCount] = useState(10);
-
-  const prices = useMemo(() => {
-    if (!listings || listings.length === 0) return [];
-    return listings
-      .map(l => (typeof l.price === 'string' ? parseFloat(l.price.replace(/[^0-9.]/g, '')) : l.price))
-      .filter(p => !isNaN(p) && p > 0);
-  }, [listings]);
-
-  const { min, max } = useMemo(() => {
-    if (prices.length === 0) return { min: 0, max: 0 };
-    const calculatedMin = priceRange ? priceRange.min : Math.min(...prices);
-    const calculatedMax = priceRange ? priceRange.max : Math.max(...prices);
-    return { min: calculatedMin, max: calculatedMax };
-  }, [prices, priceRange]);
-
-  const { buckets, maxFreq } = useMemo(() => {
-    if (prices.length === 0 || min === max) return { buckets: [], maxFreq: 0 };
-    const totalRange = max - min;
-    const rawStep = totalRange / bucketCount;
-    const newBuckets = Array(bucketCount).fill(0).map((_, i) => ({
-      count: 0,
-      rangeStart: min + (i * rawStep),
-      rangeEnd: min + ((i + 1) * rawStep)
-    }));
-    prices.forEach(price => {
-      if (priceRange && (price < priceRange.min || price > priceRange.max)) return;
-      let index = Math.floor((price - min) / rawStep);
-      if (index >= bucketCount) index = bucketCount - 1;
-      if (index < 0) index = 0;
-      newBuckets[index].count++;
-    });
-    return { buckets: newBuckets, maxFreq: Math.max(...newBuckets.map(b => b.count)) };
-  }, [prices, min, max, bucketCount, priceRange]);
-
-  const filteredPricesCount = useMemo(() => {
-    if (!priceRange) return prices.length;
-    return prices.filter(p => p >= priceRange.min && p <= priceRange.max).length;
-  }, [prices, priceRange]);
-
-  if (!listings || listings.length === 0) return null;
-  if (prices.length === 0) return null;
-
-  if (min === max) {
-    return (
-      <div className="bg-white h-full rounded-xl border border-gray-200 shadow-sm p-4">
-        <h3 className="text-xs font-bold text-blue-900 uppercase tracking-wider mb-2">Market Price Density</h3>
-        <p className="text-[10px] text-gray-500">Not enough price variation to build a distribution.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="bg-white h-full rounded-xl border border-gray-200 shadow-sm transition-all duration-500 flex flex-col">
-      <div className="p-4 border-b border-gray-200">
-        <div className="mb-4">
-          <h3 className="text-xs font-bold text-blue-900 uppercase tracking-wider">
-            Market Price Density {drillLevel > 0 && `(Level ${drillLevel})`}
-          </h3>
-          <p className="text-[10px] text-gray-500 mt-1">
-            {priceRange ? (
-              <>Drilling into <span className="font-bold text-blue-900">£{priceRange.min.toFixed(2)} - £{priceRange.max.toFixed(2)}</span> range {' '}(<span className="font-bold text-blue-900">{filteredPricesCount}</span> listings)</>
-            ) : (
-              <>Showing distribution across <span className="font-bold text-blue-900">{prices.length}</span> listings</>
-            )}
-          </p>
-        </div>
-        {drillLevel > 0 && (
-          <button
-            onClick={onGoBack}
-            className="flex items-center gap-2 px-3 py-1.5 bg-blue-900 text-white rounded-lg text-xs font-bold hover:bg-blue-800 transition-all transform hover:scale-105 shadow-md w-full justify-center mb-4"
-          >
-            <span className="material-symbols-outlined text-sm">arrow_back</span>
-            Zoom Out
-          </button>
-        )}
-        <div className="flex flex-col gap-2 bg-gray-50 p-3 rounded-lg border border-gray-100">
-          <label className="text-[10px] font-bold text-blue-900 uppercase">Buckets: {bucketCount}</label>
-          <input
-            type="range" min="5" max="20" value={bucketCount}
-            onChange={(e) => setBucketCount(parseInt(e.target.value))}
-            className="w-full h-1.5 bg-blue-200 rounded-lg appearance-none cursor-pointer accent-blue-900"
-          />
-        </div>
-      </div>
-      <div className="flex-1 flex flex-col p-4 overflow-hidden" style={{ gap: bucketCount <= 10 ? '6px' : bucketCount <= 15 ? '4px' : '2px' }}>
-        {buckets.slice().reverse().map((bucket, i) => {
-          const reverseIndex = buckets.length - 1 - i;
-          const widthPct = maxFreq > 0 ? (bucket.count / maxFreq) * 100 : 0;
-          return (
-            <div
-              key={reverseIndex}
-              className={`flex flex-1 items-center gap-2 relative group transition-all duration-500 ${bucket.count > 0 ? 'cursor-pointer' : ''}`}
-              onClick={() => bucket.count > 0 && onBucketSelect(bucket.rangeStart, bucket.rangeEnd)}
-              style={{ transform: `scale(${bucket.count > 0 ? 1 : 0.95})`, opacity: bucket.count > 0 ? 1 : 0.3, minHeight: '8px' }}
-            >
-              <div className="flex-1 flex items-center justify-end h-full">
-                {bucket.count > 0 && (
-                  <span className="text-[10px] font-black text-blue-900 mr-2 transition-all duration-300 group-hover:scale-125">{bucket.count}</span>
-                )}
-                <div
-                  className={`h-full transition-all duration-500 ${bucket.count > 0 ? 'bg-yellow-400 group-hover:bg-blue-900 group-hover:shadow-lg shadow-sm' : 'bg-gray-50'}`}
-                  style={{ width: bucket.count > 0 ? `${Math.max(widthPct, 4)}%` : '2px', transformOrigin: 'right' }}
-                />
-              </div>
-              <div className="text-blue-900 font-bold text-[10px] whitespace-nowrap w-28 text-left pl-2">
-                £{bucket.rangeStart.toFixed(2)} - £{bucket.rangeEnd.toFixed(2)}
-              </div>
-              {bucket.count > 0 && (
-                <div className="absolute right-full mr-4 hidden group-hover:flex items-center z-10">
-                  <div className="bg-blue-900 text-white text-[10px] py-1.5 px-2.5 rounded shadow-xl whitespace-nowrap">
-                    £{bucket.rangeStart.toFixed(2)} - £{bucket.rangeEnd.toFixed(2)}
-                    <div className="text-[9px] text-yellow-400 font-bold mt-0.5">🔍 Click to drill down</div>
-                  </div>
-                  <div className="w-2 h-2 bg-blue-900 rotate-45 -mr-1"></div>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-});
-
+// ListingCard, PriceHistogram, and slider components are imported from their own modules above.
 /**
  * Generic Research Form Shell Component
  */
@@ -523,6 +151,9 @@ export default function ResearchFormShell({
   useVoucherOffers = false,
   containModalInParent = false,
   hidePrimaryAddAction = false,
+  initialAdvancedFilterState = null,
+  onAdvancedFilterChange = null,
+  dataVersion = 0,
 }) {
   const currentPriceRange = drillHistory.length > 0 ? drillHistory[drillHistory.length - 1] : null;
   const prominentAddClass = 'shadow-lg shadow-yellow-500/30';
@@ -557,10 +188,10 @@ export default function ResearchFormShell({
   // ─── New state ────────────────────────────────────────────────────────────
   const [twoColumnLayout, setTwoColumnLayout] = useState(false);
   const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
-  const [advancedPriceMin, setAdvancedPriceMin] = useState(null); // null = use allPriceRange.min
-  const [advancedPriceMax, setAdvancedPriceMax] = useState(null); // null = use allPriceRange.max
-  const [advancedSoldDateFromIdx, setAdvancedSoldDateFromIdx] = useState(null); // null = from earliest in data
-  const [advancedSoldDateToIdx, setAdvancedSoldDateToIdx] = useState(null); // null = to latest in data
+  const [advancedPriceMin, setAdvancedPriceMin] = useState(initialAdvancedFilterState?.priceMin ?? null);
+  const [advancedPriceMax, setAdvancedPriceMax] = useState(initialAdvancedFilterState?.priceMax ?? null);
+  const [advancedSoldDateFromIdx, setAdvancedSoldDateFromIdx] = useState(initialAdvancedFilterState?.soldDateFromMs ?? null);
+  const [advancedSoldDateToIdx, setAdvancedSoldDateToIdx] = useState(initialAdvancedFilterState?.soldDateToMs ?? null);
   // Draft slider state to keep UI smooth; applied filter updates are debounced.
   const [draftPriceMin, setDraftPriceMin] = useState(null);
   const [draftPriceMax, setDraftPriceMax] = useState(null);
@@ -652,14 +283,18 @@ export default function ResearchFormShell({
 
   // ─── Advanced filter helpers ──────────────────────────────────────────────
 
-  // Reset filters when new listings arrive
+  // Reset filters only when genuinely new data arrives (signalled by parent
+  // incrementing dataVersion), NOT on every listings reference change.
+  const prevDataVersionRef = useRef(dataVersion);
   useEffect(() => {
+    if (dataVersion === prevDataVersionRef.current) return;
+    prevDataVersionRef.current = dataVersion;
     setAdvancedPriceMin(null);
     setAdvancedPriceMax(null);
     setAdvancedSoldDateFromIdx(null);
     setAdvancedSoldDateToIdx(null);
     setShowAdvancedFilter(false);
-  }, [listings]);
+  }, [dataVersion]);
 
   // Close advanced filter panel on outside click / Escape
   useEffect(() => {
@@ -790,6 +425,18 @@ export default function ResearchFormShell({
     soldDateMinMs,
     soldDateMaxMs,
   ]);
+
+  // Expose current filter state to parent (for persistence)
+  const onAdvancedFilterChangeRef = useRef(onAdvancedFilterChange);
+  useEffect(() => { onAdvancedFilterChangeRef.current = onAdvancedFilterChange; });
+  useEffect(() => {
+    onAdvancedFilterChangeRef.current?.({
+      priceMin: advancedPriceMin,
+      priceMax: advancedPriceMax,
+      soldDateFromMs: advancedSoldDateFromIdx,
+      soldDateToMs: advancedSoldDateToIdx,
+    });
+  }, [advancedPriceMin, advancedPriceMax, advancedSoldDateFromIdx, advancedSoldDateToIdx]);
 
   // ─── Advanced filtered listings ───────────────────────────────────────────
   const advancedFilteredListings = useMemo(() => {
@@ -1275,17 +922,12 @@ export default function ResearchFormShell({
     </div>
   );
 
-  // ─── Banner 1: search term + stats + offers + add-to-cart ─────────────────
-  // For modal mode this is the main header (always visible for close button + branding).
-  // For page mode it's only shown when results are loaded.
-  // Align the right edge of stats/offer boxes with the listing-card grid right edge.
-  // Main listings layout reserves a right histogram panel of `w-80` (320px) and also uses
-  // `px-6` padding (24px) inside the listing cards area, whereas the header uses `px-4` (16px).
-  // In modal mode there's also a close button after this banner, so the available width is smaller;
-  // we compensate by reducing the offset.
-  const listingRightOffsetPx = mode === 'modal' ? 288 : 328; // 328 - close(40px) ~= 288
+  // ─── Banner 1: search term + stats + offers ──────────────────────────────
+  // The header is split into a flex-1 left section (matching listing area width)
+  // and a w-80 right section (matching histogram width), so the right edge of
+  // offer cards naturally aligns with the listing-card grid edge.
 
-  const banner1Content = (
+  const banner1MainContent = (
     <div className="flex items-center gap-3 flex-1 min-w-0">
       {/* Search term — big */}
       {searchTerm ? (
@@ -1301,10 +943,7 @@ export default function ResearchFormShell({
       ) : null}
 
       {/* Stats + offers — right aligned with listing-card edge */}
-      <div
-        className="flex-1 min-w-0 flex items-center gap-3 justify-end"
-        style={{ paddingRight: listingRightOffsetPx }}
-      >
+      <div className="flex-1 min-w-0 flex items-center gap-3 justify-end">
         {activeStats && (
           <>
             <div className="w-px h-8 bg-gray-200 shrink-0" />
@@ -1315,9 +954,6 @@ export default function ResearchFormShell({
         {/* Offer cards (includes its own leading separator) */}
         {BuyOffersDisplay}
       </div>
-
-      {/* Add to cart / OK */}
-      <div className="shrink-0">{actionButtonsEl}</div>
     </div>
   );
 
@@ -1495,32 +1131,43 @@ export default function ResearchFormShell({
     <>
       {/* ── MODAL MODE: unified top banner (always visible for branding + close) ── */}
       {mode === "modal" && (
-        <header className="bg-white border-b border-gray-200 px-4 py-2.5 flex items-center gap-3 shrink-0 flex-wrap">
-          {/* Branding */}
-          <div className="flex items-center gap-2 shrink-0">
-            <div className="bg-blue-900 p-1.5 rounded">
-              <Icon name={headerIcon} className="text-yellow-400 text-[15px]" />
+        <header className="bg-white border-b border-gray-200 flex items-center shrink-0">
+          {/* Left section: branding + stats + offers — pr-6 matches listing area px-6 */}
+          <div className="flex-1 min-w-0 flex items-center gap-3 pl-4 pr-6 py-2.5 flex-wrap">
+            {/* Branding */}
+            <div className="flex items-center gap-2 shrink-0">
+              <div className="bg-blue-900 p-1.5 rounded">
+                <Icon name={headerIcon} className="text-yellow-400 text-[15px]" />
+              </div>
+              <div className="leading-tight">
+                <h2 className="text-lg md:text-xl font-extrabold text-blue-900 leading-tight">{headerTitle}</h2>
+                {headerSubtitle && (
+                  <p className="text-xs md:text-sm text-gray-500 font-semibold uppercase tracking-widest leading-snug mt-1">{headerSubtitle}</p>
+                )}
+              </div>
             </div>
-            <div className="leading-tight">
-              <h2 className="text-lg md:text-xl font-extrabold text-blue-900 leading-tight">{headerTitle}</h2>
-              {headerSubtitle && (
-                <p className="text-xs md:text-sm text-gray-500 font-semibold uppercase tracking-widest leading-snug mt-1">{headerSubtitle}</p>
-              )}
-            </div>
+
+            {/* Stats + offers (when loaded) */}
+            {listings && banner1MainContent}
           </div>
 
-          {/* Stats + offers + actions (when loaded) */}
-          {listings && banner1Content}
-
-          {/* Close */}
-          <WorkspaceCloseButton title="Close" onClick={onCancel ? handleModalCancel : handleComplete} />
+          {/* Right section: action buttons + close — w-80 matches histogram width */}
+          <div className="w-80 shrink-0 flex items-center gap-2 justify-end px-4 py-2.5">
+            {listings && actionButtonsEl}
+            <WorkspaceCloseButton title="Close" onClick={onCancel ? handleModalCancel : handleComplete} />
+          </div>
         </header>
       )}
 
       {/* ── PAGE MODE: banner 1 (search term + stats + offers + add to cart) ── */}
       {mode === "page" && listings && (
-        <div className="bg-white border-b border-gray-200 px-4 py-2.5 flex items-center gap-3 shrink-0 flex-wrap">
-          {banner1Content}
+        <div className="bg-white border-b border-gray-200 flex items-center shrink-0">
+          <div className="flex-1 min-w-0 flex items-center gap-3 pl-4 pr-6 py-2.5 flex-wrap">
+            {banner1MainContent}
+          </div>
+          <div className="w-80 shrink-0 flex items-center gap-2 justify-end px-4 py-2.5">
+            {actionButtonsEl}
+          </div>
         </div>
       )}
 

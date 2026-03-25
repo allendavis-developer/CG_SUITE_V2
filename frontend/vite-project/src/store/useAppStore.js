@@ -147,13 +147,6 @@ const useAppStore = create(
           return null;
         }
       },
-      getEbayMarginsForCategory: (categoryId) => {
-        const s = get();
-        if (categoryId && s._ebayMarginsByCategory[categoryId]) {
-          return s._ebayMarginsByCategory[categoryId];
-        }
-        return s.ebayOfferMargins;
-      },
       invalidateEbayMarginCache: () => set({ _ebayMarginsByCategory: {} }),
 
       // ─── Cart (buyer and repricing have separate arrays) ──────────────
@@ -856,8 +849,6 @@ const useAppStore = create(
 
 export const useCartItems = () => useAppStore((s) => s.mode === 'repricing' ? s.repricingCartItems : s.cartItems);
 export const useCustomerData = () => useAppStore((s) => s.customerData);
-export const useRequest = () => useAppStore((s) => s.request);
-export const useMode = () => useAppStore((s) => s.mode);
 export const useIsRepricing = () => useAppStore((s) => s.mode === 'repricing');
 export const useUseVoucherOffers = () => useAppStore((s) => s.customerData?.transactionType === 'store_credit');
 export const useEbayOfferMargins = (categoryId) =>

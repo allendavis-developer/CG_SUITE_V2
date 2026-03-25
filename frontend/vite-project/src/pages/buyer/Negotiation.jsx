@@ -1,24 +1,22 @@
 import React, { useEffect, useLayoutEffect, useMemo, useState, useRef, useCallback } from "react";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
 import AppHeader from "@/components/AppHeader";
-import EbayResearchForm from "@/components/forms/EbayResearchForm";
-import CashConvertersResearchForm from "@/components/forms/CashConvertersResearchForm";
 import CustomerTransactionHeader from './components/CustomerTransactionHeader';
 import CustomerIntakeModal from '@/components/modals/CustomerIntakeModal.jsx';
 import NegotiationItemRow from './components/NegotiationItemRow';
 import { ItemContextMenu, TargetOfferModal, ItemOfferModal, SeniorMgmtModal, MarginResultModal } from './components/NegotiationModals';
 import NewCustomerDetailsModal from '@/components/modals/NewCustomerDetailsModal';
 import SalePriceConfirmModal from '@/components/modals/SalePriceConfirmModal';
+import ResearchOverlayPanel from './components/ResearchOverlayPanel';
 import TinyModal from '@/components/ui/TinyModal';
 import { finishRequest, fetchRequestDetail, updateCustomer, saveQuoteDraft } from '@/services/api';
 import { normalizeExplicitSalePrice, formatOfferPrice } from '@/utils/helpers';
 import { useNotification } from '@/contexts/NotificationContext';
 import useAppStore from '@/store/useAppStore';
-import { maybeShowSalePriceConfirm } from './utils/researchCompletionHelpers';
+import { useResearchOverlay, makeSalePriceBlurHandler } from './hooks/useResearchOverlay';
 import { mapRequestToCustomerData } from '@/utils/requestToCartMapping';
 import { mapTransactionTypeToIntent } from '@/utils/transactionConstants';
 import {
-  buildItemSpecs,
   buildInitialSearchQuery,
   resolveOurSalePrice,
   calculateTotalOfferPrice,
@@ -116,8 +114,6 @@ const Negotiation = ({ mode }) => {
 
   // UI / modal state
   const [contextMenu, setContextMenu] = useState(null);
-  const [researchItem, setResearchItem] = useState(null);
-  const [cashConvertersResearchItem, setCashConvertersResearchItem] = useState(null);
   const [showNewCustomerDetailsModal, setShowNewCustomerDetailsModal] = useState(false);
   const [showNewBuyConfirm, setShowNewBuyConfirm] = useState(false);
   const [pendingFinishPayload, setPendingFinishPayload] = useState(null);
@@ -125,7 +121,6 @@ const Negotiation = ({ mode }) => {
   const [itemOfferModal, setItemOfferModal] = useState(null);
   const [seniorMgmtModal, setSeniorMgmtModal] = useState(null);
   const [marginResultModal, setMarginResultModal] = useState(null);
-  const [salePriceConfirmModal, setSalePriceConfirmModal] = useState(null);
   const [isCustomerModalOpen, setCustomerModalOpen] = useState(false);
 
   // Refs
@@ -135,6 +130,23 @@ const Negotiation = ({ mode }) => {
   const prevTransactionTypeRef = useRef(transactionType);
 
   const useVoucherOffers = transactionType === 'store_credit';
+
+  // ─── Research overlay (shared hook) ─────────────────────────────────────
+  const applyEbay = useCallback((item, state) => applyEbayResearchToItem(item, state, useVoucherOffers), [useVoucherOffers]);
+  const applyCC = useCallback((item, state) => applyCashConvertersResearchToItem(item, state, useVoucherOffers), [useVoucherOffers]);
+  const {
+    researchItem, setResearchItem,
+    cashConvertersResearchItem, setCashConvertersResearchItem,
+    salePriceConfirmModal, setSalePriceConfirmModal,
+    handleResearchComplete,
+    handleCashConvertersResearchComplete,
+  } = useResearchOverlay({
+    items, setItems,
+    applyEbayResearch: applyEbay,
+    applyCCResearch: applyCC,
+    resolveSalePrice: resolveOurSalePrice,
+    readOnly: mode === 'view',
+  });
 
   // ─── Derived values ────────────────────────────────────────────────────
 
@@ -335,31 +347,10 @@ const Negotiation = ({ mode }) => {
     setItems(prev => prev.map(i => i.id === itemId ? { ...i, ourSalePriceInput: value } : i));
   }, []);
 
-  const handleOurSalePriceBlur = useCallback((item) => {
-    const quantity = item.quantity || 1;
-    setItems(prev => prev.map(i => {
-      if (i.id !== item.id) return i;
-      const raw = (i.ourSalePriceInput ?? '').replace(/[£,]/g, '').trim();
-      const parsedTotal = parseFloat(raw);
-      const next = { ...i };
-      delete next.ourSalePriceInput;
-      if (raw === '') {
-        next.ourSalePrice = '';
-      } else if (Number.isNaN(parsedTotal) || parsedTotal <= 0) {
-        // Keep prior persisted value and reject invalid/non-positive input.
-      } else {
-        next.ourSalePrice = String(normalizeExplicitSalePrice(parsedTotal / quantity));
-      }
-      return next;
-    }));
-    const rawEntered = String(item.ourSalePriceInput ?? '').replace(/[£,]/g, '').trim();
-    if (rawEntered !== '') {
-      const parsedEntered = parseFloat(rawEntered);
-      if (!Number.isFinite(parsedEntered) || parsedEntered <= 0) {
-        showNotification('Our sale price must be greater than £0', 'error');
-      }
-    }
-  }, [showNotification]);
+  const handleOurSalePriceBlur = useCallback(
+    makeSalePriceBlurHandler(setItems, normalizeExplicitSalePrice, showNotification),
+    [showNotification]
+  );
 
   const handleOurSalePriceFocus = useCallback((itemId, currentValue) => {
     setItems(prev => prev.map(i => i.id === itemId ? { ...i, ourSalePriceInput: currentValue } : i));
@@ -446,36 +437,6 @@ const Negotiation = ({ mode }) => {
     };
     await handleAddNegotiationItem(customItem);
   }, [handleAddNegotiationItem, useVoucherOffers]);
-
-  // ─── Research handlers ─────────────────────────────────────────────────
-
-  const handleResearchComplete = useCallback((updatedState) => {
-    if (updatedState && !updatedState.cancel && researchItem && mode !== 'view') {
-      const currentItem = items.find(i => i.id === researchItem.id);
-
-      setItems(prevItems => prevItems.map(i => {
-        if (i.id !== researchItem.id) return i;
-        return applyEbayResearchToItem(i, updatedState, useVoucherOffers);
-      }));
-
-      maybeShowSalePriceConfirm(updatedState, currentItem, researchItem, setSalePriceConfirmModal, resolveOurSalePrice, 'ebay');
-    }
-    setResearchItem(null);
-  }, [researchItem, items, mode, useVoucherOffers]);
-
-  const handleCashConvertersResearchComplete = useCallback((updatedState) => {
-    if (updatedState && !updatedState.cancel && cashConvertersResearchItem && mode !== 'view') {
-      const currentItem = items.find(i => i.id === cashConvertersResearchItem.id);
-
-      setItems(prevItems => prevItems.map(i => {
-        if (i.id !== cashConvertersResearchItem.id) return i;
-        return applyCashConvertersResearchToItem(i, updatedState, useVoucherOffers);
-      }));
-
-      maybeShowSalePriceConfirm(updatedState, currentItem, cashConvertersResearchItem, setSalePriceConfirmModal, resolveOurSalePrice, 'cashConverters');
-    }
-    setCashConvertersResearchItem(null);
-  }, [cashConvertersResearchItem, items, mode, useVoucherOffers]);
 
   // ─── Effects: initialization ───────────────────────────────────────────
 
@@ -965,66 +926,15 @@ const Negotiation = ({ mode }) => {
           </div>
         </aside>
 
-        {(researchItem || cashConvertersResearchItem) && (
-          <div className="fixed left-0 right-80 bottom-0 z-[90] min-h-0" style={{ top: 'var(--workspace-overlay-top, 64px)' }}>
-            <div className="relative h-full w-full min-h-0">
-              {researchItem && (
-                <EbayResearchForm
-                  mode="modal"
-                  containModalInParent
-                  category={researchItem.categoryObject || { path: [researchItem.category], name: researchItem.category }}
-                  savedState={researchItem.ebayResearchData}
-                  onComplete={handleResearchComplete}
-                  initialHistogramState={true}
-                  readOnly={mode === 'view'}
-                  showManualOffer={true}
-                  hideAddAction={true}
-                  initialSearchQuery={buildInitialSearchQuery(researchItem)}
-                  useVoucherOffers={useVoucherOffers}
-                  marketComparisonContext={{
-                    cexSalePrice: researchItem?.cexSellPrice ?? null,
-                    ourSalePrice: researchItem?.ourSalePrice ?? null,
-                    ebaySalePrice: researchItem?.ebayResearchData?.stats?.median ?? null,
-                    cashConvertersSalePrice: researchItem?.cashConvertersResearchData?.stats?.median ?? null,
-                    itemTitle: researchItem?.title || null,
-                    itemCondition: researchItem?.condition || null,
-                    itemSpecs: researchItem?.isCustomCeXItem ? null : buildItemSpecs(researchItem),
-                    cexSpecs: researchItem?.isCustomCeXItem ? buildItemSpecs(researchItem) : null,
-                    ebaySearchTerm: researchItem?.ebayResearchData?.searchTerm || null,
-                    cashConvertersSearchTerm: researchItem?.cashConvertersResearchData?.searchTerm || null,
-                  }}
-                />
-              )}
-              {cashConvertersResearchItem && (
-                <CashConvertersResearchForm
-                  mode="modal"
-                  containModalInParent
-                  category={cashConvertersResearchItem.categoryObject || { path: [cashConvertersResearchItem.category], name: cashConvertersResearchItem.category }}
-                  savedState={cashConvertersResearchItem.cashConvertersResearchData}
-                  onComplete={handleCashConvertersResearchComplete}
-                  initialHistogramState={true}
-                  readOnly={mode === 'view'}
-                  showManualOffer={true}
-                  hideAddAction={true}
-                  useVoucherOffers={useVoucherOffers}
-                  initialSearchQuery={buildInitialSearchQuery(cashConvertersResearchItem)}
-                  marketComparisonContext={{
-                    cexSalePrice: cashConvertersResearchItem?.cexSellPrice ?? null,
-                    ourSalePrice: cashConvertersResearchItem?.ourSalePrice ?? null,
-                    ebaySalePrice: cashConvertersResearchItem?.ebayResearchData?.stats?.median ?? null,
-                    cashConvertersSalePrice: cashConvertersResearchItem?.cashConvertersResearchData?.stats?.median ?? null,
-                    itemTitle: cashConvertersResearchItem?.title || null,
-                    itemCondition: cashConvertersResearchItem?.condition || null,
-                    itemSpecs: cashConvertersResearchItem?.isCustomCeXItem ? null : buildItemSpecs(cashConvertersResearchItem),
-                    cexSpecs: cashConvertersResearchItem?.isCustomCeXItem ? buildItemSpecs(cashConvertersResearchItem) : null,
-                    ebaySearchTerm: cashConvertersResearchItem?.ebayResearchData?.searchTerm || null,
-                    cashConvertersSearchTerm: cashConvertersResearchItem?.cashConvertersResearchData?.searchTerm || null,
-                  }}
-                />
-              )}
-            </div>
-          </div>
-        )}
+        <ResearchOverlayPanel
+          researchItem={researchItem}
+          cashConvertersResearchItem={cashConvertersResearchItem}
+          onResearchComplete={handleResearchComplete}
+          onCashConvertersResearchComplete={handleCashConvertersResearchComplete}
+          readOnly={mode === 'view'}
+          showManualOffer={true}
+          useVoucherOffers={useVoucherOffers}
+        />
       </main>
 
       {/* ── Overlays & Modals ── */}

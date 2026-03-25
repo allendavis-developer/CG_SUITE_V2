@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { useNotification } from '@/contexts/NotificationContext';
+import { Link, useLocation } from 'react-router-dom';
 import useAppStore from '@/store/useAppStore';
 import ProductSelection from '@/pages/buyer/components/ProductSelection';
 import AttributeConfiguration from '@/pages/buyer/components/AttributeConfiguration';
@@ -17,7 +16,6 @@ const AppHeader = ({
   buyerControls = null,
 }) => {
   const location = useLocation();
-  const navigate = useNavigate();
   const [categories, setCategories] = useState([]);
   const [activeTopLevelId, setActiveTopLevelId] = useState(null);
   const [expandedIds, setExpandedIds] = useState([]);

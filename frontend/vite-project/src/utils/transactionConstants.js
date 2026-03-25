@@ -9,10 +9,9 @@ export const TRANSACTION_META = TRANSACTION_OPTIONS.reduce((acc, t) => {
   return acc;
 }, {});
 
-/** Django RequestIntent values */
-export const INTENT_SALE = 'DIRECT_SALE';
-export const INTENT_BUYBACK = 'BUYBACK';
-export const INTENT_STORE_CREDIT = 'STORE_CREDIT';
+const INTENT_SALE = 'DIRECT_SALE';
+const INTENT_BUYBACK = 'BUYBACK';
+const INTENT_STORE_CREDIT = 'STORE_CREDIT';
 
 const TRANSACTION_TO_INTENT = {
   sale: INTENT_SALE,
@@ -57,9 +56,4 @@ export function getFilterTitle(status) {
     default:
       return 'Requests';
   }
-}
-
-/** Get display label for transaction type */
-export function getTransactionLabel(transactionType) {
-  return TRANSACTION_META[transactionType]?.label ?? 'Unknown';
 }

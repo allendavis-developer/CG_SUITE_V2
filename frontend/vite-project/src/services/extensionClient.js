@@ -1,25 +1,4 @@
-// 🔓 Public API
 import { sendMessage } from '@/services/extensionBridge';
-
-export async function scrapeEbay(params) {
-  return sendMessage({
-    action: "scrape",
-    data: {
-      competitors: ["eBay"],
-      ...params,
-    },
-  });
-}
-
-export async function scrapeCashConverters(params) {
-  return sendMessage({
-    action: "scrape",
-    data: {
-      competitors: ["CashConverters"],
-      ...params,
-    },
-  });
-}
 
 /**
  * Open eBay, Cash Converters, or CeX in a new tab and wait for the user to confirm
@@ -64,27 +43,6 @@ export function isExtensionListingFlowAborted(result) {
   if (result.success === true) return false;
   const msg = String(result.error || '');
   return /tab was closed/i.test(msg);
-}
-
-/**
- * Open a URL in a new tab via the Chrome extension (e.g. nospos.com for repricing).
- * Falls back to window.open if the extension is not available.
- * @param {string} url - Full URL to open (e.g. 'https://nospos.com')
- */
-export async function openUrl(url) {
-  try {
-    return await sendMessage({
-      action: 'openUrl',
-      url: url || 'https://nospos.com'
-    });
-  } catch (err) {
-    // Extension not available – fall back to window.open
-    if (typeof window !== 'undefined' && url) {
-      window.open(url, '_blank', 'noopener,noreferrer');
-      return { ok: true };
-    }
-    throw err;
-  }
 }
 
 /**

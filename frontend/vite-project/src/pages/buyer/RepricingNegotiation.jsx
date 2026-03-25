@@ -1,20 +1,19 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import AppHeader from "@/components/AppHeader";
-import EbayResearchForm from "@/components/forms/EbayResearchForm";
-import CashConvertersResearchForm from "@/components/forms/CashConvertersResearchForm";
 import QuickRepriceModal from "@/components/modals/QuickRepriceModal";
 import { useNotification } from "@/contexts/NotificationContext";
 import SalePriceConfirmModal from "@/components/modals/SalePriceConfirmModal";
+import ResearchOverlayPanel from './components/ResearchOverlayPanel';
 import TinyModal from "@/components/ui/TinyModal";
-import { maybeShowSalePriceConfirm } from "./utils/researchCompletionHelpers";
 import { cancelNosposRepricing, clearLastRepricingResult, getLastRepricingResult, getNosposRepricingStatus, openNospos, searchNosposBarcode } from "@/services/extensionClient";
 import { saveRepricingSession, createRepricingSessionDraft, updateRepricingSession } from "@/services/api";
 import { getCartKey, loadRepricingProgress, saveRepricingProgress, clearRepricingProgress } from "@/utils/repricingProgress";
 import { getEditableSalePriceState, resolveRepricingSalePrice } from "./utils/repricingDisplay";
 import useAppStore from '@/store/useAppStore';
 import { normalizeExplicitSalePrice, formatOfferPrice, roundSalePrice } from '@/utils/helpers';
-import { buildItemSpecs, buildInitialSearchQuery } from './utils/negotiationHelpers';
+import { buildInitialSearchQuery } from './utils/negotiationHelpers';
+import { useResearchOverlay, makeSalePriceBlurHandler } from './hooks/useResearchOverlay';
 
 // ─── Right-click context menu (remove only) ────────────────────────────────
 const ContextMenu = ({ x, y, onClose, onRemove }) => {
@@ -145,14 +144,24 @@ const RepricingNegotiation = () => {
   const [completedBarcodes, setCompletedBarcodes] = useState({});
   const [completedItems, setCompletedItems] = useState([]);
 
-  // Sale price confirm after research (shared with Negotiation)
-  const [salePriceConfirmModal, setSalePriceConfirmModal] = useState(null); // { itemId, oldPricePerUnit, newPricePerUnit, source }
-
   const [showNewRepricingConfirm, setShowNewRepricingConfirm] = useState(false);
 
-  // Research modal state
-  const [researchItem, setResearchItem] = useState(null);
-  const [cashConvertersResearchItem, setCashConvertersResearchItem] = useState(null);
+  // Research overlay (shared hook)
+  const applyEbayRepriceResearch = useCallback((item, state) => ({ ...item, ebayResearchData: state }), []);
+  const applyCCRepriceResearch = useCallback((item, state) => ({ ...item, cashConvertersResearchData: state }), []);
+  const {
+    researchItem, setResearchItem,
+    cashConvertersResearchItem, setCashConvertersResearchItem,
+    salePriceConfirmModal, setSalePriceConfirmModal,
+    handleResearchComplete,
+    handleCashConvertersResearchComplete,
+  } = useResearchOverlay({
+    items, setItems,
+    applyEbayResearch: applyEbayRepriceResearch,
+    applyCCResearch: applyCCRepriceResearch,
+    resolveSalePrice: resolveRepricingSalePrice,
+  });
+
   const [isRepricingFinished, setIsRepricingFinished] = useState(false);
   const [completedItemsData, setCompletedItemsData] = useState([]);
   const [ambiguousBarcodeModal, setAmbiguousBarcodeModal] = useState(null);
@@ -701,44 +710,6 @@ const RepricingNegotiation = () => {
     addItemsWithBarcodePrepopulation(newItems);
     showNotification(`${newItems.length} item${newItems.length !== 1 ? 's' : ''} added to reprice list`, 'success');
   }, [addItemsWithBarcodePrepopulation, showNotification]);
-
-  const handleResearchComplete = (updatedState) => {
-    if (updatedState?.cancel) { setResearchItem(null); return; }
-    if (updatedState && researchItem) {
-      const currentItem = items.find(i => i.id === researchItem.id);
-      setItems(prev => prev.map(i =>
-        i.id !== researchItem.id ? i : { ...i, ebayResearchData: updatedState }
-      ));
-      maybeShowSalePriceConfirm(
-        updatedState,
-        currentItem,
-        researchItem,
-        setSalePriceConfirmModal,
-        resolveRepricingSalePrice,
-        'ebay'
-      );
-    }
-    setResearchItem(null);
-  };
-
-  const handleCashConvertersResearchComplete = (updatedState) => {
-    if (updatedState?.cancel) { setCashConvertersResearchItem(null); return; }
-    if (updatedState && cashConvertersResearchItem) {
-      const currentItem = items.find(i => i.id === cashConvertersResearchItem.id);
-      setItems(prev => prev.map(i =>
-        i.id !== cashConvertersResearchItem.id ? i : { ...i, cashConvertersResearchData: updatedState }
-      ));
-      maybeShowSalePriceConfirm(
-        updatedState,
-        currentItem,
-        cashConvertersResearchItem,
-        setSalePriceConfirmModal,
-        resolveRepricingSalePrice,
-        'cashConverters'
-      );
-    }
-    setCashConvertersResearchItem(null);
-  };
 
   const handleProceed = async () => {
     for (const item of activeItems) {
@@ -1357,66 +1328,13 @@ const RepricingNegotiation = () => {
           </div>
         </aside>
 
-        {(researchItem || cashConvertersResearchItem) && (
-          <div className="fixed left-0 right-80 bottom-0 z-[90] min-h-0" style={{ top: 'var(--workspace-overlay-top, 64px)' }}>
-            <div className="relative h-full w-full min-h-0">
-              {researchItem && (
-                <EbayResearchForm
-                  mode="modal"
-                  containModalInParent
-                  category={researchItem.categoryObject || { path: [researchItem.category], name: researchItem.category }}
-                  savedState={researchItem.ebayResearchData}
-                  onComplete={handleResearchComplete}
-                  initialHistogramState={true}
-                  readOnly={false}
-                  showManualOffer={false}
-                  hideAddAction={true}
-                  hideOfferCards={true}
-                  initialSearchQuery={buildInitialSearchQuery(researchItem)}
-                  marketComparisonContext={{
-                    cexSalePrice: researchItem?.cexSellPrice ?? null,
-                    ourSalePrice: researchItem?.ourSalePrice ?? null,
-                    ebaySalePrice: researchItem?.ebayResearchData?.stats?.median ?? null,
-                    cashConvertersSalePrice: researchItem?.cashConvertersResearchData?.stats?.median ?? null,
-                    itemTitle: researchItem?.title || null,
-                    itemCondition: researchItem?.condition || null,
-                    itemSpecs: researchItem?.isCustomCeXItem ? null : buildItemSpecs(researchItem),
-                    cexSpecs: researchItem?.isCustomCeXItem ? buildItemSpecs(researchItem) : null,
-                    ebaySearchTerm: researchItem?.ebayResearchData?.searchTerm || null,
-                    cashConvertersSearchTerm: researchItem?.cashConvertersResearchData?.searchTerm || null,
-                  }}
-                />
-              )}
-              {cashConvertersResearchItem && (
-                <CashConvertersResearchForm
-                  mode="modal"
-                  containModalInParent
-                  category={cashConvertersResearchItem.categoryObject || { path: [cashConvertersResearchItem.category], name: cashConvertersResearchItem.category }}
-                  savedState={cashConvertersResearchItem.cashConvertersResearchData}
-                  onComplete={handleCashConvertersResearchComplete}
-                  initialHistogramState={true}
-                  readOnly={false}
-                  showManualOffer={false}
-                  hideAddAction={true}
-                  hideOfferCards={true}
-                  initialSearchQuery={buildInitialSearchQuery(cashConvertersResearchItem)}
-                  marketComparisonContext={{
-                    cexSalePrice: cashConvertersResearchItem?.cexSellPrice ?? null,
-                    ourSalePrice: cashConvertersResearchItem?.ourSalePrice ?? null,
-                    ebaySalePrice: cashConvertersResearchItem?.ebayResearchData?.stats?.median ?? null,
-                    cashConvertersSalePrice: cashConvertersResearchItem?.cashConvertersResearchData?.stats?.median ?? null,
-                    itemTitle: cashConvertersResearchItem?.title || null,
-                    itemCondition: cashConvertersResearchItem?.condition || null,
-                    itemSpecs: cashConvertersResearchItem?.isCustomCeXItem ? null : buildItemSpecs(cashConvertersResearchItem),
-                    cexSpecs: cashConvertersResearchItem?.isCustomCeXItem ? buildItemSpecs(cashConvertersResearchItem) : null,
-                    ebaySearchTerm: cashConvertersResearchItem?.ebayResearchData?.searchTerm || null,
-                    cashConvertersSearchTerm: cashConvertersResearchItem?.cashConvertersResearchData?.searchTerm || null,
-                  }}
-                />
-              )}
-            </div>
-          </div>
-        )}
+        <ResearchOverlayPanel
+          researchItem={researchItem}
+          cashConvertersResearchItem={cashConvertersResearchItem}
+          onResearchComplete={handleResearchComplete}
+          onCashConvertersResearchComplete={handleCashConvertersResearchComplete}
+          hideOfferCards={true}
+        />
       </main>
 
       {/* ── Context Menu ───────────────────────────────────────────────────────── */}
