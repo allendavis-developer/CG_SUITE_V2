@@ -150,13 +150,6 @@ const RepricingSessionView = () => {
   return (
     <div className="bg-ui-bg text-text-main min-h-screen flex flex-col text-sm overflow-hidden">
       <style>{`
-        :root {
-          --brand-blue: #144584;
-          --ui-border: #e5e7eb;
-          --text-muted: #64748b;
-          --ui-bg: #f8f9fa;
-          --text-main: #1a1a1a;
-        }
         .spreadsheet-table th {
           background: var(--brand-blue);
           color: white;
@@ -341,13 +334,13 @@ const RepricingSessionView = () => {
                     <td className="font-semibold text-emerald-700">
                       {formatMoney(item.new_retail_price ?? item.our_sale_price_at_repricing)}
                     </td>
-                    <td className="font-semibold text-blue-800">{formatMoney(item.cex_sell_at_repricing)}</td>
+                    <td className="font-semibold text-brand-blue">{formatMoney(item.cex_sell_at_repricing)}</td>
                     <td>
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-semibold">{getResearchMedian(item.raw_data)}</span>
                         <button
                           className={`flex items-center justify-center size-7 rounded transition-colors shrink-0 ${!hasSavedState(item.raw_data) ? 'opacity-50 cursor-not-allowed' : ''}`}
-                          style={{ background: '#f7b918', color: '#144584' }}
+                          style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
                           onClick={() => hasSavedState(item.raw_data) && setResearchItem(item)}
                           title={hasSavedState(item.raw_data) ? 'View eBay Research (Read-only)' : 'No research available'}
                           disabled={!hasSavedState(item.raw_data)}
@@ -361,7 +354,7 @@ const RepricingSessionView = () => {
                         <span className="font-semibold">{getResearchMedian(item.cash_converters_data)}</span>
                         <button
                           className={`flex items-center justify-center size-7 rounded transition-colors shrink-0 ${!hasSavedState(item.cash_converters_data) ? 'opacity-50 cursor-not-allowed' : ''}`}
-                          style={{ background: '#f7b918', color: '#144584' }}
+                          style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
                           onClick={() => hasSavedState(item.cash_converters_data) && setCashConvertersResearchItem(item)}
                           title={hasSavedState(item.cash_converters_data) ? 'View Cash Converters Research (Read-only)' : 'No research available'}
                           disabled={!hasSavedState(item.cash_converters_data)}

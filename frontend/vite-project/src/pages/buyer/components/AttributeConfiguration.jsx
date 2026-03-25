@@ -295,8 +295,8 @@ const AttributeConfiguration = ({
                   onClick={() => handleVariantChange(v.title)}
                   className={`px-4 py-2 text-sm font-medium rounded-lg border transition-all ${
                     isSelected
-                      ? 'bg-yellow-500 border-yellow-500 text-blue-900'
-                      : 'bg-white border-gray-200 text-gray-800 hover:border-yellow-500 hover:bg-yellow-50'
+                      ? 'bg-brand-orange border-brand-orange text-brand-blue'
+                      : 'bg-white border-gray-200 text-gray-800 hover:border-brand-orange hover:bg-brand-orange/10'
                   }`}
                 >
                   {v.title}

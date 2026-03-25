@@ -1,28 +1,37 @@
-import { roundOfferPrice, roundSalePrice } from '@/utils/helpers';
+import { roundOfferPrice, roundSalePrice, salePriceRoundingLabel } from '@/utils/helpers';
 
 /**
  * Stats and buy-offer helpers for research forms (works with listings whose price may be string or number).
  * Offer prices follow the same rounding rules used elsewhere in the app.
  */
 
-function parsePrice(item) {
+/** Parse listing `item.price` (number or currency string) for research stats and sorting. */
+export function parseResearchPrice(item) {
   if (item == null || item.price == null) return NaN;
   const p = item.price;
   if (typeof p === 'number') return isNaN(p) ? NaN : p;
   return parseFloat(String(p).replace(/[^0-9.]/g, '')) || NaN;
 }
 
-export function calculateStats(listingsData) {
+function emptyResearchStats() {
+  return { average: 0, median: 0, suggestedPrice: 0 };
+}
+
+/**
+ * Full research stats plus tooltip/working fields. Single pass over listings.
+ * `workingOut` is null when there are no usable prices (same cases as empty stats).
+ */
+export function calculateResearchStats(listingsData) {
   if (!listingsData || listingsData.length === 0) {
-    return { average: 0, median: 0, suggestedPrice: 0 };
+    return { stats: emptyResearchStats(), workingOut: null };
   }
 
   const prices = listingsData
-    .map(parsePrice)
+    .map(parseResearchPrice)
     .filter(p => !isNaN(p) && p > 0);
 
   if (prices.length === 0) {
-    return { average: 0, median: 0, suggestedPrice: 0 };
+    return { stats: emptyResearchStats(), workingOut: null };
   }
 
   const sum = prices.reduce((acc, p) => acc + p, 0);
@@ -34,10 +43,22 @@ export function calculateStats(listingsData) {
     ? (sortedPrices[mid - 1] + sortedPrices[mid]) / 2
     : sortedPrices[mid];
 
-  // Suggested sale price: £1 below median, then sale-price rounding (£5 / £2).
-  const suggestedPrice = roundSalePrice(Math.max(median - 1, 0));
+  const preSuggestedRaw = Math.max(median - 1, 0);
+  const suggestedPrice = roundSalePrice(preSuggestedRaw);
 
-  return { average, median, suggestedPrice };
+  return {
+    stats: { average, median, suggestedPrice },
+    workingOut: {
+      sum,
+      count: prices.length,
+      preSuggestedRaw,
+      suggestedSaleRoundingLabel: salePriceRoundingLabel(preSuggestedRaw),
+    },
+  };
+}
+
+export function calculateStats(listingsData) {
+  return calculateResearchStats(listingsData).stats;
 }
 
 /**

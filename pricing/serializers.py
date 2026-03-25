@@ -1,8 +1,22 @@
 # serializers.py
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
-from .models_v2 import ( ProductCategory, Product, Variant, Attribute, AttributeValue, Customer, Request, RequestItem, RequestStatus,
-    RequestStatusHistory, Variant, RequestIntent, RepricingSession, RepricingSessionItem )
+from .models_v2 import (
+    ProductCategory,
+    Product,
+    Variant,
+    Attribute,
+    AttributeValue,
+    Customer,
+    Request,
+    RequestItem,
+    RequestStatus,
+    RequestStatusHistory,
+    RequestIntent,
+    RepricingSession,
+    RepricingSessionItem,
+)
+from . import research_storage
 
 
 class ProductCategorySerializer(serializers.ModelSerializer):
@@ -151,7 +165,9 @@ class CustomerSerializer(serializers.ModelSerializer):
 
 class RequestItemSerializer(serializers.ModelSerializer):
     variant_details = VariantSerializer(source='variant', read_only=True)
-    
+    raw_data = serializers.SerializerMethodField()
+    cash_converters_data = serializers.SerializerMethodField()
+
     class Meta:
         model = RequestItem
         fields = [
@@ -160,7 +176,7 @@ class RequestItemSerializer(serializers.ModelSerializer):
             'variant',
             'variant_details',
             'raw_data',
-            'cash_converters_data',  # Cash Converters research data
+            'cash_converters_data',
             'notes',
             'quantity',
             'selected_offer_id',
@@ -169,8 +185,8 @@ class RequestItemSerializer(serializers.ModelSerializer):
             'senior_mgmt_approved_by',
             'customer_expectation_gbp',
             'negotiated_price_gbp',
-            'cash_offers_json',  # Add new field
-            'voucher_offers_json', # Add new field
+            'cash_offers_json',
+            'voucher_offers_json',
             'cex_buy_cash_at_negotiation',
             'cex_buy_voucher_at_negotiation',
             'cex_sell_at_negotiation',
@@ -181,7 +197,24 @@ class RequestItemSerializer(serializers.ModelSerializer):
             'cex_buy_cash_at_negotiation',
             'cex_buy_voucher_at_negotiation',
             'cex_sell_at_negotiation',
+            'raw_data',
+            'cash_converters_data',
         ]
+
+    def get_raw_data(self, obj):
+        return research_storage.compose_raw_data_for_request_item(obj)
+
+    def get_cash_converters_data(self, obj):
+        return research_storage.compose_cash_converters_for_request_item(obj)
+
+    def create(self, validated_data):
+        item = RequestItem.objects.create(**validated_data)
+        research_storage.ingest_request_item_post_create(
+            item,
+            self.initial_data.get('raw_data'),
+            self.initial_data.get('cash_converters_data'),
+        )
+        return item
     
     def validate_customer_expectation_gbp(self, value):
         if value is None:
@@ -241,6 +274,9 @@ class RequestSerializer(serializers.ModelSerializer):
 
 
 class RepricingSessionItemSerializer(serializers.ModelSerializer):
+    raw_data = serializers.SerializerMethodField()
+    cash_converters_data = serializers.SerializerMethodField()
+
     class Meta:
         model = RepricingSessionItem
         fields = [
@@ -259,7 +295,18 @@ class RepricingSessionItemSerializer(serializers.ModelSerializer):
             'cash_converters_data',
             'created_at',
         ]
-        read_only_fields = ['repricing_session_item_id', 'created_at']
+        read_only_fields = [
+            'repricing_session_item_id',
+            'created_at',
+            'raw_data',
+            'cash_converters_data',
+        ]
+
+    def get_raw_data(self, obj):
+        return research_storage.compose_raw_data_for_repricing_item(obj)
+
+    def get_cash_converters_data(self, obj):
+        return research_storage.compose_cash_converters_for_repricing_item(obj)
 
 
 class RepricingSessionSerializer(serializers.ModelSerializer):

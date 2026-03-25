@@ -187,9 +187,9 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
 
       <div className="relative bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col">
         {/* Header */}
-        <header className="bg-blue-900 px-8 py-6 flex items-center justify-between text-white">
+        <header className="bg-brand-blue px-8 py-6 flex items-center justify-between text-white">
           <div className="flex items-center gap-3">
-            <span className="material-symbols-outlined text-yellow-500 text-2xl">person_add</span>
+            <span className="material-symbols-outlined text-brand-orange text-2xl">person_add</span>
             <div>
               <h3 className="text-xl font-bold leading-none">Customer Intake</h3>
               <p className="text-white/70 text-sm mt-1">
@@ -220,7 +220,7 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
                 checked={customerType === "existing"}
                 onChange={() => { setCustomerType("existing"); setError(null); }}
               />
-              <div className="flex items-center justify-center gap-2 py-3 rounded-lg text-sm font-bold transition-all peer-checked:bg-white peer-checked:shadow-sm text-gray-500 peer-checked:text-blue-900">
+              <div className="flex items-center justify-center gap-2 py-3 rounded-lg text-sm font-bold transition-all peer-checked:bg-white peer-checked:shadow-sm text-gray-500 peer-checked:text-brand-blue">
                 <span className="material-symbols-outlined text-lg">person</span>
                 Existing Customer
               </div>
@@ -257,7 +257,7 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
                   checked={transactionType === value}
                   onChange={() => setTransactionType(value)}
                 />
-                <div className="flex items-center justify-center gap-2 py-3 rounded-lg text-sm font-bold transition-all peer-checked:bg-white peer-checked:shadow-sm text-gray-500 peer-checked:text-yellow-500">
+                <div className="flex items-center justify-center gap-2 py-3 rounded-lg text-sm font-bold transition-all peer-checked:bg-white peer-checked:shadow-sm text-gray-500 peer-checked:text-brand-orange">
                   <span className="material-symbols-outlined text-lg">{icon}</span>
                   {label}
                 </div>
@@ -329,7 +329,7 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
                   type="button"
                   onClick={handleGetDataFromNospos}
                   disabled={nosposOpenLoading}
-                  className="w-full h-14 rounded-xl border-2 border-dashed border-yellow-500 bg-yellow-50 hover:bg-yellow-100 text-yellow-800 font-semibold flex items-center justify-center gap-2 transition-all disabled:opacity-60 disabled:cursor-not-allowed mb-6"
+                  className="w-full h-14 rounded-xl border-2 border-dashed border-brand-orange bg-brand-orange/10 hover:bg-brand-orange/15 text-brand-blue font-semibold flex items-center justify-center gap-2 transition-all disabled:opacity-60 disabled:cursor-not-allowed mb-6"
                 >
                   {nosposOpenLoading ? (
                     <>
@@ -345,24 +345,24 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
                 </button>
               ) : (
                 /* Customer loaded — read-only card */
-                <div className="mb-5 border border-blue-100 rounded-2xl overflow-hidden shadow-sm">
+                <div className="mb-5 border border-brand-blue/15 rounded-2xl overflow-hidden shadow-sm">
                   {/* Card header with name + change button */}
-                  <div className="bg-blue-900 px-5 py-4 flex items-center justify-between">
+                  <div className="bg-brand-blue px-5 py-4 flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       {c.profilePicture ? (
                         <img
                           src={c.profilePicture}
                           alt="profile"
-                          className="w-10 h-10 rounded-full object-cover border-2 border-yellow-400"
+                          className="w-10 h-10 rounded-full object-cover border-2 border-brand-orange"
                         />
                       ) : (
-                        <div className="w-10 h-10 rounded-full bg-blue-700 flex items-center justify-center">
+                        <div className="w-10 h-10 rounded-full bg-brand-blue-hover flex items-center justify-center">
                           <span className="material-symbols-outlined text-white text-xl">person</span>
                         </div>
                       )}
                       <div>
                         <p className="text-white font-bold text-base leading-tight">{c.name}</p>
-                        {c.email && <p className="text-blue-200 text-xs mt-0.5">{c.email}</p>}
+                        {c.email && <p className="text-white/70 text-xs mt-0.5">{c.email}</p>}
                       </div>
                     </div>
                   </div>
@@ -482,7 +482,7 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
             <button
               onClick={handleConfirm}
               disabled={!c || confirming}
-              className="bg-yellow-500 hover:brightness-105 active:scale-[0.98] text-blue-900 font-black py-4 px-10 rounded-xl shadow-lg shadow-yellow-500/20 flex items-center gap-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
+              className="bg-brand-orange hover:brightness-105 active:scale-[0.98] text-brand-blue font-black py-4 px-10 rounded-xl shadow-lg shadow-brand-orange/20 flex items-center gap-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
             >
               {confirming ? (
                 <>

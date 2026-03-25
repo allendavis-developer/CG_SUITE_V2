@@ -37,6 +37,7 @@ export default function ResearchOverlayPanel({
             initialSearchQuery={buildInitialSearchQuery(researchItem)}
             useVoucherOffers={useVoucherOffers}
             marketComparisonContext={buildMarketComparisonContext(researchItem)}
+            lineItemContext={researchItem}
           />
         )}
         {cashConvertersResearchItem && (
@@ -54,6 +55,7 @@ export default function ResearchOverlayPanel({
             useVoucherOffers={useVoucherOffers}
             initialSearchQuery={buildInitialSearchQuery(cashConvertersResearchItem)}
             marketComparisonContext={buildMarketComparisonContext(cashConvertersResearchItem)}
+            lineItemContext={cashConvertersResearchItem}
           />
         )}
       </div>

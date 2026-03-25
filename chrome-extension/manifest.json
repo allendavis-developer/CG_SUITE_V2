@@ -24,7 +24,9 @@
     "http://localhost/*",
     "https://localhost/*",
     "http://127.0.0.1/*",
-    "https://127.0.0.1/*"
+    "https://127.0.0.1/*",
+    "https://fonts.googleapis.com/*",
+    "https://fonts.gstatic.com/*"
   ],
   "background": {
     "service_worker": "background.js"

@@ -187,22 +187,22 @@ const OfferSelection = ({
                   p-6 rounded-xl bg-white text-center relative overflow-hidden border-2 cursor-pointer
                   transition-all duration-200 ease-out
                   ${isHighlighted
-                    ? 'border-blue-900 ring-2 ring-blue-900 ring-offset-2 ring-offset-white shadow-xl shadow-blue-900/10 scale-[1.03]'
-                    : 'border-blue-900/40 hover:border-blue-900/70'
+                    ? 'border-brand-blue ring-2 ring-brand-blue ring-offset-2 ring-offset-white shadow-xl shadow-brand-blue/10 scale-[1.03]'
+                    : 'border-brand-blue/40 hover:border-brand-blue/70'
                   }
                 `}
               >
-                <div className={`absolute top-0 left-0 w-full ${isHighlighted ? 'h-1.5 bg-yellow-500' : 'h-1 bg-yellow-500/60'}`} />
-                <h4 className="text-[10px] font-black uppercase text-blue-900 mb-3 tracking-wider">
+                <div className={`absolute top-0 left-0 w-full ${isHighlighted ? 'h-1.5 bg-brand-orange' : 'h-1 bg-brand-orange/60'}`} />
+                <h4 className="text-[10px] font-black uppercase text-brand-blue mb-3 tracking-wider">
                   {offer.title}
                 </h4>
                 <div className="relative mb-3" onClick={(e) => e.stopPropagation()}>
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-lg font-bold text-blue-900">£</span>
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-lg font-bold text-brand-blue">£</span>
                   <input
                     type="number"
                     min="0"
                     step="0.01"
-                    className="w-full pl-7 pr-3 py-2 border-2 border-blue-900/30 rounded-lg text-lg font-extrabold text-blue-900 text-center focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-900"
+                    className="w-full pl-7 pr-3 py-2 border-2 border-brand-blue/30 rounded-lg text-lg font-extrabold text-brand-blue text-center focus:outline-none focus:ring-2 focus:ring-brand-blue/25 focus:border-brand-blue"
                     value={localPrices[offer.id] ?? formatPriceInput(offer.price)}
                     onFocus={() => { focusedOfferIdRef.current = offer.id; }}
                     onChange={(e) => {
@@ -223,7 +223,7 @@ const OfferSelection = ({
                 </div>
                 <div className="flex items-center justify-center gap-1.5">
                   <span className="text-[10px] font-bold text-gray-500 uppercase">Margin</span>
-                  <span className="text-xs font-extrabold text-yellow-500">{recalculatedMargin}%</span>
+                  <span className="text-xs font-extrabold text-brand-orange">{recalculatedMargin}%</span>
                 </div>
               </div>
             );
@@ -250,12 +250,12 @@ const OfferSelection = ({
             tabIndex={0}
             onClick={() => onAddToCart(null)}
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onAddToCart(null); } }}
-            className="p-6 rounded-xl bg-yellow-500 cursor-pointer text-center relative overflow-hidden border-2 border-yellow-500 transition-all duration-200 ease-out hover:bg-yellow-400 hover:border-yellow-400 shadow-md shadow-yellow-500/10 active:scale-[0.98]"
+            className="p-6 rounded-xl bg-brand-orange cursor-pointer text-center relative overflow-hidden border-2 border-brand-orange transition-all duration-200 ease-out hover:bg-brand-orange-hover hover:border-brand-orange shadow-md shadow-brand-orange/10 active:scale-[0.98]"
           >
-            <h4 className="text-[10px] font-black uppercase text-blue-900 mb-4 tracking-wider">
+            <h4 className="text-[10px] font-black uppercase text-brand-blue mb-4 tracking-wider">
               Action
             </h4>
-            <p className="text-4xl font-extrabold text-blue-900 mb-2 flex items-center justify-center gap-2">
+            <p className="text-4xl font-extrabold text-brand-blue mb-2 flex items-center justify-center gap-2">
               <Icon name="add_shopping_cart" className="text-3xl" />
               Add to Cart
             </p>
@@ -279,13 +279,13 @@ const OfferSelection = ({
           </p>
           <div className="flex items-center gap-2 mb-2">
             <div className="relative flex-1">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-blue-900">£</span>
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-brand-blue">£</span>
               <input
                 ref={inputRef}
                 type="number"
                 min="0"
                 step="0.01"
-                className="w-full pl-7 pr-3 py-2.5 border border-gray-300 rounded-lg text-sm font-semibold text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-900"
+                className="w-full pl-7 pr-3 py-2.5 border border-gray-300 rounded-lg text-sm font-semibold text-brand-blue focus:outline-none focus:ring-2 focus:ring-brand-blue/25 focus:border-brand-blue"
                 placeholder="0.00"
                 value={contextMenu.value}
                 onChange={(e) => {
@@ -302,7 +302,7 @@ const OfferSelection = ({
             </div>
             <button
               type="button"
-              className="px-4 py-2.5 text-sm font-semibold text-white bg-blue-900 rounded-lg hover:bg-blue-800 shrink-0"
+              className="px-4 py-2.5 text-sm font-semibold text-white bg-brand-blue rounded-lg hover:bg-brand-blue-hover shrink-0"
               onClick={applyManualAndAddToCart}
             >
               Okay

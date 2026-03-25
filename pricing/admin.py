@@ -2,9 +2,7 @@ from django.contrib import admin
 from django import forms
 from django.utils.html import format_html
 
-
 # --- MODELS V2 ----
-from django.contrib import admin
 from .models_v2 import (
     ProductCategory,
     Manufacturer,
@@ -277,7 +275,9 @@ class RequestItemAdmin(admin.ModelAdmin):
     )
     autocomplete_fields = ("request", "variant")
     readonly_fields = (
-        "raw_data",
+        "get_ebay_research_summary",
+        "get_cc_research_summary",
+        "get_line_context_summary",
         "cash_offers_json",
         "voucher_offers_json",
         "customer_expectation_gbp",
@@ -313,12 +313,46 @@ class RequestItemAdmin(admin.ModelAdmin):
                 'voucher_offers_json',
             )
         }),
-        ('Raw Data', {
-            'fields': ('raw_data',),
+        ('Market research (normalized)', {
+            'fields': (
+                'get_ebay_research_summary',
+                'get_cc_research_summary',
+                'get_line_context_summary',
+            ),
             'classes': ('collapse',),
-            'description': "Raw data used for pricing decisions."
+            'description': "eBay / Cash Converters research is stored relationally; CeX snapshots in JSON fields.",
         }),
     )
+
+    def get_ebay_research_summary(self, obj):
+        s = obj.market_research_sessions.filter(platform="EBAY").first()
+        if not s:
+            return "—"
+        n = s.listings.count()
+        return f"median £{s.stat_median_gbp} · suggested £{s.stat_suggested_sale_gbp} · {n} listing(s)"
+
+    get_ebay_research_summary.short_description = "eBay research"
+
+    def get_cc_research_summary(self, obj):
+        s = obj.market_research_sessions.filter(platform="CASH_CONVERTERS").first()
+        if not s:
+            return "—"
+        n = s.listings.count()
+        return f"median £{s.stat_median_gbp} · suggested £{s.stat_suggested_sale_gbp} · {n} listing(s)"
+
+    get_cc_research_summary.short_description = "Cash Converters research"
+
+    def get_line_context_summary(self, obj):
+        parts = []
+        if obj.cex_line_snapshot_json:
+            parts.append("CeX line snapshot")
+        if obj.cex_reference_json:
+            parts.append("CeX reference")
+        if obj.line_metadata_json:
+            parts.append("negotiation metadata")
+        return ", ".join(parts) if parts else "—"
+
+    get_line_context_summary.short_description = "Other persisted context"
 
     def get_cex_buy_cash(self, obj):
         return obj.variant.tradein_cash if obj.variant else None
@@ -507,10 +541,28 @@ class RepricingSessionItemAdmin(admin.ModelAdmin):
         "new_retail_price",
         "cex_sell_at_repricing",
         "our_sale_price_at_repricing",
-        "raw_data",
-        "cash_converters_data",
+        "get_ebay_research_summary",
+        "get_cc_research_summary",
         "created_at",
     )
+
+    def get_ebay_research_summary(self, obj):
+        s = obj.market_research_sessions.filter(platform="EBAY").first()
+        if not s:
+            return "—"
+        n = s.listings.count()
+        return f"median £{s.stat_median_gbp} · suggested £{s.stat_suggested_sale_gbp} · {n} listing(s)"
+
+    get_ebay_research_summary.short_description = "eBay research"
+
+    def get_cc_research_summary(self, obj):
+        s = obj.market_research_sessions.filter(platform="CASH_CONVERTERS").first()
+        if not s:
+            return "—"
+        n = s.listings.count()
+        return f"median £{s.stat_median_gbp} · suggested £{s.stat_suggested_sale_gbp} · {n} listing(s)"
+
+    get_cc_research_summary.short_description = "Cash Converters research"
 
     def short_stock_url(self, obj):
         if not obj.stock_url:

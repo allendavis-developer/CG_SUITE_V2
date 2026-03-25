@@ -9,7 +9,7 @@ function LinkedPrice({ href, children }) {
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className="text-lg font-extrabold text-blue-800 underline decoration-dotted decoration-2 underline-offset-[3px] hover:text-blue-950"
+      className="text-lg font-extrabold text-brand-blue underline decoration-dotted decoration-2 underline-offset-[3px] hover:text-brand-blue-hover"
     >
       {children}
     </a>

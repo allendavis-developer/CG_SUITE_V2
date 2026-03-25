@@ -26,6 +26,13 @@ export const roundSalePrice = (value) => {
   return Math.round(amount / 2) * 2;
 };
 
+/** Which sale grid applies before rounding (same £50 threshold as `roundSalePrice`). */
+export const salePriceRoundingLabel = (preRoundedValue) => {
+  const amount = Number(preRoundedValue);
+  if (!Number.isFinite(amount)) return '';
+  return amount > 50 ? 'nearest £5' : 'nearest £2';
+};
+
 /** Typed or persisted per-unit sale price: keep value, only snap to pence (no £2/£5 grid). */
 export const normalizeExplicitSalePrice = (value) => {
   const amount = Number(value);

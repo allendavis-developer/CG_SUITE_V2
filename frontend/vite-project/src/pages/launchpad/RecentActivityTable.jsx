@@ -8,7 +8,7 @@ import { formatGBP } from '@/utils/helpers';
 const getTypeDisplay = (intent) => {
   switch (intent) {
     case 'BUYBACK':
-      return { label: 'Buy Back', badgeClass: 'bg-blue-100 text-blue-700', dotClass: 'bg-blue-600' };
+      return { label: 'Buy Back', badgeClass: 'bg-brand-blue/10 text-brand-blue', dotClass: 'bg-brand-blue' };
     case 'STORE_CREDIT':
       return { label: 'Store Credit', badgeClass: 'bg-purple-100 text-purple-700', dotClass: 'bg-purple-600' };
     case 'DIRECT_SALE':

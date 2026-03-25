@@ -27,7 +27,7 @@ export function ItemContextMenu({ x, y, onClose, onRemove, onSetManualOffer }) {
       style={{ left: x, top: y, borderColor: 'var(--ui-border)' }}
     >
       <button
-        className="w-full px-4 py-2.5 text-left text-sm font-semibold hover:bg-blue-50 transition-colors flex items-center gap-2"
+        className="w-full px-4 py-2.5 text-left text-sm font-semibold hover:bg-brand-blue/5 transition-colors flex items-center gap-2"
         style={{ color: 'var(--brand-blue)' }}
         onClick={() => { onSetManualOffer(); onClose(); }}
       >

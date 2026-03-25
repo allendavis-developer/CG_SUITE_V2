@@ -3,6 +3,7 @@ models_v2
 """
 
 from django.db import models
+from django.db.models import Q
 from django.core.validators import MinValueValidator
 from decimal import Decimal
 from django.utils import timezone
@@ -709,8 +710,6 @@ class RequestIntent(models.TextChoices):
     STORE_CREDIT = "STORE_CREDIT"
 
 
-from django.db import models
-
 class Request(models.Model):
     request_id = models.AutoField(primary_key=True)
 
@@ -791,11 +790,20 @@ class RequestItem(models.Model):
         help_text="Expectation for this item"
     )
 
-    # New field to store raw data used in pricing
-    raw_data = models.JSONField(
+    cex_reference_json = models.JSONField(
         null=True,
         blank=True,
-        help_text="Raw data used for pricing decisions (for auditing/review purposes)"
+        help_text="CeX reference bundle (pricing strip, images) attached to this line when eBay/CC research is saved",
+    )
+    cex_line_snapshot_json = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Full 'Add from CeX' product payload when the line is a custom CeX item (non-catalog)",
+    )
+    line_metadata_json = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Negotiation UI metadata (display_title, display_subtitle, etc.)",
     )
 
     quantity = models.PositiveIntegerField(
@@ -843,12 +851,6 @@ class RequestItem(models.Model):
         null=True,
         blank=True,
         help_text="Snapshot of voucher offers presented during negotiation"
-    )
-
-    cash_converters_data = models.JSONField(
-        null=True,
-        blank=True,
-        help_text="Cash Converters research data used for pricing decisions"
     )
 
     notes = models.TextField(blank=True)
@@ -977,21 +979,142 @@ class RepricingSessionItem(models.Model):
         blank=True,
         validators=[MinValueValidator(Decimal("0.00"))]
     )
-    raw_data = models.JSONField(
-        null=True,
-        blank=True,
-        help_text="eBay research data used for repricing"
-    )
-    cash_converters_data = models.JSONField(
-        null=True,
-        blank=True,
-        help_text="Cash Converters research data used for repricing"
-    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = "pricing_repricing_session_item"
         ordering = ["repricing_session_item_id"]
+
+
+class MarketResearchPlatform(models.TextChoices):
+    EBAY = "EBAY", "eBay"
+    CASH_CONVERTERS = "CASH_CONVERTERS", "Cash Converters"
+
+
+class MarketResearchSession(models.Model):
+    """
+    Normalized market research snapshot (eBay or Cash Converters) for a buying line or repricing line.
+    Query listings via MarketResearchListing; session-level stats are indexed columns.
+    """
+
+    session_id = models.BigAutoField(primary_key=True)
+    platform = models.CharField(max_length=32, choices=MarketResearchPlatform.choices, db_index=True)
+
+    request_item = models.ForeignKey(
+        RequestItem,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="market_research_sessions",
+    )
+    repricing_session_item = models.ForeignKey(
+        RepricingSessionItem,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="market_research_sessions",
+    )
+
+    search_term = models.CharField(max_length=500, blank=True, default="")
+    listing_page_url = models.URLField(max_length=2000, blank=True, default="")
+    show_histogram = models.BooleanField(default=False)
+    manual_offer_text = models.CharField(max_length=64, blank=True, default="")
+    selected_offer_index = models.CharField(max_length=32, blank=True, null=True)
+
+    stat_average_gbp = models.DecimalField(
+        max_digits=12, decimal_places=4, null=True, blank=True, db_index=True
+    )
+    stat_median_gbp = models.DecimalField(
+        max_digits=12, decimal_places=4, null=True, blank=True, db_index=True
+    )
+    stat_suggested_sale_gbp = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True, db_index=True
+    )
+
+    advanced_filter_state = models.JSONField(null=True, blank=True)
+    filter_state_json = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="selectedFilters, filterOptions-as-captured from the research form",
+    )
+    buy_offers_json = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Snapshot of calculated buy offers at save time (pctOfSale, price)",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "pricing_market_research_session"
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    (Q(request_item__isnull=False) & Q(repricing_session_item__isnull=True))
+                    | (Q(request_item__isnull=True) & Q(repricing_session_item__isnull=False))
+                ),
+                name="market_research_session_parent_xor",
+            ),
+            models.UniqueConstraint(
+                fields=["request_item", "platform"],
+                condition=Q(request_item__isnull=False),
+                name="uniq_request_item_market_research_platform",
+            ),
+            models.UniqueConstraint(
+                fields=["repricing_session_item", "platform"],
+                condition=Q(repricing_session_item__isnull=False),
+                name="uniq_repricing_item_market_research_platform",
+            ),
+        ]
+
+
+class MarketResearchDrillLevel(models.Model):
+    drill_id = models.BigAutoField(primary_key=True)
+    session = models.ForeignKey(
+        MarketResearchSession,
+        on_delete=models.CASCADE,
+        related_name="drill_levels",
+    )
+    level_index = models.PositiveSmallIntegerField()
+    min_gbp = models.DecimalField(max_digits=12, decimal_places=4)
+    max_gbp = models.DecimalField(max_digits=12, decimal_places=4)
+
+    class Meta:
+        db_table = "pricing_market_research_drill_level"
+        ordering = ["level_index"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["session", "level_index"],
+                name="uniq_research_drill_session_level",
+            ),
+        ]
+
+
+class MarketResearchListing(models.Model):
+    listing_id = models.BigAutoField(primary_key=True)
+    session = models.ForeignKey(
+        MarketResearchSession,
+        on_delete=models.CASCADE,
+        related_name="listings",
+    )
+    sort_order = models.PositiveIntegerField(default=0, db_index=True)
+    client_row_id = models.CharField(max_length=128, blank=True, default="")
+    external_item_id = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    title = models.TextField(blank=True, default="")
+    price_gbp = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True, db_index=True)
+    listing_url = models.URLField(max_length=2000, blank=True, default="")
+    image_url = models.URLField(max_length=2000, blank=True, default="")
+    excluded = models.BooleanField(default=False, db_index=True)
+    sold_text = models.CharField(max_length=256, blank=True, default="")
+    shop_name = models.CharField(max_length=256, blank=True, default="")
+    seller_info = models.TextField(blank=True, default="")
+    extra = models.JSONField(null=True, blank=True)
+
+    class Meta:
+        db_table = "pricing_market_research_listing"
+        ordering = ["sort_order", "listing_id"]
+
 
 class RequestStatus(models.TextChoices):
     QUOTE = "QUOTE"

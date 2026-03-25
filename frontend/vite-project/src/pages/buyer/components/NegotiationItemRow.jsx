@@ -154,7 +154,7 @@ export default function NegotiationItemRow({
       {/* CeX Buy Cash / Voucher / Sell */}
       <PriceCell value={item.cexBuyPrice} quantity={quantity} className="font-medium text-emerald-700" />
       <PriceCell value={item.cexVoucherPrice} quantity={quantity} className="font-medium text-amber-700" />
-      <PriceCell value={item.cexSellPrice} quantity={quantity} className="font-medium text-blue-800" href={item.cexUrl} />
+      <PriceCell value={item.cexSellPrice} quantity={quantity} className="font-medium text-brand-blue" href={item.cexUrl} />
 
       {/* 1st / 2nd / 3rd Offer */}
       <OfferCell offer={offer1} item={item} quantity={quantity} mode={mode} ourSalePrice={ourSalePrice}

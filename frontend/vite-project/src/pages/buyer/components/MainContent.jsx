@@ -650,7 +650,7 @@ const MainContent = ({ mode = 'buyer' }) => {
             <div className="mb-4">
               {isLoadingModels ? (
                 <div className="flex items-center gap-3 text-sm text-gray-600 py-2">
-                  <Icon name="sync" className="animate-spin text-xl text-blue-900" />
+                  <Icon name="sync" className="animate-spin text-xl text-brand-blue" />
                   <span>Loading models…</span>
                 </div>
               ) : (
@@ -676,9 +676,9 @@ const MainContent = ({ mode = 'buyer' }) => {
         </div>
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden p-8">
           {!savedEbayState && cartItems.some((ci) => ci.isCustomEbayItem) && (
-            <div className="mb-6 shrink-0 px-4 py-3 rounded-lg bg-blue-50 border border-blue-200 flex items-center gap-3">
-              <span className="material-symbols-outlined text-blue-600 text-xl">info</span>
-                <p className="text-sm text-blue-900">Click on an item on the right to view its per-item research data.</p>
+            <div className="mb-6 shrink-0 px-4 py-3 rounded-lg bg-brand-blue/5 border border-brand-blue/20 flex items-center gap-3">
+              <span className="material-symbols-outlined text-brand-blue text-xl">info</span>
+                <p className="text-sm text-brand-blue">Click on an item on the right to view its per-item research data.</p>
             </div>
           )}
           <div className="flex-1 min-h-0 min-w-0 flex flex-col">
@@ -730,7 +730,7 @@ const MainContent = ({ mode = 'buyer' }) => {
               )
             ) : isLoadingOffers ? (
               <div className="flex items-center justify-center py-8">
-                <Icon name="sync" className="animate-spin text-2xl text-blue-900 mr-3" />
+                <Icon name="sync" className="animate-spin text-2xl text-brand-blue mr-3" />
                 <span className="text-sm text-gray-600">Loading {useVoucherOffers ? 'voucher' : 'cash'} offers...</span>
               </div>
             ) : isViewingCartItem ? (
@@ -780,8 +780,8 @@ const MainContent = ({ mode = 'buyer' }) => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-2xl shadow-2xl p-7 w-full max-w-sm border border-gray-200">
             <div className="flex items-center gap-3 mb-4">
-              <div className="bg-yellow-500/10 p-2 rounded-lg">
-                <span className="material-symbols-outlined text-yellow-600 text-xl">inventory_2</span>
+              <div className="bg-brand-orange/10 p-2 rounded-lg">
+                <span className="material-symbols-outlined text-brand-orange-hover text-xl">inventory_2</span>
               </div>
               <h2 className="text-base font-extrabold text-gray-900">Item Already in Cart</h2>
             </div>
@@ -790,11 +790,11 @@ const MainContent = ({ mode = 'buyer' }) => {
             </p>
             <div className="flex flex-col gap-3">
               <button type="button" onClick={handleDuplicateIncreaseQty}
-                className="w-full px-4 py-3 bg-blue-900 text-white rounded-xl font-bold hover:bg-blue-800 transition-colors flex items-center justify-center gap-2">
+                className="w-full px-4 py-3 bg-brand-blue text-white rounded-xl font-bold hover:bg-brand-blue-hover transition-colors flex items-center justify-center gap-2">
                 <span className="material-symbols-outlined text-lg">add_circle</span>Increase Quantity
               </button>
               <button type="button" onClick={handleDuplicateAddNew}
-                className="w-full px-4 py-3 border-2 border-blue-900 text-blue-900 rounded-xl font-bold hover:bg-blue-50 transition-colors flex items-center justify-center gap-2">
+                className="w-full px-4 py-3 border-2 border-brand-blue text-brand-blue rounded-xl font-bold hover:bg-brand-blue/5 transition-colors flex items-center justify-center gap-2">
                 <span className="material-symbols-outlined text-lg">add_box</span>Add as Separate Item
               </button>
               <button type="button" onClick={() => { setShowDuplicateDialog(false); setPendingDuplicateItem(null); }}

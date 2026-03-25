@@ -56,10 +56,10 @@ const NotificationToast = ({ id, message, type = 'info', onDismiss }) => {
       break;
     case 'info':
     default:
-      bgColor = 'bg-blue-50';
-      textColor = 'text-blue-900';
-      borderColor = 'border-blue-500';
-      iconColor = 'text-blue-600';
+      bgColor = 'bg-brand-blue/5';
+      textColor = 'text-brand-blue';
+      borderColor = 'border-brand-blue';
+      iconColor = 'text-brand-blue';
       break;
   }
 
@@ -106,7 +106,7 @@ const NotificationToast = ({ id, message, type = 'info', onDismiss }) => {
       <button
         type="button"
         onClick={handleManualClose}
-        className={`flex-shrink-0 rounded p-0.5 ${textColor} opacity-70 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-blue-400/50`}
+        className={`flex-shrink-0 rounded p-0.5 ${textColor} opacity-70 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-brand-blue/40`}
       >
         <span className="sr-only">Dismiss</span>
         <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20" aria-hidden>

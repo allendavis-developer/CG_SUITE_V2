@@ -9,7 +9,7 @@ import NewCustomerDetailsModal from '@/components/modals/NewCustomerDetailsModal
 import SalePriceConfirmModal from '@/components/modals/SalePriceConfirmModal';
 import ResearchOverlayPanel from './components/ResearchOverlayPanel';
 import TinyModal from '@/components/ui/TinyModal';
-import { finishRequest, fetchRequestDetail, updateCustomer, saveQuoteDraft } from '@/services/api';
+import { finishRequest, fetchRequestDetail, updateCustomer, saveQuoteDraft, deleteRequestItem } from '@/services/api';
 import { normalizeExplicitSalePrice, formatOfferPrice } from '@/utils/helpers';
 import { useNotification } from '@/contexts/NotificationContext';
 import useAppStore from '@/store/useAppStore';
@@ -30,23 +30,6 @@ import {
 // ─── Inline styles (shared with layout) ────────────────────────────────────
 
 const NEGOTIATION_STYLES = `
-  :root {
-    --brand-blue: #144584;
-    --brand-blue-hover: #0d315e;
-    --brand-orange: #f7b918;
-    --brand-orange-hover: #e5ab14;
-    --ui-bg: #f8f9fa;
-    --ui-card: #ffffff;
-    --ui-border: #e5e7eb;
-    --text-main: #1a1a1a;
-    --text-muted: #64748b;
-  }
-  body { font-family: 'Inter', sans-serif; }
-  .material-symbols-outlined { font-size: 20px; }
-  ::-webkit-scrollbar { width: 6px; }
-  ::-webkit-scrollbar-track { background: #f1f5f9; }
-  ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-  ::-webkit-scrollbar-thumb:hover { background: #144584; }
   .spreadsheet-table th {
     background: var(--brand-blue);
     color: white;
@@ -89,6 +72,7 @@ const Negotiation = ({ mode }) => {
   const handleAddFromCeX = useAppStore((s) => s.handleAddFromCeX);
   const cexLoading = useAppStore((s) => s.cexLoading);
   const createOrAppendRequestItem = useAppStore((s) => s.createOrAppendRequestItem);
+  const setRequest = useAppStore((s) => s.setRequest);
   const setCustomerInStore = useAppStore((s) => s.setCustomer);
   const setStoreTransactionType = useAppStore((s) => s.setTransactionType);
   const cexProductData = useAppStore((s) => s.cexProductData);
@@ -356,11 +340,30 @@ const Negotiation = ({ mode }) => {
     setItems(prev => prev.map(i => i.id === itemId ? { ...i, ourSalePriceInput: currentValue } : i));
   }, []);
 
-  const handleRemoveFromNegotiation = useCallback((item) => {
-    setItems(prev => prev.filter(i => i.id !== item.id));
+  const handleRemoveFromNegotiation = useCallback(async (item) => {
+    if (item.request_item_id) {
+      try {
+        await deleteRequestItem(item.request_item_id);
+      } catch (err) {
+        console.error(err);
+        showNotification(err?.message || 'Failed to remove item from quote', 'error');
+        return;
+      }
+      const req = storeRequest;
+      if (req?.items?.length) {
+        const rid = Number(item.request_item_id);
+        if (req.items.some((i) => Number(i.request_item_id) === rid)) {
+          setRequest({
+            ...req,
+            items: req.items.filter((i) => Number(i.request_item_id) !== rid),
+          });
+        }
+      }
+    }
+    setItems((prev) => prev.filter((i) => i.id !== item.id));
     setContextMenu(null);
     showNotification(`"${item.title || 'Item'}" removed from negotiation`, 'info');
-  }, [showNotification]);
+  }, [showNotification, storeRequest, setRequest]);
 
   const handleAddNegotiationItem = useCallback(async (cartItem) => {
     if (!cartItem) return;
@@ -654,7 +657,7 @@ const Negotiation = ({ mode }) => {
 
   return (
     <div className="bg-ui-bg text-text-main min-h-screen flex flex-col text-sm overflow-hidden">
-      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+      <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
       <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
       <style>{NEGOTIATION_STYLES}</style>
 
@@ -761,7 +764,7 @@ const Negotiation = ({ mode }) => {
                       {parsedTarget > 0 ? 'Exact total offer required' : 'Not set'}
                     </p>
                     <div
-                      className={`flex items-baseline gap-1 ${mode === 'negotiate' ? 'cursor-pointer rounded-lg p-2 -mx-2 -mb-2 hover:bg-blue-50 transition-colors group' : ''}`}
+                      className={`flex items-baseline gap-1 ${mode === 'negotiate' ? 'cursor-pointer rounded-lg p-2 -mx-2 -mb-2 hover:bg-brand-blue/5 transition-colors group' : ''}`}
                       onClick={mode === 'negotiate' ? () => setShowTargetModal(true) : undefined}
                       role={mode === 'negotiate' ? 'button' : undefined}
                       title={mode === 'negotiate' ? 'Click to set target offer' : undefined}
@@ -771,7 +774,7 @@ const Negotiation = ({ mode }) => {
                         {parsedTarget > 0 ? parsedTarget.toFixed(2) : '0.00'}
                       </span>
                       {mode === 'negotiate' && (
-                        <span className="material-symbols-outlined ml-1 text-blue-300 group-hover:text-blue-600 transition-colors align-middle" style={{ fontSize: '1.5rem' }}>edit</span>
+                        <span className="material-symbols-outlined ml-1 text-brand-blue/45 group-hover:text-brand-blue transition-colors align-middle" style={{ fontSize: '1.5rem' }}>edit</span>
                       )}
                     </div>
                   </div>

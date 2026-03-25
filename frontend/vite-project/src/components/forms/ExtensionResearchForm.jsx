@@ -3,6 +3,7 @@ import { getDataFromListingPage, getDataFromRefine, cancelListingTab, isExtensio
 import ResearchFormShell from './ResearchFormShell';
 import WorkspaceCloseButton from '@/components/ui/WorkspaceCloseButton';
 import { calculateStats, calculateBuyOffers } from './researchStats';
+import { buildOtherResearchChannelsSummaries } from './researchOtherChannelsSummary';
 import { Icon } from '../ui/components';
 import useAppStore, { useEbayOfferMargins } from '@/store/useAppStore';
 
@@ -89,6 +90,7 @@ function ExtensionResearchForm({
   onOffersChange = null,
   containModalInParent = false,
   hideAddAction = false,
+  lineItemContext = null,
 }) {
   const config = SOURCE_CONFIG[source] ?? SOURCE_CONFIG.eBay;
   const isEbay = source === 'eBay';
@@ -239,6 +241,11 @@ function ExtensionResearchForm({
     [displayedStats.suggestedPrice, ebayOfferMargins]
   );
 
+  const otherResearchSummaries = useMemo(() => {
+    if (!showManualOffer || !lineItemContext) return null;
+    return buildOtherResearchChannelsSummaries(lineItemContext, source, { ebayOfferMargins, useVoucherOffers });
+  }, [lineItemContext, showManualOffer, source, ebayOfferMargins, useVoucherOffers]);
+
   // eBay-only: debounced onOffersChange when exclusions or offers change
   const onOffersChangeRef = useRef(onOffersChange);
   useEffect(() => { onOffersChangeRef.current = onOffersChange; });
@@ -313,10 +320,6 @@ function ExtensionResearchForm({
     onOfferSelect?.(offerArg);
   }, [onOfferSelect]);
 
-  const handleResearchCancel = useCallback(() => {
-    onComplete?.({ cancel: true });
-  }, [onComplete]);
-
   const handleResetSearch = useCallback(() => {
     if (isEbay && loading) {
       userCancelledRef.current = true;
@@ -343,7 +346,7 @@ function ExtensionResearchForm({
           type="button"
           onClick={handleGetData}
           disabled={loading || readOnly}
-          className="px-6 py-3 bg-blue-900 text-white font-semibold rounded-xl shadow-md hover:bg-blue-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="px-6 py-3 bg-brand-blue text-white font-semibold rounded-xl shadow-md hover:bg-brand-blue-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {loading ? 'Waiting for you to get the data\u2026' : 'Get data'}
         </button>
@@ -358,10 +361,10 @@ function ExtensionResearchForm({
       return (
         <div className={wrapperClass}>
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white">
-            <header className="bg-blue-900 px-6 py-4 flex items-center justify-between text-white shrink-0">
+            <header className="bg-brand-blue px-6 py-4 flex items-center justify-between text-white shrink-0">
               <div className="flex items-center gap-3">
                 <div className="bg-white/10 p-1.5 rounded">
-                  <Icon name={config.headerIcon} className="text-yellow-500" />
+                  <Icon name={config.headerIcon} className="text-brand-orange" />
                 </div>
                 <div>
                   <h2 className="text-lg font-bold">{config.headerTitle}</h2>
@@ -384,7 +387,7 @@ function ExtensionResearchForm({
     return (
       <div className="flex flex-col h-full bg-gray-50">
         <header className="px-6 py-4 border-b border-gray-200 bg-white shrink-0">
-          <h2 className="text-lg font-bold text-blue-900">{config.headerTitle}</h2>
+          <h2 className="text-lg font-bold text-brand-blue">{config.headerTitle}</h2>
           <p className="text-sm text-gray-500">Get data from a listings page via the Chrome extension</p>
         </header>
         <main className="flex-1 overflow-auto flex flex-col">{getDataBody}</main>
@@ -413,9 +416,8 @@ function ExtensionResearchForm({
       onDrillDown={handleDrillDown}
       onZoomOut={handleZoomOut}
       onNavigateToDrillLevel={handleNavigateToDrillLevel}
-      onComplete={showManualOffer ? undefined : handleComplete}
+      onComplete={handleComplete}
       onCompleteWithSelection={showManualOffer ? handleCompleteWithSelection : undefined}
-      onCancel={handleResearchCancel}
       onAddToCartWithOffer={
         isEbay && !readOnly
           ? (onOfferSelect ? handleOfferSelect : (onComplete && !showManualOffer ? handleAddToCartWithOffer : undefined))
@@ -458,6 +460,7 @@ function ExtensionResearchForm({
       initialAdvancedFilterState={savedState?.advancedFilterState ?? null}
       onAdvancedFilterChange={handleAdvancedFilterChange}
       dataVersion={dataVersion}
+      otherResearchSummaries={otherResearchSummaries}
     />
   );
 }

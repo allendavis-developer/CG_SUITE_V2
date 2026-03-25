@@ -7,24 +7,42 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
-from django.db.models import OuterRef, Subquery, Max
+from django.db.models import OuterRef, Subquery, Max, Prefetch
 import os
 import logging
 import requests
 
 logger = logging.getLogger(__name__)
+
 from pricing.utils.ebay_filters import extract_filters, extract_ebay_search_params, build_ebay_search_url, resolve_ebay_category
 from pricing.utils.cashconverters_filters import build_cashconverters_url, convert_facet_groups_to_filters, resolve_cashconverters_category
 
-from .models_v2 import ( ProductCategory, Product, Variant, Customer,
-Request, RequestItem, RequestStatus, RequestStatusHistory,
-Customer, Variant, RequestIntent, RepricingSession, RepricingSessionItem,
-RepricingSessionStatus, PricingRule
+from .models_v2 import (
+    ProductCategory,
+    Product,
+    Variant,
+    Customer,
+    Request,
+    RequestItem,
+    RequestStatus,
+    RequestStatusHistory,
+    RequestIntent,
+    RepricingSession,
+    RepricingSessionItem,
+    RepricingSessionStatus,
+    PricingRule,
+    MarketResearchSession,
 )
+from . import research_storage
 
 from .serializers import ( RequestSerializer, RequestItemSerializer, CustomerSerializer,
 ProductCategorySerializer, ProductSerializer, CustomerSerializer, VariantMarketStatsSerializer,
 RepricingSessionSerializer
+)
+
+_RESEARCH_SESSION_PREFETCH = Prefetch(
+    "items__market_research_sessions",
+    queryset=MarketResearchSession.objects.prefetch_related("listings", "drill_levels"),
 )
 
 
@@ -33,8 +51,17 @@ def _resolve_cex_sku_to_variant(item_payload):
     if item_payload.get('variant') is not None:
         return
     cex_sku = item_payload.pop('cex_sku', None)
+    if not cex_sku:
+        cr = item_payload.get('cex_reference_json')
+        if isinstance(cr, dict):
+            cex_sku = cr.get('cex_sku') or cr.get('id')
     if not cex_sku and item_payload.get('raw_data'):
-        cex_sku = item_payload.get('raw_data', {}).get('id')
+        raw = item_payload.get('raw_data') or {}
+        cex_sku = raw.get('id')
+        if not cex_sku:
+            rd = raw.get('referenceData') or raw.get('reference_data')
+            if isinstance(rd, dict):
+                cex_sku = rd.get('cex_sku') or rd.get('id')
     if not cex_sku:
         return
     try:
@@ -234,9 +261,10 @@ def requests_view(request):
     """
     if request.method == 'GET':
         requests = Request.objects.all().prefetch_related(
-            'items', 
-            'status_history'
-        ).select_related('customer')
+            "items__variant",
+            _RESEARCH_SESSION_PREFETCH,
+            "status_history",
+        ).select_related("customer")
         
         serializer = RequestSerializer(requests, many=True)
         return Response(serializer.data)
@@ -311,7 +339,16 @@ def requests_view(request):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Return the full request with nested data
+            # Return the full request with nested data (prefetch research for serializer)
+            new_request = (
+                Request.objects.prefetch_related(
+                    "items__variant",
+                    _RESEARCH_SESSION_PREFETCH,
+                    "status_history",
+                )
+                .select_related("customer")
+                .get(pk=new_request.pk)
+            )
             response_serializer = RequestSerializer(new_request)
             return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
@@ -345,9 +382,17 @@ def add_request_item(request, request_id):
     serializer = RequestItemSerializer(data=item_data)
     
     if serializer.is_valid():
-        serializer.save()
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
-    
+        item = serializer.save()
+        item = (
+            RequestItem.objects.prefetch_related(
+                "market_research_sessions__listings",
+                "market_research_sessions__drill_levels",
+            )
+            .select_related("variant", "variant__product", "variant__product__category")
+            .get(pk=item.pk)
+        )
+        return Response(RequestItemSerializer(item).data, status=status.HTTP_201_CREATED)
+
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -358,10 +403,11 @@ def request_detail(request, request_id):
     """
     existing_request = get_object_or_404(
         Request.objects.prefetch_related(
-            'items__variant',
-            'status_history'
-        ).select_related('customer'),
-        request_id=request_id
+            "items__variant",
+            _RESEARCH_SESSION_PREFETCH,
+            "status_history",
+        ).select_related("customer"),
+        request_id=request_id,
     )
     
     serializer = RequestSerializer(existing_request)
@@ -403,7 +449,9 @@ def update_request_intent(request, request_id):
 @api_view(['GET', 'POST'])
 def repricing_sessions_view(request):
     if request.method == 'GET':
-        sessions = RepricingSession.objects.prefetch_related('items').order_by('-created_at')
+        sessions = RepricingSession.objects.prefetch_related(
+            _RESEARCH_SESSION_PREFETCH
+        ).order_by("-created_at")
         serializer = RepricingSessionSerializer(sessions, many=True)
         return Response(serializer.data)
 
@@ -454,7 +502,7 @@ def repricing_sessions_view(request):
                 )
 
             try:
-                RepricingSessionItem.objects.create(
+                line = RepricingSessionItem.objects.create(
                     repricing_session=session,
                     item_identifier=str(item_data.get('item_identifier') or item_data.get('itemId') or '').strip(),
                     title=(item_data.get('title') or '').strip(),
@@ -466,8 +514,11 @@ def repricing_sessions_view(request):
                     new_retail_price=_decimal_or_none(item_data.get('new_retail_price'), 'new_retail_price'),
                     cex_sell_at_repricing=_decimal_or_none(item_data.get('cex_sell_at_repricing'), 'cex_sell_at_repricing'),
                     our_sale_price_at_repricing=_decimal_or_none(item_data.get('our_sale_price_at_repricing'), 'our_sale_price_at_repricing'),
-                    raw_data=item_data.get('raw_data') or {},
-                    cash_converters_data=item_data.get('cash_converters_data') or {},
+                )
+                research_storage.ingest_repricing_line_post_create(
+                    line,
+                    item_data.get('raw_data'),
+                    item_data.get('cash_converters_data'),
                 )
             except ValueError as exc:
                 transaction.set_rollback(True)
@@ -486,8 +537,8 @@ def repricing_sessions_view(request):
 @api_view(['GET', 'PATCH'])
 def repricing_session_detail(request, repricing_session_id):
     session = get_object_or_404(
-        RepricingSession.objects.prefetch_related('items'),
-        repricing_session_id=repricing_session_id
+        RepricingSession.objects.prefetch_related(_RESEARCH_SESSION_PREFETCH),
+        repricing_session_id=repricing_session_id,
     )
 
     if request.method == 'GET':
@@ -534,7 +585,7 @@ def repricing_session_detail(request, repricing_session_id):
                         status=status.HTTP_400_BAD_REQUEST
                     )
                 try:
-                    RepricingSessionItem.objects.create(
+                    line = RepricingSessionItem.objects.create(
                         repricing_session=session,
                         item_identifier=str(item_data.get('item_identifier') or item_data.get('itemId') or '').strip(),
                         title=(item_data.get('title') or '').strip(),
@@ -546,8 +597,11 @@ def repricing_session_detail(request, repricing_session_id):
                         new_retail_price=_decimal_or_none(item_data.get('new_retail_price'), 'new_retail_price'),
                         cex_sell_at_repricing=_decimal_or_none(item_data.get('cex_sell_at_repricing'), 'cex_sell_at_repricing'),
                         our_sale_price_at_repricing=_decimal_or_none(item_data.get('our_sale_price_at_repricing'), 'our_sale_price_at_repricing'),
-                        raw_data=item_data.get('raw_data') or {},
-                        cash_converters_data=item_data.get('cash_converters_data') or {},
+                    )
+                    research_storage.ingest_repricing_line_post_create(
+                        line,
+                        item_data.get('raw_data'),
+                        item_data.get('cash_converters_data'),
                     )
                 except (ValueError, TypeError) as exc:
                     return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
@@ -575,10 +629,10 @@ def requests_overview_list(request):
     requests = Request.objects.annotate(
         latest_status=latest_status_subquery
     ).prefetch_related(
-        'items',
-        'items__variant',
-        'status_history'
-    ).select_related('customer').order_by('-created_at')
+        "items__variant",
+        _RESEARCH_SESSION_PREFETCH,
+        "status_history",
+    ).select_related("customer").order_by("-created_at")
 
     status_filter = request.query_params.get('status')
     if status_filter:
@@ -657,37 +711,33 @@ def update_request_item_raw_data(request, request_item_id):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    update_fields = []
-
     if has_raw_data:
-        new_raw_data = request.data.get('raw_data')
+        new_raw_data = request.data.get("raw_data")
         if new_raw_data is not None and not isinstance(new_raw_data, dict):
             return Response(
                 {"error": "'raw_data' must be a JSON object/dict or null"},
-                status=status.HTTP_400_BAD_REQUEST
+                status=status.HTTP_400_BAD_REQUEST,
             )
-        existing_item.raw_data = new_raw_data
-        update_fields.append('raw_data')
+        research_storage.apply_partial_raw_data_update(existing_item, new_raw_data)
 
     if has_cash_converters_data:
-        new_cash_converters_data = request.data.get('cash_converters_data')
-        if new_cash_converters_data is not None and not isinstance(new_cash_converters_data, dict):
+        new_cc = request.data.get("cash_converters_data")
+        if new_cc is not None and not isinstance(new_cc, dict):
             return Response(
                 {"error": "'cash_converters_data' must be a JSON object/dict or null"},
-                status=status.HTTP_400_BAD_REQUEST
+                status=status.HTTP_400_BAD_REQUEST,
             )
-        existing_item.cash_converters_data = new_cash_converters_data
-        update_fields.append('cash_converters_data')
-
-    existing_item.save(update_fields=update_fields)
+        research_storage.apply_partial_cc_data_update(existing_item, new_cc)
 
     return Response(
         {
             "request_item_id": existing_item.request_item_id,
-            "raw_data": existing_item.raw_data,
-            "cash_converters_data": existing_item.cash_converters_data,
+            "raw_data": research_storage.compose_raw_data_for_request_item(existing_item),
+            "cash_converters_data": research_storage.compose_cash_converters_for_request_item(
+                existing_item
+            ),
         },
-        status=status.HTTP_200_OK
+        status=status.HTTP_200_OK,
     )
 
 
@@ -883,10 +933,13 @@ def finish_request(request, request_id):
                     {"error": f"negotiated_price_gbp for item {request_item_id}: {e.messages[0]}"},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-        if 'raw_data' in item_data:
-            request_item.raw_data = item_data['raw_data']
-            update_fields.append('raw_data')
-        
+        if "raw_data" in item_data or "cash_converters_data" in item_data:
+            research_storage.finish_sync_request_item_research(
+                request_item,
+                item_data.get("raw_data"),
+                item_data.get("cash_converters_data"),
+            )
+
         if 'cash_offers_json' in item_data:
             request_item.cash_offers_json = item_data['cash_offers_json']
             update_fields.append('cash_offers_json')
@@ -894,10 +947,6 @@ def finish_request(request, request_id):
         if 'voucher_offers_json' in item_data:
             request_item.voucher_offers_json = item_data['voucher_offers_json']
             update_fields.append('voucher_offers_json')
-        
-        if 'cash_converters_data' in item_data:
-            request_item.cash_converters_data = item_data['cash_converters_data']
-            update_fields.append('cash_converters_data')
         
         if 'our_sale_price_at_negotiation' in item_data:
             try:

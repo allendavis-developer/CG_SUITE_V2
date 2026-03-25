@@ -52,19 +52,19 @@ const CartSidebar = ({ mode = 'buyer', onTransactionTypeChange = null }) => {
   const disableProceed = cartItems.length === 0 || isRepricing;
 
   return (
-    <aside className="w-1/5 min-w-0 min-h-0 shrink-0 border-l border-blue-900/20 flex flex-col bg-white overflow-hidden">
+    <aside className="w-1/5 min-w-0 min-h-0 shrink-0 border-l border-brand-blue/20 flex flex-col bg-white overflow-hidden">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-blue-900/20 bg-blue-900 shadow-md shadow-blue-900/10">
+      <div className="px-4 py-3 border-b border-brand-blue/20 bg-brand-blue shadow-md shadow-brand-blue/10">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-yellow-400 text-base">
+            <span className="material-symbols-outlined text-brand-orange text-base">
               {isRepricing ? 'sell' : 'shopping_cart'}
             </span>
             <div>
               <p className="text-xs font-black uppercase tracking-wider text-white">
                 {isRepricing ? 'Reprice List' : 'Cart'}
               </p>
-              <p className="text-[10px] text-blue-200">
+              <p className="text-[10px] text-white/70">
                 {cartItems.length} item{cartItems.length !== 1 ? 's' : ''}
               </p>
             </div>
@@ -73,7 +73,7 @@ const CartSidebar = ({ mode = 'buyer', onTransactionTypeChange = null }) => {
             <button
               type="button"
               onClick={() => setShowNewSessionConfirm(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold text-blue-200 hover:text-white hover:bg-white/10 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold text-white/70 hover:text-white hover:bg-white/10 transition-colors"
               title="Clear cart, customer, and start fresh"
             >
               <Icon name="refresh" className="text-sm" />
@@ -83,7 +83,7 @@ const CartSidebar = ({ mode = 'buyer', onTransactionTypeChange = null }) => {
             <button
               type="button"
               onClick={() => setShowNewSessionConfirm(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold text-blue-200 hover:text-white hover:bg-white/10 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold text-white/70 hover:text-white hover:bg-white/10 transition-colors"
               title="Clear reprice list and start a new repricing session"
             >
               <Icon name="refresh" className="text-sm" />
@@ -102,8 +102,8 @@ const CartSidebar = ({ mode = 'buyer', onTransactionTypeChange = null }) => {
           </div>
         ) : (
           <>
-            <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded-md">
-              <p className="text-xs text-blue-700 text-center flex items-center justify-center gap-1">
+            <div className="mb-3 p-2 bg-brand-blue/5 border border-brand-blue/20 rounded-md">
+              <p className="text-xs text-brand-blue text-center flex items-center justify-center gap-1">
                 <Icon name="info" className="text-sm" />
                 Click any item to view details
               </p>
@@ -127,16 +127,16 @@ const CartSidebar = ({ mode = 'buyer', onTransactionTypeChange = null }) => {
       </div>
 
       {/* Footer */}
-      <div className="p-6 bg-white border-t border-blue-900/20 space-y-4">
+      <div className="p-6 bg-white border-t border-brand-blue/20 space-y-4">
         {!isRepricing && allItemsHaveOffer && (
           <div className="flex justify-between items-baseline">
             <div className="flex flex-col">
-              <span className="text-2xl font-black uppercase tracking-widest text-blue-900">Total Offer</span>
+              <span className="text-2xl font-black uppercase tracking-widest text-brand-blue">Total Offer</span>
               <span className="text-[9px] text-gray-500 font-bold">
                 {customerData.transactionType === 'store_credit' ? '(Voucher)' : '(Cash)'}
               </span>
             </div>
-            <span className="text-3xl font-black text-blue-900 tabular-nums">£{totalOffer.toFixed(2)}</span>
+            <span className="text-3xl font-black text-brand-blue tabular-nums">£{totalOffer.toFixed(2)}</span>
           </div>
         )}
 
@@ -210,21 +210,21 @@ function CartItemCard({ item, isSelected, isRepricing, customerData, onSelect, o
       tabIndex={0}
       className={`border rounded-lg p-3 cursor-pointer transition-all relative select-none ${
         isSelected
-          ? 'border-blue-600 bg-blue-50 shadow-md'
-          : 'border-blue-900/10 bg-gray-50/30 hover:border-blue-400 hover:bg-blue-50/50'
+          ? 'border-brand-blue bg-brand-blue/5 shadow-md'
+          : 'border-brand-blue/10 bg-gray-50/30 hover:border-brand-blue/40 hover:bg-brand-blue/5/50'
       }`}
       onClick={onSelect}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(); } }}
     >
       {isSelected && (
         <div className="absolute top-2 right-2">
-          <Icon name="check_circle" className="text-blue-600 text-base" />
+          <Icon name="check_circle" className="text-brand-blue text-base" />
         </div>
       )}
       <div className="flex justify-between items-start">
         <div className="flex-1 pr-6">
-          <h4 className="font-bold text-sm text-blue-900">{item.title}</h4>
-          <p className="text-xs text-blue-900/60">{item.subtitle}</p>
+          <h4 className="font-bold text-sm text-brand-blue">{item.title}</h4>
+          <p className="text-xs text-brand-blue/60">{item.subtitle}</p>
         </div>
         <Button variant="ghost" className="h-6 w-6 p-0 min-w-0" onClick={(e) => { e.stopPropagation(); onRemove(); }}>
           <Icon name="close" className="text-sm" />
@@ -234,9 +234,9 @@ function CartItemCard({ item, isSelected, isRepricing, customerData, onSelect, o
       {!isRepricing && (
         <div className="mt-3 flex items-center gap-2">
           <span className="text-xs text-gray-500 font-medium">Qty:</span>
-          <div className="flex items-center border border-blue-900/20 rounded-md overflow-hidden">
-            <Button variant="ghost" className="h-7 w-7 p-0 min-w-0 rounded-none hover:bg-blue-50" onClick={(e) => { e.stopPropagation(); onDecrement(); }}>
-              <Icon name="remove" className="text-sm text-blue-900" />
+          <div className="flex items-center border border-brand-blue/20 rounded-md overflow-hidden">
+            <Button variant="ghost" className="h-7 w-7 p-0 min-w-0 rounded-none hover:bg-brand-blue/5" onClick={(e) => { e.stopPropagation(); onDecrement(); }}>
+              <Icon name="remove" className="text-sm text-brand-blue" />
             </Button>
             <input
               type="number"
@@ -244,10 +244,10 @@ function CartItemCard({ item, isSelected, isRepricing, customerData, onSelect, o
               value={item.quantity || 1}
               onChange={(e) => onQuantityChange(e.target.value)}
               onClick={(e) => e.stopPropagation()}
-              className="w-12 h-7 text-center text-sm font-semibold text-blue-900 border-x border-blue-900/20 focus:outline-none focus:bg-blue-50"
+              className="w-12 h-7 text-center text-sm font-semibold text-brand-blue border-x border-brand-blue/20 focus:outline-none focus:bg-brand-blue/5"
             />
-            <Button variant="ghost" className="h-7 w-7 p-0 min-w-0 rounded-none hover:bg-blue-50" onClick={(e) => { e.stopPropagation(); onIncrement(); }}>
-              <Icon name="add" className="text-sm text-blue-900" />
+            <Button variant="ghost" className="h-7 w-7 p-0 min-w-0 rounded-none hover:bg-brand-blue/5" onClick={(e) => { e.stopPropagation(); onIncrement(); }}>
+              <Icon name="add" className="text-sm text-brand-blue" />
             </Button>
           </div>
         </div>
@@ -263,7 +263,7 @@ function CartItemCard({ item, isSelected, isRepricing, customerData, onSelect, o
               <React.Fragment key={offer.id}>
                 <span
                   className={`font-medium px-2 py-0.5 rounded ${
-                    item.selectedOfferId === offer.id ? 'bg-blue-600 text-white' : ''
+                    item.selectedOfferId === offer.id ? 'bg-brand-blue text-white' : ''
                   }`}
                 >
                   £{formatOfferPrice(offer.price)}
@@ -272,7 +272,7 @@ function CartItemCard({ item, isSelected, isRepricing, customerData, onSelect, o
               </React.Fragment>
             ))}
             {hasManualSelected && (
-              <span className="font-medium px-2 py-0.5 rounded bg-blue-600 text-white">
+              <span className="font-medium px-2 py-0.5 rounded bg-brand-blue text-white">
                 Manual £{formatOfferPrice(item.manualOffer)}
               </span>
             )}

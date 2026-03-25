@@ -19,7 +19,7 @@ export function DualRangeSlider({ min, max, valueMin, valueMax, onMinChange, onM
       <div className="relative h-8 flex items-center">
         <div className="absolute left-0 right-0 h-1.5 bg-gray-200 rounded-full pointer-events-none" />
         <div
-          className="absolute h-1.5 bg-blue-900 rounded-full pointer-events-none"
+          className="absolute h-1.5 bg-brand-blue rounded-full pointer-events-none"
           style={{ left: `${pctMin}%`, right: `${100 - pctMax}%` }}
         />
         <input
@@ -36,10 +36,10 @@ export function DualRangeSlider({ min, max, valueMin, valueMax, onMinChange, onM
         />
       </div>
       <div className="flex justify-between mt-2">
-        <span className="text-[11px] font-bold text-blue-900 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5">
+        <span className="text-[11px] font-bold text-brand-blue bg-brand-blue/5 border border-brand-blue/20 rounded px-1.5 py-0.5">
           £{valueMin.toFixed(2)}
         </span>
-        <span className="text-[11px] font-bold text-blue-900 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5">
+        <span className="text-[11px] font-bold text-brand-blue bg-brand-blue/5 border border-brand-blue/20 rounded px-1.5 py-0.5">
           £{valueMax.toFixed(2)}
         </span>
       </div>
@@ -66,7 +66,7 @@ export function DualDateRangeSlider({ minMs, maxMs, valueMinMs, valueMaxMs, onMi
       <div className="relative h-8 flex items-center">
         <div className="absolute left-0 right-0 h-1.5 bg-gray-200 rounded-full pointer-events-none" />
         <div
-          className="absolute h-1.5 bg-blue-900 rounded-full pointer-events-none"
+          className="absolute h-1.5 bg-brand-blue rounded-full pointer-events-none"
           style={{ left: `${pctMin}%`, right: `${100 - pctMax}%` }}
         />
         <input
@@ -83,10 +83,10 @@ export function DualDateRangeSlider({ minMs, maxMs, valueMinMs, valueMaxMs, onMi
         />
       </div>
       <div className="flex justify-between mt-2">
-        <span className="text-[11px] font-bold text-blue-900 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5">
+        <span className="text-[11px] font-bold text-brand-blue bg-brand-blue/5 border border-brand-blue/20 rounded px-1.5 py-0.5">
           {formatSoldDateMs(valueMinMs)}
         </span>
-        <span className="text-[11px] font-bold text-blue-900 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5">
+        <span className="text-[11px] font-bold text-brand-blue bg-brand-blue/5 border border-brand-blue/20 rounded px-1.5 py-0.5">
           {formatSoldDateMs(valueMaxMs)}
         </span>
       </div>
@@ -105,7 +105,7 @@ export function DualIndexRangeSlider({ min, max, valueMin, valueMax, onMinChange
       <div className="relative h-8 flex items-center">
         <div className="absolute left-0 right-0 h-1.5 bg-gray-200 rounded-full pointer-events-none" />
         <div
-          className="absolute h-1.5 bg-blue-900 rounded-full pointer-events-none"
+          className="absolute h-1.5 bg-brand-blue rounded-full pointer-events-none"
           style={{ left: `${pctMin}%`, right: `${100 - pctMax}%` }}
         />
         <input
@@ -122,10 +122,10 @@ export function DualIndexRangeSlider({ min, max, valueMin, valueMax, onMinChange
         />
       </div>
       <div className="flex justify-between mt-2">
-        <span className="text-[11px] font-bold text-blue-900 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5">
+        <span className="text-[11px] font-bold text-brand-blue bg-brand-blue/5 border border-brand-blue/20 rounded px-1.5 py-0.5">
           {getLabel(valueMin)}
         </span>
-        <span className="text-[11px] font-bold text-blue-900 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5">
+        <span className="text-[11px] font-bold text-brand-blue bg-brand-blue/5 border border-brand-blue/20 rounded px-1.5 py-0.5">
           {getLabel(valueMax)}
         </span>
       </div>

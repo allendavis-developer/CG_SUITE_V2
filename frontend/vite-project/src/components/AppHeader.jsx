@@ -477,7 +477,7 @@ const AppHeader = ({
           type="button"
           className={`w-full flex items-center p-2 rounded-lg text-left cursor-pointer text-sm ${
             isSelected
-              ? 'bg-yellow-500/10 text-yellow-500 font-semibold border-l-2 border-yellow-500'
+              ? 'bg-brand-orange/10 text-brand-orange font-semibold border-l-2 border-brand-orange'
               : 'text-white/70 hover:bg-white/10'
           } ${!isSelected && isExpanded ? 'bg-white/5' : ''}`}
           onClick={() => {
@@ -605,7 +605,7 @@ const AppHeader = ({
                     }}
                     className={`min-h-10 inline-flex items-center gap-2 px-2 py-1.5 text-left text-xs font-semibold transition-colors ${
                       isHighlighted
-                        ? 'text-yellow-300 underline decoration-yellow-300/80 decoration-2 underline-offset-4'
+                        ? 'text-brand-orange/90 underline decoration-brand-orange/80 decoration-2 underline-offset-4'
                         : 'text-white/90 hover:text-white'
                     }`}
                   >
@@ -640,7 +640,7 @@ const AppHeader = ({
                   }}
                   className={`h-full min-w-11 border-l px-3 text-sm font-extrabold uppercase tracking-wide transition-colors ${
                     workspaceMode === 'ebay'
-                      ? 'border-yellow-300/70 bg-yellow-400/25 text-yellow-100 ring-1 ring-inset ring-yellow-400/50'
+                      ? 'border-brand-orange/70 bg-brand-orange/25 text-brand-orange/80 ring-1 ring-inset ring-brand-orange/50'
                       : 'border-white/20 bg-white/5 text-white hover:bg-white/15'
                   }`}
                   title="eBay"
@@ -658,7 +658,7 @@ const AppHeader = ({
                   disabled={buyerControls?.isCeXLoading}
                   className={`h-full min-w-11 border-l px-3 text-sm font-extrabold uppercase tracking-wide transition-colors ${
                     workspaceMode === 'cex'
-                      ? 'border-yellow-300/70 bg-yellow-400/25 text-yellow-100 ring-1 ring-inset ring-yellow-400/50'
+                      ? 'border-brand-orange/70 bg-brand-orange/25 text-brand-orange/80 ring-1 ring-inset ring-brand-orange/50'
                       : 'border-white/20 bg-white/5 text-white hover:bg-white/15'
                   } disabled:cursor-not-allowed disabled:opacity-60`}
                   title="Add from CeX"
@@ -690,8 +690,8 @@ const AppHeader = ({
                 <div
                   className={
                     showNegotiationItemBuilder
-                      ? 'w-[420px] h-full overflow-y-auto border-r border-white/10 bg-blue-900 p-2'
-                      : 'w-[420px] max-h-[440px] overflow-y-auto rounded-l-xl border border-white/10 bg-blue-900 p-2 shadow-2xl'
+                      ? 'w-[420px] h-full overflow-y-auto border-r border-white/10 bg-brand-blue p-2'
+                      : 'w-[420px] max-h-[440px] overflow-y-auto rounded-l-xl border border-white/10 bg-brand-blue p-2 shadow-2xl'
                   }
                 >
                 <div className="mb-2 border-b border-white/10 px-2 pb-2">
@@ -706,7 +706,7 @@ const AppHeader = ({
                     </span>
                     <input
                       ref={categoryFilterInputRef}
-                      className="w-full bg-white/10 border-white/10 border rounded-lg pl-9 py-2 text-sm text-white focus:ring-1 focus:ring-yellow-500 placeholder:text-white/30"
+                      className="w-full bg-white/10 border-white/10 border rounded-lg pl-9 py-2 text-sm text-white focus:ring-1 focus:ring-brand-orange placeholder:text-white/30"
                       placeholder="Filter categories..."
                       type="text"
                       value={categorySearch}
@@ -863,7 +863,7 @@ const AppHeader = ({
                               disabled={isLoadingOffers}
                               onClick={() => handleAddNegotiationItem(null)}
                               className="w-full py-4 rounded-xl font-bold text-sm uppercase tracking-wide transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                              style={{ background: '#f7b918', color: '#144584' }}
+                              style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
                             >
                               <span className="material-symbols-outlined text-[20px]">sell</span>
                               Add to reprice list

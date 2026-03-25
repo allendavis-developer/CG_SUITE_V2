@@ -46,7 +46,7 @@ const RequestsOverview = () => {
   const getStatusColor = (status) => {
     switch (status) {
       case 'QUOTE': 
-        return 'bg-blue-600/10 text-blue-600';
+        return 'bg-brand-blue/10 text-brand-blue';
       case 'BOOKED_FOR_TESTING': 
         return 'bg-amber-600/10 text-amber-600';
       case 'COMPLETE': 
@@ -113,26 +113,22 @@ const RequestsOverview = () => {
     <div className="bg-gray-50 text-gray-900 min-h-screen flex flex-col text-sm">
       <style>{`
         .material-symbols-outlined { font-size: 20px; font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: #f1f5f9; }
-        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: #144584; }
         .data-table th {
-          background: #f8fafc;
-          color: #144584;
+          background: var(--ui-bg);
+          color: var(--brand-blue);
           font-weight: 700;
           font-size: 11px;
           text-transform: uppercase;
           letter-spacing: 0.05em;
           padding: 1rem 1.5rem;
-          border-bottom: 1px solid #e5e7eb;
+          border-bottom: 1px solid var(--ui-border);
           position: sticky;
           top: 0;
           z-index: 10;
         }
         .data-table td {
           padding: 1rem 1.5rem;
-          border-bottom: 1px solid #e5e7eb;
+          border-bottom: 1px solid var(--ui-border);
           vertical-align: middle;
         }
         .data-table tr {
@@ -140,7 +136,7 @@ const RequestsOverview = () => {
           transition: background-color 150ms;
         }
         .data-table tr:hover {
-          background-color: #f8fafc;
+          background-color: var(--ui-bg);
         }
         .status-pill {
           padding: 0.25rem 0.625rem;
@@ -160,7 +156,7 @@ const RequestsOverview = () => {
 
       <main className="flex flex-1 overflow-hidden h-[calc(100vh-65px)]">
         {/* Sidebar */}
-        <aside className="w-64 bg-blue-900 flex flex-col shrink-0">
+        <aside className="w-64 bg-brand-blue flex flex-col shrink-0">
           <div className="p-6 space-y-8">
             <div>
               <h3 className="text-white/40 text-[10px] font-black uppercase tracking-widest mb-4">Main Menu</h3>
@@ -169,7 +165,7 @@ const RequestsOverview = () => {
                   className="flex items-center gap-3 text-white py-2 bg-white/10 rounded-lg px-3 -mx-3 cursor-pointer"
                   onClick={() => navigate('/requests-overview')}
                 >
-                  <span className="material-symbols-outlined text-sm text-amber-400">receipt_long</span>
+                  <span className="material-symbols-outlined text-sm text-brand-orange">receipt_long</span>
                   <span className="text-sm font-bold">Overview</span>
                 </a>
               </nav>
@@ -204,11 +200,11 @@ const RequestsOverview = () => {
         <section className="flex-1 bg-white flex flex-col overflow-hidden">
           <div className="px-6 py-4 flex items-center justify-between border-b border-gray-200 bg-white">
             <div className="flex items-center gap-4">
-              <h1 className="text-xl font-extrabold text-blue-900">{getFilterTitle(filterStatus)}</h1>
-              <span className="bg-blue-900/10 text-blue-900 text-[11px] font-black px-2.5 py-0.5 rounded-full">
+              <h1 className="text-xl font-extrabold text-brand-blue">{getFilterTitle(filterStatus)}</h1>
+              <span className="bg-brand-blue/10 text-brand-blue text-[11px] font-black px-2.5 py-0.5 rounded-full">
                 {filteredRequests.length} TOTAL
               </span>
-              <span className="bg-blue-900/10 text-blue-900 text-[11px] font-black px-2.5 py-0.5 rounded-full">
+              <span className="bg-brand-blue/10 text-brand-blue text-[11px] font-black px-2.5 py-0.5 rounded-full">
                 £{totalGrandValue.toFixed(2)} VALUE
               </span>
             </div>
@@ -220,7 +216,7 @@ const RequestsOverview = () => {
                 onChange={(value) => setFilterStatus(value)}
               />
               <button 
-                className="flex items-center gap-2 px-4 py-2 bg-blue-900 text-white rounded-lg hover:bg-blue-800 transition-colors font-bold"
+                className="flex items-center gap-2 px-4 py-2 bg-brand-blue text-white rounded-lg hover:bg-brand-blue-hover transition-colors font-bold"
                 onClick={() => navigate('/buyer')}
               >
                 <span className="material-symbols-outlined text-sm">add</span>
@@ -274,17 +270,17 @@ const RequestsOverview = () => {
                       <td className="font-bold text-gray-600">#{requestItem.request_id}</td>
                       <td>
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center font-bold text-blue-900 text-[11px]">
+                          <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center font-bold text-brand-blue text-[11px]">
                             {getInitials(requestItem.customer_details.name)}
                           </div>
-                          <div className="font-bold text-blue-900 text-[13px]">
+                          <div className="font-bold text-brand-blue text-[13px]">
                             {requestItem.customer_details.name}
                           </div>
                         </div>
                       </td>
                       <td className="font-semibold text-gray-600">{formatIntent(requestItem.intent)}</td>
                       <td className="font-semibold">{requestItem.items.length} Item{requestItem.items.length !== 1 ? 's' : ''}</td>
-                      <td className="font-bold text-blue-900 text-[13px]">£{Number(requestItem.negotiated_grand_total_gbp)?.toFixed(2) || '0.00'}</td>
+                      <td className="font-bold text-brand-blue text-[13px]">£{Number(requestItem.negotiated_grand_total_gbp)?.toFixed(2) || '0.00'}</td>
                       <td>
                         <span className={`status-pill ${getStatusColor(requestItem.current_status)}`}>
                           {formatStatus(requestItem.current_status)}

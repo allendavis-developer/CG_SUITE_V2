@@ -72,11 +72,11 @@ export default function CexProductView({
       <section className="buyer-main-content w-3/5 min-w-0 min-h-0 flex-1 bg-white flex flex-col overflow-y-auto buyer-panel-scroll">
         <div className="flex items-center justify-between px-8 bg-gray-50 border-b border-gray-200 sticky top-0 z-40">
           <div className="flex items-center gap-3 py-4">
-            <div className="bg-blue-900 p-1.5 rounded">
-              <span className="material-symbols-outlined text-yellow-400 text-sm">add_link</span>
+            <div className="bg-brand-blue p-1.5 rounded">
+              <span className="material-symbols-outlined text-brand-orange text-sm">add_link</span>
             </div>
             <div>
-              <h2 className="text-sm font-bold text-blue-900">{item.title || 'CeX Product'}</h2>
+              <h2 className="text-sm font-bold text-brand-blue">{item.title || 'CeX Product'}</h2>
               <p className="text-[10px] text-gray-500 uppercase tracking-wider">Viewing saved item</p>
             </div>
           </div>
@@ -266,7 +266,7 @@ export default function CexProductView({
               type="button"
               onClick={() => handleAdd(null)}
               className="w-full py-4 rounded-xl font-bold text-sm uppercase tracking-wide transition-colors flex items-center justify-center gap-2"
-              style={{ background: '#f7b918', color: '#144584' }}
+              style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
             >
               <span className="material-symbols-outlined text-[20px]">sell</span>
               Add to reprice list

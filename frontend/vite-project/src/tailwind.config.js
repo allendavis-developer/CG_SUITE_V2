@@ -17,7 +17,7 @@ module.exports = {
         "text-muted": "#64748b",
       },
       fontFamily: {
-        sans: ["Inter", "sans-serif"],
+        sans: ["Roboto Variable", "Roboto", "sans-serif"],
       },
       // Prefer `src/index.css` :root `--radius` + @theme tokens for the live app (Tailwind v4).
       borderRadius: {

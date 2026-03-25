@@ -866,7 +866,7 @@ const RepricingNegotiation = () => {
   // ── Loading state ─────────────────────────────────────────────────────────────
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: '#f8f9fa' }}>
+      <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--ui-bg)' }}>
         <p className="text-sm text-gray-500">Loading reprice list...</p>
       </div>
     );
@@ -875,23 +875,11 @@ const RepricingNegotiation = () => {
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
     <div className="text-sm overflow-hidden min-h-screen flex flex-col" style={{ background: '#f8f9fa', color: '#1a1a1a' }}>
-      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+      <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
       <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
       <style>{`
-        :root {
-          --brand-blue: #144584;
-          --brand-orange: #f7b918;
-          --ui-border: #e5e7eb;
-          --text-muted: #64748b;
-        }
-        body { font-family: 'Inter', sans-serif; }
-        .material-symbols-outlined { font-size: 20px; }
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: #f1f5f9; }
-        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: #144584; }
         .reprice-table th {
-          background: #144584;
+          background: var(--brand-blue);
           color: white;
           font-weight: 600;
           font-size: 10px;
@@ -911,7 +899,7 @@ const RepricingNegotiation = () => {
         }
         .reprice-table td:last-child { border-right: 0; }
         .reprice-table tr { border-bottom: 1px solid #e5e7eb; }
-        .reprice-table tr:hover { background: rgba(20,69,132,0.05); }
+        .reprice-table tr:hover { background: var(--brand-blue-alpha-05); }
       `}</style>
 
       <AppHeader
@@ -944,11 +932,11 @@ const RepricingNegotiation = () => {
             <div className="flex items-center justify-between gap-6">
               <div
                 className="flex items-center gap-3 px-5 py-3 rounded-xl border"
-                style={{ borderColor: 'rgba(20,69,132,0.2)', background: 'rgba(20,69,132,0.03)' }}
+                style={{ borderColor: 'var(--brand-blue-alpha-20)', background: 'var(--brand-blue-alpha-03)' }}
               >
-                <span className="material-symbols-outlined text-2xl" style={{ color: '#144584' }}>sell</span>
+                <span className="material-symbols-outlined text-2xl" style={{ color: 'var(--brand-blue)' }}>sell</span>
                 <div>
-                  <p className="text-[10px] font-black uppercase tracking-wider" style={{ color: '#144584' }}>
+                  <p className="text-[10px] font-black uppercase tracking-wider" style={{ color: 'var(--brand-blue)' }}>
                     Repricing Session
                   </p>
                   <p className="text-xs" style={{ color: '#64748b' }}>
@@ -961,7 +949,7 @@ const RepricingNegotiation = () => {
                 <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: '#64748b' }}>
                   Items
                 </p>
-                <p className="text-lg font-bold" style={{ color: '#144584' }}>
+                <p className="text-lg font-bold" style={{ color: 'var(--brand-blue)' }}>
                   {activeItems.length}
                 </p>
               </div>
@@ -1035,7 +1023,7 @@ const RepricingNegotiation = () => {
                       <td>
                         <div
                           className="font-bold text-[13px] flex items-center gap-2 flex-wrap"
-                          style={{ color: '#144584' }}
+                          style={{ color: 'var(--brand-blue)' }}
                         >
                           {item.title || 'N/A'}
                           {cexOutOfStock && (
@@ -1054,7 +1042,7 @@ const RepricingNegotiation = () => {
                       </td>
 
                       {/* CeX Sell */}
-                      <td className="font-medium text-blue-800 align-top">
+                      <td className="font-medium text-brand-blue align-top">
                         {item.cexSellPrice != null ? (
                           <div>
                             {item.cexUrl ? (
@@ -1114,12 +1102,12 @@ const RepricingNegotiation = () => {
                       <td>
                         {ebayData?.stats?.median ? (
                           <div className="flex items-center justify-between gap-2">
-                            <div className="text-[13px] font-medium" style={{ color: '#144584' }}>
+                            <div className="text-[13px] font-medium" style={{ color: 'var(--brand-blue)' }}>
                               <div>£{Number(ebayData.stats.median).toFixed(2)}</div>
                             </div>
                             <button
                               className="flex items-center justify-center size-7 rounded transition-colors shrink-0"
-                              style={{ background: '#f7b918', color: '#144584' }}
+                              style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
                               onClick={() => setResearchItem(item)}
                               title="View/Refine eBay Research"
                             >
@@ -1131,7 +1119,7 @@ const RepricingNegotiation = () => {
                             <span className="text-[13px] font-medium" style={{ color: '#64748b' }}>—</span>
                             <button
                               className="flex items-center justify-center size-7 rounded transition-colors shrink-0"
-                              style={{ background: '#f7b918', color: '#144584' }}
+                              style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
                               onClick={() => setResearchItem(item)}
                               title="Research eBay"
                             >
@@ -1145,12 +1133,12 @@ const RepricingNegotiation = () => {
                       <td>
                         {ccData?.stats?.median ? (
                           <div className="flex items-center justify-between gap-2">
-                            <div className="text-[13px] font-medium" style={{ color: '#144584' }}>
+                            <div className="text-[13px] font-medium" style={{ color: 'var(--brand-blue)' }}>
                               <div>£{Number(ccData.stats.median).toFixed(2)}</div>
                             </div>
                             <button
                               className="flex items-center justify-center size-7 rounded transition-colors shrink-0"
-                              style={{ background: '#f7b918', color: '#144584' }}
+                              style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
                               onClick={() => setCashConvertersResearchItem(item)}
                               title="View/Refine Cash Converters Research"
                             >
@@ -1162,7 +1150,7 @@ const RepricingNegotiation = () => {
                             <span className="text-[13px] font-medium" style={{ color: '#64748b' }}>—</span>
                             <button
                               className="flex items-center justify-center size-7 rounded transition-colors shrink-0"
-                              style={{ background: '#f7b918', color: '#144584' }}
+                              style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
                               onClick={() => setCashConvertersResearchItem(item)}
                               title="Research Cash Converters"
                             >
@@ -1218,16 +1206,16 @@ const RepricingNegotiation = () => {
         {/* ── Sidebar ────────────────────────────────────────────────────────── */}
         <aside
           className="w-80 border-l flex flex-col bg-white shrink-0"
-          style={{ borderColor: 'rgba(20,69,132,0.2)' }}
+          style={{ borderColor: 'var(--brand-blue-alpha-20)' }}
         >
           {/* Header */}
-          <div className="px-5 py-4 border-b bg-blue-900" style={{ borderColor: 'rgba(20,69,132,0.2)' }}>
+          <div className="px-5 py-4 border-b bg-brand-blue" style={{ borderColor: 'var(--brand-blue-alpha-20)' }}>
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
-                <span className="material-symbols-outlined text-yellow-400 text-2xl">sell</span>
+                <span className="material-symbols-outlined text-brand-orange text-2xl">sell</span>
                 <div>
                   <p className="text-sm font-black uppercase tracking-wider text-white">Reprice List</p>
-                  <p className="text-xs text-blue-200">
+                  <p className="text-xs text-white/70">
                     {activeItems.length} item{activeItems.length !== 1 ? 's' : ''}
                   </p>
                 </div>
@@ -1249,7 +1237,7 @@ const RepricingNegotiation = () => {
             <div>
               <p
                 className="text-[10px] font-black uppercase tracking-wider mb-3"
-                style={{ color: '#144584' }}
+                style={{ color: 'var(--brand-blue)' }}
               >
                 Barcode Status
               </p>
@@ -1280,15 +1268,15 @@ const RepricingNegotiation = () => {
           {/* Footer */}
           <div
             className="p-6 bg-white border-t space-y-4"
-            style={{ borderColor: 'rgba(20,69,132,0.2)' }}
+            style={{ borderColor: 'var(--brand-blue-alpha-20)' }}
           >
             <button
               className={`w-full font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 group active:scale-[0.98] ${
                 headerWorkspaceOpen || !allItemsReadyForRepricing || isRepricingFinished || isBackgroundRepricingRunning ? 'opacity-50 cursor-not-allowed' : ''
               }`}
               style={{
-                background: '#f7b918',
-                color: '#144584',
+                background: 'var(--brand-orange)',
+                color: 'var(--brand-blue)',
                 boxShadow: '0 10px 15px -3px rgba(247,185,24,0.3)'
               }}
               onClick={handleProceed}
@@ -1315,7 +1303,7 @@ const RepricingNegotiation = () => {
               <button
                 onClick={() => openBarcodePrintTab(completedItemsData)}
                 className="w-full font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
-                style={{ background: '#144584', color: '#fff' }}
+                style={{ background: 'var(--brand-blue)', color: '#fff' }}
               >
                 <span className="material-symbols-outlined text-xl">print</span>
                 <span className="text-sm uppercase tracking-tight">Print Barcodes</span>
@@ -1377,7 +1365,7 @@ const RepricingNegotiation = () => {
             <button
               type="button"
               className="px-4 py-2 rounded-lg text-sm font-bold transition-colors hover:opacity-90"
-              style={{ background: '#f7b918', color: '#144584' }}
+              style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
               onClick={handleConfirmNewRepricing}
             >
               Yes, start new repricing
@@ -1389,14 +1377,14 @@ const RepricingNegotiation = () => {
       {isBackgroundRepricingRunning && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-950/55 backdrop-blur-sm" />
-          <div className="relative w-full max-w-3xl max-h-[85vh] overflow-hidden rounded-3xl bg-white shadow-2xl border" style={{ borderColor: 'rgba(20,69,132,0.15)' }}>
-            <div className="px-6 py-5 border-b bg-blue-900" style={{ borderColor: 'rgba(20,69,132,0.15)' }}>
+          <div className="relative w-full max-w-3xl max-h-[85vh] overflow-hidden rounded-3xl bg-white shadow-2xl border" style={{ borderColor: 'var(--brand-blue-alpha-15)' }}>
+            <div className="px-6 py-5 border-b bg-brand-blue" style={{ borderColor: 'var(--brand-blue-alpha-15)' }}>
               <div className="flex items-start gap-4">
-                <span className="material-symbols-outlined text-yellow-400 text-3xl animate-spin">progress_activity</span>
+                <span className="material-symbols-outlined text-brand-orange text-3xl animate-spin">progress_activity</span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-200">Background Repricing In Progress</p>
+                  <p className="text-xs font-black uppercase tracking-[0.18em] text-white/70">Background Repricing In Progress</p>
                   <h3 className="text-xl font-black text-white mt-1">Please wait while CG Suite updates NoSpos</h3>
-                  <p className="text-sm text-blue-100 mt-2">
+                  <p className="text-sm text-white/80 mt-2">
                     The rest of this screen is locked while the hidden NoSpos worker is running so the process stays consistent.
                   </p>
                 </div>
@@ -1419,7 +1407,7 @@ const RepricingNegotiation = () => {
             </div>
 
             <div className="p-6 space-y-5">
-              <div className="rounded-2xl border bg-slate-50 p-4" style={{ borderColor: 'rgba(20,69,132,0.1)' }}>
+              <div className="rounded-2xl border bg-slate-50 p-4" style={{ borderColor: 'var(--brand-blue-alpha-10)' }}>
                 <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Current Status</p>
                 <p className="text-sm font-bold text-slate-800 mt-1">{repricingJob?.message || 'Working…'}</p>
                 <p className="text-xs text-slate-500 mt-2">
@@ -1428,7 +1416,7 @@ const RepricingNegotiation = () => {
                 </p>
               </div>
 
-              <div className="rounded-2xl border bg-slate-50 p-4" style={{ borderColor: 'rgba(20,69,132,0.1)' }}>
+              <div className="rounded-2xl border bg-slate-50 p-4" style={{ borderColor: 'var(--brand-blue-alpha-10)' }}>
                 <div className="flex items-center justify-between gap-3 mb-2">
                   <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Progress</p>
                   <p className="text-xs font-bold text-slate-600">
@@ -1440,20 +1428,20 @@ const RepricingNegotiation = () => {
                     className="h-full rounded-full transition-all duration-500"
                     style={{
                       width: `${repricingJob?.totalBarcodes ? Math.min(100, ((repricingJob.completedBarcodeCount || 0) / repricingJob.totalBarcodes) * 100) : 0}%`,
-                      background: '#144584'
+                      background: 'var(--brand-blue)'
                     }}
                   />
                 </div>
               </div>
 
-              <div className="rounded-2xl border overflow-hidden" style={{ borderColor: 'rgba(20,69,132,0.1)' }}>
-                <div className="px-4 py-3 bg-slate-50 border-b" style={{ borderColor: 'rgba(20,69,132,0.08)' }}>
+              <div className="rounded-2xl border overflow-hidden" style={{ borderColor: 'var(--brand-blue-alpha-10)' }}>
+                <div className="px-4 py-3 bg-slate-50 border-b" style={{ borderColor: 'var(--brand-blue-alpha-08)' }}>
                   <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Detailed Process Stack</p>
                   <p className="text-xs text-slate-500 mt-1">This stays in order from start to finish so you can follow each item and barcode step-by-step.</p>
                 </div>
                 <div className="max-h-[38vh] overflow-y-auto buyer-panel-scroll p-4 space-y-2 bg-white">
                   {[...(repricingJob?.logs || [])].slice(-40).map((entry, index) => (
-                    <div key={`${entry.timestamp || 'log'}-${index}`} className="rounded-xl border px-3 py-2.5 bg-slate-50" style={{ borderColor: 'rgba(20,69,132,0.08)' }}>
+                    <div key={`${entry.timestamp || 'log'}-${index}`} className="rounded-xl border px-3 py-2.5 bg-slate-50" style={{ borderColor: 'var(--brand-blue-alpha-08)' }}>
                       <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">Step {Math.max(1, (repricingJob?.logs || []).slice(-40).length ? index + 1 : 1)}</p>
                       <p className="text-[11px] font-semibold text-slate-700 leading-relaxed">{entry.message}</p>
                     </div>
@@ -1469,13 +1457,13 @@ const RepricingNegotiation = () => {
         <div className="fixed inset-0 z-[130] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setUnverifiedModal(null)} />
           <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden">
-            <div className="px-6 py-5 border-b" style={{ borderColor: 'rgba(20,69,132,0.15)' }}>
+            <div className="px-6 py-5 border-b" style={{ borderColor: 'var(--brand-blue-alpha-15)' }}>
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="text-[11px] font-black uppercase tracking-wider text-amber-600">
                     Manual Verification Required
                   </p>
-                  <p className="text-sm mt-1 font-semibold" style={{ color: '#1a1a1a' }}>
+                  <p className="text-sm mt-1 font-semibold" style={{ color: 'var(--text-main)' }}>
                     {unverifiedModal.entries.length} barcode{unverifiedModal.entries.length !== 1 ? 's' : ''} couldn't be automatically verified after saving.
                   </p>
                   <p className="text-xs mt-1" style={{ color: '#475569' }}>
@@ -1492,7 +1480,7 @@ const RepricingNegotiation = () => {
             <div className="px-6 py-5 space-y-3 overflow-y-auto max-h-[55vh]">
               {unverifiedModal.entries.map((entry, index) => (
                 <div key={`${entry.itemId}-${entry.barcodeIndex}-${index}`} className="rounded-xl border p-4" style={{ borderColor: 'rgba(247,185,24,0.4)', background: '#fffbeb' }}>
-                  <p className="text-sm font-bold mb-3" style={{ color: '#144584' }}>
+                  <p className="text-sm font-bold mb-3" style={{ color: 'var(--brand-blue)' }}>
                     {entry.itemTitle}
                   </p>
                   <div className="grid gap-3 sm:grid-cols-3">
@@ -1500,7 +1488,7 @@ const RepricingNegotiation = () => {
                       <p className="text-[10px] font-black uppercase tracking-wider mb-1" style={{ color: '#64748b' }}>
                         Typed Barcode
                       </p>
-                      <div className="px-3 py-2 rounded-lg border text-sm font-mono bg-white" style={{ borderColor: 'rgba(20,69,132,0.15)', color: '#144584' }}>
+                      <div className="px-3 py-2 rounded-lg border text-sm font-mono bg-white" style={{ borderColor: 'var(--brand-blue-alpha-15)', color: 'var(--brand-blue)' }}>
                         {entry.barcode || '—'}
                       </div>
                     </div>
@@ -1508,7 +1496,7 @@ const RepricingNegotiation = () => {
                       <p className="text-[10px] font-black uppercase tracking-wider mb-1" style={{ color: '#64748b' }}>
                         NosPos Barcode
                       </p>
-                      <div className="px-3 py-2 rounded-lg border text-sm font-mono bg-white" style={{ borderColor: 'rgba(20,69,132,0.15)', color: '#144584' }}>
+                      <div className="px-3 py-2 rounded-lg border text-sm font-mono bg-white" style={{ borderColor: 'var(--brand-blue-alpha-15)', color: 'var(--brand-blue)' }}>
                         {entry.stockBarcode || '—'}
                       </div>
                     </div>
@@ -1521,14 +1509,14 @@ const RepricingNegotiation = () => {
                           href={entry.stockUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-semibold bg-white hover:bg-blue-50 transition-colors"
-                          style={{ borderColor: 'rgba(20,69,132,0.3)', color: '#144584' }}
+                          className="flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-semibold bg-white hover:bg-brand-blue/5 transition-colors"
+                          style={{ borderColor: 'var(--brand-blue-alpha-30)', color: 'var(--brand-blue)' }}
                         >
                           <span className="material-symbols-outlined text-[14px]">open_in_new</span>
                           Open in NosPos
                         </a>
                       ) : (
-                        <div className="px-3 py-2 rounded-lg border text-sm bg-white text-slate-400 italic" style={{ borderColor: 'rgba(20,69,132,0.15)' }}>
+                        <div className="px-3 py-2 rounded-lg border text-sm bg-white text-slate-400 italic" style={{ borderColor: 'var(--brand-blue-alpha-15)' }}>
                           No link available
                         </div>
                       )}
@@ -1538,13 +1526,13 @@ const RepricingNegotiation = () => {
               ))}
             </div>
 
-            <div className="px-6 py-4 border-t flex items-center justify-between gap-3" style={{ borderColor: 'rgba(20,69,132,0.15)', background: '#f8fafc' }}>
+            <div className="px-6 py-4 border-t flex items-center justify-between gap-3" style={{ borderColor: 'var(--brand-blue-alpha-15)', background: 'var(--ui-bg)' }}>
               <p className="text-xs" style={{ color: '#64748b' }}>
                 The price was saved in NosPos — this is just a confirmation check that timed out.
               </p>
               <button
                 className="px-4 py-2 rounded-lg text-sm font-bold transition-all hover:opacity-90"
-                style={{ background: '#144584', color: 'white' }}
+                style={{ background: 'var(--brand-blue)', color: 'white' }}
                 onClick={() => setUnverifiedModal(null)}
               >
                 Got it
@@ -1558,10 +1546,10 @@ const RepricingNegotiation = () => {
         <div className="fixed inset-0 z-[130] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={handleCloseAmbiguousBarcodeModal} />
           <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden">
-            <div className="px-6 py-5 border-b" style={{ borderColor: 'rgba(20,69,132,0.15)' }}>
+            <div className="px-6 py-5 border-b" style={{ borderColor: 'var(--brand-blue-alpha-15)' }}>
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-[11px] font-black uppercase tracking-wider" style={{ color: '#144584' }}>
+                  <p className="text-[11px] font-black uppercase tracking-wider" style={{ color: 'var(--brand-blue)' }}>
                     Specific Barcodes Required
                   </p>
                   <p className="text-sm mt-1" style={{ color: '#475569' }}>
@@ -1577,8 +1565,8 @@ const RepricingNegotiation = () => {
 
             <div className="px-6 py-5 space-y-4 overflow-y-auto max-h-[55vh]">
               {ambiguousBarcodeModal.entries.map((entry, index) => (
-                <div key={`${entry.itemId}-${entry.barcodeIndex}-${index}`} className="rounded-xl border p-4" style={{ borderColor: 'rgba(20,69,132,0.15)', background: '#f8fafc' }}>
-                  <p className="text-sm font-bold mb-2" style={{ color: '#144584' }}>
+                <div key={`${entry.itemId}-${entry.barcodeIndex}-${index}`} className="rounded-xl border p-4" style={{ borderColor: 'var(--brand-blue-alpha-15)', background: 'var(--ui-bg)' }}>
+                  <p className="text-sm font-bold mb-2" style={{ color: 'var(--brand-blue)' }}>
                     {entry.itemTitle}
                   </p>
                   <div className="grid gap-3 md:grid-cols-2">
@@ -1586,7 +1574,7 @@ const RepricingNegotiation = () => {
                       <p className="text-[10px] font-black uppercase tracking-wider mb-1" style={{ color: '#64748b' }}>
                         Old Typed Barcode
                       </p>
-                      <div className="px-3 py-2 rounded-lg border text-sm font-mono bg-white" style={{ borderColor: 'rgba(20,69,132,0.15)', color: '#144584' }}>
+                      <div className="px-3 py-2 rounded-lg border text-sm font-mono bg-white" style={{ borderColor: 'var(--brand-blue-alpha-15)', color: 'var(--brand-blue)' }}>
                         {entry.oldBarcode || '—'}
                       </div>
                     </div>
@@ -1596,7 +1584,7 @@ const RepricingNegotiation = () => {
                       </p>
                       <input
                         className="w-full px-3 py-2 border rounded-lg text-sm font-mono focus:outline-none focus:ring-2"
-                        style={{ borderColor: 'rgba(20,69,132,0.3)', color: '#144584' }}
+                        style={{ borderColor: 'var(--brand-blue-alpha-30)', color: 'var(--brand-blue)' }}
                         type="text"
                         placeholder="Type a more specific barcode"
                         value={entry.replacementBarcode}
@@ -1608,14 +1596,14 @@ const RepricingNegotiation = () => {
               ))}
             </div>
 
-            <div className="px-6 py-4 border-t flex items-center justify-between gap-3" style={{ borderColor: 'rgba(20,69,132,0.15)', background: '#f8fafc' }}>
+            <div className="px-6 py-4 border-t flex items-center justify-between gap-3" style={{ borderColor: 'var(--brand-blue-alpha-15)', background: 'var(--ui-bg)' }}>
               <p className="text-xs" style={{ color: '#64748b' }}>
                 Clicking outside skips these for now and keeps them out of repricing history.
               </p>
               <div className="flex items-center gap-3">
                 <button
                   className="px-4 py-2 rounded-lg text-sm font-semibold border"
-                  style={{ borderColor: 'rgba(20,69,132,0.2)', color: '#144584', background: 'white' }}
+                  style={{ borderColor: 'var(--brand-blue-alpha-20)', color: 'var(--brand-blue)', background: 'white' }}
                   onClick={handleCloseAmbiguousBarcodeModal}
                 >
                   Close
@@ -1624,7 +1612,7 @@ const RepricingNegotiation = () => {
                   className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${
                     ambiguousBarcodeModal.isRetrying ? 'opacity-70 cursor-wait' : ''
                   }`}
-                  style={{ background: '#f7b918', color: '#144584' }}
+                  style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
                   onClick={handleRetryAmbiguousBarcodes}
                   disabled={ambiguousBarcodeModal.isRetrying}
                 >
@@ -1730,7 +1718,7 @@ const RepricingNegotiation = () => {
 
         return (
           <TinyModal title="Barcodes" onClose={() => { setBarcodeModal(null); setNosposResultsPanel(null); }}>
-            <p className="text-xs font-semibold mb-4" style={{ color: '#144584' }}>
+            <p className="text-xs font-semibold mb-4" style={{ color: 'var(--brand-blue)' }}>
               {modalItem.title}
             </p>
 
@@ -1743,17 +1731,17 @@ const RepricingNegotiation = () => {
                   const isPanelOpen = nosposResultsPanel?.itemId === modalItem.id && nosposResultsPanel?.barcodeIndex === idx;
 
                   return (
-                    <div key={idx} className="rounded-lg border overflow-hidden" style={{ borderColor: isComplete ? '#a7f3d0' : 'rgba(20,69,132,0.15)' }}>
+                    <div key={idx} className="rounded-lg border overflow-hidden" style={{ borderColor: isComplete ? '#a7f3d0' : 'var(--brand-blue-alpha-15)' }}>
                       {/* Top row: barcode code + status + remove */}
                       <div className={`flex items-center gap-2 px-3 py-1.5 ${isComplete ? 'bg-emerald-50' : 'bg-gray-50'}`}>
-                        <span className="flex-1 text-xs font-mono font-semibold flex items-center gap-1.5" style={{ color: '#144584' }}>
+                        <span className="flex-1 text-xs font-mono font-semibold flex items-center gap-1.5" style={{ color: 'var(--brand-blue)' }}>
                           {isComplete && <span className="material-symbols-outlined text-emerald-600 text-[14px]">check_circle</span>}
                           {code}
                         </span>
 
                         {/* NosPos lookup status badges */}
                         {lookup?.status === 'searching' && (
-                          <span className="text-[10px] font-semibold text-blue-500 flex items-center gap-1">
+                          <span className="text-[10px] font-semibold text-brand-blue/80 flex items-center gap-1">
                             <span className="material-symbols-outlined text-[12px] animate-spin">refresh</span>
                             Searching…
                           </span>
@@ -1791,7 +1779,7 @@ const RepricingNegotiation = () => {
                         )}
                         {lookup?.status === 'found' && (
                           <button
-                            className="text-[10px] font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1 transition-colors"
+                            className="text-[10px] font-semibold text-brand-blue hover:text-brand-blue-hover flex items-center gap-1 transition-colors"
                             onClick={() => setNosposResultsPanel(isPanelOpen ? null : { itemId: modalItem.id, barcodeIndex: idx })}
                           >
                             <span className="material-symbols-outlined text-[12px]">list</span>
@@ -1818,7 +1806,7 @@ const RepricingNegotiation = () => {
 
                         {(lookup?.status === 'not_found' || lookup?.status === 'error') && (
                           <button
-                            className="text-[10px] font-semibold text-blue-600 hover:text-blue-800 transition-colors flex items-center gap-0.5"
+                            className="text-[10px] font-semibold text-brand-blue hover:text-brand-blue-hover transition-colors flex items-center gap-0.5"
                             onClick={() => runNosposLookup(code, idx)}
                             title="Retry NosPos lookup"
                           >
@@ -1849,22 +1837,22 @@ const RepricingNegotiation = () => {
 
                       {/* Results panel (shown when multiple results and user expands or auto-opens) */}
                       {isPanelOpen && lookup?.results?.length > 0 && (
-                        <div className="border-t" style={{ borderColor: 'rgba(20,69,132,0.1)' }}>
-                          <div className="px-2 py-1.5 bg-blue-50">
-                            <p className="text-[10px] font-semibold text-blue-700 mb-1">Select the matching item on NosPos:</p>
+                        <div className="border-t" style={{ borderColor: 'var(--brand-blue-alpha-10)' }}>
+                          <div className="px-2 py-1.5 bg-brand-blue/5">
+                            <p className="text-[10px] font-semibold text-brand-blue mb-1">Select the matching item on NosPos:</p>
                             <div className="space-y-1">
                               {lookup.results.map((result, ri) => (
                                 <div
                                   key={ri}
-                                  className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-white border hover:border-blue-300 hover:bg-blue-50 transition-colors cursor-pointer group"
-                                  style={{ borderColor: 'rgba(20,69,132,0.15)' }}
+                                  className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-white border hover:border-brand-blue/30 hover:bg-brand-blue/5 transition-colors cursor-pointer group"
+                                  style={{ borderColor: 'var(--brand-blue-alpha-15)' }}
                                 >
                                   <div className="flex-1 min-w-0">
                                     <a
                                       href={`https://nospos.com${result.href}`}
                                       target="_blank"
                                       rel="noopener noreferrer"
-                                      className="block text-[11px] font-mono font-bold text-blue-700 hover:underline leading-tight"
+                                      className="block text-[11px] font-mono font-bold text-brand-blue hover:underline leading-tight"
                                       onClick={() => selectNosposResult(lookupKey, result)}
                                     >
                                       {result.barserial}
@@ -1884,7 +1872,7 @@ const RepricingNegotiation = () => {
                                   </div>
                                   <button
                                     className="flex-shrink-0 px-2 py-1 rounded text-[10px] font-bold transition-colors"
-                                    style={{ background: '#144584', color: 'white' }}
+                                    style={{ background: 'var(--brand-blue)', color: 'white' }}
                                     onClick={() => selectNosposResult(lookupKey, result)}
                                   >
                                     Select
@@ -1913,7 +1901,7 @@ const RepricingNegotiation = () => {
               <input
                 autoFocus
                 className="flex-1 px-3 py-2 border rounded-lg text-sm font-mono focus:outline-none focus:ring-2"
-                style={{ borderColor: 'rgba(20,69,132,0.3)', color: '#144584' }}
+                style={{ borderColor: 'var(--brand-blue-alpha-30)', color: 'var(--brand-blue)' }}
                 type="text"
                 placeholder="Enter barcode"
                 value={barcodeInput}
@@ -1922,7 +1910,7 @@ const RepricingNegotiation = () => {
               />
               <button
                 className="px-3 py-2 rounded-lg text-sm font-bold transition-all hover:opacity-90"
-                style={{ background: '#144584', color: 'white' }}
+                style={{ background: 'var(--brand-blue)', color: 'white' }}
                 onClick={addBarcode}
               >
                 Add
@@ -1931,7 +1919,7 @@ const RepricingNegotiation = () => {
 
             <button
               className="w-full py-2.5 rounded-lg text-sm font-bold transition-all hover:opacity-90"
-              style={{ background: '#f7b918', color: '#144584' }}
+              style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
               onClick={() => { setBarcodeModal(null); setNosposResultsPanel(null); }}
             >
               OK

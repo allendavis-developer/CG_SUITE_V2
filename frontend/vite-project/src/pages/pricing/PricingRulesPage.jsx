@@ -122,9 +122,9 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div className="relative bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col">
         {/* Header */}
-        <header className="bg-blue-900 px-8 py-5 flex items-center justify-between text-white">
+        <header className="bg-brand-blue px-8 py-5 flex items-center justify-between text-white">
           <div className="flex items-center gap-3">
-            <span className="material-symbols-outlined text-yellow-400">tune</span>
+            <span className="material-symbols-outlined text-brand-orange">tune</span>
             <h2 className="text-lg font-black">
               {isEditing ? 'Edit Pricing Rule' : 'Add Pricing Rule'}
             </h2>
@@ -153,8 +153,8 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
                     onClick={() => setScopeKind(v)}
                     className={`flex flex-col items-center gap-1.5 py-3 rounded-xl border-2 transition-all text-xs font-bold ${
                       scopeKind === v
-                        ? 'border-blue-900 bg-blue-50 text-blue-900'
-                        : 'border-gray-200 text-gray-500 hover:border-blue-300'
+                        ? 'border-brand-blue bg-brand-blue/5 text-brand-blue'
+                        : 'border-gray-200 text-gray-500 hover:border-brand-blue/30'
                     }`}
                   >
                     <span className="material-symbols-outlined text-lg">{icon}</span>
@@ -174,7 +174,7 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
               <select
                 value={categoryId}
                 onChange={(e) => setCategoryId(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-orange"
               >
                 <option value="">— Select category —</option>
                 {categories.map((c) => (
@@ -199,7 +199,7 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
                 step="0.1"
                 value={sellPct}
                 onChange={(e) => setSellPct(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-brand-orange"
                 placeholder="e.g. 85"
               />
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold">%</span>
@@ -224,7 +224,7 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
                   step="0.1"
                   value={firstOfferPct}
                   onChange={(e) => setFirstOfferPct(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-brand-orange"
                   placeholder="e.g. 90 (leave blank for default)"
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold">%</span>
@@ -248,7 +248,7 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
                   step="0.1"
                   value={secondOfferPct}
                   onChange={(e) => setSecondOfferPct(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-brand-orange"
                   placeholder="e.g. 95 (leave blank for midpoint)"
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold">%</span>
@@ -308,7 +308,7 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
           <button
             onClick={handleSave}
             disabled={saving}
-            className="px-6 py-2.5 text-sm font-black bg-yellow-400 text-blue-900 rounded-xl hover:bg-yellow-300 transition-colors shadow-md shadow-yellow-400/30 disabled:opacity-50"
+            className="px-6 py-2.5 text-sm font-black bg-brand-orange text-brand-blue rounded-xl hover:bg-brand-orange-hover transition-colors shadow-md shadow-brand-orange/30 disabled:opacity-50"
           >
             {saving ? 'Saving…' : isEditing ? 'Save Changes' : 'Create Rule'}
           </button>
@@ -345,7 +345,7 @@ function RuleRow({ rule, onEdit, onDelete }) {
   return (
     <tr className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
       <td className="py-3 px-4 text-sm font-semibold text-gray-900">{scopeLabel(rule)}</td>
-      <td className="py-3 px-4 text-sm font-mono font-semibold text-blue-900">
+      <td className="py-3 px-4 text-sm font-mono font-semibold text-brand-blue">
         {fmtMultiplier(rule.sell_price_multiplier)}
       </td>
       <td className="py-3 px-4 text-sm font-mono font-semibold text-purple-700">
@@ -380,7 +380,7 @@ function RuleRow({ rule, onEdit, onDelete }) {
               <button
                 onClick={() => onEdit(rule)}
                 title="Edit rule"
-                className="flex size-8 items-center justify-center rounded-lg text-gray-500 hover:bg-blue-50 hover:text-blue-900 transition-colors"
+                className="flex size-8 items-center justify-center rounded-lg text-gray-500 hover:bg-brand-blue/5 hover:text-brand-blue transition-colors"
               >
                 <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>edit</span>
               </button>
@@ -527,7 +527,7 @@ export default function PricingRulesPage() {
         {/* Page heading */}
         <div className="flex items-start justify-between mb-8">
           <div>
-            <h1 className="text-2xl font-black text-blue-900 mb-1">Pricing Rules</h1>
+            <h1 className="text-2xl font-black text-brand-blue mb-1">Pricing Rules</h1>
             <p className="text-sm text-gray-500 max-w-lg">
               Control how our sale price and early offers are calculated relative to CeX prices.
               Rules are matched by scope (category → global). Changes take effect immediately — just refresh the buying page.
@@ -535,7 +535,7 @@ export default function PricingRulesPage() {
           </div>
           <button
             onClick={handleAdd}
-            className="flex items-center gap-2 px-5 py-2.5 bg-yellow-400 text-blue-900 text-sm font-black rounded-xl hover:bg-yellow-300 transition-colors shadow-md shadow-yellow-400/30 shrink-0 ml-4"
+            className="flex items-center gap-2 px-5 py-2.5 bg-brand-orange text-brand-blue text-sm font-black rounded-xl hover:bg-brand-orange-hover transition-colors shadow-md shadow-brand-orange/30 shrink-0 ml-4"
           >
             <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>add</span>
             Add Rule
@@ -543,12 +543,12 @@ export default function PricingRulesPage() {
         </div>
 
         {/* How it works */}
-        <div className="bg-blue-900 rounded-xl p-5 mb-8 text-white">
+        <div className="bg-brand-blue rounded-xl p-5 mb-8 text-white">
           <div className="flex items-center gap-2 mb-3">
-            <span className="material-symbols-outlined text-yellow-400">info</span>
+            <span className="material-symbols-outlined text-brand-orange">info</span>
             <span className="text-sm font-black">How pricing rules work</span>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs text-blue-100">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs text-white/80">
             <div>
               <p className="font-bold text-white mb-1">Sale Price %</p>
               <p>Our sale price = CeX sell price × this percentage. A category rule overrides the global default.</p>

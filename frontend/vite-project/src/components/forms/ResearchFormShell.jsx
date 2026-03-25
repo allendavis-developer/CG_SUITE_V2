@@ -1,7 +1,9 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { Button, Icon, CustomDropdown } from '../ui/components';
-import WorkspaceCloseButton from '../ui/WorkspaceCloseButton';
+import ResearchOthersModal from '../modals/ResearchOthersModal';
 import { toVoucherOfferPrice } from '@/utils/helpers';
+import { calculateResearchStats, parseResearchPrice } from './researchStats';
+import { otherResearchSummariesSignature } from './researchOtherChannelsSummary';
 import { DualRangeSlider, DualDateRangeSlider, formatSoldDateMs } from './sliders';
 import ListingCard from './ListingCard';
 import PriceHistogram from './PriceHistogram';
@@ -46,8 +48,8 @@ const globalStyles = `
 
   .histogram-scrollbar::-webkit-scrollbar { width: 8px; }
   .histogram-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
-  .histogram-scrollbar::-webkit-scrollbar-thumb { background: #1e3a8a; border-radius: 4px; transition: background 0.2s; }
-  .histogram-scrollbar::-webkit-scrollbar-thumb:hover { background: #1e40af; }
+  .histogram-scrollbar::-webkit-scrollbar-thumb { background: var(--brand-blue); border-radius: 4px; transition: background 0.2s; }
+  .histogram-scrollbar::-webkit-scrollbar-thumb:hover { background: var(--brand-blue-hover); }
 
   .dual-range-input {
     -webkit-appearance: none;
@@ -118,7 +120,6 @@ export default function ResearchFormShell({
   onNavigateToDrillLevel,
   onComplete,
   onCompleteWithSelection = null,
-  onCancel = null,
   mode = "modal",
   readOnly = false,
   basicFilterOptions = ["Completed & Sold", "Used", "UK Only"],
@@ -154,9 +155,10 @@ export default function ResearchFormShell({
   initialAdvancedFilterState = null,
   onAdvancedFilterChange = null,
   dataVersion = 0,
+  otherResearchSummaries = null,
 }) {
   const currentPriceRange = drillHistory.length > 0 ? drillHistory[drillHistory.length - 1] : null;
-  const prominentAddClass = 'shadow-lg shadow-yellow-500/30';
+  const prominentAddClass = 'shadow-lg shadow-brand-orange/30';
 
   // ─── Existing state ───────────────────────────────────────────────────────
   const [selectedOfferIndex, setSelectedOfferIndex] = useState(null);
@@ -182,11 +184,16 @@ export default function ResearchFormShell({
   const manualInputRef = useRef(null);
   const [manualOfferDialog, setManualOfferDialog] = useState(null);
   const manualOfferDialogRef = useRef(null);
+  const othersSummarySig = useMemo(
+    () => otherResearchSummariesSignature(otherResearchSummaries),
+    [otherResearchSummaries]
+  );
+  const [othersModalSig, setOthersModalSig] = useState('');
   const manualOfferInputRef = useRef(null);
   const manualOfferDidFocusRef = useRef(false);
 
   // ─── New state ────────────────────────────────────────────────────────────
-  const [twoColumnLayout, setTwoColumnLayout] = useState(false);
+  const [twoColumnLayout, setTwoColumnLayout] = useState(true);
   const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
   const [advancedPriceMin, setAdvancedPriceMin] = useState(initialAdvancedFilterState?.priceMin ?? null);
   const [advancedPriceMax, setAdvancedPriceMax] = useState(initialAdvancedFilterState?.priceMax ?? null);
@@ -465,27 +472,19 @@ export default function ResearchFormShell({
     effectiveSoldDateToIdx,
   ]);
 
-  // ─── Price parse helper ───────────────────────────────────────────────────
-  const parsePrice = useCallback((item) => {
-    if (!item || item.price == null) return NaN;
-    const p = item.price;
-    if (typeof p === 'number') return isNaN(p) ? NaN : p;
-    return parseFloat(String(p).replace(/[^0-9.]/g, '')) || NaN;
-  }, []);
-
   // ─── Sorting (uses advancedFilteredListings) ──────────────────────────────
   const sortedListings = useMemo(() => {
     const list = advancedFilteredListings || [];
     const withIdx = list.map((item, i) => ({ item, origIdx: i }));
     if (sortOrder === 'default') return withIdx;
     return [...withIdx].sort((a, b) => {
-      const pa = parsePrice(a.item);
-      const pb = parsePrice(b.item);
+      const pa = parseResearchPrice(a.item);
+      const pb = parseResearchPrice(b.item);
       if (sortOrder === 'low_to_high') return (pa || 0) - (pb || 0);
       if (sortOrder === 'high_to_low') return (pb || 0) - (pa || 0);
       return a.origIdx - b.origIdx;
     });
-  }, [advancedFilteredListings, sortOrder, parsePrice]);
+  }, [advancedFilteredListings, sortOrder]);
 
   const displayListings = useMemo(() => {
     if (!sortedListings) return [];
@@ -509,20 +508,10 @@ export default function ResearchFormShell({
   // Uses advancedFilteredListings so stats update with active filters
   const { activeStats, statsWorkingOut } = useMemo(() => {
     const included = (advancedFilteredListings ?? []).filter(l => !l.excluded);
-    const prices = included.map(l => parsePrice(l)).filter(p => !isNaN(p) && p > 0);
-    if (prices.length === 0) return { activeStats: displayedStats, statsWorkingOut: null };
-    const sum = prices.reduce((a, b) => a + b, 0);
-    const count = prices.length;
-    const averageRaw = sum / count;
-    const sorted = [...prices].sort((a, b) => a - b);
-    const mid = Math.floor(count / 2);
-    const medianRaw = count % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
-    const suggestedPrice = Math.max(0, medianRaw - 1);
-    return {
-      activeStats: { average: averageRaw, median: medianRaw, suggestedPrice },
-      statsWorkingOut: { sum, count, averageRaw, medianRaw },
-    };
-  }, [displayedStats, advancedFilteredListings, parsePrice]);
+    const { stats, workingOut } = calculateResearchStats(included);
+    if (!workingOut) return { activeStats: displayedStats, statsWorkingOut: null };
+    return { activeStats: stats, statsWorkingOut: workingOut };
+  }, [displayedStats, advancedFilteredListings]);
 
   // ─── Stats display (offer-card style boxes with tooltips) ─────────────────
   const StatsDisplay = useMemo(() => {
@@ -560,19 +549,19 @@ export default function ResearchFormShell({
         <StatCard
           label="Average"
           value={activeStats?.average}
-          valueClass="text-blue-900"
-          cardClass="bg-blue-50 border-blue-200"
+          valueClass="text-brand-blue"
+          cardClass="bg-brand-blue/5 border-brand-blue/20"
           tooltipContent={wo && (
-            <><div className="font-semibold text-gray-200 mb-1">Average</div><div>Sum of {wo.count} prices (£{wo.sum.toFixed(2)}) ÷ {wo.count} = £{wo.averageRaw.toFixed(2)}</div></>
+            <><div className="font-semibold text-gray-200 mb-1">Average</div><div>Sum of {wo.count} prices (£{wo.sum.toFixed(2)}) ÷ {wo.count} = £{formatStat(activeStats?.average)}</div></>
           )}
         />
         <StatCard
           label="Median"
           value={activeStats?.median}
-          valueClass="text-blue-900"
-          cardClass="bg-blue-50 border-blue-200"
+          valueClass="text-brand-blue"
+          cardClass="bg-brand-blue/5 border-brand-blue/20"
           tooltipContent={wo && (
-            <><div className="font-semibold text-gray-200 mb-1">Median</div><div>Middle value of {wo.count} sorted prices = £{wo.medianRaw.toFixed(2)}</div></>
+            <><div className="font-semibold text-gray-200 mb-1">Median</div><div>Middle value of {wo.count} sorted prices = £{formatStat(activeStats?.median)}</div></>
           )}
         />
         <StatCard
@@ -581,7 +570,7 @@ export default function ResearchFormShell({
           valueClass="text-green-600"
           cardClass="bg-green-50 border-green-200"
           tooltipContent={wo && (
-            <><div className="font-semibold text-gray-200 mb-1">Suggested Sale Price</div><div>Median (£{wo.medianRaw.toFixed(2)}) − £1 = £{formatStat(activeStats?.suggestedPrice)}</div><div className="mt-1 text-gray-300">£1 below median</div></>
+            <><div className="font-semibold text-gray-200 mb-1">Suggested Sale Price</div><div>Median £{formatStat(activeStats?.median)} − £1 = £{formatStat(wo.preSuggestedRaw)}; rounded to {wo.suggestedSaleRoundingLabel} → £{formatStat(activeStats?.suggestedPrice)}</div></>
           )}
         />
       </div>
@@ -608,32 +597,28 @@ export default function ResearchFormShell({
   const handleManualOfferCardClick = useCallback(() => {
     if (!showManualOffer || readOnly) return;
 
-    // If the user clicks the manual offer box after typing, treat it like "submit".
+    // Second tap on manual card: same as OK — always finish and close (no amount gate).
     if (selectedOfferIndex === 'manual') {
       const cleanManual = String(manualOffer ?? '').replace(/[£,]/g, '').trim();
       const parsed = parseFloat(cleanManual);
       if (Number.isFinite(parsed) && parsed > 0) {
         onManualOfferChange?.(manualOffer);
-        if (onCompleteWithSelection) onCompleteWithSelection('manual');
-        else onComplete?.();
       }
+      if (onCompleteWithSelection) onCompleteWithSelection('manual');
+      else onComplete?.();
       return;
     }
 
     setSelectedOfferIndex('manual');
   }, [showManualOffer, readOnly, selectedOfferIndex, manualOffer, onManualOfferChange, onCompleteWithSelection, onComplete]);
 
-  const handleModalCancel = useCallback(() => {
-    onCancel?.();
-  }, [onCancel]);
-
   const handleComplete = useCallback(() => {
-    // For manual-offer selection, require a valid positive amount.
     if (!readOnly && showManualOffer && selectedOfferIndex === 'manual') {
       const cleanManual = String(manualOffer ?? '').replace(/[£,]/g, '').trim();
       const parsed = parseFloat(cleanManual);
-      if (!Number.isFinite(parsed) || parsed <= 0) return;
-      onManualOfferChange?.(manualOffer);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        onManualOfferChange?.(manualOffer);
+      }
     }
     if (onCompleteWithSelection) {
       onCompleteWithSelection(selectedOfferIndex);
@@ -772,11 +757,11 @@ export default function ResearchFormShell({
             const inner = (
               <>
                 <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider leading-none">{offerLabels[idx]}</span>
-                <span className={`text-lg font-extrabold leading-tight ${isSelected ? 'text-blue-900' : 'text-blue-900'}`}>
+                <span className={`text-lg font-extrabold leading-tight ${isSelected ? 'text-brand-blue' : 'text-brand-blue'}`}>
                   £{formatStat(price)}
                 </span>
                 {pctOfSale != null && (
-                  <span className="text-[10px] font-bold text-yellow-600">{pctOfSale}% sale</span>
+                  <span className="text-[10px] font-bold text-brand-orange-hover">{pctOfSale}% sale</span>
                 )}
               </>
             );
@@ -795,8 +780,8 @@ export default function ResearchFormShell({
                       type="button"
                       className={`flex flex-col text-left cursor-pointer transition-all focus:outline-none rounded-lg border px-2.5 py-1.5 shadow-sm ${
                         isSelected
-                          ? 'ring-2 ring-blue-900 bg-blue-100 border-blue-300'
-                          : 'bg-blue-50 border-blue-200 hover:bg-blue-100 hover:border-blue-300 active:scale-[0.99]'
+                          ? 'ring-2 ring-brand-blue bg-brand-blue/10 border-brand-blue/30'
+                          : 'bg-brand-blue/5 border-brand-blue/20 hover:bg-brand-blue/10 hover:border-brand-blue/30 active:scale-[0.99]'
                       }`}
                       onClick={
                         useAddWithOfferFlow
@@ -821,10 +806,10 @@ export default function ResearchFormShell({
               <button
                 type="button"
                 onClick={() => onAddToCartWithOffer(null)}
-                className={`flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-extrabold uppercase tracking-wide text-blue-900 transition-all ${
+                className={`flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-extrabold uppercase tracking-wide text-brand-blue transition-all ${
                   disableAddAction
                     ? 'bg-gray-300 text-gray-600 cursor-not-allowed shadow-none ring-0'
-                    : `bg-yellow-500 hover:bg-yellow-400 cursor-pointer ${prominentAddClass}`
+                    : `bg-brand-orange hover:bg-brand-orange-hover cursor-pointer ${prominentAddClass}`
                 }`}
                 disabled={disableAddAction}
               >
@@ -840,22 +825,22 @@ export default function ResearchFormShell({
               <div
                 className={`flex flex-col cursor-text rounded-lg border px-2.5 py-1.5 shadow-sm transition-all ${
                   selectedOfferIndex === 'manual'
-                    ? 'ring-2 ring-blue-900 bg-blue-100 border-blue-300'
-                    : 'bg-blue-50 border-blue-200 hover:bg-blue-100 hover:border-blue-300 active:scale-[0.99]'
+                    ? 'ring-2 ring-brand-blue bg-brand-blue/10 border-brand-blue/30'
+                    : 'bg-brand-blue/5 border-brand-blue/20 hover:bg-brand-blue/10 hover:border-brand-blue/30 active:scale-[0.99]'
                 } min-h-[56px]`}
                 onClick={handleManualOfferCardClick}
               >
                 <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider leading-none">Manual Offer</span>
                 <div className="flex items-center">
-                  <span className="text-lg font-extrabold text-blue-900 leading-tight">£</span>
+                  <span className="text-lg font-extrabold text-brand-blue leading-tight">£</span>
                   <input
                     ref={manualInputRef}
                     type="text"
                     key="manual-offer-input"
-                    className={`text-lg font-extrabold text-blue-900 bg-transparent outline-none w-20 border-b-2 ml-0.5 transition-colors leading-tight ${
+                    className={`text-lg font-extrabold text-brand-blue bg-transparent outline-none w-20 border-b-2 ml-0.5 transition-colors leading-tight ${
                       selectedOfferIndex === 'manual'
-                        ? 'border-blue-900'
-                        : 'border-blue-200 focus:border-blue-400'
+                        ? 'border-brand-blue'
+                        : 'border-brand-blue/20 focus:border-brand-blue/40'
                     }`}
                     placeholder="0.00"
                     value={manualOffer}
@@ -872,7 +857,7 @@ export default function ResearchFormShell({
                   />
                 </div>
                 {manualOfferPctOfSale !== null && (
-                  <span className="text-[10px] font-bold text-yellow-600">{manualOfferPctOfSale}% sale</span>
+                  <span className="text-[10px] font-bold text-brand-orange-hover">{manualOfferPctOfSale}% sale</span>
                 )}
               </div>
             </>
@@ -880,52 +865,86 @@ export default function ResearchFormShell({
         </div>
       </React.Fragment>
     );
-  }, [buyOffers, showManualOffer, selectedOfferIndex, manualOffer, manualOfferPctOfSale, onManualOfferChange, readOnly, handleOfferClick, handleManualOfferCardClick, handleManualOfferChange, onAddToCartWithOffer, formatStat, enableRightClickManualOffer, openManualOfferDialog, hideOfferCards, addActionLabel, disableAddAction, useVoucherOffers, activeStats?.suggestedPrice, showInlineOfferAction, prominentAddClass, hidePrimaryAddAction]);
+  }, [buyOffers, showManualOffer, selectedOfferIndex, manualOffer, manualOfferPctOfSale, onManualOfferChange, readOnly, handleOfferClick, handleManualOfferCardClick, handleManualOfferChange, onAddToCartWithOffer, formatStat, enableRightClickManualOffer, openManualOfferDialog, hideOfferCards, addActionLabel, disableAddAction, useVoucherOffers, activeStats?.suggestedPrice, showInlineOfferAction, prominentAddClass, hidePrimaryAddAction, handleComplete]);
 
   // ─── Action buttons (shared between banners) ──────────────────────────────
-  const actionButtonsEl = !readOnly && (
-    <div className="flex items-center gap-1.5 flex-1 min-w-0 justify-end">
-      {onAddNewItem && (
-        <Button variant="primary" size="sm" onClick={onAddNewItem}>
-          <Icon name="add_circle" className="text-sm" />
-          Add new item
-        </Button>
-      )}
-      {!onAddNewItem && !onAddToCartWithOffer && !hidePrimaryAddAction && (
-        <Button
-          variant="primary" size="lg"
-          className={prominentAddClass}
-          onClick={handleComplete}
-          disabled={disableAddAction}
-        >
-          <Icon name="add_shopping_cart" className="text-[22px]" />
-          {addActionLabel}
-        </Button>
-      )}
-      {!onAddNewItem && onAddToCartWithOffer && !showInlineOfferAction && !hidePrimaryAddAction && (
-        <Button
-          variant="primary" size="lg"
-          className={prominentAddClass}
-          onClick={() => onAddToCartWithOffer(null)}
-          disabled={disableAddAction}
-        >
-          <Icon name={addActionLabel === 'Add to Reprice List' ? 'sell' : 'add_shopping_cart'} className="text-[22px]" />
-          {addActionLabel}
-        </Button>
-      )}
-      {(showManualOffer || hidePrimaryAddAction) && (
-        <Button
-          variant="primary"
-          size="md"
-          className="flex-1 justify-center"
-          onClick={handleComplete}
-          disabled={loading && !readOnly}
-        >
-          OK
-        </Button>
-      )}
-    </div>
+  const othersPanelOpen = Boolean(
+    othersModalSig && othersSummarySig && othersModalSig === othersSummarySig && otherResearchSummaries
   );
+
+  const othersButtonBlock =
+    (showManualOffer || hidePrimaryAddAction) &&
+    othersSummarySig && (
+      <div className="relative shrink-0">
+        <Button
+          variant="secondary"
+          size="md"
+          className="shrink-0 justify-center text-xs font-bold uppercase tracking-wide shadow-md whitespace-nowrap px-4"
+          onClick={() => setOthersModalSig(othersPanelOpen ? '' : othersSummarySig)}
+        >
+          {othersPanelOpen ? 'Close others' : 'Others'}
+        </Button>
+        {othersPanelOpen && (
+          <ResearchOthersModal
+            summaries={otherResearchSummaries}
+            className="right-0 top-full mt-1.5"
+          />
+        )}
+      </div>
+    );
+
+  const actionButtonsEl =
+    (!readOnly || othersButtonBlock) && (
+    <div className="flex items-center gap-1.5 flex-1 min-w-0 justify-end">
+      {!readOnly && (
+        <>
+          {onAddNewItem && (
+            <Button variant="primary" size="sm" onClick={onAddNewItem}>
+              <Icon name="add_circle" className="text-sm" />
+              Add new item
+            </Button>
+          )}
+          {!onAddNewItem && !onAddToCartWithOffer && !hidePrimaryAddAction && (
+            <Button
+              variant="primary" size="lg"
+              className={prominentAddClass}
+              onClick={handleComplete}
+              disabled={disableAddAction}
+            >
+              <Icon name="add_shopping_cart" className="text-[22px]" />
+              {addActionLabel}
+            </Button>
+          )}
+          {!onAddNewItem && onAddToCartWithOffer && !showInlineOfferAction && !hidePrimaryAddAction && (
+            <Button
+              variant="primary" size="lg"
+              className={prominentAddClass}
+              onClick={() => onAddToCartWithOffer(null)}
+              disabled={disableAddAction}
+            >
+              <Icon name={addActionLabel === 'Add to Reprice List' ? 'sell' : 'add_shopping_cart'} className="text-[22px]" />
+              {addActionLabel}
+            </Button>
+          )}
+          {(showManualOffer || hidePrimaryAddAction) && (
+            <>
+              {othersButtonBlock}
+              <Button
+                variant="primary"
+                size="md"
+                className="flex-1 justify-center"
+                onClick={handleComplete}
+                disabled={loading && !readOnly}
+              >
+                OK
+              </Button>
+            </>
+          )}
+        </>
+      )}
+      {readOnly && othersButtonBlock}
+    </div>
+    );
 
   // ─── Banner 1: search term + stats + offers ──────────────────────────────
   // The header is split into a flex-1 left section (matching listing area width)
@@ -939,7 +958,7 @@ export default function ResearchFormShell({
         <div className="flex items-center gap-3 shrink-0">
           <div className="w-px h-9 bg-gray-200 shrink-0 self-center" />
           <h2
-            className="text-2xl md:text-3xl font-extrabold text-blue-900 tracking-tight shrink-0 max-w-[min(28rem,42vw)] truncate"
+            className="text-2xl md:text-3xl font-extrabold text-brand-blue tracking-tight shrink-0 max-w-[min(28rem,42vw)] truncate"
             title={searchTerm}
           >
             {searchTerm}
@@ -967,6 +986,18 @@ export default function ResearchFormShell({
     () => (advancedFilteredListings ? advancedFilteredListings.filter(l => l.excluded).length : 0),
     [advancedFilteredListings]
   );
+
+  const filteredOutByAdvancedCount = useMemo(() => {
+    if (!displayedListings?.length || !advancedFilteredListings) return 0;
+    return Math.max(0, displayedListings.length - advancedFilteredListings.length);
+  }, [displayedListings, advancedFilteredListings]);
+
+  const excludedOrFilteredCount = useMemo(
+    () => excludedCount + filteredOutByAdvancedCount,
+    [excludedCount, filteredOutByAdvancedCount]
+  );
+
+  const totalRecordsCount = displayedListings?.length ?? 0;
 
   const banner2El = listings && (
     <div className="bg-gray-50 border-b border-gray-200 px-4 py-2 flex items-center gap-2 flex-wrap shrink-0">
@@ -1030,7 +1061,7 @@ export default function ResearchFormShell({
           <span className="text-[11px] font-medium text-gray-600">Relevant only</span>
           <button
             type="button"
-            className="relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1"
+            className="relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-brand-orange/60 focus:ring-offset-1"
             style={{ backgroundColor: showOnlyRelevant ? '#1e3a8a' : '#d1d5db' }}
             onClick={() => setShowOnlyRelevant(prev => !prev)}
             aria-pressed={showOnlyRelevant}
@@ -1044,7 +1075,7 @@ export default function ResearchFormShell({
           {excludedCount > 0 && !readOnly && (onToggleExclude || onClearAllExclusions) && (
             <button
               type="button"
-              className="px-2 py-0.5 text-[11px] font-bold rounded border border-yellow-400 bg-yellow-500 text-blue-900 hover:bg-yellow-400 transition-colors"
+              className="px-2 py-0.5 text-[11px] font-bold rounded border border-brand-orange bg-brand-orange text-brand-blue hover:bg-brand-orange-hover transition-colors"
               onClick={handleClearAllExclusions}
             >
               Clear exclusions
@@ -1061,7 +1092,7 @@ export default function ResearchFormShell({
         onClick={() => setTwoColumnLayout(prev => !prev)}
         className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition-colors ${
           twoColumnLayout
-            ? 'bg-blue-900 text-white border-blue-900'
+            ? 'bg-brand-blue text-white border-brand-blue'
             : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
         }`}
         title={twoColumnLayout ? 'Switch to single column' : 'Switch to two columns'}
@@ -1077,7 +1108,7 @@ export default function ResearchFormShell({
         onClick={handleAdvancedFilterToggle}
         className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition-colors ${
           (advancedFilterActive || showAdvancedFilter)
-            ? 'bg-yellow-500 text-blue-900 border-yellow-400 hover:bg-yellow-400'
+            ? 'bg-brand-orange text-brand-blue border-brand-orange hover:bg-brand-orange-hover'
             : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
         }`}
       >
@@ -1097,36 +1128,55 @@ export default function ResearchFormShell({
         </button>
       )}
 
-      {/* Records / Excluded / Displayed — directly after filter controls */}
+      {/* Displayed / Excluded+filtered / Total — order matches: on-screen, hidden from view, cohort size */}
       <div className="flex items-center gap-3 text-base font-medium text-gray-600 shrink-0 ml-1">
         <span>
-          <span className="font-extrabold text-gray-800 tabular-nums">{advancedFilteredListings?.length ?? 0}</span>
-          {' '}Records
+          <span className="font-extrabold text-brand-blue tabular-nums">{displayListings.length}</span>
+          {' '}Displayed
         </span>
         <div className="w-px h-4 bg-gray-300" />
         <div className="relative group cursor-help">
           <span>
-            <span className="font-extrabold text-gray-800 tabular-nums underline decoration-dotted decoration-gray-400">{excludedCount}</span>
-            {' '}Excluded
+            <span className="font-extrabold text-gray-800 tabular-nums underline decoration-dotted decoration-gray-400">
+              {excludedOrFilteredCount}
+            </span>
+            {' '}Excluded / filtered
           </span>
-          <div className="pointer-events-none absolute bottom-full right-0 mb-2 hidden group-hover:block z-50 w-72">
-            <div className="bg-gray-800 text-gray-100 text-xs leading-relaxed rounded-lg px-3 py-2 shadow-xl text-center">
-              <strong>Click</strong> unexcluded to set pivot · <strong>Click pivot</strong> to exclude · <strong>Click excluded</strong> to re-include · <strong>Click pivot then another</strong> to exclude range · <strong>Right-click</strong> for before/after.
+          <div className="pointer-events-none absolute bottom-full right-0 mb-2 hidden group-hover:block z-50 w-80">
+            <div className="bg-gray-800 text-gray-100 text-xs leading-relaxed rounded-lg px-3 py-2 shadow-xl text-left">
+              {(excludedCount > 0 || filteredOutByAdvancedCount > 0) && (
+                <p className="tabular-nums mb-1">
+                  <span className="font-semibold">{excludedCount}</span> excluded
+                  <span className="text-gray-400"> · </span>
+                  <span className="font-semibold">{filteredOutByAdvancedCount}</span> filtered out
+                </p>
+              )}
+              <span className="font-semibold">Excluded:</span> listings you removed from stats (pivot / exclude / range / right-click).{' '}
+              <span className="font-semibold">Filtered:</span> listings hidden by <strong>Advanced filters</strong> (price or sold date).{' '}
+              <span className="block mt-1.5 pt-1.5 border-t border-gray-600 text-gray-300">
+                <strong>Click</strong> unexcluded to set pivot · <strong>Click pivot</strong> to exclude · <strong>Click excluded</strong> to re-include · <strong>Right-click</strong> for before/after.
+              </span>
             </div>
             <div className="absolute top-full right-4 border-4 border-transparent border-t-gray-800" />
           </div>
         </div>
         <div className="w-px h-4 bg-gray-300" />
         <span>
-          <span className="font-extrabold text-blue-900 tabular-nums">{displayListings.length}</span>
-          {' '}Displayed
+          <span className="font-extrabold text-gray-800 tabular-nums">{totalRecordsCount}</span>
+          {' '}Total
         </span>
-        {drillHistory.length > 0 && (
-          <>
-            <div className="w-px h-4 bg-gray-300" />
-            <span>from <span className="font-semibold text-gray-700">{listings?.length ?? 0}</span> total</span>
-          </>
-        )}
+        {drillHistory.length > 0 &&
+          listings &&
+          displayedListings &&
+          listings.length !== displayedListings.length && (
+            <>
+              <div className="w-px h-4 bg-gray-300" />
+              <span className="text-xs text-gray-500 shrink-0">
+                Full result{' '}
+                <span className="font-semibold tabular-nums text-gray-700">{listings.length}</span>
+              </span>
+            </>
+          )}
       </div>
     </div>
   );
@@ -1134,18 +1184,18 @@ export default function ResearchFormShell({
   // ─── Main content ─────────────────────────────────────────────────────────
   const content = (
     <>
-      {/* ── MODAL MODE: unified top banner (always visible for branding + close) ── */}
+      {/* ── MODAL MODE: top banner (close lives on builder chrome, not here; OK finishes flow) ── */}
       {mode === "modal" && (
         <header className="bg-white border-b border-gray-200 flex items-center shrink-0">
           {/* Left section: branding + stats + offers — pr-6 matches listing area px-6 */}
           <div className="flex-1 min-w-0 flex items-center gap-3 pl-4 pr-6 py-2.5 flex-wrap">
             {/* Branding */}
             <div className="flex items-center gap-2 shrink-0">
-              <div className="bg-blue-900 p-1.5 rounded">
-                <Icon name={headerIcon} className="text-yellow-400 text-[15px]" />
+              <div className="bg-brand-blue p-1.5 rounded">
+                <Icon name={headerIcon} className="text-brand-orange text-[15px]" />
               </div>
               <div className="leading-tight">
-                <h2 className="text-lg md:text-xl font-extrabold text-blue-900 leading-tight">{headerTitle}</h2>
+                <h2 className="text-lg md:text-xl font-extrabold text-brand-blue leading-tight">{headerTitle}</h2>
                 {headerSubtitle && (
                   <p className="text-xs md:text-sm text-gray-500 font-semibold uppercase tracking-widest leading-snug mt-1">{headerSubtitle}</p>
                 )}
@@ -1156,14 +1206,9 @@ export default function ResearchFormShell({
             {listings && banner1MainContent}
           </div>
 
-          {/* Right section: action buttons + close — w-80 matches histogram width */}
+          {/* Right section: actions — w-80 matches histogram width */}
           <div className="w-80 shrink-0 flex items-center gap-2 justify-end px-4 py-2.5">
             {listings && actionButtonsEl}
-            <WorkspaceCloseButton
-              className="ml-2"
-              title="Close"
-              onClick={onCancel ? handleModalCancel : handleComplete}
-            />
           </div>
         </header>
       )}
@@ -1187,7 +1232,7 @@ export default function ResearchFormShell({
             <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">search</span>
             <input
               type="text"
-              className="w-full border border-gray-300 rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-blue-200 focus:border-blue-900 outline-none shadow-sm"
+              className="w-full border border-gray-300 rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-brand-blue/25 focus:border-brand-blue outline-none shadow-sm"
               placeholder={searchPlaceholder}
               value={searchTerm}
               onChange={readOnly ? undefined : (e) => onSearchTermChange(e.target.value)}
@@ -1211,7 +1256,7 @@ export default function ResearchFormShell({
             <div className="mt-2">
               <button
                 type="button"
-                className="text-xs text-gray-500 hover:text-blue-700 underline"
+                className="text-xs text-gray-500 hover:text-brand-blue-hover underline"
                 onClick={onResetSearch}
               >
                 Reset search
@@ -1231,13 +1276,13 @@ export default function ResearchFormShell({
         {filterOptions.length > 0 && (
           <aside className="w-64 border-r border-gray-200 overflow-y-auto bg-white p-4 space-y-6 histogram-scrollbar">
             <div>
-              <h3 className="text-xs font-bold text-blue-900 uppercase tracking-wider mb-2">Basic Filters</h3>
+              <h3 className="text-xs font-bold text-brand-blue uppercase tracking-wider mb-2">Basic Filters</h3>
               <div className="space-y-2">
                 {basicFilterOptions.map((filter) => (
                   <label key={filter} className="flex items-center gap-2 cursor-pointer text-xs">
                     <input
                       type="checkbox"
-                      className="rounded border-gray-300 text-blue-900 focus:ring-blue-900"
+                      className="rounded border-gray-300 text-brand-blue focus:ring-brand-orange"
                       checked={selectedFilters.basic.includes(filter)}
                       onChange={readOnly ? undefined : (e) => onBasicFilterChange(filter, e.target.checked)}
                       disabled={readOnly}
@@ -1249,13 +1294,13 @@ export default function ResearchFormShell({
             </div>
             {filterOptions.map((filter) => (
               <div key={filter.name} className="pt-4 border-t border-gray-200">
-                <h3 className="text-xs font-bold text-blue-900 uppercase tracking-wider mb-2">{filter.name}</h3>
+                <h3 className="text-xs font-bold text-brand-blue uppercase tracking-wider mb-2">{filter.name}</h3>
                 <div className="space-y-2">
                   {filter.type === "checkbox" && filter.options.map(option => (
                     <label key={option.label} className="flex items-center gap-2 cursor-pointer text-xs">
                       <input
                         type="checkbox"
-                        className="rounded border-gray-300 text-blue-900 focus:ring-blue-900"
+                        className="rounded border-gray-300 text-brand-blue focus:ring-brand-orange"
                         checked={selectedFilters.apiFilters[filter.name]?.includes(option.label) || false}
                         onChange={readOnly ? undefined : (e) => onApiFilterChange(filter.name, { label: option.label, checked: e.target.checked }, 'checkbox')}
                         disabled={readOnly}
@@ -1267,14 +1312,14 @@ export default function ResearchFormShell({
                     <div className="flex gap-2">
                       <input
                         type="number" placeholder="Min"
-                        className="w-full p-2 border rounded text-xs focus:ring-blue-900"
+                        className="w-full p-2 border rounded text-xs focus:ring-brand-orange"
                         value={selectedFilters.apiFilters[filter.name]?.min || ""}
                         onChange={readOnly ? undefined : (e) => onApiFilterChange(filter.name, e.target.value, 'range', 'min')}
                         disabled={readOnly}
                       />
                       <input
                         type="number" placeholder="Max"
-                        className="w-full p-2 border rounded text-xs focus:ring-blue-900"
+                        className="w-full p-2 border rounded text-xs focus:ring-brand-orange"
                         value={selectedFilters.apiFilters[filter.name]?.max || ""}
                         onChange={readOnly ? undefined : (e) => onApiFilterChange(filter.name, e.target.value, 'range', 'max')}
                         disabled={readOnly}
@@ -1306,7 +1351,7 @@ export default function ResearchFormShell({
                   <div className="mb-4 flex items-center gap-2 text-xs font-medium">
                     <button
                       onClick={() => onNavigateToDrillLevel && onNavigateToDrillLevel(0)}
-                      className="text-blue-900 hover:underline flex items-center gap-1"
+                      className="text-brand-blue hover:underline flex items-center gap-1"
                     >
                       <span className="material-symbols-outlined text-sm">home</span>
                       All Prices
@@ -1316,7 +1361,7 @@ export default function ResearchFormShell({
                         <span className="text-gray-400">/</span>
                         <button
                           onClick={() => onNavigateToDrillLevel && onNavigateToDrillLevel(idx + 1)}
-                          className={idx === drillHistory.length - 1 ? 'text-gray-900 font-bold' : 'text-blue-900 hover:underline'}
+                          className={idx === drillHistory.length - 1 ? 'text-gray-900 font-bold' : 'text-brand-blue hover:underline'}
                         >
                           £{range.min.toFixed(2)} - £{range.max.toFixed(2)}
                         </button>
@@ -1376,8 +1421,8 @@ export default function ResearchFormShell({
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50">
         <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-[16px] text-blue-900">tune</span>
-          <h3 className="text-sm font-bold text-blue-900 uppercase tracking-wider">Advanced Filters</h3>
+          <span className="material-symbols-outlined text-[16px] text-brand-blue">tune</span>
+          <h3 className="text-sm font-bold text-brand-blue uppercase tracking-wider">Advanced Filters</h3>
         </div>
         <button
           type="button"
@@ -1398,7 +1443,7 @@ export default function ResearchFormShell({
               <button
                 type="button"
                 onClick={() => { setAdvancedPriceMin(null); setAdvancedPriceMax(null); setDraftPriceMin(null); setDraftPriceMax(null); }}
-                className="text-[10px] text-blue-600 hover:underline font-medium"
+                className="text-[10px] text-brand-blue hover:underline font-medium"
               >
                 Reset
               </button>
@@ -1435,7 +1480,7 @@ export default function ResearchFormShell({
                     setDraftSoldDateFromIdx(soldDateMinMs);
                     setDraftSoldDateToIdx(soldDateMaxMs);
                   }}
-                  className="text-[10px] text-blue-600 hover:underline font-medium"
+                  className="text-[10px] text-brand-blue hover:underline font-medium"
                 >
                   Reset
                 </button>
@@ -1480,7 +1525,7 @@ export default function ResearchFormShell({
           <button
             type="button"
             onClick={() => setShowAdvancedFilter(false)}
-            className="flex-1 inline-flex items-center justify-center px-3 py-2 rounded-lg text-xs font-semibold bg-blue-900 text-white hover:bg-blue-800 transition-colors"
+            className="flex-1 inline-flex items-center justify-center px-3 py-2 rounded-lg text-xs font-semibold bg-brand-blue text-white hover:bg-brand-blue-hover transition-colors"
           >
             Done
           </button>
@@ -1514,7 +1559,7 @@ export default function ResearchFormShell({
       <div className="py-1">
         <button
           type="button"
-          className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-900 flex items-center gap-2.5 transition-colors"
+          className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-brand-blue/5 hover:text-brand-blue flex items-center gap-2.5 transition-colors"
           onClick={handleExcludeAllBefore}
           role="menuitem"
         >
@@ -1523,7 +1568,7 @@ export default function ResearchFormShell({
         </button>
         <button
           type="button"
-          className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-900 flex items-center gap-2.5 transition-colors"
+          className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-brand-blue/5 hover:text-brand-blue flex items-center gap-2.5 transition-colors"
           onClick={handleExcludeAllAfter}
           role="menuitem"
         >
@@ -1561,11 +1606,11 @@ export default function ResearchFormShell({
       </p>
       <div className="flex items-center gap-2 mb-2">
         <div className="relative flex-1">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-blue-900">£</span>
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-brand-blue">£</span>
           <input
             ref={manualOfferInputRef}
             type="number" min="0" step="0.01"
-            className="w-full pl-7 pr-3 py-2.5 border border-gray-300 rounded-lg text-sm font-semibold text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-900"
+            className="w-full pl-7 pr-3 py-2.5 border border-gray-300 rounded-lg text-sm font-semibold text-brand-blue focus:outline-none focus:ring-2 focus:ring-brand-blue/25 focus:border-brand-blue"
             placeholder="0.00"
             value={manualOfferDialog.value}
             onChange={(e) => {
@@ -1577,7 +1622,7 @@ export default function ResearchFormShell({
         </div>
         <button
           type="button"
-          className="px-4 py-2.5 text-sm font-semibold text-white bg-blue-900 rounded-lg hover:bg-blue-800 shrink-0"
+          className="px-4 py-2.5 text-sm font-semibold text-white bg-brand-blue rounded-lg hover:bg-brand-blue-hover shrink-0"
           onClick={applyManualOfferDialog}
         >
           Okay

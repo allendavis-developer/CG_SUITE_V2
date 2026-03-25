@@ -50,8 +50,8 @@ export default function NewCustomerDetailsModal({ open, onClose, onSubmit, initi
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !isSubmitting && onClose()} />
       <div className="relative bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden">
-        <header className="bg-blue-900 px-6 py-5 flex items-center gap-3 text-white">
-          <span className="material-symbols-outlined text-yellow-500 text-2xl">person_add</span>
+        <header className="bg-brand-blue px-6 py-5 flex items-center gap-3 text-white">
+          <span className="material-symbols-outlined text-brand-orange text-2xl">person_add</span>
           <div>
             <h3 className="text-lg font-bold leading-none">Customer Details Required</h3>
             <p className="text-white/70 text-sm mt-1">Enter customer details before booking for testing</p>
@@ -75,7 +75,7 @@ export default function NewCustomerDetailsModal({ open, onClose, onSubmit, initi
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Enter customer's full name"
-              className="w-full h-12 rounded-xl border border-gray-200 focus:ring-yellow-500 focus:border-yellow-500 px-4"
+              className="w-full h-12 rounded-xl border border-gray-200 focus:ring-brand-orange focus:border-brand-orange px-4"
               required
             />
           </div>
@@ -89,7 +89,7 @@ export default function NewCustomerDetailsModal({ open, onClose, onSubmit, initi
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               placeholder="(555) 000-0000"
-              className="w-full h-12 rounded-xl border border-gray-200 focus:ring-yellow-500 focus:border-yellow-500 px-4"
+              className="w-full h-12 rounded-xl border border-gray-200 focus:ring-brand-orange focus:border-brand-orange px-4"
               required
             />
           </div>
@@ -101,7 +101,7 @@ export default function NewCustomerDetailsModal({ open, onClose, onSubmit, initi
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="customer@example.com"
-              className="w-full h-12 rounded-xl border border-gray-200 focus:ring-yellow-500 focus:border-yellow-500 px-4"
+              className="w-full h-12 rounded-xl border border-gray-200 focus:ring-brand-orange focus:border-brand-orange px-4"
             />
           </div>
 
@@ -112,7 +112,7 @@ export default function NewCustomerDetailsModal({ open, onClose, onSubmit, initi
               value={address}
               onChange={(e) => setAddress(e.target.value)}
               placeholder="123 Street Name, City, State, ZIP"
-              className="w-full h-12 rounded-xl border border-gray-200 focus:ring-yellow-500 focus:border-yellow-500 px-4"
+              className="w-full h-12 rounded-xl border border-gray-200 focus:ring-brand-orange focus:border-brand-orange px-4"
             />
           </div>
 
@@ -128,7 +128,7 @@ export default function NewCustomerDetailsModal({ open, onClose, onSubmit, initi
             <button
               type="submit"
               disabled={isSubmitting}
-              className="flex-1 bg-yellow-500 hover:brightness-105 text-blue-900 font-black py-4 px-6 rounded-xl shadow-lg flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex-1 bg-brand-orange hover:brightness-105 text-brand-blue font-black py-4 px-6 rounded-xl shadow-lg flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isSubmitting ? (
                 <span className="material-symbols-outlined animate-spin">progress_activity</span>

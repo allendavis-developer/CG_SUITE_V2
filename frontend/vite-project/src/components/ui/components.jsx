@@ -25,10 +25,12 @@ export const Button = ({
   const baseStyles = "font-bold rounded-lg flex items-center justify-center gap-2 transition-all";
   
   const variants = {
-    primary: "bg-yellow-500 hover:bg-yellow-400 text-blue-900 shadow-md shadow-yellow-500/10 active:scale-95",
-    secondary: "bg-blue-900 hover:bg-blue-800 text-white",
-    outline: "border border-gray-200 bg-white text-gray-900 hover:border-yellow-500",
-    ghost: "text-blue-900/30 hover:text-red-500"
+    primary:
+      "bg-brand-orange hover:bg-brand-orange-hover text-brand-blue shadow-md shadow-brand-orange/20 active:scale-95",
+    secondary: "bg-brand-blue hover:bg-brand-blue-hover text-white",
+    outline:
+      "border border-ui-border bg-white text-text-main hover:border-brand-orange",
+    ghost: "text-brand-blue/35 hover:text-brand-blue",
   };
   
   const sizes = {
@@ -52,8 +54,8 @@ export const Button = ({
 // Badge Component
 export const Badge = ({ children, variant = 'default', className = '' }) => {
   const variants = {
-    default: "bg-blue-900/5 text-blue-900 border-blue-900/20",
-    warning: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20",
+    default: "bg-brand-blue/[0.06] text-brand-blue border-brand-blue/20",
+    warning: "bg-brand-orange/10 text-brand-orange border-brand-orange/20",
     success: "bg-emerald-600/10 text-emerald-600 border-emerald-600/20"
   };
   
@@ -121,7 +123,7 @@ export const CustomDropdown = ({ label, value, options, onChange, labelPosition 
         ref={buttonRef}
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-900 text-left flex items-center justify-between hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 transition-all"
+        className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-900 text-left flex items-center justify-between hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-brand-orange focus:border-brand-orange transition-all"
       >
         <span className="font-medium">{value}</span>
         <Icon
@@ -274,8 +276,8 @@ export const Tab = ({ icon, label, isActive, onClick }) => (
     onClick={onClick}
     className={`px-6 py-4 text-sm font-bold flex items-center gap-2 transition-all border-b-2 ${
       isActive 
-        ? 'border-yellow-500 text-yellow-500 bg-white' 
-        : 'border-transparent text-gray-500 hover:text-blue-900 hover:bg-white/50'
+        ? 'border-brand-orange text-brand-orange bg-white' 
+        : 'border-transparent text-gray-500 hover:text-brand-blue hover:bg-white/50'
     }`}
   >
     <Icon name={icon} className="text-sm" />
@@ -290,9 +292,9 @@ export const Breadcrumb = ({ items }) => (
       <React.Fragment key={index}>
         {index > 0 && <span className="text-xs text-gray-400/30">/</span>}
         {index === items.length - 1 ? (
-          <span className="text-xs font-medium text-blue-900">{item}</span>
+          <span className="text-xs font-medium text-brand-blue">{item}</span>
         ) : (
-          <a className="text-xs font-medium text-gray-500 hover:text-blue-900" href="#">{item}</a>
+          <a className="text-xs font-medium text-gray-500 hover:text-brand-blue" href="#">{item}</a>
         )}
       </React.Fragment>
     ))}
@@ -315,7 +317,7 @@ export const CategoryItem = ({ icon, label, isSelected, isExpanded, hasChildren,
       <div 
         className={`flex items-center p-2 rounded-lg cursor-pointer text-sm ${
           isSelected
-            ? 'bg-yellow-500/10 text-yellow-500 font-semibold border-l-2 border-yellow-500'
+            ? 'bg-brand-orange/10 text-brand-orange font-semibold border-l-2 border-brand-orange'
             : 'text-white/70 hover:bg-white/10'
         } ${!isSelected && isExpanded ? 'bg-white/5' : ''}`}
         onClick={handleClick}
@@ -352,7 +354,7 @@ export const RecentItem = ({ image, title, sku, onClick }) => (
       <img alt={title} className="object-cover w-full h-full opacity-80 group-hover:opacity-100" src={image} />
     </div>
     <div>
-      <p className="text-xs font-bold text-white/90 group-hover:text-yellow-500">{title}</p>
+      <p className="text-xs font-bold text-white/90 group-hover:text-brand-orange">{title}</p>
       <p className="text-[10px] text-white/40 uppercase">SKU: {sku}</p>
     </div>
   </div>
@@ -500,7 +502,7 @@ export const Sidebar = ({ onCategorySelect, onAddFromCeX, isCeXLoading, onQuickR
   const transaction = customerData ? (TRANSACTION_META[customerData.transactionType] || { label: 'Unknown', className: '' }) : null;
 
   return (
-    <aside className="buyer-sidebar w-1/5 min-w-0 min-h-0 shrink-0 border-r border-blue-900/10 flex flex-col bg-blue-900 overflow-hidden">
+    <aside className="buyer-sidebar w-1/5 min-w-0 min-h-0 shrink-0 border-r border-brand-blue/10 flex flex-col bg-brand-blue overflow-hidden">
 
       {/* ── Customer panel ── */}
       {customerData && (
@@ -570,7 +572,7 @@ export const Sidebar = ({ onCategorySelect, onAddFromCeX, isCeXLoading, onQuickR
                 <div className="grid grid-cols-2 gap-1.5">
                   {customerData.buyingCount && (
                     <div className="bg-white/5 rounded-lg px-2 py-1.5 flex items-center gap-2">
-                      <span className="material-symbols-outlined text-yellow-400 text-base">file_present</span>
+                      <span className="material-symbols-outlined text-brand-orange text-base">file_present</span>
                       <div>
                         <p className="text-lg font-black text-white leading-none">{customerData.buyingCount}</p>
                         <p className="text-[9px] font-bold uppercase tracking-wider text-white/30">Buys</p>
@@ -579,7 +581,7 @@ export const Sidebar = ({ onCategorySelect, onAddFromCeX, isCeXLoading, onQuickR
                   )}
                   {customerData.salesCount && (
                     <div className="bg-white/5 rounded-lg px-2 py-1.5 flex items-center gap-2">
-                      <span className="material-symbols-outlined text-blue-300 text-base">shopping_cart</span>
+                      <span className="material-symbols-outlined text-white/50 text-base">shopping_cart</span>
                       <div>
                         <p className="text-lg font-black text-white leading-none">{customerData.salesCount}</p>
                         <p className="text-[9px] font-bold uppercase tracking-wider text-white/30">Sales</p>
@@ -615,7 +617,7 @@ export const Sidebar = ({ onCategorySelect, onAddFromCeX, isCeXLoading, onQuickR
         <div className="relative">
           <Icon name="filter_list" className="absolute left-3 top-2.5 text-white/40 text-sm" />
           <input
-            className="w-full bg-white/10 border-white/10 border rounded-lg pl-9 py-2 text-sm text-white focus:ring-1 focus:ring-yellow-500 placeholder:text-white/30"
+            className="w-full bg-white/10 border-white/10 border rounded-lg pl-9 py-2 text-sm text-white focus:ring-1 focus:ring-brand-orange placeholder:text-white/30"
             placeholder="Filter categories..."
             type="text"
             value={filterText}
@@ -633,7 +635,7 @@ export const Sidebar = ({ onCategorySelect, onAddFromCeX, isCeXLoading, onQuickR
                   key={category.category_id}
                   type="button"
                   onClick={() => handleCategorySelect(category)}
-                  className="w-full text-left px-3 py-2 rounded-lg text-sm text-white hover:bg-yellow-500/20 hover:text-yellow-400 transition-colors flex items-center gap-2"
+                  className="w-full text-left px-3 py-2 rounded-lg text-sm text-white hover:bg-brand-orange/20 hover:text-brand-orange transition-colors flex items-center gap-2"
                 >
                   <Icon name="smartphone" className="text-sm flex-shrink-0" />
                   <span>{path.join(' › ')}</span>
@@ -652,7 +654,7 @@ export const Sidebar = ({ onCategorySelect, onAddFromCeX, isCeXLoading, onQuickR
                 type="button"
                 onClick={onAddFromCeX}
                 disabled={isCeXLoading}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-400 font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed border border-yellow-500/30"
+                className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-brand-orange/20 hover:bg-brand-orange/30 text-brand-orange font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed border border-brand-orange/30"
               >
                 <Icon name="add_link" className="text-sm" />
                 {isCeXLoading ? 'Waiting for CeX listing…' : 'Add from CeX'}
@@ -662,7 +664,7 @@ export const Sidebar = ({ onCategorySelect, onAddFromCeX, isCeXLoading, onQuickR
               <button
                 type="button"
                 onClick={onQuickReprice}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-yellow-500 hover:bg-yellow-400 text-blue-900 font-bold text-sm transition-colors border border-yellow-400 shadow-md shadow-yellow-500/20"
+                className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-brand-orange hover:bg-brand-orange-hover text-brand-blue font-bold text-sm transition-colors border border-brand-orange shadow-md shadow-brand-orange/20"
                 title="Quick Reprice is for games only"
               >
                 <Icon name="bolt" className="text-sm" />
@@ -689,14 +691,14 @@ export const OfferCard = ({ title, price, margin, isHighlighted, onClick }) => (
       ${
         isHighlighted
           ? `
-            border-blue-900
-            ring-2 ring-blue-900 ring-offset-2 ring-offset-white
-            shadow-xl shadow-blue-900/10
+            border-brand-blue
+            ring-2 ring-brand-blue ring-offset-2 ring-offset-white
+            shadow-xl shadow-brand-blue/10
             scale-[1.03]
           `
           : `
-            border-blue-900/40
-            hover:border-blue-900
+            border-brand-blue/40
+            hover:border-brand-blue
             hover:shadow-lg
           `
       }
@@ -706,16 +708,16 @@ export const OfferCard = ({ title, price, margin, isHighlighted, onClick }) => (
     <div
       className={`absolute top-0 left-0 w-full ${
         isHighlighted
-          ? 'h-1.5 bg-yellow-500'
-          : 'h-1 bg-yellow-500/60'
+          ? 'h-1.5 bg-brand-orange'
+          : 'h-1 bg-brand-orange/60'
       }`}
     />
 
-    <h4 className="text-[10px] font-black uppercase text-blue-900 mb-4 tracking-wider">
+    <h4 className="text-[10px] font-black uppercase text-brand-blue mb-4 tracking-wider">
       {title}
     </h4>
 
-    <p className="text-4xl font-extrabold text-blue-900 mb-2">
+    <p className="text-4xl font-extrabold text-brand-blue mb-2">
       {price}
     </p>
 
@@ -723,7 +725,7 @@ export const OfferCard = ({ title, price, margin, isHighlighted, onClick }) => (
       <span className="text-[10px] font-bold text-gray-500 uppercase">
         Margin
       </span>
-      <span className="text-xs font-extrabold text-yellow-500">
+      <span className="text-xs font-extrabold text-brand-orange">
         {margin}%
       </span>
     </div>
@@ -762,8 +764,8 @@ export const TableCheckbox = ({ checked, onChange, indeterminate = false, 'aria-
         className={`
           flex items-center justify-center w-4 h-4 transition-all
           ${checked || indeterminate
-            ? 'bg-[#144584] border-2 border-[#144584]'
-            : 'bg-white border-2 border-black group-hover:border-[#144584]'}
+            ? 'bg-brand-blue border-2 border-brand-blue'
+            : 'bg-white border-2 border-black group-hover:border-brand-blue'}
         `}
       >
         {checked && !indeterminate && (

@@ -187,21 +187,21 @@ const RepricingOverview = () => {
       <style>{`
         .material-symbols-outlined { font-size: 20px; }
         .data-table th {
-          background: #f8fafc;
-          color: #144584;
+          background: var(--ui-bg);
+          color: var(--brand-blue);
           font-weight: 700;
           font-size: 11px;
           text-transform: uppercase;
           letter-spacing: 0.05em;
           padding: 1rem 1.5rem;
-          border-bottom: 1px solid #e5e7eb;
+          border-bottom: 1px solid var(--ui-border);
           position: sticky;
           top: 0;
           z-index: 10;
         }
         .data-table td {
           padding: 1rem 1.5rem;
-          border-bottom: 1px solid #e5e7eb;
+          border-bottom: 1px solid var(--ui-border);
           vertical-align: middle;
         }
         .data-table tr {
@@ -209,20 +209,20 @@ const RepricingOverview = () => {
           transition: background-color 150ms;
         }
         .data-table tr:hover {
-          background-color: #f8fafc;
+          background-color: var(--ui-bg);
         }
       `}</style>
 
       <AppHeader />
 
       <main className="flex flex-1 overflow-hidden h-[calc(100vh-65px)]">
-        <aside className="w-64 bg-blue-900 flex flex-col shrink-0">
+        <aside className="w-64 bg-brand-blue flex flex-col shrink-0">
           <div className="p-6 space-y-8">
             <div>
               <h3 className="text-white/40 text-[10px] font-black uppercase tracking-widest mb-4">Main Menu</h3>
               <nav className="space-y-1">
                 <div className="flex items-center gap-3 text-white py-2 bg-white/10 rounded-lg px-3 -mx-3">
-                  <span className="material-symbols-outlined text-sm text-amber-400">sell</span>
+                  <span className="material-symbols-outlined text-sm text-brand-orange">sell</span>
                   <span className="text-sm font-bold">Overview</span>
                 </div>
               </nav>
@@ -256,8 +256,8 @@ const RepricingOverview = () => {
         <section className="flex-1 bg-white flex flex-col overflow-hidden">
           <div className="px-6 py-4 flex items-center justify-between border-b border-gray-200 bg-white">
             <div className="flex items-center gap-4">
-              <h1 className="text-xl font-extrabold text-blue-900">Repricing Overview</h1>
-              <span className="bg-blue-900/10 text-blue-900 text-[11px] font-black px-2.5 py-0.5 rounded-full">
+              <h1 className="text-xl font-extrabold text-brand-blue">Repricing Overview</h1>
+              <span className="bg-brand-blue/10 text-brand-blue text-[11px] font-black px-2.5 py-0.5 rounded-full">
                 {filteredSessions.length} TOTAL
               </span>
             </div>
@@ -269,7 +269,7 @@ const RepricingOverview = () => {
                     onClick={() => setFilterStatus(f)}
                     className={`px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider transition-colors ${
                       filterStatus === f
-                        ? 'bg-blue-900 text-white'
+                        ? 'bg-brand-blue text-white'
                         : 'bg-white text-gray-500 hover:bg-gray-50'
                     }`}
                   >
@@ -278,7 +278,7 @@ const RepricingOverview = () => {
                 ))}
               </div>
               <button
-                className="flex items-center gap-2 px-4 py-2 bg-blue-900 text-white rounded-lg hover:bg-blue-800 transition-colors font-bold"
+                className="flex items-center gap-2 px-4 py-2 bg-brand-blue text-white rounded-lg hover:bg-brand-blue-hover transition-colors font-bold"
                 onClick={handleNewRepricing}
               >
                 <span className="material-symbols-outlined text-sm">add</span>
@@ -329,13 +329,13 @@ const RepricingOverview = () => {
                         </td>
                         <td>
                           {itemSummary ? (
-                            <span className="text-blue-900 font-semibold text-[12px]">{itemSummary}</span>
+                            <span className="text-brand-blue font-semibold text-[12px]">{itemSummary}</span>
                           ) : (
                             <span className="text-gray-400 italic">No item data</span>
                           )}
                         </td>
-                        <td className="font-semibold text-blue-900">{session.item_count || 0}</td>
-                        <td className="font-semibold text-blue-900">{session.barcode_count || 0}</td>
+                        <td className="font-semibold text-brand-blue">{session.item_count || 0}</td>
+                        <td className="font-semibold text-brand-blue">{session.barcode_count || 0}</td>
                         <td className="text-gray-600">
                           {new Date(session.created_at).toLocaleString('en-GB', {
                             day: '2-digit',
@@ -376,7 +376,7 @@ const RepricingOverview = () => {
                                 {hasSessionItems && (
                                   <button
                                     onClick={(e) => handleRedoRepricing(e, session)}
-                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-bold bg-brand-blue/5 text-brand-blue border border-brand-blue/20 hover:bg-brand-blue/10 transition-colors"
                                     title="Start a new repricing session with the same items"
                                   >
                                     <span className="material-symbols-outlined text-[14px]">refresh</span>

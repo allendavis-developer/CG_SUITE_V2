@@ -47,7 +47,7 @@ const PriceHistogram = React.memo(function PriceHistogram({ listings, onBucketSe
   if (min === max) {
     return (
       <div className="bg-white h-full rounded-xl border border-gray-200 shadow-sm p-4">
-        <h3 className="text-xs font-bold text-blue-900 uppercase tracking-wider mb-2">Market Price Density</h3>
+        <h3 className="text-xs font-bold text-brand-blue uppercase tracking-wider mb-2">Market Price Density</h3>
         <p className="text-[10px] text-gray-500">Not enough price variation to build a distribution.</p>
       </div>
     );
@@ -57,32 +57,32 @@ const PriceHistogram = React.memo(function PriceHistogram({ listings, onBucketSe
     <div className="bg-white h-full rounded-xl border border-gray-200 shadow-sm transition-all duration-500 flex flex-col">
       <div className="p-4 border-b border-gray-200">
         <div className="mb-4">
-          <h3 className="text-xs font-bold text-blue-900 uppercase tracking-wider">
+          <h3 className="text-xs font-bold text-brand-blue uppercase tracking-wider">
             Market Price Density {drillLevel > 0 && `(Level ${drillLevel})`}
           </h3>
           <p className="text-[10px] text-gray-500 mt-1">
             {priceRange ? (
-              <>Drilling into <span className="font-bold text-blue-900">£{priceRange.min.toFixed(2)} - £{priceRange.max.toFixed(2)}</span> range {' '}(<span className="font-bold text-blue-900">{filteredPricesCount}</span> listings)</>
+              <>Drilling into <span className="font-bold text-brand-blue">£{priceRange.min.toFixed(2)} - £{priceRange.max.toFixed(2)}</span> range {' '}(<span className="font-bold text-brand-blue">{filteredPricesCount}</span> listings)</>
             ) : (
-              <>Showing distribution across <span className="font-bold text-blue-900">{prices.length}</span> listings</>
+              <>Showing distribution across <span className="font-bold text-brand-blue">{prices.length}</span> listings</>
             )}
           </p>
         </div>
         {drillLevel > 0 && (
           <button
             onClick={onGoBack}
-            className="flex items-center gap-2 px-3 py-1.5 bg-blue-900 text-white rounded-lg text-xs font-bold hover:bg-blue-800 transition-all transform hover:scale-105 shadow-md w-full justify-center mb-4"
+            className="flex items-center gap-2 px-3 py-1.5 bg-brand-blue text-white rounded-lg text-xs font-bold hover:bg-brand-blue-hover transition-all transform hover:scale-105 shadow-md w-full justify-center mb-4"
           >
             <span className="material-symbols-outlined text-sm">arrow_back</span>
             Zoom Out
           </button>
         )}
         <div className="flex flex-col gap-2 bg-gray-50 p-3 rounded-lg border border-gray-100">
-          <label className="text-[10px] font-bold text-blue-900 uppercase">Buckets: {bucketCount}</label>
+          <label className="text-[10px] font-bold text-brand-blue uppercase">Buckets: {bucketCount}</label>
           <input
             type="range" min="5" max="20" value={bucketCount}
             onChange={(e) => setBucketCount(parseInt(e.target.value))}
-            className="w-full h-1.5 bg-blue-200 rounded-lg appearance-none cursor-pointer accent-blue-900"
+            className="w-full h-1.5 bg-brand-blue/20 rounded-lg appearance-none cursor-pointer accent-brand-blue"
           />
         </div>
       </div>
@@ -99,23 +99,23 @@ const PriceHistogram = React.memo(function PriceHistogram({ listings, onBucketSe
             >
               <div className="flex-1 flex items-center justify-end h-full">
                 {bucket.count > 0 && (
-                  <span className="text-[10px] font-black text-blue-900 mr-2 transition-all duration-300 group-hover:scale-125">{bucket.count}</span>
+                  <span className="text-[10px] font-black text-brand-blue mr-2 transition-all duration-300 group-hover:scale-125">{bucket.count}</span>
                 )}
                 <div
-                  className={`h-full transition-all duration-500 ${bucket.count > 0 ? 'bg-yellow-400 group-hover:bg-blue-900 group-hover:shadow-lg shadow-sm' : 'bg-gray-50'}`}
+                  className={`h-full transition-all duration-500 ${bucket.count > 0 ? 'bg-brand-orange group-hover:bg-brand-blue group-hover:shadow-lg shadow-sm' : 'bg-gray-50'}`}
                   style={{ width: bucket.count > 0 ? `${Math.max(widthPct, 4)}%` : '2px', transformOrigin: 'right' }}
                 />
               </div>
-              <div className="text-blue-900 font-bold text-[10px] whitespace-nowrap w-28 text-left pl-2">
+              <div className="text-brand-blue font-bold text-[10px] whitespace-nowrap w-28 text-left pl-2">
                 £{bucket.rangeStart.toFixed(2)} - £{bucket.rangeEnd.toFixed(2)}
               </div>
               {bucket.count > 0 && (
                 <div className="absolute right-full mr-4 hidden group-hover:flex items-center z-10">
-                  <div className="bg-blue-900 text-white text-[10px] py-1.5 px-2.5 rounded shadow-xl whitespace-nowrap">
+                  <div className="bg-brand-blue text-white text-[10px] py-1.5 px-2.5 rounded shadow-xl whitespace-nowrap">
                     £{bucket.rangeStart.toFixed(2)} - £{bucket.rangeEnd.toFixed(2)}
-                    <div className="text-[9px] text-yellow-400 font-bold mt-0.5">🔍 Click to drill down</div>
+                    <div className="text-[9px] text-brand-orange font-bold mt-0.5">🔍 Click to drill down</div>
                   </div>
-                  <div className="w-2 h-2 bg-blue-900 rotate-45 -mr-1"></div>
+                  <div className="w-2 h-2 bg-brand-blue rotate-45 -mr-1"></div>
                 </div>
               )}
             </div>

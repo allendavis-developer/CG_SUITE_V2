@@ -36,7 +36,7 @@ const ProductSelection = ({ availableModels, setSelectedModel, isLoading = false
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-500">
-        <span className="material-symbols-outlined animate-spin text-3xl text-blue-900">sync</span>
+        <span className="material-symbols-outlined animate-spin text-3xl text-brand-blue">sync</span>
         <p className="text-sm">Loading models…</p>
       </div>
     );
@@ -57,7 +57,7 @@ const ProductSelection = ({ availableModels, setSelectedModel, isLoading = false
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKey}
             placeholder="Search models…"
-            className="w-full rounded-lg border border-gray-300 bg-white py-2 pl-9 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-900 focus:outline-none focus:ring-1 focus:ring-blue-900"
+            className="w-full rounded-lg border border-gray-300 bg-white py-2 pl-9 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-orange"
           />
           {query && (
             <button
@@ -74,7 +74,7 @@ const ProductSelection = ({ availableModels, setSelectedModel, isLoading = false
             <div>
               <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Models in this category</p>
               {filtered.length === availableModels.length ? (
-                <p className="mt-0.5 text-2xl font-black tabular-nums tracking-tight text-blue-900">
+                <p className="mt-0.5 text-2xl font-black tabular-nums tracking-tight text-brand-blue">
                   {availableModels.length}
                   <span className="ml-1.5 text-base font-bold text-gray-700">
                     {availableModels.length === 1 ? 'model' : 'models'}
@@ -82,7 +82,7 @@ const ProductSelection = ({ availableModels, setSelectedModel, isLoading = false
                 </p>
               ) : (
                 <>
-                  <p className="mt-0.5 text-2xl font-black tabular-nums tracking-tight text-blue-900">
+                  <p className="mt-0.5 text-2xl font-black tabular-nums tracking-tight text-brand-blue">
                     {filtered.length}
                     <span className="mx-1 text-lg font-bold text-gray-400">/</span>
                     <span className="text-xl font-bold text-gray-700">{availableModels.length}</span>
@@ -135,8 +135,8 @@ const ProductSelection = ({ availableModels, setSelectedModel, isLoading = false
                 <tr
                   key={model.product_id ?? model.name}
                   onClick={() => setSelectedModel(model)}
-                  className={`cursor-pointer border-b border-gray-200/80 transition-colors hover:bg-blue-50 hover:text-blue-900 ${
-                    i % 2 === 0 ? 'bg-white' : 'bg-[#f5efe4]'
+                  className={`cursor-pointer border-b border-gray-200/80 transition-colors hover:bg-brand-blue/5 hover:text-brand-blue ${
+                    i % 2 === 0 ? 'bg-white' : 'bg-brand-blue/10'
                   }`}
                 >
                   <td className="px-4 py-3 font-medium text-gray-900">{model.name}</td>
@@ -154,7 +154,7 @@ const ProductSelection = ({ availableModels, setSelectedModel, isLoading = false
 
       {/* Pagination footer */}
       {totalPages > 1 && (
-        <div className="shrink-0 flex flex-wrap items-center justify-center gap-3 border-t border-gray-200 bg-[#f5efe4] px-4 py-4 sm:justify-between">
+        <div className="shrink-0 flex flex-wrap items-center justify-center gap-3 border-t border-gray-200 bg-brand-blue/10 px-4 py-4 sm:justify-between">
           <button
             type="button"
             onClick={() => setPage((p) => Math.max(1, p - 1))}
@@ -185,7 +185,7 @@ const ProductSelection = ({ availableModels, setSelectedModel, isLoading = false
                     onClick={() => setPage(p)}
                     className={`flex min-h-11 min-w-11 items-center justify-center rounded-lg border px-3 py-2 text-sm font-bold transition-colors ${
                       p === safePage
-                        ? 'border-blue-900 bg-blue-900 text-white shadow-sm'
+                        ? 'border-brand-blue bg-brand-blue text-white shadow-sm'
                         : 'border-gray-300 bg-white text-gray-800 shadow-sm hover:bg-gray-50'
                     }`}
                   >

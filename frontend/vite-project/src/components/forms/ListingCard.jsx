@@ -39,7 +39,7 @@ const ListingCard = React.memo(function ListingCard({ item, origIdx, sortedIdx, 
         </div>
         <div className="flex flex-col justify-between flex-1 min-w-0">
           <div>
-            <h4 className="text-sm font-bold text-blue-900 line-clamp-2 leading-tight cursor-pointer hover:underline">{item.title}</h4>
+            <h4 className="text-sm font-bold text-brand-blue line-clamp-2 leading-tight cursor-pointer hover:underline">{item.title}</h4>
             {item.shop && <p className="text-[11px] text-gray-500 mt-0.5">Shop: {item.shop}</p>}
             {item.sold && <p className="text-[11px] text-green-600 font-bold mt-1">{item.sold}</p>}
             {item.sellerInfo && (
@@ -62,7 +62,7 @@ const ListingCard = React.memo(function ListingCard({ item, origIdx, sortedIdx, 
       {showExcludeButton && (
         <button
           className={`absolute top-2 right-2 z-10 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wide transition-[background-color,border-color,color,box-shadow] duration-75 ${
-            isPivot ? 'bg-blue-600 text-white shadow-md ring-2 ring-blue-300' : item.excluded ? 'bg-orange-500 text-white shadow-sm hover:bg-orange-600' : 'bg-white text-gray-600 border border-gray-300 shadow-sm hover:bg-red-50 hover:text-red-600 hover:border-red-300'
+            isPivot ? 'bg-brand-blue text-white shadow-md ring-2 ring-brand-blue/35' : item.excluded ? 'bg-orange-500 text-white shadow-sm hover:bg-orange-600' : 'bg-white text-gray-600 border border-gray-300 shadow-sm hover:bg-red-50 hover:text-red-600 hover:border-red-300'
           }`}
           onClick={handleExcludeClick}
           title={isPivot ? 'Click to exclude · Click another item to select range' : item.excluded ? 'Click to re-include' : 'Click to set pivot'}

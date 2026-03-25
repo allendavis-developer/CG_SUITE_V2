@@ -195,12 +195,12 @@ const QuickRepriceModal = ({ onClose, onAddItems }) => {
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col overflow-hidden max-h-[90vh]">
 
         {/* Header */}
-        <div className="px-6 py-4 bg-blue-900 flex items-center justify-between shrink-0">
+        <div className="px-6 py-4 bg-brand-blue flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
-            <span className="material-symbols-outlined text-yellow-400 text-xl">bolt</span>
+            <span className="material-symbols-outlined text-brand-orange text-xl">bolt</span>
             <div>
               <p className="text-sm font-black uppercase tracking-wider text-white">Quick Reprice (Games)</p>
-              <p className="text-xs text-blue-200">For games only – scan or paste barcode pairs to bulk-add items</p>
+              <p className="text-xs text-white/70">For games only – scan or paste barcode pairs to bulk-add items</p>
             </div>
           </div>
           <button
@@ -217,31 +217,31 @@ const QuickRepriceModal = ({ onClose, onAddItems }) => {
           {/* ── Input phase ── */}
           {(phase === 'input' || phase === 'loading') && (
             <div className="p-6 space-y-4">
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                <p className="text-xs font-semibold text-blue-800 mb-1 flex items-center gap-1">
+              <div className="bg-brand-blue/5 border border-brand-blue/20 rounded-lg p-3">
+                <p className="text-xs font-semibold text-brand-blue mb-1 flex items-center gap-1">
                   <span className="material-symbols-outlined text-sm">info</span>
                   Format (games only)
                 </p>
-                <p className="text-xs text-blue-700 leading-relaxed">
+                <p className="text-xs text-brand-blue leading-relaxed">
                   Enter barcodes for <span className="font-semibold">games only</span>. Each non-BB line starts a new item; all BB lines after it belong to that item:<br />
                   <span className="font-mono font-bold">1234567890</span>
-                  <span className="text-blue-500"> ← Game SKU</span><br />
+                  <span className="text-brand-blue/80"> ← Game SKU</span><br />
                   <span className="font-mono font-bold">BB12CD345</span>
-                  <span className="text-blue-500"> ← NoSpos barcode #1</span><br />
+                  <span className="text-brand-blue/80"> ← NoSpos barcode #1</span><br />
                   <span className="font-mono font-bold">BB98ZW001</span>
-                  <span className="text-blue-500"> ← NoSpos barcode #2 (same item)</span><br />
+                  <span className="text-brand-blue/80"> ← NoSpos barcode #2 (same item)</span><br />
                   <span className="font-mono font-bold">9876543210</span>
-                  <span className="text-blue-500"> ← next item</span>
+                  <span className="text-brand-blue/80"> ← next item</span>
                 </p>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-blue-900 uppercase tracking-wider mb-2">
+                <label className="block text-xs font-bold text-brand-blue uppercase tracking-wider mb-2">
                   Barcodes
                 </label>
                 <textarea
                   ref={textareaRef}
-                  className="w-full h-56 resize-none font-mono text-sm border border-blue-200 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50 text-gray-800 placeholder-gray-400"
+                  className="w-full h-56 resize-none font-mono text-sm border border-brand-blue/20 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-brand-orange bg-gray-50 text-gray-800 placeholder-gray-400"
                   placeholder={"1234567890\nAB12CD345\n9876543210\nXY98ZW001"}
                   value={barcodeText}
                   onChange={(e) => setBarcodeText(e.target.value)}
@@ -251,9 +251,9 @@ const QuickRepriceModal = ({ onClose, onAddItems }) => {
 
               {parsedGroups.length > 0 && (
                 <p className="text-xs text-gray-500">
-                  <span className="font-bold text-blue-900">{parsedGroups.length}</span> item{parsedGroups.length !== 1 ? 's' : ''} detected
+                  <span className="font-bold text-brand-blue">{parsedGroups.length}</span> item{parsedGroups.length !== 1 ? 's' : ''} detected
                   {' · '}
-                  <span className="font-bold text-blue-900">
+                  <span className="font-bold text-brand-blue">
                     {parsedGroups.reduce((n, g) => n + g.nospos_barcodes.length, 0)}
                   </span> NoSpos barcode{parsedGroups.reduce((n, g) => n + g.nospos_barcodes.length, 0) !== 1 ? 's' : ''}
                   {parsedGroups.filter(g => g.nospos_barcodes.length === 0).length > 0 && (
@@ -279,7 +279,7 @@ const QuickRepriceModal = ({ onClose, onAddItems }) => {
 
               {verifiedFoundItems.length > 0 && (
                 <div>
-                  <p className="text-xs font-black uppercase tracking-wider text-blue-900 mb-2 flex items-center gap-1">
+                  <p className="text-xs font-black uppercase tracking-wider text-brand-blue mb-2 flex items-center gap-1">
                     <span className="material-symbols-outlined text-sm text-emerald-600">check_circle</span>
                     Verified ({verifiedFoundItems.length})
                   </p>
@@ -293,7 +293,7 @@ const QuickRepriceModal = ({ onClose, onAddItems }) => {
                           {item.in_db ? 'inventory_2' : 'public'}
                         </span>
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs font-bold text-blue-900 truncate">{item.title}</p>
+                          <p className="text-xs font-bold text-brand-blue truncate">{item.title}</p>
                           {item.subtitle && (
                             <p className="text-[11px] text-gray-500 truncate">{item.subtitle}</p>
                           )}
@@ -311,7 +311,7 @@ const QuickRepriceModal = ({ onClose, onAddItems }) => {
                                   href={b.href}
                                   target="_blank"
                                   rel="noreferrer"
-                                  className="text-[11px] font-mono text-blue-600 hover:underline truncate"
+                                  className="text-[11px] font-mono text-brand-blue hover:underline truncate"
                                 >
                                   {b.barserial}{b.name ? ` · ${b.name}` : ''}
                                 </a>
@@ -345,7 +345,7 @@ const QuickRepriceModal = ({ onClose, onAddItems }) => {
                         <div className="flex items-start gap-3">
                           <span className="material-symbols-outlined text-amber-600 text-base shrink-0 mt-0.5">barcode_scanner</span>
                           <div className="flex-1 min-w-0">
-                            <p className="text-xs font-bold text-blue-900 truncate">{item.title}</p>
+                            <p className="text-xs font-bold text-brand-blue truncate">{item.title}</p>
                             <span className="text-[11px] font-mono text-gray-400">{item.cex_sku}</span>
                             <p className="text-[11px] text-amber-700 mt-0.5">
                               {item?.nosposVerification?.message || 'Needs NoSpos verification'}
@@ -404,7 +404,7 @@ const QuickRepriceModal = ({ onClose, onAddItems }) => {
               <button
                 onClick={handleLookup}
                 disabled={parsedGroups.length === 0}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-900 text-white text-sm font-bold rounded-lg hover:bg-blue-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-brand-blue text-white text-sm font-bold rounded-lg hover:bg-brand-blue-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <span className="material-symbols-outlined text-sm">search</span>
                 Look Up {parsedGroups.length > 0 ? `${parsedGroups.length} Item${parsedGroups.length !== 1 ? 's' : ''}` : 'Barcodes'}
@@ -414,8 +414,8 @@ const QuickRepriceModal = ({ onClose, onAddItems }) => {
 
           {phase === 'loading' && (
             <div className="flex-1 flex items-center justify-center gap-2 py-1">
-              <span className="material-symbols-outlined text-blue-900 animate-spin text-base">sync</span>
-              <span className="text-sm font-semibold text-blue-900">Looking up and verifying NoSpos barcodes…</span>
+              <span className="material-symbols-outlined text-brand-blue animate-spin text-base">sync</span>
+              <span className="text-sm font-semibold text-brand-blue">Looking up and verifying NoSpos barcodes…</span>
             </div>
           )}
 
@@ -430,7 +430,7 @@ const QuickRepriceModal = ({ onClose, onAddItems }) => {
               {unverifiedFoundItems.length > 0 && (
                 <button
                   onClick={handleRetryNosposVerification}
-                  className="px-4 py-2 text-sm font-bold text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors"
+                  className="px-4 py-2 text-sm font-bold text-brand-blue border border-brand-blue/20 rounded-lg hover:bg-brand-blue/5 transition-colors"
                 >
                   Retry NoSpos Check
                 </button>
@@ -438,7 +438,7 @@ const QuickRepriceModal = ({ onClose, onAddItems }) => {
               <button
                 onClick={handleAddToList}
                 disabled={!verifiedFoundItems.length}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-yellow-500 text-blue-900 text-sm font-bold rounded-lg hover:bg-yellow-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-yellow-500/20"
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-brand-orange text-brand-blue text-sm font-bold rounded-lg hover:bg-brand-orange-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-brand-orange/20"
               >
                 <span className="material-symbols-outlined text-sm">add_shopping_cart</span>
                 Add {verifiedFoundItems.length} Verified Item{verifiedFoundItems.length !== 1 ? 's' : ''} to Reprice List
