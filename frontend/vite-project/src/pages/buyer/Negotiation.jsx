@@ -9,7 +9,8 @@ import NegotiationItemRow from './components/NegotiationItemRow';
 import { ItemContextMenu, TargetOfferModal, ItemOfferModal, SeniorMgmtModal, MarginResultModal } from './components/NegotiationModals';
 import NewCustomerDetailsModal from '@/components/modals/NewCustomerDetailsModal';
 import SalePriceConfirmModal from '@/components/modals/SalePriceConfirmModal';
-import { finishRequest, fetchRequestDetail, updateCustomer, saveQuoteDraft } from '@/services/api';
+import TinyModal from '@/components/ui/TinyModal';
+import { finishRequest, fetchRequestDetail, updateCustomer, saveQuoteDraft, deleteRequestItem } from '@/services/api';
 import { normalizeExplicitSalePrice, formatOfferPrice } from '@/utils/helpers';
 import { useNotification } from '@/contexts/NotificationContext';
 import useAppStore from '@/store/useAppStore';
@@ -84,6 +85,7 @@ const Negotiation = ({ mode }) => {
   const storeCartItems = useAppStore((s) => s.cartItems);
   const storeCustomerData = useAppStore((s) => s.customerData);
   const storeRequest = useAppStore((s) => s.request);
+  const workspaceMode = useAppStore((s) => s.mode);
   const selectedCategory = useAppStore((s) => s.selectedCategory);
   const selectCategory = useAppStore((s) => s.selectCategory);
   const handleAddFromCeX = useAppStore((s) => s.handleAddFromCeX);
@@ -117,6 +119,7 @@ const Negotiation = ({ mode }) => {
   const [researchItem, setResearchItem] = useState(null);
   const [cashConvertersResearchItem, setCashConvertersResearchItem] = useState(null);
   const [showNewCustomerDetailsModal, setShowNewCustomerDetailsModal] = useState(false);
+  const [showNewBuyConfirm, setShowNewBuyConfirm] = useState(false);
   const [pendingFinishPayload, setPendingFinishPayload] = useState(null);
   const [showTargetModal, setShowTargetModal] = useState(false);
   const [itemOfferModal, setItemOfferModal] = useState(null);
@@ -292,6 +295,28 @@ const Negotiation = ({ mode }) => {
     setShowNewCustomerDetailsModal(false);
   }, [customerData, pendingFinishPayload, doFinishRequest]);
 
+  const handleConfirmNewBuy = useCallback(() => {
+    setShowNewBuyConfirm(false);
+    // Mirrors the previous AppHeader "New buy" behavior: wipe state synchronously.
+    useAppStore.setState((s) => ({
+      mode: 'buyer',
+      cartItems: [],
+      customerData: { id: null, name: 'No Customer Selected', cancelRate: 0, transactionType: 'sale' },
+      intent: null,
+      request: null,
+      selectedCategory: null,
+      availableModels: [],
+      selectedModel: null,
+      selectedCartItemId: null,
+      cexProductData: null,
+      cexLoading: false,
+      isQuickRepriceOpen: false,
+      isCustomerModalOpen: true,
+      resetKey: s.resetKey + 1,
+    }));
+    navigate('/buyer');
+  }, [navigate]);
+
   // ─── Item actions ──────────────────────────────────────────────────────
 
   const handleQuantityChange = useCallback((itemId, newQty) => {
@@ -340,11 +365,91 @@ const Negotiation = ({ mode }) => {
     setItems(prev => prev.map(i => i.id === itemId ? { ...i, ourSalePriceInput: currentValue } : i));
   }, []);
 
-  const handleRemoveFromNegotiation = useCallback((item) => {
+  const handleRemoveFromNegotiation = useCallback(async (item) => {
+    const requestItemId = item?.request_item_id;
     setItems(prev => prev.filter(i => i.id !== item.id));
     setContextMenu(null);
     showNotification(`"${item.title || 'Item'}" removed from negotiation`, 'info');
-  }, [showNotification]);
+
+    // Persist removal so Requests Overview doesn't show stale items.
+    if (mode !== 'view' && requestItemId) {
+      try {
+        await deleteRequestItem(requestItemId);
+      } catch (err) {
+        console.error('Failed to delete request item:', err);
+        showNotification('Failed to remove item from request (server).', 'error');
+      }
+    }
+  }, [showNotification, mode]);
+
+  const buildFiltersSubtitle = useCallback((selectedFilters, fallback) => {
+    const parts = [];
+    const basic = selectedFilters?.basic || [];
+    const apiValues = Object.values(selectedFilters?.apiFilters || {}).flat();
+    parts.push(...basic);
+    parts.push(...apiValues);
+
+    const priceRange = selectedFilters?.advanced?.priceRange;
+    if (priceRange?.min != null && priceRange?.max != null) {
+      const min = Number(priceRange.min);
+      const max = Number(priceRange.max);
+      if (Number.isFinite(min) && Number.isFinite(max)) parts.push(`Price £${min.toFixed(2)} - £${max.toFixed(2)}`);
+    }
+
+    const soldRange = selectedFilters?.advanced?.soldDateRange;
+    if (soldRange?.fromLabel && soldRange?.toLabel) {
+      parts.push(`Sold ${soldRange.fromLabel} - ${soldRange.toLabel}`);
+    }
+
+    const joined = parts.filter(Boolean).join(' / ');
+    return joined || fallback || 'No filters applied';
+  }, []);
+
+  // Live persistence: advanced slider changes should update the active request row
+  // so Requests Overview can show the latest exact filters.
+  const handleEbayAdvancedFiltersChange = useCallback((nextSelectedFilters) => {
+    if (!researchItem) return;
+    setItems(prevItems => prevItems.map(i => {
+      if (i.id !== researchItem.id) return i;
+      const fallback = i.ebayResearchData?.searchTerm || i.title || 'eBay Research Item';
+      const nextSubtitle = buildFiltersSubtitle(nextSelectedFilters, fallback);
+      return {
+        ...i,
+        ebayResearchData: { ...(i.ebayResearchData || {}), selectedFilters: nextSelectedFilters },
+        subtitle: nextSubtitle,
+      };
+    }));
+    setResearchItem(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        ebayResearchData: { ...(prev.ebayResearchData || {}), selectedFilters: nextSelectedFilters },
+        subtitle: buildFiltersSubtitle(nextSelectedFilters, prev.ebayResearchData?.searchTerm || prev.title),
+      };
+    });
+  }, [researchItem, setItems, buildFiltersSubtitle]);
+
+  const handleCashConvertersAdvancedFiltersChange = useCallback((nextSelectedFilters) => {
+    if (!cashConvertersResearchItem) return;
+    setItems(prevItems => prevItems.map(i => {
+      if (i.id !== cashConvertersResearchItem.id) return i;
+      const fallback = i.cashConvertersResearchData?.searchTerm || i.title || 'Cash Converters Research Item';
+      const nextSubtitle = buildFiltersSubtitle(nextSelectedFilters, fallback);
+      return {
+        ...i,
+        cashConvertersResearchData: { ...(i.cashConvertersResearchData || {}), selectedFilters: nextSelectedFilters },
+        subtitle: nextSubtitle,
+      };
+    }));
+    setCashConvertersResearchItem(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        cashConvertersResearchData: { ...(prev.cashConvertersResearchData || {}), selectedFilters: nextSelectedFilters },
+        subtitle: buildFiltersSubtitle(nextSelectedFilters, prev.cashConvertersResearchData?.searchTerm || prev.title),
+      };
+    });
+  }, [cashConvertersResearchItem, setItems, buildFiltersSubtitle]);
 
   const handleAddNegotiationItem = useCallback(async (cartItem) => {
     if (!cartItem) return;
@@ -712,26 +817,7 @@ const Negotiation = ({ mode }) => {
         <section className="flex-1 bg-white flex flex-col overflow-hidden">
           {/* Top Controls */}
           <div className="p-6 border-b" style={{ borderColor: 'var(--ui-border)' }}>
-            <div className="flex items-center justify-between gap-6">
-              <button
-                onClick={() => navigate(
-                  mode === 'view' ? '/requests-overview' : '/buyer',
-                  {
-                    state: mode === 'negotiate' ? {
-                      preserveCart: true,
-                      cartItems: items,
-                      customerData,
-                      currentRequestId: actualRequestId,
-                    } : undefined,
-                  }
-                )}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg border font-medium text-sm transition-all ${mode === 'view' ? '' : 'hover:shadow-md'}`}
-                style={{ borderColor: 'var(--ui-border)', color: 'var(--brand-blue)' }}
-              >
-                <span className="material-symbols-outlined text-lg">arrow_back</span>
-                {mode === 'view' ? 'Back to Requests' : 'Back to Cart'}
-              </button>
-
+            <div className="flex items-center gap-6">
               <div className="flex-1">
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <div className="p-4 rounded-lg border" style={{ borderColor: 'rgba(247, 185, 24, 0.5)', background: 'rgba(247, 185, 24, 0.05)' }}>
@@ -882,7 +968,22 @@ const Negotiation = ({ mode }) => {
             }}
             readOnly={mode === 'view'}
           />
-          <div className="flex-1 overflow-y-auto p-6 space-y-6" />
+          <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            <button
+              type="button"
+              onClick={() => setShowNewBuyConfirm(true)}
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border font-bold text-sm transition-all"
+              style={{
+                borderColor: 'rgba(20, 69, 132, 0.25)',
+                color: 'var(--brand-blue)',
+                background: 'rgba(20, 69, 132, 0.03)',
+              }}
+              title="Clear cart/customer and start a fresh buying session"
+            >
+              <span className="material-symbols-outlined text-lg">refresh</span>
+              New Buy
+            </button>
+          </div>
 
           <div className="p-6 bg-white border-t space-y-4" style={{ borderColor: 'rgba(20, 69, 132, 0.2)' }}>
             <div className="flex justify-between items-end">
@@ -925,11 +1026,11 @@ const Negotiation = ({ mode }) => {
 
             <button
               className={`w-full font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 group active:scale-[0.98] ${
-                mode === 'view' || (hasTarget && !targetMatched) ? 'opacity-50 cursor-not-allowed' : ''
+                mode === 'view' || workspaceMode === 'buyer' || (hasTarget && !targetMatched) ? 'opacity-50 cursor-not-allowed' : ''
               }`}
               style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)', boxShadow: '0 10px 15px -3px rgba(247, 185, 24, 0.3)' }}
-              onClick={mode === 'view' ? undefined : handleFinalizeTransaction}
-              disabled={mode === 'view'}
+              onClick={mode === 'view' || workspaceMode === 'buyer' || (hasTarget && !targetMatched) ? undefined : handleFinalizeTransaction}
+              disabled={mode === 'view' || workspaceMode === 'buyer' || (hasTarget && !targetMatched)}
             >
               <span className="text-base uppercase tracking-tight">Book for Testing</span>
               <span className="material-symbols-outlined text-xl group-hover:translate-x-1 transition-transform">arrow_forward</span>
@@ -945,7 +1046,7 @@ const Negotiation = ({ mode }) => {
         </aside>
 
         {(researchItem || cashConvertersResearchItem) && (
-          <div className="absolute inset-y-0 left-0 right-80 z-[90] min-h-0">
+          <div className="fixed left-0 right-80 bottom-0 z-[90] min-h-0" style={{ top: 'var(--workspace-overlay-top, 64px)' }}>
             <div className="relative h-full w-full min-h-0">
               {researchItem && (
                 <EbayResearchForm
@@ -954,6 +1055,7 @@ const Negotiation = ({ mode }) => {
                   category={researchItem.categoryObject || { path: [researchItem.category], name: researchItem.category }}
                   savedState={researchItem.ebayResearchData}
                   onComplete={handleResearchComplete}
+                  onAdvancedFiltersChange={handleEbayAdvancedFiltersChange}
                   initialHistogramState={true}
                   readOnly={mode === 'view'}
                   showManualOffer={true}
@@ -981,6 +1083,7 @@ const Negotiation = ({ mode }) => {
                   category={cashConvertersResearchItem.categoryObject || { path: [cashConvertersResearchItem.category], name: cashConvertersResearchItem.category }}
                   savedState={cashConvertersResearchItem.cashConvertersResearchData}
                   onComplete={handleCashConvertersResearchComplete}
+                  onAdvancedFiltersChange={handleCashConvertersAdvancedFiltersChange}
                   initialHistogramState={true}
                   readOnly={mode === 'view'}
                   showManualOffer={true}
@@ -1069,6 +1172,35 @@ const Negotiation = ({ mode }) => {
         onSubmit={handleNewCustomerDetailsSubmit}
         initialName={customerData?.name || ""}
       />
+
+      {showNewBuyConfirm && (
+        <TinyModal
+          title="Start a new buy?"
+          onClose={() => setShowNewBuyConfirm(false)}
+        >
+          <p className="text-xs text-slate-600 mb-5">
+            This will clear your current cart and customer details. You can start again from the buyer page.
+          </p>
+          <div className="flex items-center justify-end gap-3">
+            <button
+              type="button"
+              className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
+              style={{ background: 'white', color: 'var(--text-muted)', border: '1px solid var(--ui-border)' }}
+              onClick={() => setShowNewBuyConfirm(false)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="px-4 py-2 rounded-lg text-sm font-bold transition-colors hover:opacity-90"
+              style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
+              onClick={handleConfirmNewBuy}
+            >
+              Yes, start new buy
+            </button>
+          </div>
+        </TinyModal>
+      )}
 
     </div>
   );

@@ -15,46 +15,251 @@ function displayPctOfSaleForOffer(offer, suggestedPrice) {
   return null;
 }
 
-// Add animation styles - MOVED OUTSIDE COMPONENT, RUNS ONCE
-const fadeInUpAnimation = `
+/** Parse a sold-date string into a "Mon YYYY" group label. Returns null if unparseable. */
+function parseSoldDateGroup(soldStr) {
+  if (!soldStr) return null;
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const lower = soldStr.toLowerCase();
+  const yearMatch = lower.match(/\b(20\d{2})\b/);
+  const year = yearMatch ? yearMatch[1] : null;
+  let monthIdx = -1;
+  MONTHS.forEach((m, i) => { if (lower.includes(m.toLowerCase())) monthIdx = i; });
+  if (year && monthIdx >= 0) return `${MONTHS[monthIdx]} ${year}`;
+  if (year) return year;
+  return null;
+}
+
+/** Parse a sold-date string like: `Sold  23 Feb 2026` into a day bucket with deterministic ms. */
+function parseSoldDateDayStart(soldStr) {
+  if (!soldStr) return null;
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const m = String(soldStr).match(/Sold\s+(\d{1,2})\s+([A-Za-z]+)\s+(20\d{2})/i);
+  if (!m) return null;
+
+  const day = parseInt(m[1], 10);
+  const monthWord = String(m[2]).slice(0, 3).toLowerCase();
+  const year = parseInt(m[3], 10);
+
+  const monthIdx = MONTHS.findIndex(x => x.toLowerCase() === monthWord);
+  if (monthIdx < 0 || !Number.isFinite(day) || day <= 0) return null;
+
+  // Use UTC day boundaries so dragging by "1 day" stays consistent even across DST changes.
+  const dt = new Date(Date.UTC(year, monthIdx, day));
+  return { label: `${day} ${MONTHS[monthIdx]} ${year}`, ms: dt.getTime() };
+}
+
+// Global styles — injected once on module load
+const globalStyles = `
   @keyframes fadeInUp {
-    from {
-      opacity: 0;
-      transform: translateY(20px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
+    from { opacity: 0; transform: translateY(20px); }
+    to   { opacity: 1; transform: translateY(0);    }
   }
-  
-  /* Custom scrollbar for histogram */
-  .histogram-scrollbar::-webkit-scrollbar {
-    width: 8px;
+
+  .histogram-scrollbar::-webkit-scrollbar { width: 8px; }
+  .histogram-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
+  .histogram-scrollbar::-webkit-scrollbar-thumb { background: #1e3a8a; border-radius: 4px; transition: background 0.2s; }
+  .histogram-scrollbar::-webkit-scrollbar-thumb:hover { background: #1e40af; }
+
+  .dual-range-input {
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    pointer-events: none;
+    height: 6px;
+    outline: none;
+    position: absolute;
+    width: 100%;
   }
-  
-  .histogram-scrollbar::-webkit-scrollbar-track {
-    background: #f1f5f9;
+  .dual-range-input::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    pointer-events: auto;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: white;
+    border: 2.5px solid #1e3a8a;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.18);
+    cursor: pointer;
+    transition: box-shadow 0.15s;
   }
-  
-  .histogram-scrollbar::-webkit-scrollbar-thumb {
-    background: #1e3a8a;
-    border-radius: 4px;
-    transition: background 0.2s;
+  .dual-range-input::-webkit-slider-thumb:hover {
+    box-shadow: 0 0 0 5px rgba(30,58,138,0.15);
   }
-  
-  .histogram-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: #1e40af;
+  .dual-range-input::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: white;
+    border: 2.5px solid #1e3a8a;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.18);
+    cursor: pointer;
   }
 `;
 
-// Inject styles into document - RUNS ONCE ON MODULE LOAD
 let stylesInjected = false;
 if (typeof document !== 'undefined' && !stylesInjected) {
-  const styleElement = document.createElement('style');
-  styleElement.textContent = fadeInUpAnimation;
-  document.head.appendChild(styleElement);
+  const el = document.createElement('style');
+  el.textContent = globalStyles;
+  document.head.appendChild(el);
   stylesInjected = true;
+}
+
+/** Two-handle price range slider — no external dependencies. */
+function DualRangeSlider({ min, max, valueMin, valueMax, onMinChange, onMaxChange, stepOverride = null }) {
+  const range = max - min;
+  const step = stepOverride != null
+    ? stepOverride
+    : range > 500 ? 5 : range > 100 ? 1 : range > 20 ? 0.5 : 0.01;
+  const pctMin = range > 0 ? ((valueMin - min) / range) * 100 : 0;
+  const pctMax = range > 0 ? ((valueMax - min) / range) * 100 : 100;
+
+  return (
+    <div className="px-1 select-none">
+      <div className="relative h-8 flex items-center">
+        {/* Track background */}
+        <div className="absolute left-0 right-0 h-1.5 bg-gray-200 rounded-full pointer-events-none" />
+        {/* Active range fill */}
+        <div
+          className="absolute h-1.5 bg-blue-900 rounded-full pointer-events-none"
+          style={{ left: `${pctMin}%`, right: `${100 - pctMax}%` }}
+        />
+        <input
+          type="range" min={min} max={max} step={step} value={valueMin}
+          onChange={e => { const v = parseFloat(e.target.value); if (v < valueMax) onMinChange(v); }}
+          className="dual-range-input"
+          style={{ zIndex: 3 }}
+        />
+        <input
+          type="range" min={min} max={max} step={step} value={valueMax}
+          onChange={e => { const v = parseFloat(e.target.value); if (v > valueMin) onMaxChange(v); }}
+          className="dual-range-input"
+          style={{ zIndex: 4 }}
+        />
+      </div>
+      <div className="flex justify-between mt-2">
+        <span className="text-[11px] font-bold text-blue-900 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5">
+          £{valueMin.toFixed(2)}
+        </span>
+        <span className="text-[11px] font-bold text-blue-900 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5">
+          £{valueMax.toFixed(2)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function formatSoldDateMs(ms) {
+  if (!Number.isFinite(ms)) return '';
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const dt = new Date(ms);
+  return `${dt.getUTCDate()} ${MONTHS[dt.getUTCMonth()]} ${dt.getUTCFullYear()}`;
+}
+
+/** Two-handle date slider in UTC ms, stepping 1 calendar day. */
+function DualDateRangeSlider({ minMs, maxMs, valueMinMs, valueMaxMs, onMinChange, onMaxChange }) {
+  const stepMs = 24 * 60 * 60 * 1000;
+  const range = maxMs - minMs;
+  const pctMin = range > 0 ? ((valueMinMs - minMs) / range) * 100 : 0;
+  const pctMax = range > 0 ? ((valueMaxMs - minMs) / range) * 100 : 100;
+
+  return (
+    <div className="px-1 select-none">
+      <div className="relative h-8 flex items-center">
+        <div className="absolute left-0 right-0 h-1.5 bg-gray-200 rounded-full pointer-events-none" />
+        <div
+          className="absolute h-1.5 bg-blue-900 rounded-full pointer-events-none"
+          style={{ left: `${pctMin}%`, right: `${100 - pctMax}%` }}
+        />
+        <input
+          type="range"
+          min={minMs}
+          max={maxMs}
+          step={stepMs}
+          value={valueMinMs}
+          onChange={e => {
+            const v = parseFloat(e.target.value);
+            if (v < valueMaxMs) onMinChange(v);
+          }}
+          className="dual-range-input"
+          style={{ zIndex: 3 }}
+        />
+        <input
+          type="range"
+          min={minMs}
+          max={maxMs}
+          step={stepMs}
+          value={valueMaxMs}
+          onChange={e => {
+            const v = parseFloat(e.target.value);
+            if (v > valueMinMs) onMaxChange(v);
+          }}
+          className="dual-range-input"
+          style={{ zIndex: 4 }}
+        />
+      </div>
+      <div className="flex justify-between mt-2">
+        <span className="text-[11px] font-bold text-blue-900 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5">
+          {formatSoldDateMs(valueMinMs)}
+        </span>
+        <span className="text-[11px] font-bold text-blue-900 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5">
+          {formatSoldDateMs(valueMaxMs)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/** Two-handle discrete (integer) slider for selecting an index range on a derived timeline. */
+function DualIndexRangeSlider({ min, max, valueMin, valueMax, onMinChange, onMaxChange, getLabel }) {
+  const range = max - min;
+  const pctMin = range > 0 ? ((valueMin - min) / range) * 100 : 0;
+  const pctMax = range > 0 ? ((valueMax - min) / range) * 100 : 100;
+
+  return (
+    <div className="px-1 select-none">
+      <div className="relative h-8 flex items-center">
+        <div className="absolute left-0 right-0 h-1.5 bg-gray-200 rounded-full pointer-events-none" />
+        <div
+          className="absolute h-1.5 bg-blue-900 rounded-full pointer-events-none"
+          style={{ left: `${pctMin}%`, right: `${100 - pctMax}%` }}
+        />
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={1}
+          value={valueMin}
+          onChange={e => {
+            const v = parseInt(e.target.value, 10);
+            if (v < valueMax) onMinChange(v);
+          }}
+          className="dual-range-input"
+          style={{ zIndex: 3 }}
+        />
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={1}
+          value={valueMax}
+          onChange={e => {
+            const v = parseInt(e.target.value, 10);
+            if (v > valueMin) onMaxChange(v);
+          }}
+          className="dual-range-input"
+          style={{ zIndex: 4 }}
+        />
+      </div>
+      <div className="flex justify-between mt-2">
+        <span className="text-[11px] font-bold text-blue-900 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5">
+          {getLabel(valueMin)}
+        </span>
+        <span className="text-[11px] font-bold text-blue-900 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5">
+          {getLabel(valueMax)}
+        </span>
+      </div>
+    </div>
+  );
 }
 
 // MEMOIZED LISTING CARD - prevents re-renders when parent updates
@@ -138,7 +343,6 @@ const ListingCard = React.memo(function ListingCard({ item, origIdx, sortedIdx, 
 const PriceHistogram = React.memo(function PriceHistogram({ listings, onBucketSelect, priceRange, onGoBack, drillLevel, readOnly }) {
   const [bucketCount, setBucketCount] = useState(10);
 
-  // MEMOIZE PRICE EXTRACTION
   const prices = useMemo(() => {
     if (!listings || listings.length === 0) return [];
     return listings
@@ -146,7 +350,6 @@ const PriceHistogram = React.memo(function PriceHistogram({ listings, onBucketSe
       .filter(p => !isNaN(p) && p > 0);
   }, [listings]);
 
-  // MEMOIZE MIN/MAX CALCULATION
   const { min, max } = useMemo(() => {
     if (prices.length === 0) return { min: 0, max: 0 };
     const calculatedMin = priceRange ? priceRange.min : Math.min(...prices);
@@ -154,37 +357,25 @@ const PriceHistogram = React.memo(function PriceHistogram({ listings, onBucketSe
     return { min: calculatedMin, max: calculatedMax };
   }, [prices, priceRange]);
 
-  // MEMOIZE BUCKETS CALCULATION
   const { buckets, maxFreq } = useMemo(() => {
-    if (prices.length === 0 || min === max) {
-      return { buckets: [], maxFreq: 0 };
-    }
-
+    if (prices.length === 0 || min === max) return { buckets: [], maxFreq: 0 };
     const totalRange = max - min;
     const rawStep = totalRange / bucketCount;
-
     const newBuckets = Array(bucketCount).fill(0).map((_, i) => ({
       count: 0,
       rangeStart: min + (i * rawStep),
       rangeEnd: min + ((i + 1) * rawStep)
     }));
-
     prices.forEach(price => {
-      // Only count prices within current range
       if (priceRange && (price < priceRange.min || price > priceRange.max)) return;
-      
       let index = Math.floor((price - min) / rawStep);
       if (index >= bucketCount) index = bucketCount - 1;
       if (index < 0) index = 0;
       newBuckets[index].count++;
     });
-
-    const calculatedMaxFreq = Math.max(...newBuckets.map(b => b.count));
-
-    return { buckets: newBuckets, maxFreq: calculatedMaxFreq };
+    return { buckets: newBuckets, maxFreq: Math.max(...newBuckets.map(b => b.count)) };
   }, [prices, min, max, bucketCount, priceRange]);
 
-  // MEMOIZE FILTERED PRICES COUNT
   const filteredPricesCount = useMemo(() => {
     if (!priceRange) return prices.length;
     return prices.filter(p => p >= priceRange.min && p <= priceRange.max).length;
@@ -196,19 +387,14 @@ const PriceHistogram = React.memo(function PriceHistogram({ listings, onBucketSe
   if (min === max) {
     return (
       <div className="bg-white h-full rounded-xl border border-gray-200 shadow-sm p-4">
-        <h3 className="text-xs font-bold text-blue-900 uppercase tracking-wider mb-2">
-          Market Price Density
-        </h3>
-        <p className="text-[10px] text-gray-500">
-          Not enough price variation to build a distribution.
-        </p>
+        <h3 className="text-xs font-bold text-blue-900 uppercase tracking-wider mb-2">Market Price Density</h3>
+        <p className="text-[10px] text-gray-500">Not enough price variation to build a distribution.</p>
       </div>
     );
   }
 
   return (
     <div className="bg-white h-full rounded-xl border border-gray-200 shadow-sm transition-all duration-500 flex flex-col">
-      {/* Header Section */}
       <div className="p-4 border-b border-gray-200">
         <div className="mb-4">
           <h3 className="text-xs font-bold text-blue-900 uppercase tracking-wider">
@@ -216,97 +402,53 @@ const PriceHistogram = React.memo(function PriceHistogram({ listings, onBucketSe
           </h3>
           <p className="text-[10px] text-gray-500 mt-1">
             {priceRange ? (
-              <>
-                Drilling into <span className="font-bold text-blue-900">£{priceRange.min.toFixed(2)} - £{priceRange.max.toFixed(2)}</span> range
-                {' '}(<span className="font-bold text-blue-900">{filteredPricesCount}</span> listings)
-              </>
+              <>Drilling into <span className="font-bold text-blue-900">£{priceRange.min.toFixed(2)} - £{priceRange.max.toFixed(2)}</span> range {' '}(<span className="font-bold text-blue-900">{filteredPricesCount}</span> listings)</>
             ) : (
-              <>
-                Showing distribution across <span className="font-bold text-blue-900">{prices.length}</span> listings
-              </>
+              <>Showing distribution across <span className="font-bold text-blue-900">{prices.length}</span> listings</>
             )}
           </p>
         </div>
-        
         {drillLevel > 0 && (
           <button
             onClick={onGoBack}
             className="flex items-center gap-2 px-3 py-1.5 bg-blue-900 text-white rounded-lg text-xs font-bold hover:bg-blue-800 transition-all transform hover:scale-105 shadow-md w-full justify-center mb-4"
-            disabled={false} 
           >
             <span className="material-symbols-outlined text-sm">arrow_back</span>
             Zoom Out
           </button>
         )}
-        
         <div className="flex flex-col gap-2 bg-gray-50 p-3 rounded-lg border border-gray-100">
-          <label className="text-[10px] font-bold text-blue-900 uppercase">
-            Buckets: {bucketCount}
-          </label>
-          <input 
-            type="range" 
-            min="5" 
-            max="20" 
-            value={bucketCount}
+          <label className="text-[10px] font-bold text-blue-900 uppercase">Buckets: {bucketCount}</label>
+          <input
+            type="range" min="5" max="20" value={bucketCount}
             onChange={(e) => setBucketCount(parseInt(e.target.value))}
             className="w-full h-1.5 bg-blue-200 rounded-lg appearance-none cursor-pointer accent-blue-900"
-            disabled={false} 
           />
         </div>
       </div>
-      
-      {/* Chart Area - Fixed height with flex distribution */}
-      <div className="flex-1 flex flex-col p-4 overflow-hidden" style={{
-        gap: bucketCount <= 10 ? '6px' : bucketCount <= 15 ? '4px' : '2px'
-      }}>
+      <div className="flex-1 flex flex-col p-4 overflow-hidden" style={{ gap: bucketCount <= 10 ? '6px' : bucketCount <= 15 ? '4px' : '2px' }}>
         {buckets.slice().reverse().map((bucket, i) => {
           const reverseIndex = buckets.length - 1 - i;
           const widthPct = maxFreq > 0 ? (bucket.count / maxFreq) * 100 : 0;
-          
           return (
-            <div 
-              key={reverseIndex} 
-              className={`flex flex-1 items-center gap-2 relative group transition-all duration-500 ${
-                bucket.count > 0 ? 'cursor-pointer' : ''
-              }`}
+            <div
+              key={reverseIndex}
+              className={`flex flex-1 items-center gap-2 relative group transition-all duration-500 ${bucket.count > 0 ? 'cursor-pointer' : ''}`}
               onClick={() => bucket.count > 0 && onBucketSelect(bucket.rangeStart, bucket.rangeEnd)}
-              style={{
-                transform: `scale(${bucket.count > 0 ? 1 : 0.95})`,
-                opacity: bucket.count > 0 ? 1 : 0.3,
-                minHeight: '8px'
-              }}
+              style={{ transform: `scale(${bucket.count > 0 ? 1 : 0.95})`, opacity: bucket.count > 0 ? 1 : 0.3, minHeight: '8px' }}
             >
-              {/* The Bar */}
               <div className="flex-1 flex items-center justify-end h-full">
-                {/* Frequency Label (Left of bar) */}
                 {bucket.count > 0 && (
-                  <span 
-                    className="text-[10px] font-black text-blue-900 mr-2 transition-all duration-300 group-hover:scale-125"
-                  >
-                    {bucket.count}
-                  </span>
+                  <span className="text-[10px] font-black text-blue-900 mr-2 transition-all duration-300 group-hover:scale-125">{bucket.count}</span>
                 )}
-                
-                <div 
-                  className={`h-full transition-all duration-500 ${
-                    bucket.count > 0 
-                      ? 'bg-yellow-400 group-hover:bg-blue-900 group-hover:shadow-lg shadow-sm'
-                      : 'bg-gray-50'
-                  }`}
-                  style={{ 
-                    width: bucket.count > 0 ? `${Math.max(widthPct, 4)}%` : '2px',
-                    transform: 'scaleX(1)',
-                    transformOrigin: 'right'
-                  }}
+                <div
+                  className={`h-full transition-all duration-500 ${bucket.count > 0 ? 'bg-yellow-400 group-hover:bg-blue-900 group-hover:shadow-lg shadow-sm' : 'bg-gray-50'}`}
+                  style={{ width: bucket.count > 0 ? `${Math.max(widthPct, 4)}%` : '2px', transformOrigin: 'right' }}
                 />
               </div>
-                
-              {/* Price Range Label (Right side) - Expanded width */}
               <div className="text-blue-900 font-bold text-[10px] whitespace-nowrap w-28 text-left pl-2">
                 £{bucket.rangeStart.toFixed(2)} - £{bucket.rangeEnd.toFixed(2)}
               </div>
-              
-              {/* Tooltip on Hover */}
               {bucket.count > 0 && (
                 <div className="absolute right-full mr-4 hidden group-hover:flex items-center z-10">
                   <div className="bg-blue-900 text-white text-[10px] py-1.5 px-2.5 rounded shadow-xl whitespace-nowrap">
@@ -326,47 +468,6 @@ const PriceHistogram = React.memo(function PriceHistogram({ listings, onBucketSe
 
 /**
  * Generic Research Form Shell Component
- * 
- * This component provides the UI structure for research forms (eBay, Cash Converters, etc.)
- * It handles all presentation logic while delegating data fetching to provider-specific hooks.
- * 
- * @param {Object} props
- * @param {string} props.searchTerm - Current search term
- * @param {Function} props.onSearchTermChange - Handler for search term changes
- * @param {Function} props.onSearch - Handler for search action
- * @param {Array} props.listings - All listings data
- * @param {Array} props.displayedListings - Filtered listings (by drill-down)
- * @param {Object} props.stats - Overall stats {average, median, suggestedPrice}
- * @param {Object} props.displayedStats - Stats for displayed listings
- * @param {Array} props.filterOptions - API-provided filter options
- * @param {Object} props.selectedFilters - {basic: [], apiFilters: {}}
- * @param {Function} props.onBasicFilterChange - Handler for basic filter changes
- * @param {Function} props.onApiFilterChange - Handler for API filter changes
- * @param {boolean} props.loading - Loading state
- * @param {boolean} props.showHistogram - Whether to show histogram
- * @param {Function} props.onShowHistogramChange - Handler for histogram toggle
- * @param {Array} props.drillHistory - Array of price ranges for drill-down
- * @param {Function} props.onDrillDown - Handler for drill-down
- * @param {Function} props.onZoomOut - Handler for zoom out (removes last level)
- * @param {Function} props.onNavigateToDrillLevel - Handler for navigating to specific drill level
- * @param {Function} props.onComplete - Handler for completion
- * @param {Function} props.onCancel - When mode is modal: dismiss without applying (header close X). Must not trigger onComplete success path.
- * @param {string} props.mode - "modal" or "page"
- * @param {boolean} props.readOnly - Read-only mode
- * @param {Array} props.basicFilterOptions - Options for basic filters (e.g., ["Completed & Sold", "Used", "UK Only"])
- * @param {string} props.searchPlaceholder - Placeholder for search input
- * @param {string} props.headerTitle - Title for modal header
- * @param {string} props.headerSubtitle - Subtitle for modal header
- * @param {string} props.headerIcon - Icon name for modal header
- * @param {Array} props.buyOffers - Calculated buy offers [{ price, pctOfSale? }, ...]
- * @param {React.ReactNode} props.customControls - Custom controls to render in search area (e.g., "Behave like eBay" checkbox)
- * @param {boolean} props.allowHistogramToggle - Whether to show the histogram toggle checkbox (default: true)
- * @param {boolean} props.hideSearchAndFilters - When true, hide search input and filters sidebar (e.g. extension-sourced data); only histogram toggle bar is shown
- * @param {Function} props.onRefineSearch - When set (e.g. extension flow), shows "Refine search" button; called when user wants to go back to the listing site to refine
- * @param {Function} props.onCancelRefine - When set, shows a close control while refineLoading is true; closes the listing tab without leaving the cards view
- * @param {string} props.refineError - Optional error message to show after a failed refine (e.g. extension timeout)
- * @param {boolean} props.refineLoading - When true, Refine search button is disabled (refine in progress)
- * @param {Function} props.onResetSearch - Optional handler to reset the current research/search state (clear drill-down, exclusions, etc.)
  */
 export default function ResearchFormShell({
   searchTerm,
@@ -388,7 +489,7 @@ export default function ResearchFormShell({
   onZoomOut,
   onNavigateToDrillLevel,
   onComplete,
-  onCompleteWithSelection = null, // Optional callback that receives (getState, selectedOfferIndex)
+  onCompleteWithSelection = null,
   onCancel = null,
   mode = "modal",
   readOnly = false,
@@ -410,78 +511,72 @@ export default function ResearchFormShell({
   refineLoading = false,
   onToggleExclude = null,
   onClearAllExclusions = null,
-  onAddNewItem = null, // When set, replaces Add to Cart with "Add new item" button (e.g. when viewing saved research)
-  onAddToCartWithOffer = null, // When set (e.g. eBay page), clicking an offer adds with that offer; 4th "Add to Cart" adds with no offer. Called with (offerIndex) where offerIndex is 0, 1, 2, or null.
-  showInlineOfferAction = true, // When false, keep interactive offers but hide inline add-action button
+  onAddNewItem = null,
+  onAddToCartWithOffer = null,
+  showInlineOfferAction = true,
   onResetSearch = null,
-  enableRightClickManualOffer = false, // When true (eBay page mode), right-click on offer opens manual-offer dialog
+  enableRightClickManualOffer = false,
+  enableAdvancedSoldDateFilter = false, // only eBay should show the advanced sold-date slider
+  onAdvancedFiltersChange = null,
   addActionLabel = "Add to Cart",
   disableAddAction = false,
-  hideOfferCards = false, // When true (e.g. repricing), hide the three offer cards and only show the single add action
-  useVoucherOffers = false, // When true (store credit), display voucher prices instead of cash
-  containModalInParent = false, // When true with mode="modal", render as absolute fill within parent panel
-  hidePrimaryAddAction = false, // When true, hide Add-to-cart/Reprice primary actions (used when editing existing table items)
+  hideOfferCards = false,
+  useVoucherOffers = false,
+  containModalInParent = false,
+  hidePrimaryAddAction = false,
 }) {
-  // Get current price range (latest in history, or null for full view)
   const currentPriceRange = drillHistory.length > 0 ? drillHistory[drillHistory.length - 1] : null;
+  const prominentAddClass = 'shadow-lg shadow-yellow-500/30';
 
-  /** Primary add actions: larger + stronger shadow so they read as the main commit control */
-  const prominentAddClass =
-    'shadow-lg shadow-yellow-500/30';
-
-  // State for selected offer when opened from negotiation page
-  const [selectedOfferIndex, setSelectedOfferIndex] = useState(null); // null, 0, 1, 2, or 'manual'
-
-  // Toggle: hide excluded listings from grid
+  // ─── Existing state ───────────────────────────────────────────────────────
+  const [selectedOfferIndex, setSelectedOfferIndex] = useState(null);
   const [showOnlyRelevant, setShowOnlyRelevant] = useState(false);
-
-  // Sort order: 'default' | 'low_to_high' | 'high_to_low'
   const [sortOrder, setSortOrder] = useState('low_to_high');
+  const manualOfferClearedOnModalOpenRef = useRef(false);
 
-  const sortOptions = useMemo(
-    () => ([
-      { value: 'default', label: 'Default order' },
-      { value: 'low_to_high', label: 'Low to high' },
-      { value: 'high_to_low', label: 'High to low' },
-    ]),
-    []
-  );
-
-  const sortOptionLabels = useMemo(
-    () => sortOptions.map(o => o.label),
-    [sortOptions]
-  );
-
+  const sortOptions = useMemo(() => ([
+    { value: 'default', label: 'Default order' },
+    { value: 'low_to_high', label: 'Low to high' },
+    { value: 'high_to_low', label: 'High to low' },
+  ]), []);
+  const sortOptionLabels = useMemo(() => sortOptions.map(o => o.label), [sortOptions]);
   const currentSortLabel = useMemo(
     () => (sortOptions.find(o => o.value === sortOrder)?.label || 'Default order'),
     [sortOrder, sortOptions]
   );
 
-  // Pivot state for range exclude selection (single-click sets pivot, second click completes range)
   const [rightClickPivotIdx, setRightClickPivotIdx] = useState(null);
-  // The action to apply when the range is completed: true = exclude, false = un-exclude
   const [rightClickPivotAction, setRightClickPivotAction] = useState(null);
-
-  // Context menu state for right-click "exclude all before / after"
-  const [excludeContextMenu, setExcludeContextMenu] = useState(null); // { x, y, sortedIdx } | null
+  const [excludeContextMenu, setExcludeContextMenu] = useState(null);
   const excludeContextMenuRef = useRef(null);
-  
-  // Ref to maintain input focus
   const manualInputRef = useRef(null);
-
-  // Right-click manual offer dialog (eBay page mode only)
-  const [manualOfferDialog, setManualOfferDialog] = useState(null); // { x, y, value, baseIndex } | null
+  const [manualOfferDialog, setManualOfferDialog] = useState(null);
   const manualOfferDialogRef = useRef(null);
   const manualOfferInputRef = useRef(null);
   const manualOfferDidFocusRef = useRef(false);
 
+  // ─── New state ────────────────────────────────────────────────────────────
+  const [twoColumnLayout, setTwoColumnLayout] = useState(false);
+  const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
+  const [advancedPriceMin, setAdvancedPriceMin] = useState(null); // null = use allPriceRange.min
+  const [advancedPriceMax, setAdvancedPriceMax] = useState(null); // null = use allPriceRange.max
+  const [advancedSoldDateFromIdx, setAdvancedSoldDateFromIdx] = useState(null); // null = from earliest in data
+  const [advancedSoldDateToIdx, setAdvancedSoldDateToIdx] = useState(null); // null = to latest in data
+  // Draft slider state to keep UI smooth; applied filter updates are debounced.
+  const [draftPriceMin, setDraftPriceMin] = useState(null);
+  const [draftPriceMax, setDraftPriceMax] = useState(null);
+  const [draftSoldDateFromIdx, setDraftSoldDateFromIdx] = useState(null);
+  const [draftSoldDateToIdx, setDraftSoldDateToIdx] = useState(null);
+  const [filterPanelPos, setFilterPanelPos] = useState({ top: 200, left: 100 });
+  const advancedFilterRef = useRef(null);
+  const advancedFilterBtnRef = useRef(null);
+
+  // ─── Manual offer dialog handlers ────────────────────────────────────────
   const openManualOfferDialog = useCallback((e, idx, initialValue) => {
     e.preventDefault();
     e.stopPropagation();
-    const dialogWidth = 288; // w-72
-    const x = (e.clientX + dialogWidth > window.innerWidth)
-      ? e.clientX - dialogWidth
-      : e.clientX;
+    const dialogWidth = 288;
+    const x = (e.clientX + dialogWidth > window.innerWidth) ? e.clientX - dialogWidth : e.clientX;
     setManualOfferDialog({ x, y: e.clientY, value: initialValue, baseIndex: idx });
     manualOfferDidFocusRef.current = false;
   }, []);
@@ -492,26 +587,30 @@ export default function ResearchFormShell({
     if (!manualOfferDialog) return;
     const raw = String(manualOfferDialog.value || '').replace(/[£,]/g, '').trim();
     const parsed = parseFloat(raw);
-    if (Number.isNaN(parsed) || parsed <= 0) {
-      closeManualOfferDialog();
-      return;
-    }
+    if (Number.isNaN(parsed) || parsed <= 0) { closeManualOfferDialog(); return; }
     if (onAddToCartWithOffer) {
-      onAddToCartWithOffer({ type: 'manual', amount: parsed, baseIndex: manualOfferDialog.baseIndex });
+      onAddToCartWithOffer(
+        { type: 'manual', amount: parsed, baseIndex: manualOfferDialog.baseIndex },
+        shellSelectedFiltersPayload
+      );
     } else if (onCompleteWithSelection) {
-      onCompleteWithSelection('manual', parsed.toFixed(2));
+      onCompleteWithSelection('manual', parsed.toFixed(2), shellSelectedFiltersPayload);
     }
     closeManualOfferDialog();
-  }, [manualOfferDialog, onAddToCartWithOffer, onCompleteWithSelection, closeManualOfferDialog]);
+  }, [
+    manualOfferDialog,
+    onAddToCartWithOffer,
+    onCompleteWithSelection,
+    closeManualOfferDialog,
+    shellSelectedFiltersPayload,
+  ]);
 
   useEffect(() => {
     if (!manualOfferDialog) return;
     const handleClickOutside = (e) => {
       if (manualOfferDialogRef.current && !manualOfferDialogRef.current.contains(e.target)) closeManualOfferDialog();
     };
-    const handleEscape = (e) => {
-      if (e.key === 'Escape') closeManualOfferDialog();
-    };
+    const handleEscape = (e) => { if (e.key === 'Escape') closeManualOfferDialog(); };
     document.addEventListener('mousedown', handleClickOutside);
     document.addEventListener('keydown', handleEscape);
     return () => {
@@ -526,16 +625,13 @@ export default function ResearchFormShell({
     manualOfferInputRef.current.select();
     manualOfferDidFocusRef.current = true;
   }, [manualOfferDialog]);
-  
-  // Close exclude context menu on click-outside or Escape
+
   useEffect(() => {
     if (!excludeContextMenu) return;
     const handleClickOutside = (e) => {
       if (excludeContextMenuRef.current && !excludeContextMenuRef.current.contains(e.target)) setExcludeContextMenu(null);
     };
-    const handleEscape = (e) => {
-      if (e.key === 'Escape') setExcludeContextMenu(null);
-    };
+    const handleEscape = (e) => { if (e.key === 'Escape') setExcludeContextMenu(null); };
     document.addEventListener('mousedown', handleClickOutside);
     document.addEventListener('keydown', handleEscape);
     return () => {
@@ -544,16 +640,242 @@ export default function ResearchFormShell({
     };
   }, [excludeContextMenu]);
 
-  // Maintain focus when manual offer is selected
   useEffect(() => {
     if (selectedOfferIndex === 'manual' && manualInputRef.current && document.activeElement !== manualInputRef.current) {
-      // Small delay to ensure DOM is ready
-      setTimeout(() => {
-        manualInputRef.current?.focus();
-      }, 0);
+      setTimeout(() => { manualInputRef.current?.focus(); }, 0);
     }
   }, [selectedOfferIndex]);
 
+  // Ensure manual offer input is always empty when the modal is initially opened.
+  useEffect(() => {
+    if (mode !== 'modal') return;
+    if (!showManualOffer) {
+      manualOfferClearedOnModalOpenRef.current = false;
+      return;
+    }
+    if (!onManualOfferChange) return;
+    if (!manualOfferClearedOnModalOpenRef.current) {
+      manualOfferClearedOnModalOpenRef.current = true;
+      onManualOfferChange('');
+    }
+  }, [mode, showManualOffer, onManualOfferChange]);
+
+  // ─── Advanced filter helpers ──────────────────────────────────────────────
+
+  // Reset filters when new listings arrive
+  useEffect(() => {
+    setAdvancedPriceMin(null);
+    setAdvancedPriceMax(null);
+    setAdvancedSoldDateFromIdx(null);
+    setAdvancedSoldDateToIdx(null);
+    setShowAdvancedFilter(false);
+  }, [listings]);
+
+  // Close advanced filter panel on outside click / Escape
+  useEffect(() => {
+    if (!showAdvancedFilter) return;
+    const handler = e => {
+      if (
+        advancedFilterRef.current && !advancedFilterRef.current.contains(e.target) &&
+        advancedFilterBtnRef.current && !advancedFilterBtnRef.current.contains(e.target)
+      ) setShowAdvancedFilter(false);
+    };
+    const escape = e => { if (e.key === 'Escape') setShowAdvancedFilter(false); };
+    document.addEventListener('mousedown', handler);
+    document.addEventListener('keydown', escape);
+    return () => {
+      document.removeEventListener('mousedown', handler);
+      document.removeEventListener('keydown', escape);
+    };
+  }, [showAdvancedFilter]);
+
+  const handleAdvancedFilterToggle = useCallback(() => {
+    if (!showAdvancedFilter && advancedFilterBtnRef.current) {
+      const rect = advancedFilterBtnRef.current.getBoundingClientRect();
+      setFilterPanelPos({
+        top: rect.bottom + 6,
+        left: Math.min(rect.left, (typeof window !== 'undefined' ? window.innerWidth : 1200) - 344),
+      });
+    }
+    setShowAdvancedFilter(prev => !prev);
+  }, [showAdvancedFilter]);
+
+  const resetAdvancedFilters = useCallback(() => {
+    setAdvancedPriceMin(null);
+    setAdvancedPriceMax(null);
+    setAdvancedSoldDateFromIdx(null);
+    setAdvancedSoldDateToIdx(null);
+    // Snap slider back immediately.
+    setDraftPriceMin(null);
+    setDraftPriceMax(null);
+    setDraftSoldDateFromIdx(null);
+    setDraftSoldDateToIdx(null);
+  }, []);
+
+  // ─── Derived price range from all listings ────────────────────────────────
+  const allPriceRange = useMemo(() => {
+    if (!listings) return { min: 0, max: 100 };
+    const prices = listings.map(l => {
+      const p = l.price;
+      if (typeof p === 'number') return p;
+      return parseFloat(String(p ?? '').replace(/[^0-9.]/g, '')) || NaN;
+    }).filter(p => !isNaN(p) && p > 0);
+    if (prices.length === 0) return { min: 0, max: 100 };
+    return {
+      min: Math.floor(Math.min(...prices) * 100) / 100,
+      max: Math.ceil(Math.max(...prices) * 100) / 100,
+    };
+  }, [listings]);
+
+  // Effective slider values (null = use min/max from data)
+  const effectivePriceMin = advancedPriceMin ?? allPriceRange.min;
+  const effectivePriceMax = advancedPriceMax ?? allPriceRange.max;
+  const priceFilterActive = effectivePriceMin > allPriceRange.min || effectivePriceMax < allPriceRange.max;
+  const soldDateRangeActive = enableAdvancedSoldDateFilter
+    && (advancedSoldDateFromIdx != null || advancedSoldDateToIdx != null);
+  const advancedFilterActive = priceFilterActive || soldDateRangeActive;
+
+  // ─── Sold date range derived from all listings (continuous day range) ───────────────────────────────
+  const soldDateRangeMs = useMemo(() => {
+    if (!listings) return { minMs: null, maxMs: null };
+    const msValues = listings
+      .map(l => parseSoldDateDayStart(l.sold))
+      .filter(Boolean)
+      .map(d => d.ms);
+    if (!msValues.length) return { minMs: null, maxMs: null };
+    return { minMs: Math.min(...msValues), maxMs: Math.max(...msValues) };
+  }, [listings]);
+
+  const soldDateMinMs = soldDateRangeMs.minMs ?? 0;
+  const soldDateMaxMs = soldDateRangeMs.maxMs ?? 0;
+
+  // Effective (applied) slider values
+  const effectiveSoldDateFromIdx = advancedSoldDateFromIdx ?? soldDateMinMs;
+  const effectiveSoldDateToIdx = advancedSoldDateToIdx ?? soldDateMaxMs;
+
+  // Draft slider values (used by range inputs; applied filter updates are debounced).
+  const sliderPriceMin = draftPriceMin ?? effectivePriceMin;
+  const sliderPriceMax = draftPriceMax ?? effectivePriceMax;
+  const sliderSoldFromIdx = draftSoldDateFromIdx ?? effectiveSoldDateFromIdx;
+  const sliderSoldToIdx = draftSoldDateToIdx ?? effectiveSoldDateToIdx;
+
+  // Persist the exact advanced filter values (for request overview / DB storage).
+  const shellSelectedFiltersPayload = useMemo(() => {
+    const advanced = {
+      priceRange: {
+        min: effectivePriceMin,
+        max: effectivePriceMax,
+        isDefault: !priceFilterActive,
+      },
+    };
+
+    if (enableAdvancedSoldDateFilter) {
+      advanced.soldDateRange = {
+        fromMs: effectiveSoldDateFromIdx,
+        toMs: effectiveSoldDateToIdx,
+        fromLabel: formatSoldDateMs(effectiveSoldDateFromIdx),
+        toLabel: formatSoldDateMs(effectiveSoldDateToIdx),
+        isDefault: !soldDateRangeActive,
+      };
+    }
+
+    return {
+      basic: selectedFilters?.basic ?? [],
+      apiFilters: selectedFilters?.apiFilters ?? {},
+      advanced,
+    };
+  }, [
+    selectedFilters,
+    effectivePriceMin,
+    effectivePriceMax,
+    priceFilterActive,
+    enableAdvancedSoldDateFilter,
+    effectiveSoldDateFromIdx,
+    effectiveSoldDateToIdx,
+    soldDateRangeActive,
+  ]);
+
+  const lastAdvancedFiltersPayloadRef = useRef(null);
+  useEffect(() => {
+    if (!onAdvancedFiltersChange) return;
+    const payload = shellSelectedFiltersPayload;
+    const prev = lastAdvancedFiltersPayloadRef.current;
+    // Avoid spamming the DB when the payload is referentially new but value-identical.
+    if (prev && JSON.stringify(prev) === JSON.stringify(payload)) return;
+    lastAdvancedFiltersPayloadRef.current = payload;
+    onAdvancedFiltersChange(payload);
+  }, [onAdvancedFiltersChange, shellSelectedFiltersPayload]);
+
+  // Sync drafts when applied values change (e.g. new results, resets).
+  useEffect(() => {
+    setDraftPriceMin(advancedPriceMin ?? allPriceRange.min);
+    setDraftPriceMax(advancedPriceMax ?? allPriceRange.max);
+  }, [advancedPriceMin, advancedPriceMax, allPriceRange.min, allPriceRange.max]);
+
+  useEffect(() => {
+    if (!enableAdvancedSoldDateFilter) return;
+    setDraftSoldDateFromIdx(advancedSoldDateFromIdx ?? soldDateMinMs);
+    setDraftSoldDateToIdx(advancedSoldDateToIdx ?? soldDateMaxMs);
+  }, [enableAdvancedSoldDateFilter, advancedSoldDateFromIdx, advancedSoldDateToIdx, soldDateMinMs, soldDateMaxMs]);
+
+  // Debounced apply to expensive filter state while dragging.
+  useEffect(() => {
+    if (!showAdvancedFilter) return;
+    const t = window.setTimeout(() => {
+      const nearlyMin = draftPriceMin == null || Math.abs(draftPriceMin - allPriceRange.min) < 1e-6;
+      const nearlyMax = draftPriceMax == null || Math.abs(draftPriceMax - allPriceRange.max) < 1e-6;
+      setAdvancedPriceMin(nearlyMin ? null : draftPriceMin);
+      setAdvancedPriceMax(nearlyMax ? null : draftPriceMax);
+    }, 120);
+    return () => window.clearTimeout(t);
+  }, [showAdvancedFilter, draftPriceMin, draftPriceMax, allPriceRange.min, allPriceRange.max]);
+
+  useEffect(() => {
+    if (!showAdvancedFilter || !enableAdvancedSoldDateFilter) return;
+    const t = window.setTimeout(() => {
+      const nearlyMin = draftSoldDateFromIdx == null || Math.abs(draftSoldDateFromIdx - soldDateMinMs) < 1e-6;
+      const nearlyMax = draftSoldDateToIdx == null || Math.abs(draftSoldDateToIdx - soldDateMaxMs) < 1e-6;
+      setAdvancedSoldDateFromIdx(nearlyMin ? null : draftSoldDateFromIdx);
+      setAdvancedSoldDateToIdx(nearlyMax ? null : draftSoldDateToIdx);
+    }, 120);
+    return () => window.clearTimeout(t);
+  }, [
+    showAdvancedFilter,
+    enableAdvancedSoldDateFilter,
+    draftSoldDateFromIdx,
+    draftSoldDateToIdx,
+    soldDateMinMs,
+    soldDateMaxMs,
+  ]);
+
+  // ─── Advanced filtered listings ───────────────────────────────────────────
+  const advancedFilteredListings = useMemo(() => {
+    if (!displayedListings) return displayedListings;
+    if (!advancedFilterActive) return displayedListings;
+    return displayedListings.filter(l => {
+      if (priceFilterActive) {
+        const p = typeof l.price === 'number' ? l.price : parseFloat(String(l.price ?? '').replace(/[^0-9.]/g, ''));
+        if (!isNaN(p) && (p < effectivePriceMin || p > effectivePriceMax)) return false;
+      }
+      if (enableAdvancedSoldDateFilter && soldDateRangeActive) {
+        const parsed = parseSoldDateDayStart(l.sold);
+        if (!parsed) return false;
+        if (parsed.ms < effectiveSoldDateFromIdx || parsed.ms > effectiveSoldDateToIdx) return false;
+      }
+      return true;
+    });
+  }, [
+    displayedListings,
+    advancedFilterActive,
+    priceFilterActive,
+    effectivePriceMin,
+    effectivePriceMax,
+    soldDateRangeActive,
+    effectiveSoldDateFromIdx,
+    effectiveSoldDateToIdx,
+  ]);
+
+  // ─── Price parse helper ───────────────────────────────────────────────────
   const parsePrice = useCallback((item) => {
     if (!item || item.price == null) return NaN;
     const p = item.price;
@@ -561,8 +883,9 @@ export default function ResearchFormShell({
     return parseFloat(String(p).replace(/[^0-9.]/g, '')) || NaN;
   }, []);
 
+  // ─── Sorting (uses advancedFilteredListings) ──────────────────────────────
   const sortedListings = useMemo(() => {
-    const list = displayedListings || [];
+    const list = advancedFilteredListings || [];
     const withIdx = list.map((item, i) => ({ item, origIdx: i }));
     if (sortOrder === 'default') return withIdx;
     return [...withIdx].sort((a, b) => {
@@ -572,9 +895,8 @@ export default function ResearchFormShell({
       if (sortOrder === 'high_to_low') return (pb || 0) - (pa || 0);
       return a.origIdx - b.origIdx;
     });
-  }, [displayedListings, sortOrder, parsePrice]);
+  }, [advancedFilteredListings, sortOrder, parsePrice]);
 
-  // Pre-compute filtered display list (avoids map+filter+map on every render)
   const displayListings = useMemo(() => {
     if (!sortedListings) return [];
     return sortedListings
@@ -582,63 +904,60 @@ export default function ResearchFormShell({
       .filter(({ item }) => !showOnlyRelevant || !item.excluded);
   }, [sortedListings, showOnlyRelevant]);
 
-  // Memoize for histogram to avoid new array on every render
+  // Histogram uses advancedFilteredListings (excluded items removed)
   const histogramListings = useMemo(
-    () => (displayedListings ? displayedListings.filter(l => !l.excluded) : displayedListings),
-    [displayedListings]
+    () => (advancedFilteredListings ? advancedFilteredListings.filter(l => !l.excluded) : advancedFilteredListings),
+    [advancedFilteredListings]
   );
 
-  // Format stat value for display (2 decimal places)
   const formatStat = useCallback((val) => {
     const n = Number(val);
     return Number.isFinite(n) ? n.toFixed(2) : '0.00';
   }, []);
 
-  // Working out for stats tooltips (from non-excluded listings only)
-  const statsWorkingOut = useMemo(() => {
-    const included = displayedListings ? displayedListings.filter(l => !l.excluded) : [];
+  // ─── Combined stats computation ───────────────────────────────────────────
+  // Uses advancedFilteredListings so stats update with active filters
+  const { activeStats, statsWorkingOut } = useMemo(() => {
+    const included = (advancedFilteredListings ?? []).filter(l => !l.excluded);
     const prices = included.map(l => parsePrice(l)).filter(p => !isNaN(p) && p > 0);
-    if (prices.length === 0) return null;
+    if (prices.length === 0) return { activeStats: displayedStats, statsWorkingOut: null };
     const sum = prices.reduce((a, b) => a + b, 0);
     const count = prices.length;
     const averageRaw = sum / count;
     const sorted = [...prices].sort((a, b) => a - b);
     const mid = Math.floor(count / 2);
     const medianRaw = count % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
-    return { sum, count, averageRaw, medianRaw };
-  }, [displayedListings, parsePrice]);
+    const suggestedPrice = Math.max(0, medianRaw - 1);
+    return {
+      activeStats: { average: averageRaw, median: medianRaw, suggestedPrice },
+      statsWorkingOut: { sum, count, averageRaw, medianRaw },
+    };
+  }, [displayedStats, advancedFilteredListings, parsePrice]);
 
-  // MEMOIZED STATS DISPLAY COMPONENT
+  // ─── Stats display (offer-card style boxes with tooltips) ─────────────────
   const StatsDisplay = useMemo(() => {
     const wo = statsWorkingOut;
+    // Always show below to avoid being clipped by parent overflow (modal headers, etc).
+    const tooltipAbove = false;
 
-    const tooltipAbove = mode === "modal";
-    const StatWithTooltip = ({ label, value, valueClass, tooltipContent }) => (
-      <div className="relative group cursor-help">
-        <div className="flex flex-col">
-          <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">
-            {label}
-          </span>
-          <span className={`text-lg font-extrabold ${valueClass}`}>£{formatStat(value)}</span>
-        </div>
+    const StatCard = ({ label, value, valueClass, cardClass, tooltipContent }) => (
+      <div className={`relative group flex flex-col rounded-lg border px-2.5 py-1.5 shadow-sm cursor-help shrink-0 ${cardClass}`}>
+        <span className="text-[10px] font-bold uppercase tracking-wider leading-none text-gray-500">{label}</span>
+        <span className={`text-lg font-extrabold leading-tight ${valueClass}`}>£{formatStat(value)}</span>
         {tooltipContent && (
           <div
-            className={`absolute left-0 hidden group-hover:block z-50 w-64 pointer-events-none ${tooltipAbove ? "bottom-full mb-1.5" : "top-full mt-1.5"}`}
+            className={`absolute left-0 hidden group-hover:block z-50 w-64 pointer-events-none ${tooltipAbove ? 'bottom-full mb-1.5' : 'top-full mt-1.5'}`}
             role="tooltip"
           >
             {tooltipAbove ? (
               <>
-                <div className="py-2.5 px-3 rounded-lg bg-gray-800 text-gray-100 text-xs shadow-xl border border-gray-600">
-                  {tooltipContent}
-                </div>
+                <div className="py-2.5 px-3 rounded-lg bg-gray-800 text-gray-100 text-xs shadow-xl border border-gray-600">{tooltipContent}</div>
                 <div className="absolute left-4 -bottom-1.5 w-0 h-0 border-[6px] border-transparent border-t-gray-800" aria-hidden="true" />
               </>
             ) : (
               <>
                 <div className="absolute left-4 -top-1.5 w-0 h-0 border-[6px] border-transparent border-b-gray-800" aria-hidden="true" />
-                <div className="py-2.5 px-3 rounded-lg bg-gray-800 text-gray-100 text-xs shadow-xl border border-gray-600">
-                  {tooltipContent}
-                </div>
+                <div className="py-2.5 px-3 rounded-lg bg-gray-800 text-gray-100 text-xs shadow-xl border border-gray-600">{tooltipContent}</div>
               </>
             )}
           </div>
@@ -647,133 +966,119 @@ export default function ResearchFormShell({
     );
 
     return () => (
-      <div className="flex items-center gap-6">
-        <StatWithTooltip
+      <div className="flex items-center gap-2 flex-wrap">
+        <StatCard
           label="Average"
-          value={displayedStats.average}
+          value={activeStats?.average}
           valueClass="text-blue-900"
+          cardClass="bg-blue-50 border-blue-200"
           tooltipContent={wo && (
-            <>
-              <div className="font-semibold text-gray-200 mb-1">Average</div>
-              <div>Sum of {wo.count} prices (£{wo.sum.toFixed(2)}) ÷ {wo.count} = £{wo.averageRaw.toFixed(2)}</div>
-            </>
+            <><div className="font-semibold text-gray-200 mb-1">Average</div><div>Sum of {wo.count} prices (£{wo.sum.toFixed(2)}) ÷ {wo.count} = £{wo.averageRaw.toFixed(2)}</div></>
           )}
         />
-        <div className="w-px h-8 bg-gray-200" />
-        <StatWithTooltip
+        <StatCard
           label="Median"
-          value={displayedStats.median}
+          value={activeStats?.median}
           valueClass="text-blue-900"
+          cardClass="bg-blue-50 border-blue-200"
           tooltipContent={wo && (
-            <>
-              <div className="font-semibold text-gray-200 mb-1">Median</div>
-              <div>Middle value of {wo.count} sorted prices = £{wo.medianRaw.toFixed(2)}</div>
-            </>
+            <><div className="font-semibold text-gray-200 mb-1">Median</div><div>Middle value of {wo.count} sorted prices = £{wo.medianRaw.toFixed(2)}</div></>
           )}
         />
-        <div className="w-px h-8 bg-gray-200" />
-        <div className="flex items-center gap-2">
-          <StatWithTooltip
-            label="Suggested Sale Price"
-            value={displayedStats.suggestedPrice}
-            valueClass="text-green-600"
-            tooltipContent={wo && (
-              <>
-                <div className="font-semibold text-gray-200 mb-1">Suggested Sale Price</div>
-                <div>Median (£{wo.medianRaw.toFixed(2)}) − £1 = £{formatStat(displayedStats.suggestedPrice)}</div>
-                <div className="mt-1 text-gray-300">£1 below median</div>
-              </>
-            )}
-          />
-        </div>
+        <StatCard
+          label="Suggested Sale Price"
+          value={activeStats?.suggestedPrice}
+          valueClass="text-green-600"
+          cardClass="bg-green-50 border-green-200"
+          tooltipContent={wo && (
+            <><div className="font-semibold text-gray-200 mb-1">Suggested Sale Price</div><div>Median (£{wo.medianRaw.toFixed(2)}) − £1 = £{formatStat(activeStats?.suggestedPrice)}</div><div className="mt-1 text-gray-300">£1 below median</div></>
+          )}
+        />
       </div>
     );
-  }, [displayedStats, formatStat, statsWorkingOut, mode]);
+  }, [activeStats, formatStat, statsWorkingOut, mode]);
 
-  // Manual offer change handler - memoized to prevent input re-creation
+  // ─── Manual offer handler ─────────────────────────────────────────────────
   const handleManualOfferChange = useCallback((e) => {
-    const value = e.target.value;
-    onManualOfferChange?.(value);
+    onManualOfferChange?.(e.target.value);
   }, [onManualOfferChange]);
 
-  // Handler for clicking on an offer card (when opened from negotiation page)
-  // Auto-closes the modal and passes the displayed price directly to avoid stale-closure issues.
   const handleOfferClick = useCallback((price, index) => {
     if (showManualOffer && !readOnly) {
       const priceStr = Number(price).toFixed(2);
       if (onCompleteWithSelection) {
-        onCompleteWithSelection(index, priceStr);
+        onCompleteWithSelection(index, priceStr, shellSelectedFiltersPayload);
       } else {
         onManualOfferChange?.(priceStr);
         setSelectedOfferIndex(index);
       }
     }
-  }, [showManualOffer, readOnly, onCompleteWithSelection, onManualOfferChange]);
+  }, [showManualOffer, readOnly, onCompleteWithSelection, onManualOfferChange, shellSelectedFiltersPayload]);
 
-  // Handler for clicking on manual offer card
   const handleManualOfferCardClick = useCallback(() => {
-    if (showManualOffer && !readOnly) {
-      setSelectedOfferIndex('manual');
-    }
-  }, [showManualOffer, readOnly]);
+    if (!showManualOffer || readOnly) return;
 
-  // Handler for completing/closing modal - pass selected offer
+    // If the user clicks the manual offer box after typing, treat it like "submit".
+    if (selectedOfferIndex === 'manual') {
+      const cleanManual = String(manualOffer ?? '').replace(/[£,]/g, '').trim();
+      const parsed = parseFloat(cleanManual);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        onManualOfferChange?.(manualOffer);
+        if (onCompleteWithSelection) onCompleteWithSelection('manual', undefined, shellSelectedFiltersPayload);
+        else onComplete?.(shellSelectedFiltersPayload);
+      }
+      return;
+    }
+
+    setSelectedOfferIndex('manual');
+  }, [showManualOffer, readOnly, selectedOfferIndex, manualOffer, onManualOfferChange, onCompleteWithSelection, onComplete, shellSelectedFiltersPayload]);
+
   const handleModalCancel = useCallback(() => {
     if (readOnly) return;
     onCancel?.();
   }, [readOnly, onCancel]);
 
   const handleComplete = useCallback(() => {
-    // Only update manual offer if manual offer card was selected
-    if (showManualOffer && selectedOfferIndex === 'manual' && manualOffer) {
-      if (onManualOfferChange) {
-        onManualOfferChange(manualOffer);
-      }
+    // For manual-offer selection, require a valid positive amount.
+    if (!readOnly && showManualOffer && selectedOfferIndex === 'manual') {
+      const cleanManual = String(manualOffer ?? '').replace(/[£,]/g, '').trim();
+      const parsed = parseFloat(cleanManual);
+      if (!Number.isFinite(parsed) || parsed <= 0) return;
+      onManualOfferChange?.(manualOffer);
     }
-    
-    // If onCompleteWithSelection is provided, use it to pass selectedOfferIndex
     if (onCompleteWithSelection) {
-      onCompleteWithSelection(selectedOfferIndex);
+      onCompleteWithSelection(selectedOfferIndex, undefined, shellSelectedFiltersPayload);
     } else {
-      // Fallback to regular onComplete
-      onComplete?.();
+      onComplete?.(shellSelectedFiltersPayload);
     }
-  }, [showManualOffer, selectedOfferIndex, manualOffer, onManualOfferChange, onComplete, onCompleteWithSelection]);
+  }, [readOnly, showManualOffer, selectedOfferIndex, manualOffer, onManualOfferChange, onComplete, onCompleteWithSelection, shellSelectedFiltersPayload]);
 
-  // % of suggested sale for manual offer (buy price / sale price)
   const manualOfferPctOfSale = useMemo(() => {
-    if (!displayedStats?.suggestedPrice || !manualOffer) return null;
+    if (!activeStats?.suggestedPrice || !manualOffer) return null;
     const cleanManual = parseFloat(manualOffer.replace(/[£,]/g, ''));
     if (isNaN(cleanManual) || cleanManual <= 0) return null;
-    const salePrice = displayedStats.suggestedPrice;
+    const salePrice = activeStats.suggestedPrice;
     if (salePrice <= 0) return null;
     return Math.round((cleanManual / salePrice) * 100);
-  }, [displayedStats, manualOffer]);
+  }, [activeStats, manualOffer]);
 
-  // Single-click handler: three-state cycle — unexcluded → pivot → excluded → unexcluded.
+  // ─── Exclude handlers ─────────────────────────────────────────────────────
   const handleExcludeClick = useCallback((sortedIdx) => {
     if (!onToggleExclude || !sortedListings || !sortedListings[sortedIdx]) return;
-
     const { item: clicked, origIdx } = sortedListings[sortedIdx];
     const id = clicked._id ?? clicked.id ?? `${clicked.url ?? clicked.title ?? 'listing'}-${origIdx}`;
-
-    // Excluded → unexclude
     if (clicked.excluded) {
       onToggleExclude(id);
       setRightClickPivotIdx(null);
       setRightClickPivotAction(null);
       return;
     }
-
-    // Pivot → exclude (and clear pivot)
     if (rightClickPivotIdx === sortedIdx) {
       onToggleExclude(id);
       setRightClickPivotIdx(null);
       setRightClickPivotAction(null);
       return;
     }
-
-    // Another item clicked while a pivot exists — complete range selection
     if (rightClickPivotIdx !== null) {
       const start = Math.min(rightClickPivotIdx, sortedIdx);
       const end = Math.max(rightClickPivotIdx, sortedIdx);
@@ -791,19 +1096,15 @@ export default function ResearchFormShell({
       setRightClickPivotAction(null);
       return;
     }
-
-    // Unexcluded, no pivot — set as pivot
     setRightClickPivotIdx(sortedIdx);
     setRightClickPivotAction(true);
   }, [sortedListings, onToggleExclude, rightClickPivotIdx, rightClickPivotAction]);
 
-  // Right-click handler: show context menu with "exclude all before" / "exclude all after".
   const handleExcludeContextMenu = useCallback((e, sortedIdx) => {
     if (!onToggleExclude || !sortedListings || !sortedListings[sortedIdx]) return;
     setExcludeContextMenu({ x: e.clientX, y: e.clientY, sortedIdx });
   }, [sortedListings, onToggleExclude]);
 
-  // Context menu actions
   const handleExcludeAllBefore = useCallback(() => {
     if (!excludeContextMenu || !onToggleExclude || !sortedListings) return;
     const targetIdx = excludeContextMenu.sortedIdx;
@@ -854,7 +1155,7 @@ export default function ResearchFormShell({
     setExcludeContextMenu(null);
   }, [displayedListings, onToggleExclude, onClearAllExclusions]);
 
-  // MEMOIZED BUY OFFERS DISPLAY - inline stat-style layout, same row as stats
+  // ─── Buy offers display ───────────────────────────────────────────────────
   const BuyOffersDisplay = useMemo(() => {
     const useAddWithOfferFlow = Boolean(onAddToCartWithOffer && !readOnly);
     if (hideOfferCards && !useAddWithOfferFlow) return null;
@@ -871,20 +1172,17 @@ export default function ResearchFormShell({
 
     return (
       <React.Fragment>
-        {/* Leading separator from preceding stats */}
-        <div className="w-px h-8 bg-gray-200" />
-        <div className="flex items-center gap-6 flex-wrap">
+        <div className="w-px h-8 bg-gray-200 shrink-0" />
+        <div className="flex items-center gap-2 flex-wrap">
           {!hideOfferCards && buyOffers.map((offer, idx) => {
             const { price: rawPrice } = offer;
             const price = useVoucherOffers ? toVoucherOfferPrice(rawPrice) : rawPrice;
-            const pctOfSale = displayPctOfSaleForOffer(offer, displayedStats?.suggestedPrice);
+            const pctOfSale = displayPctOfSaleForOffer(offer, activeStats?.suggestedPrice);
             const isSelected = showManualOffer && selectedOfferIndex === idx;
 
             const inner = (
               <>
-                <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider leading-none">
-                  {offerLabels[idx]}
-                </span>
+                <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider leading-none">{offerLabels[idx]}</span>
                 <span className={`text-lg font-extrabold leading-tight ${isSelected ? 'text-blue-900' : 'text-blue-900'}`}>
                   £{formatStat(price)}
                 </span>
@@ -913,11 +1211,10 @@ export default function ResearchFormShell({
                       }`}
                       onClick={
                         useAddWithOfferFlow
-                          ? () => onAddToCartWithOffer(idx)
+                          ? () => onAddToCartWithOffer(idx, shellSelectedFiltersPayload)
                           : (showManualOffer && !readOnly ? () => handleOfferClick(price, idx) : undefined)
                       }
                       title={useAddWithOfferFlow ? 'Add item with this offer' : 'Select this offer'}
-                      aria-label={useAddWithOfferFlow ? `Add item with ${offerLabels[idx]}` : `Select ${offerLabels[idx]}`}
                     >
                       {inner}
                     </button>
@@ -934,7 +1231,7 @@ export default function ResearchFormShell({
               {buyOffers.length > 0 && <div className="w-px h-8 bg-gray-200" />}
               <button
                 type="button"
-                onClick={() => onAddToCartWithOffer(null)}
+                onClick={() => onAddToCartWithOffer(null, shellSelectedFiltersPayload)}
                 className={`flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-extrabold uppercase tracking-wide text-blue-900 transition-all ${
                   disableAddAction
                     ? 'bg-gray-300 text-gray-600 cursor-not-allowed shadow-none ring-0'
@@ -948,14 +1245,18 @@ export default function ResearchFormShell({
             </>
           )}
 
-          {/* Manual Offer - inline stat style with bottom-border input */}
           {!hideOfferCards && showManualOffer && onManualOfferChange && (
             <>
               {(buyOffers.length > 0 || useAddWithOfferFlow) && <div className="w-px h-8 bg-gray-200" />}
-              <div className="flex flex-col cursor-text" onClick={handleManualOfferCardClick}>
-                <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider leading-none">
-                  Manual Offer
-                </span>
+              <div
+                className={`flex flex-col cursor-text rounded-lg border px-2.5 py-1.5 shadow-sm transition-all ${
+                  selectedOfferIndex === 'manual'
+                    ? 'ring-2 ring-blue-900 bg-blue-100 border-blue-300'
+                    : 'bg-blue-50 border-blue-200 hover:bg-blue-100 hover:border-blue-300 active:scale-[0.99]'
+                } min-h-[56px]`}
+                onClick={handleManualOfferCardClick}
+              >
+                <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider leading-none">Manual Offer</span>
                 <div className="flex items-center">
                   <span className="text-lg font-extrabold text-blue-900 leading-tight">£</span>
                   <input
@@ -963,23 +1264,20 @@ export default function ResearchFormShell({
                     type="text"
                     key="manual-offer-input"
                     className={`text-lg font-extrabold text-blue-900 bg-transparent outline-none w-20 border-b-2 ml-0.5 transition-colors leading-tight ${
-                      selectedOfferIndex === 'manual' ? 'border-blue-900' : 'border-blue-200 focus:border-blue-400'
+                      selectedOfferIndex === 'manual'
+                        ? 'border-blue-900'
+                        : 'border-blue-200 focus:border-blue-400'
                     }`}
                     placeholder="0.00"
                     value={manualOffer}
+                    onClick={(e) => e.stopPropagation()}
                     onChange={(e) => {
                       e.stopPropagation();
                       handleManualOfferChange(e);
-                      if (!readOnly && showManualOffer && selectedOfferIndex !== 'manual') {
-                        setSelectedOfferIndex('manual');
-                      }
+                      if (!readOnly && showManualOffer && selectedOfferIndex !== 'manual') setSelectedOfferIndex('manual');
                     }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') { e.preventDefault(); handleComplete(); }
-                    }}
-                    onFocus={() => {
-                      if (!readOnly && showManualOffer) setSelectedOfferIndex('manual');
-                    }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleComplete(); } }}
+                    onFocus={() => { if (!readOnly && showManualOffer) setSelectedOfferIndex('manual'); }}
                     disabled={readOnly}
                     readOnly={readOnly}
                   />
@@ -993,168 +1291,297 @@ export default function ResearchFormShell({
         </div>
       </React.Fragment>
     );
-  }, [buyOffers, showManualOffer, selectedOfferIndex, manualOffer, manualOfferPctOfSale, onManualOfferChange, readOnly, handleOfferClick, handleManualOfferCardClick, handleManualOfferChange, onAddToCartWithOffer, formatStat, enableRightClickManualOffer, openManualOfferDialog, hideOfferCards, addActionLabel, disableAddAction, useVoucherOffers, displayedStats?.suggestedPrice, showInlineOfferAction, prominentAddClass, hidePrimaryAddAction]);
+  }, [buyOffers, showManualOffer, selectedOfferIndex, manualOffer, manualOfferPctOfSale, onManualOfferChange, readOnly, handleOfferClick, handleManualOfferCardClick, handleManualOfferChange, onAddToCartWithOffer, shellSelectedFiltersPayload, formatStat, enableRightClickManualOffer, openManualOfferDialog, hideOfferCards, addActionLabel, disableAddAction, useVoucherOffers, activeStats?.suggestedPrice, showInlineOfferAction, prominentAddClass, hidePrimaryAddAction]);
 
+  // ─── Action buttons (shared between banners) ──────────────────────────────
+  const actionButtonsEl = !readOnly && (
+    <div className="flex items-center gap-1.5 shrink-0">
+      {onAddNewItem && (
+        <Button variant="primary" size="sm" onClick={onAddNewItem}>
+          <Icon name="add_circle" className="text-sm" />
+          Add new item
+        </Button>
+      )}
+      {!onAddNewItem && !onAddToCartWithOffer && !hidePrimaryAddAction && (
+        <Button
+          variant="primary" size="lg"
+          className={prominentAddClass}
+          onClick={handleComplete}
+          disabled={disableAddAction}
+        >
+          <Icon name="add_shopping_cart" className="text-[22px]" />
+          {addActionLabel}
+        </Button>
+      )}
+      {!onAddNewItem && onAddToCartWithOffer && !showInlineOfferAction && !hidePrimaryAddAction && (
+        <Button
+          variant="primary" size="lg"
+          className={prominentAddClass}
+          onClick={() => onAddToCartWithOffer(null, shellSelectedFiltersPayload)}
+          disabled={disableAddAction}
+        >
+          <Icon name={addActionLabel === 'Add to Reprice List' ? 'sell' : 'add_shopping_cart'} className="text-[22px]" />
+          {addActionLabel}
+        </Button>
+      )}
+      {(showManualOffer || hidePrimaryAddAction) && (
+        <Button variant="primary" size="md" onClick={handleComplete} disabled={loading && !readOnly}>
+          OK
+        </Button>
+      )}
+    </div>
+  );
+
+  // ─── Banner 1: search term + stats + offers + add-to-cart ─────────────────
+  // For modal mode this is the main header (always visible for close button + branding).
+  // For page mode it's only shown when results are loaded.
+  // Align the right edge of stats/offer boxes with the listing-card grid right edge.
+  // Main listings layout reserves a right histogram panel of `w-80` (320px) and also uses
+  // `px-6` padding (24px) inside the listing cards area, whereas the header uses `px-4` (16px).
+  // In modal mode there's also a close button after this banner, so the available width is smaller;
+  // we compensate by reducing the offset.
+  const listingRightOffsetPx = mode === 'modal' ? 288 : 328; // 328 - close(40px) ~= 288
+
+  const banner1Content = (
+    <div className="flex items-center gap-3 flex-1 min-w-0">
+      {/* Search term — big */}
+      {searchTerm ? (
+        <div className="flex items-center gap-3 shrink-0">
+          <div className="w-px h-9 bg-gray-200 shrink-0 self-center" />
+          <h2
+            className="text-2xl md:text-3xl font-extrabold text-blue-900 tracking-tight shrink-0 max-w-[min(28rem,42vw)] truncate"
+            title={searchTerm}
+          >
+            {searchTerm}
+          </h2>
+        </div>
+      ) : null}
+
+      {/* Stats + offers — right aligned with listing-card edge */}
+      <div
+        className="flex-1 min-w-0 flex items-center gap-3 justify-end"
+        style={{ paddingRight: listingRightOffsetPx }}
+      >
+        {activeStats && (
+          <>
+            <div className="w-px h-8 bg-gray-200 shrink-0" />
+            <StatsDisplay />
+          </>
+        )}
+
+        {/* Offer cards (includes its own leading separator) */}
+        {BuyOffersDisplay}
+      </div>
+
+      {/* Add to cart / OK */}
+      <div className="shrink-0">{actionButtonsEl}</div>
+    </div>
+  );
+
+  // ─── Banner 2: controls + records ─────────────────────────────────────────
+  const excludedCount = useMemo(
+    () => (advancedFilteredListings ? advancedFilteredListings.filter(l => l.excluded).length : 0),
+    [advancedFilteredListings]
+  );
+
+  const banner2El = listings && (
+    <div className="bg-gray-50 border-b border-gray-200 px-4 py-2 flex items-center gap-2 flex-wrap shrink-0">
+
+      {/* Extension source controls */}
+      {hideSearchAndFilters && !readOnly && (onRefineSearch || onResetSearch) && (
+        <>
+          {onRefineSearch && (
+            <Button variant="outline" size="sm" onClick={onRefineSearch} disabled={refineLoading}>
+              {refineLoading ? 'Refining…' : 'Refine search'}
+            </Button>
+          )}
+          {refineLoading && onCancelRefine && (
+            <button
+              type="button"
+              onClick={onCancelRefine}
+              className="inline-flex items-center justify-center h-7 w-7 rounded-full border border-red-300 text-red-500 hover:text-white hover:bg-red-500 hover:border-red-600 focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-offset-1"
+              title="Cancel refine"
+            >
+              <span className="material-symbols-outlined text-[12px]">close</span>
+            </button>
+          )}
+          {onResetSearch && (
+            <Button variant="outline" size="sm" onClick={onResetSearch}>Reset search</Button>
+          )}
+          {refineError && <span className="text-xs text-red-600 font-medium shrink-0">{refineError}</span>}
+          <div className="w-px h-4 bg-gray-300" />
+        </>
+      )}
+
+      {/* Custom controls (extension mode) */}
+      {customControls && hideSearchAndFilters && (
+        <>
+          {customControls}
+          <div className="w-px h-4 bg-gray-300" />
+        </>
+      )}
+
+      {/* Sort */}
+      {advancedFilteredListings && advancedFilteredListings.length > 0 && (
+        <CustomDropdown
+          label="Sort"
+          value={currentSortLabel}
+          options={sortOptionLabels}
+          onChange={(label) => {
+            const found = sortOptions.find(o => o.label === label);
+            if (found) {
+              setSortOrder(found.value);
+              setRightClickPivotIdx(null);
+              setRightClickPivotAction(null);
+            }
+          }}
+          labelPosition="left"
+        />
+      )}
+
+      {/* Relevant only toggle */}
+      {displayedListings && (onToggleExclude || displayedListings.some(l => l.excluded)) && (
+        <div className="flex items-center gap-1.5">
+          <span className="material-symbols-outlined text-sm text-gray-500">filter_list</span>
+          <span className="text-[11px] font-medium text-gray-600">Relevant only</span>
+          <button
+            type="button"
+            className="relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1"
+            style={{ backgroundColor: showOnlyRelevant ? '#1e3a8a' : '#d1d5db' }}
+            onClick={() => setShowOnlyRelevant(prev => !prev)}
+            aria-pressed={showOnlyRelevant}
+          >
+            <span
+              className={`absolute top-1/2 left-0.5 h-4 w-4 -translate-y-1/2 bg-white rounded-full shadow-sm transition-transform duration-150 ${
+                showOnlyRelevant ? 'translate-x-4' : 'translate-x-0'
+              }`}
+            />
+          </button>
+          {excludedCount > 0 && !readOnly && (onToggleExclude || onClearAllExclusions) && (
+            <button
+              type="button"
+              className="px-2 py-0.5 text-[11px] font-bold rounded border border-yellow-400 bg-yellow-500 text-blue-900 hover:bg-yellow-400 transition-colors"
+              onClick={handleClearAllExclusions}
+            >
+              Clear exclusions
+            </button>
+          )}
+        </div>
+      )}
+
+      <div className="w-px h-4 bg-gray-300 mx-0.5" />
+
+      {/* Two-column layout toggle */}
+      <button
+        type="button"
+        onClick={() => setTwoColumnLayout(prev => !prev)}
+        className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition-colors ${
+          twoColumnLayout
+            ? 'bg-blue-900 text-white border-blue-900'
+            : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+        }`}
+        title={twoColumnLayout ? 'Switch to single column' : 'Switch to two columns'}
+      >
+        <span className="material-symbols-outlined text-[14px]">{twoColumnLayout ? 'view_agenda' : 'grid_view'}</span>
+        {twoColumnLayout ? '1 Col' : '2 Col'}
+      </button>
+
+      {/* Advanced filter button */}
+      <button
+        ref={advancedFilterBtnRef}
+        type="button"
+        onClick={handleAdvancedFilterToggle}
+        className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition-colors ${
+          (advancedFilterActive || showAdvancedFilter)
+            ? 'bg-yellow-500 text-blue-900 border-yellow-400 hover:bg-yellow-400'
+            : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+        }`}
+      >
+        <span className="material-symbols-outlined text-[14px]">tune</span>
+        Advanced Filters
+      </button>
+
+      {/* Reset filters */}
+      {advancedFilterActive && (
+        <button
+          type="button"
+          onClick={resetAdvancedFilters}
+          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border bg-white text-red-600 border-red-200 hover:bg-red-50 transition-colors"
+        >
+          <span className="material-symbols-outlined text-[14px]">filter_alt_off</span>
+          Reset Filters
+        </button>
+      )}
+
+      {/* Records / Excluded / Displayed — directly after filter controls */}
+      <div className="flex items-center gap-3 text-base font-medium text-gray-600 shrink-0 ml-1">
+        <span>
+          <span className="font-extrabold text-gray-800 tabular-nums">{advancedFilteredListings?.length ?? 0}</span>
+          {' '}Records
+        </span>
+        <div className="w-px h-4 bg-gray-300" />
+        <div className="relative group cursor-help">
+          <span>
+            <span className="font-extrabold text-gray-800 tabular-nums underline decoration-dotted decoration-gray-400">{excludedCount}</span>
+            {' '}Excluded
+          </span>
+          <div className="pointer-events-none absolute bottom-full right-0 mb-2 hidden group-hover:block z-50 w-72">
+            <div className="bg-gray-800 text-gray-100 text-xs leading-relaxed rounded-lg px-3 py-2 shadow-xl text-center">
+              <strong>Click</strong> unexcluded to set pivot · <strong>Click pivot</strong> to exclude · <strong>Click excluded</strong> to re-include · <strong>Click pivot then another</strong> to exclude range · <strong>Right-click</strong> for before/after.
+            </div>
+            <div className="absolute top-full right-4 border-4 border-transparent border-t-gray-800" />
+          </div>
+        </div>
+        <div className="w-px h-4 bg-gray-300" />
+        <span>
+          <span className="font-extrabold text-blue-900 tabular-nums">{displayListings.length}</span>
+          {' '}Displayed
+        </span>
+        {drillHistory.length > 0 && (
+          <>
+            <div className="w-px h-4 bg-gray-300" />
+            <span>from <span className="font-semibold text-gray-700">{listings?.length ?? 0}</span> total</span>
+          </>
+        )}
+      </div>
+    </div>
+  );
+
+  // ─── Main content ─────────────────────────────────────────────────────────
   const content = (
     <>
-      {/* Unified header — modal mode: icon/title + controls + stats + offers + actions in one bar */}
+      {/* ── MODAL MODE: unified top banner (always visible for branding + close) ── */}
       {mode === "modal" && (
-        <header className="bg-white border-b border-gray-200 px-4 py-2 flex items-center gap-3 shrink-0 flex-wrap">
+        <header className="bg-white border-b border-gray-200 px-4 py-2.5 flex items-center gap-3 shrink-0 flex-wrap">
           {/* Branding */}
           <div className="flex items-center gap-2 shrink-0">
             <div className="bg-blue-900 p-1.5 rounded">
               <Icon name={headerIcon} className="text-yellow-400 text-[15px]" />
             </div>
             <div className="leading-tight">
-              <h2 className="text-sm font-bold text-blue-900 leading-none">{headerTitle}</h2>
+              <h2 className="text-lg md:text-xl font-extrabold text-blue-900 leading-tight">{headerTitle}</h2>
               {headerSubtitle && (
-                <p className="text-[9px] text-gray-400 font-medium uppercase tracking-widest leading-none mt-0.5">{headerSubtitle}</p>
+                <p className="text-xs md:text-sm text-gray-500 font-semibold uppercase tracking-widest leading-snug mt-1">{headerSubtitle}</p>
               )}
             </div>
           </div>
 
-          {/* Extension-source controls (refine, reset, sort, show-only-relevant) shown inline in header */}
-          {hideSearchAndFilters && listings && (
-            <>
-              <div className="w-px h-6 bg-gray-200 shrink-0" />
-              {customControls}
-              {!readOnly && (onRefineSearch || onResetSearch) && (
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {onRefineSearch && (
-                    <Button variant="outline" size="sm" onClick={onRefineSearch} disabled={refineLoading}>
-                      {refineLoading ? 'Refining…' : 'Refine search'}
-                    </Button>
-                  )}
-                  {refineLoading && onCancelRefine && (
-                    <button
-                      type="button"
-                      onClick={onCancelRefine}
-                      className="inline-flex items-center justify-center h-7 w-7 rounded-full border border-red-300 text-red-500 hover:text-white hover:bg-red-500 hover:border-red-600 focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-offset-1"
-                      title="Cancel refine and close tab"
-                      aria-label="Cancel refine and close tab"
-                    >
-                      <span className="material-symbols-outlined text-[12px]">close</span>
-                    </button>
-                  )}
-                  {onResetSearch && (
-                    <Button variant="outline" size="sm" onClick={onResetSearch}>Reset search</Button>
-                  )}
-                </div>
-              )}
-              {refineError && (
-                <span className="text-xs text-red-600 font-medium shrink-0">{refineError}</span>
-              )}
-              {displayedListings && displayedListings.length > 0 && (
-                <div className="flex items-center gap-2.5 shrink-0">
-                  <CustomDropdown
-                    label="Sort"
-                    value={currentSortLabel}
-                    options={sortOptionLabels}
-                    onChange={(label) => {
-                      const found = sortOptions.find(o => o.label === label);
-                      if (found) {
-                        setSortOrder(found.value);
-                        setRightClickPivotIdx(null);
-                        setRightClickPivotAction(null);
-                      }
-                    }}
-                    labelPosition="left"
-                  />
-                  {(onToggleExclude || displayedListings.some(l => l.excluded)) && (() => {
-                    const excludedCount = displayedListings.filter(l => l.excluded).length;
-                    return (
-                      <div className="flex items-center gap-2">
-                        <span className="material-symbols-outlined text-sm text-gray-500">filter_list</span>
-                        <span className="text-xs font-medium text-gray-600">Relevant only</span>
-                        <button
-                          type="button"
-                          className="relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1"
-                          style={{ backgroundColor: showOnlyRelevant ? '#1e3a8a' : '#d1d5db' }}
-                          onClick={() => setShowOnlyRelevant(prev => !prev)}
-                          aria-pressed={showOnlyRelevant}
-                        >
-                          <span
-                            className={`absolute top-1/2 left-0.5 h-4 w-4 -translate-y-1/2 bg-white rounded-full shadow-sm transition-transform duration-150 ${
-                              showOnlyRelevant ? 'translate-x-4' : 'translate-x-0'
-                            }`}
-                          />
-                        </button>
-                        {excludedCount > 0 && !readOnly && (onToggleExclude || onClearAllExclusions) && (
-                          <button
-                            type="button"
-                            className="px-2 py-0.5 text-[11px] font-medium rounded border border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
-                            onClick={handleClearAllExclusions}
-                          >
-                            Clear
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })()}
-                </div>
-              )}
-            </>
-          )}
-
-          {/* Stats + offers — only when results are loaded */}
-          {listings && displayedStats && (
-            <>
-              <div className="w-px h-6 bg-gray-200 shrink-0" />
-              <StatsDisplay />
-            </>
-          )}
-          {listings && BuyOffersDisplay}
-
-          {/* Spacer */}
-          <div className="flex-1 min-w-0" />
-
-          {/* Action buttons — shown once results are loaded */}
-          {listings && (
-            <div className="flex items-center gap-1.5 shrink-0">
-              {onAddNewItem && !readOnly && (
-                <Button variant="primary" size="sm" onClick={onAddNewItem}>
-                  <Icon name="add_circle" className="text-sm" />
-                  Add new item
-                </Button>
-              )}
-              {!onAddNewItem && !onAddToCartWithOffer && !readOnly && !hidePrimaryAddAction && (
-                <Button
-                  variant="primary"
-                  size="lg"
-                  className={prominentAddClass}
-                  onClick={handleComplete}
-                  disabled={readOnly || disableAddAction}
-                >
-                  <Icon name="add_shopping_cart" className="text-[22px]" />
-                  {addActionLabel}
-                </Button>
-              )}
-              {!onAddNewItem && onAddToCartWithOffer && !showInlineOfferAction && !readOnly && !hidePrimaryAddAction && (
-                <Button
-                  variant="primary"
-                  size="lg"
-                  className={prominentAddClass}
-                  onClick={() => onAddToCartWithOffer(null)}
-                  disabled={readOnly || disableAddAction}
-                >
-                  <Icon name={addActionLabel === 'Add to Reprice List' ? 'sell' : 'add_shopping_cart'} className="text-[22px]" />
-                  {addActionLabel}
-                </Button>
-              )}
-              {(showManualOffer || hidePrimaryAddAction) && (
-                <Button variant="primary" size="md" onClick={handleComplete} disabled={loading && !readOnly}>
-                  OK
-                </Button>
-              )}
-            </div>
-          )}
+          {/* Stats + offers + actions (when loaded) */}
+          {listings && banner1Content}
 
           {/* Close */}
           <WorkspaceCloseButton title="Close" onClick={onCancel ? handleModalCancel : handleComplete} />
         </header>
       )}
 
-      {/* Search Input - hidden when hideSearchAndFilters (e.g. extension-sourced data) */}
+      {/* ── PAGE MODE: banner 1 (search term + stats + offers + add to cart) ── */}
+      {mode === "page" && listings && (
+        <div className="bg-white border-b border-gray-200 px-4 py-2.5 flex items-center gap-3 shrink-0 flex-wrap">
+          {banner1Content}
+        </div>
+      )}
+
+      {/* ── Search Input — hidden when hideSearchAndFilters ── */}
       {!hideSearchAndFilters && (
         <div className="px-6 py-4 border-b border-gray-200 bg-gray-100/50">
           <div className="relative w-full">
@@ -1177,118 +1604,33 @@ export default function ResearchFormShell({
               )}
             </div>
           </div>
-          <div className="mt-3 flex items-center gap-4 flex-wrap">
-            {customControls}
-            {displayedListings && displayedListings.length > 0 && (
-              <CustomDropdown
-                label="Sort"
-                value={currentSortLabel}
-                options={sortOptionLabels}
-                onChange={(label) => {
-                  const found = sortOptions.find(o => o.label === label);
-                  if (found) {
-                    setSortOrder(found.value);
-                    setRightClickPivotIdx(null);
-                    setRightClickPivotAction(null);
-                  }
-                }}
-                labelPosition="left"
-              />
-            )}
-            {displayedListings && (onToggleExclude || displayedListings.some(l => l.excluded)) && (() => {
-              const excludedCount = displayedListings.filter(l => l.excluded).length;
-              return (
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-2">
-                    <span className="material-symbols-outlined text-sm text-gray-600">filter_list</span>
-                    <span className="text-xs font-medium text-gray-700">Show only relevant</span>
-                    <button
-                      type="button"
-                      className="relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1"
-                      style={{ backgroundColor: showOnlyRelevant ? '#1e3a8a' : '#d1d5db' }}
-                      onClick={() => setShowOnlyRelevant(prev => !prev)}
-                      aria-pressed={showOnlyRelevant}
-                    >
-                      <span
-                        className={`absolute top-1/2 left-0.5 h-4 w-4 -translate-y-1/2 bg-white rounded-full shadow-sm transition-transform duration-150 ${
-                          showOnlyRelevant ? 'translate-x-4' : 'translate-x-0'
-                        }`}
-                      />
-                    </button>
-                  </div>
-                  {excludedCount > 0 && (onToggleExclude || onClearAllExclusions) && !readOnly && (
-                    <button
-                      type="button"
-                      className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1"
-                      onClick={handleClearAllExclusions}
-                    >
-                      Clear selection
-                    </button>
-                  )}
-                </div>
-              );
-            })()}
-            {onResetSearch && listings && !readOnly && (
+          {/* Custom controls for non-extension mode */}
+          {customControls && !hideSearchAndFilters && (
+            <div className="mt-3">{customControls}</div>
+          )}
+          {onResetSearch && listings && !readOnly && (
+            <div className="mt-2">
               <button
                 type="button"
-                className="ml-auto px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1"
+                className="text-xs text-gray-500 hover:text-blue-700 underline"
                 onClick={onResetSearch}
               >
                 Reset search
               </button>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Stats strip — page mode only (modal stats live in the unified header above) */}
-      {listings && mode === 'page' && (
-        <div className="flex flex-col gap-2 border-b border-gray-200 bg-white px-4 py-2.5 shrink-0 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-2">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-2">
-            {displayedStats && <StatsDisplay />}
-            {BuyOffersDisplay}
-          </div>
-          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 sm:ml-auto">
-            {onAddNewItem && (
-              <Button variant="primary" size="sm" onClick={onAddNewItem}>
-                <Icon name="add_circle" className="text-sm" />
-                Add new item
-              </Button>
-            )}
-            {!onAddNewItem && !onAddToCartWithOffer && !hidePrimaryAddAction && (
-              <Button
-                variant="primary"
-                size="lg"
-                className={readOnly ? '' : prominentAddClass}
-                onClick={readOnly ? undefined : handleComplete}
-                disabled={readOnly || disableAddAction}
-              >
-                <Icon name="add_shopping_cart" className="text-[22px]" />
-                {addActionLabel}
-              </Button>
-            )}
-            {!onAddNewItem && onAddToCartWithOffer && !showInlineOfferAction && !hidePrimaryAddAction && (
-              <Button
-                variant="primary"
-                size="lg"
-                className={readOnly ? '' : prominentAddClass}
-                onClick={() => onAddToCartWithOffer(null)}
-                disabled={readOnly || disableAddAction}
-              >
-                <Icon name={addActionLabel === 'Add to Reprice List' ? 'sell' : 'add_shopping_cart'} className="text-[22px]" />
-                {addActionLabel}
-              </Button>
-            )}
-          </div>
-        </div>
-      )}
+      {/* ── Banner 2: controls + records ── */}
+      {banner2El}
 
-      {/* Main content */}
+      {/* ── Main content ── */}
       <div className={`flex ${mode === "page" ? "flex-1 min-h-0" : "flex-1"} overflow-hidden`}>
+
         {/* Sidebar filters */}
         {filterOptions.length > 0 && (
           <aside className="w-64 border-r border-gray-200 overflow-y-auto bg-white p-4 space-y-6 histogram-scrollbar">
-            {/* Basic Filters */}
             <div>
               <h3 className="text-xs font-bold text-blue-900 uppercase tracking-wider mb-2">Basic Filters</h3>
               <div className="space-y-2">
@@ -1306,8 +1648,6 @@ export default function ResearchFormShell({
                 ))}
               </div>
             </div>
-
-            {/* API Filters */}
             {filterOptions.map((filter) => (
               <div key={filter.name} className="pt-4 border-t border-gray-200">
                 <h3 className="text-xs font-bold text-blue-900 uppercase tracking-wider mb-2">{filter.name}</h3>
@@ -1324,20 +1664,17 @@ export default function ResearchFormShell({
                       <span>{option.label} {option.count ? `(${option.count})` : ""}</span>
                     </label>
                   ))}
-
                   {filter.type === "range" && (
                     <div className="flex gap-2">
                       <input
-                        type="number"
-                        placeholder="Min"
+                        type="number" placeholder="Min"
                         className="w-full p-2 border rounded text-xs focus:ring-blue-900"
                         value={selectedFilters.apiFilters[filter.name]?.min || ""}
                         onChange={readOnly ? undefined : (e) => onApiFilterChange(filter.name, e.target.value, 'range', 'min')}
                         disabled={readOnly}
                       />
                       <input
-                        type="number"
-                        placeholder="Max"
+                        type="number" placeholder="Max"
                         className="w-full p-2 border rounded text-xs focus:ring-blue-900"
                         value={selectedFilters.apiFilters[filter.name]?.max || ""}
                         onChange={readOnly ? undefined : (e) => onApiFilterChange(filter.name, e.target.value, 'range', 'max')}
@@ -1348,120 +1685,68 @@ export default function ResearchFormShell({
                 </div>
               </div>
             ))}
-            
-            {/* Apply Filters Button */}
             <div className="pt-4 border-t border-gray-200">
-              <Button 
-                variant="primary" 
-                size="md" 
-                onClick={readOnly ? undefined : onSearch} 
-                disabled={readOnly || loading}
-                className="w-full"
-              >
+              <Button variant="primary" size="md" onClick={readOnly ? undefined : onSearch} disabled={readOnly || loading} className="w-full">
                 {loading ? "Applying..." : "Apply Filters"}
               </Button>
             </div>
           </aside>
         )}
 
-        {/* Listings */}
+        {/* Listings area */}
         {listings && (
           <main className="flex-1 min-h-0 overflow-hidden bg-gray-100 flex">
-            {/* Listings column: frozen stats strip + scrollable grid (matches buyer freeze-pane pattern) */}
             <div className="flex-1 min-h-0 min-w-0 flex flex-col">
               <div
                 className={`flex-1 min-h-0 overflow-y-auto histogram-scrollbar ${
-                  displayedListings && displayedListings.length > 0 ? 'px-6 pb-6' : 'p-6'
+                  displayedListings && displayedListings.length > 0 ? 'px-6 pb-6 pt-4' : 'p-6'
                 }`}
               >
-              {displayedListings && displayedListings.length > 0 && (
-                <div className="sticky top-0 z-20 -mx-6 px-6 pb-3 bg-gray-100 border-b border-gray-200 shadow-sm">
-                  <div className="flex flex-col items-center gap-1.5 py-2.5 px-4 rounded-lg bg-gray-200/80 text-gray-700 border border-gray-300/60">
-                    <div className="flex items-center justify-center gap-6 flex-wrap">
-                      <div className="flex items-baseline gap-1.5">
-                        <span className="text-xs font-medium uppercase tracking-wider text-gray-500">Records</span>
-                        <span className="text-lg font-semibold tabular-nums">{displayedListings.length}</span>
-                      </div>
-                      <div className="w-px h-5 bg-gray-400 rounded-full" aria-hidden="true" />
-                      <div className="flex items-baseline gap-1.5">
-                        <span className="text-xs font-medium uppercase tracking-wider text-gray-500">Displayed</span>
-                        <span className="text-lg font-semibold tabular-nums text-blue-900">{displayListings.length}</span>
-                      </div>
-                      <div className="w-px h-5 bg-gray-400 rounded-full" aria-hidden="true" />
-                      <div className="relative group flex items-baseline gap-1.5">
-                        <span className="text-xs font-medium uppercase tracking-wider text-gray-500 cursor-help underline decoration-dotted decoration-gray-400">Excluded</span>
-                        <span className="text-lg font-semibold tabular-nums">{displayedListings.filter(l => l.excluded).length}</span>
-                        {/* Tooltip */}
-                        <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-50 w-72">
-                          <div className="bg-gray-800 text-gray-100 text-[11px] leading-relaxed rounded-lg px-3 py-2 shadow-xl text-center">
-                            <strong>Click</strong> unexcluded to set pivot · <strong>Click pivot</strong> to exclude · <strong>Click excluded</strong> to re-include · <strong>Click pivot then another</strong> to exclude range · <strong>Right-click</strong> for before/after.
-                          </div>
-                          <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-800" />
-                        </div>
-                      </div>
-                      {drillHistory.length > 0 && (
-                        <>
-                          <div className="w-px h-5 bg-gray-400 rounded-full" aria-hidden="true" />
-                          <div className="text-xs text-gray-500">
-                            from <span className="font-semibold text-gray-700">{listings.length}</span> total
-                          </div>
-                        </>
-                      )}
-                    </div>
+                {/* Breadcrumb navigation */}
+                {drillHistory.length > 0 && (
+                  <div className="mb-4 flex items-center gap-2 text-xs font-medium">
+                    <button
+                      onClick={() => onNavigateToDrillLevel && onNavigateToDrillLevel(0)}
+                      className="text-blue-900 hover:underline flex items-center gap-1"
+                    >
+                      <span className="material-symbols-outlined text-sm">home</span>
+                      All Prices
+                    </button>
+                    {drillHistory.map((range, idx) => (
+                      <React.Fragment key={idx}>
+                        <span className="text-gray-400">/</span>
+                        <button
+                          onClick={() => onNavigateToDrillLevel && onNavigateToDrillLevel(idx + 1)}
+                          className={idx === drillHistory.length - 1 ? 'text-gray-900 font-bold' : 'text-blue-900 hover:underline'}
+                        >
+                          £{range.min.toFixed(2)} - £{range.max.toFixed(2)}
+                        </button>
+                      </React.Fragment>
+                    ))}
                   </div>
-                </div>
-              )}
+                )}
 
-              <div className={displayedListings && displayedListings.length > 0 ? 'pt-4' : undefined}>
-              {/* Breadcrumb Navigation */}
-              {drillHistory.length > 0 && (
-                <div className="mb-4 flex items-center gap-2 text-xs font-medium">
-                  <button 
-                    onClick={() => onNavigateToDrillLevel && onNavigateToDrillLevel(0)}
-                    className="text-blue-900 hover:underline flex items-center gap-1"
-                  >
-                    <span className="material-symbols-outlined text-sm">home</span>
-                    All Prices
-                  </button>
-                  {drillHistory.map((range, idx) => (
-                    <React.Fragment key={idx}>
-                      <span className="text-gray-400">/</span>
-                      <button 
-                        onClick={() => onNavigateToDrillLevel && onNavigateToDrillLevel(idx + 1)}
-                        className={`${
-                          idx === drillHistory.length - 1 
-                            ? 'text-gray-900 font-bold' 
-                            : 'text-blue-900 hover:underline'
-                        }`}
-                      >
-                        £{range.min.toFixed(2)} - £{range.max.toFixed(2)}
-                      </button>
-                    </React.Fragment>
+                {/* Listings grid */}
+                <div className={`grid ${twoColumnLayout ? 'grid-cols-2' : 'grid-cols-1'} gap-4`}>
+                  {displayListings.map(({ item, origIdx, sortedIdx }, displayIdx) => (
+                    <ListingCard
+                      key={`${item._id || item.title}-${origIdx}`}
+                      item={item}
+                      origIdx={origIdx}
+                      sortedIdx={sortedIdx}
+                      displayIdx={displayIdx}
+                      onExcludeClick={handleExcludeClick}
+                      onExcludeContextMenu={handleExcludeContextMenu}
+                      showExcludeButton={Boolean(onToggleExclude && !readOnly)}
+                      readOnly={readOnly}
+                      isPivot={rightClickPivotIdx === sortedIdx}
+                    />
                   ))}
                 </div>
-              )}
-
-              <div className="grid grid-cols-1 gap-4">
-                {displayListings.map(({ item, origIdx, sortedIdx }, displayIdx) => (
-                  <ListingCard
-                    key={`${item._id || item.title}-${origIdx}`}
-                    item={item}
-                    origIdx={origIdx}
-                    sortedIdx={sortedIdx}
-                    displayIdx={displayIdx}
-                    onExcludeClick={handleExcludeClick}
-                    onExcludeContextMenu={handleExcludeContextMenu}
-                    showExcludeButton={Boolean(onToggleExclude && !readOnly)}
-                    readOnly={readOnly}
-                    isPivot={rightClickPivotIdx === sortedIdx}
-                  />
-                ))}
-              </div>
-              </div>
               </div>
             </div>
 
-            {/* --- HISTOGRAM COMPONENT (Right Side) --- */}
+            {/* Histogram (right side) */}
             <aside className="w-80 border-l border-gray-200 overflow-hidden flex flex-col shrink-0">
               <div className="flex-1 min-h-0 overflow-hidden">
                 <PriceHistogram
@@ -1477,27 +1762,135 @@ export default function ResearchFormShell({
           </main>
         )}
       </div>
-
     </>
   );
 
-  // Wrapper classes based on mode
-  const wrapperClasses = mode === "modal"
-    ? (
-      containModalInParent
-        ? "flex h-full min-h-0 w-full flex-col"
-        : "fixed inset-0 z-[100] flex items-start justify-center bg-black/40"
-    )
-    : "";
+  // ─── Advanced filter panel ─────────────────────────────────────────────────
+  const advancedFilterPanelEl = showAdvancedFilter && listings && (
+    <div
+      ref={advancedFilterRef}
+      className="fixed z-[130] bg-white rounded-xl shadow-2xl border border-gray-200 w-80 overflow-hidden"
+      style={{ top: filterPanelPos.top, left: filterPanelPos.left }}
+      role="dialog"
+      aria-label="Advanced Filters"
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50">
+        <div className="flex items-center gap-2">
+          <span className="material-symbols-outlined text-[16px] text-blue-900">tune</span>
+          <h3 className="text-sm font-bold text-blue-900 uppercase tracking-wider">Advanced Filters</h3>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowAdvancedFilter(false)}
+          className="p-0.5 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+          aria-label="Close"
+        >
+          <span className="material-symbols-outlined text-[18px]">close</span>
+        </button>
+      </div>
 
-  const containerClasses = mode === "modal"
-    ? (
-      containModalInParent
-        ? "flex min-h-0 flex-1 flex-col overflow-hidden bg-white"
-        : "flex h-full w-full flex-col overflow-hidden bg-white"
-    )
-    : "flex h-full w-full flex-col overflow-hidden bg-white";
+      <div className="p-4 space-y-5">
+        {/* Price range */}
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Price Range</h4>
+            {priceFilterActive && (
+              <button
+                type="button"
+                onClick={() => { setAdvancedPriceMin(null); setAdvancedPriceMax(null); setDraftPriceMin(null); setDraftPriceMax(null); }}
+                className="text-[10px] text-blue-600 hover:underline font-medium"
+              >
+                Reset
+              </button>
+            )}
+          </div>
+          {allPriceRange.max > allPriceRange.min ? (
+            <DualRangeSlider
+              min={allPriceRange.min}
+              max={allPriceRange.max}
+              valueMin={sliderPriceMin}
+              valueMax={sliderPriceMax}
+              onMinChange={setDraftPriceMin}
+              onMaxChange={setDraftPriceMax}
+            />
+          ) : (
+            <p className="text-xs text-gray-400 italic">Not enough price variation in data.</p>
+          )}
+          <div className="mt-2 text-[10px] text-gray-400 text-center">
+            Full range: £{allPriceRange.min.toFixed(2)} – £{allPriceRange.max.toFixed(2)}
+          </div>
+        </div>
 
+        {/* Sold date */}
+        {enableAdvancedSoldDateFilter && soldDateMaxMs > soldDateMinMs && (
+          <div className="border-t border-gray-100 pt-4">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Sold Date</h4>
+              {soldDateRangeActive && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAdvancedSoldDateFromIdx(null);
+                    setAdvancedSoldDateToIdx(null);
+                    setDraftSoldDateFromIdx(soldDateMinMs);
+                    setDraftSoldDateToIdx(soldDateMaxMs);
+                  }}
+                  className="text-[10px] text-blue-600 hover:underline font-medium"
+                >
+                  Reset
+                </button>
+              )}
+            </div>
+            <p className="text-[10px] text-gray-400 mb-2">
+              {soldDateRangeActive
+                ? `${Math.round((effectiveSoldDateToIdx - effectiveSoldDateFromIdx) / (24 * 60 * 60 * 1000)) + 1} day(s) selected.`
+                : 'All days shown.'}
+            </p>
+            <div className="mt-1">
+              <DualDateRangeSlider
+                minMs={soldDateMinMs}
+                maxMs={soldDateMaxMs}
+                valueMinMs={sliderSoldFromIdx}
+                valueMaxMs={sliderSoldToIdx}
+                onMinChange={setDraftSoldDateFromIdx}
+                onMaxChange={setDraftSoldDateToIdx}
+              />
+              <div className="mt-2 text-[10px] text-gray-400 text-center">
+                Full range: {formatSoldDateMs(soldDateMinMs)} – {formatSoldDateMs(soldDateMaxMs)}
+              </div>
+            </div>
+          </div>
+        )}
+        {enableAdvancedSoldDateFilter && soldDateMaxMs === soldDateMinMs && (
+          <p className="text-xs text-gray-400 italic mt-3">Only one sold day found in data.</p>
+        )}
+
+        {/* Footer buttons */}
+        <div className="border-t border-gray-100 pt-3 flex items-center gap-2">
+          {advancedFilterActive && (
+            <button
+              type="button"
+              onClick={resetAdvancedFilters}
+              className="flex-1 inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg text-xs font-semibold border border-red-200 text-red-600 bg-white hover:bg-red-50 transition-colors"
+            >
+              <span className="material-symbols-outlined text-[14px]">filter_alt_off</span>
+              Reset All Filters
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setShowAdvancedFilter(false)}
+            className="flex-1 inline-flex items-center justify-center px-3 py-2 rounded-lg text-xs font-semibold bg-blue-900 text-white hover:bg-blue-800 transition-colors"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  // ─── Exclude context menu ─────────────────────────────────────────────────
   const excludeContextMenuEl = excludeContextMenu && (
     <div
       ref={excludeContextMenuRef}
@@ -1542,6 +1935,7 @@ export default function ResearchFormShell({
     </div>
   );
 
+  // ─── Manual offer dialog ──────────────────────────────────────────────────
   const manualOfferDialogEl = manualOfferDialog && (
     <div
       ref={manualOfferDialogRef}
@@ -1571,9 +1965,7 @@ export default function ResearchFormShell({
           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-blue-900">£</span>
           <input
             ref={manualOfferInputRef}
-            type="number"
-            min="0"
-            step="0.01"
+            type="number" min="0" step="0.01"
             className="w-full pl-7 pr-3 py-2.5 border border-gray-300 rounded-lg text-sm font-semibold text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-900"
             placeholder="0.00"
             value={manualOfferDialog.value}
@@ -1581,12 +1973,7 @@ export default function ResearchFormShell({
               const val = e.target.value;
               setManualOfferDialog((prev) => (prev ? { ...prev, value: val } : prev));
             }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                applyManualOfferDialog();
-              }
-            }}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); applyManualOfferDialog(); } }}
           />
         </div>
         <button
@@ -1600,10 +1987,24 @@ export default function ResearchFormShell({
     </div>
   );
 
+  // ─── Wrapper / container ──────────────────────────────────────────────────
+  const wrapperClasses = mode === "modal"
+    ? (containModalInParent
+        ? "flex h-full min-h-0 w-full flex-col"
+        : "fixed inset-0 z-[100] flex items-start justify-center bg-black/40")
+    : "";
+
+  const containerClasses = mode === "modal"
+    ? (containModalInParent
+        ? "flex min-h-0 flex-1 flex-col overflow-hidden bg-white"
+        : "flex h-full w-full flex-col overflow-hidden bg-white")
+    : "flex h-full w-full flex-col overflow-hidden bg-white";
+
   return mode === "modal" ? (
     <div className={wrapperClasses}>
       <div className={containerClasses}>
         {content}
+        {advancedFilterPanelEl}
         {manualOfferDialogEl}
         {excludeContextMenuEl}
       </div>
@@ -1611,6 +2012,7 @@ export default function ResearchFormShell({
   ) : (
     <div className={containerClasses}>
       {content}
+      {advancedFilterPanelEl}
       {manualOfferDialogEl}
       {excludeContextMenuEl}
     </div>

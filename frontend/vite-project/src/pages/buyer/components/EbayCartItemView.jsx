@@ -9,6 +9,7 @@ export default function EbayCartItemView({
   useVoucherOffers,
   onSelectOfferForCartItem,
   onEbayResearchComplete,
+  onAdvancedFiltersChange,
   onDeselectCartItem,
   onOffersChange,
 }) {
@@ -50,6 +51,7 @@ export default function EbayCartItemView({
               initialHistogramState={false} showManualOffer={false} resetDrillOnOpen={true}
               onAddNewItem={onDeselectCartItem}
               onOfferSelect={handleOfferSelect}
+              onAdvancedFiltersChange={onAdvancedFiltersChange}
               addActionLabel={isRepricing ? 'Add to Reprice List' : 'Add to Cart'} hideOfferCards={isRepricing}
               useVoucherOffers={useVoucherOffers}
               onOffersChange={onOffersChange}

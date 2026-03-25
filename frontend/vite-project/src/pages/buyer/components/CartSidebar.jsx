@@ -1,8 +1,9 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { Icon, Button } from '@/components/ui/components';
 import { useNavigate } from 'react-router-dom';
 import { formatOfferPrice } from '@/utils/helpers';
 import useAppStore, { useCartItems, useCustomerData, useOfferTotals, useIsRepricing } from '@/store/useAppStore';
+import TinyModal from '@/components/ui/TinyModal';
 
 const CartSidebar = ({ mode = 'buyer', onTransactionTypeChange = null }) => {
   const isRepricing = useIsRepricing();
@@ -19,6 +20,13 @@ const CartSidebar = ({ mode = 'buyer', onTransactionTypeChange = null }) => {
   const cartListRef = useRef(null);
   const prevCartLengthRef = useRef(cartItems.length);
   const navigate = useNavigate();
+  const [showNewSessionConfirm, setShowNewSessionConfirm] = useState(false);
+
+  const handleConfirmNewSession = () => {
+    setShowNewSessionConfirm(false);
+    resetBuyer();
+    navigate(isRepricing ? '/repricing' : '/buyer');
+  };
 
   useEffect(() => {
     if (cartItems.length > prevCartLengthRef.current) {
@@ -40,6 +48,8 @@ const CartSidebar = ({ mode = 'buyer', onTransactionTypeChange = null }) => {
   };
 
   const allItemsHaveOffer = cartItems.length > 0 && totalOffer !== null;
+  // In repricing mode, we don't want users to hit the "proceed" action again.
+  const disableProceed = cartItems.length === 0 || isRepricing;
 
   return (
     <aside className="w-1/5 min-w-0 min-h-0 shrink-0 border-l border-blue-900/20 flex flex-col bg-white overflow-hidden">
@@ -62,7 +72,7 @@ const CartSidebar = ({ mode = 'buyer', onTransactionTypeChange = null }) => {
           {!isRepricing ? (
             <button
               type="button"
-              onClick={() => resetBuyer()}
+              onClick={() => setShowNewSessionConfirm(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold text-blue-200 hover:text-white hover:bg-white/10 transition-colors"
               title="Clear cart, customer, and start fresh"
             >
@@ -72,10 +82,7 @@ const CartSidebar = ({ mode = 'buyer', onTransactionTypeChange = null }) => {
           ) : (
             <button
               type="button"
-              onClick={() => {
-                resetBuyer();
-                navigate('/repricing');
-              }}
+              onClick={() => setShowNewSessionConfirm(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold text-blue-200 hover:text-white hover:bg-white/10 transition-colors"
               title="Clear reprice list and start a new repricing session"
             >
@@ -136,7 +143,7 @@ const CartSidebar = ({ mode = 'buyer', onTransactionTypeChange = null }) => {
         <Button
           variant="primary"
           size="lg"
-          className="w-full group"
+          className="w-full group disabled:opacity-50 disabled:cursor-not-allowed"
           onClick={() => {
             const repricingSessionId = isRepricing ? useAppStore.getState().repricingSessionId : null;
             navigate(isRepricing ? '/repricing-negotiation' : '/negotiation', {
@@ -151,12 +158,41 @@ const CartSidebar = ({ mode = 'buyer', onTransactionTypeChange = null }) => {
               },
             });
           }}
-          disabled={cartItems.length === 0}
+          disabled={disableProceed}
         >
           {isRepricing ? 'View Reprice List' : 'Proceed'}
           <Icon name="arrow_forward" className="ml-2 text-sm group-hover:translate-x-1 transition-transform" />
         </Button>
       </div>
+
+      {showNewSessionConfirm && (
+        <TinyModal
+          title={isRepricing ? "Start a new repricing?" : "Start a new buy?"}
+          onClose={() => setShowNewSessionConfirm(false)}
+        >
+          <p className="text-xs text-slate-600 mb-5">
+            This will clear your current {isRepricing ? "reprice list" : "cart"} and start fresh.
+          </p>
+          <div className="flex items-center justify-end gap-3">
+            <button
+              type="button"
+              className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
+              style={{ background: "white", color: "var(--text-muted)", border: "1px solid var(--ui-border)" }}
+              onClick={() => setShowNewSessionConfirm(false)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="px-4 py-2 rounded-lg text-sm font-bold transition-colors hover:opacity-90"
+              style={{ background: "var(--brand-orange)", color: "var(--brand-blue)" }}
+              onClick={handleConfirmNewSession}
+            >
+              Yes, start new
+            </button>
+          </div>
+        </TinyModal>
+      )}
     </aside>
   );
 };

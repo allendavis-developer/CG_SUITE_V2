@@ -37,6 +37,7 @@ export default function CashConvertersResearchForm({
   useVoucherOffers = false,
   containModalInParent = false,
   hideAddAction = false,
+  onAdvancedFiltersChange = null,
 }) {
   const categoryId = category?.id ?? null;
   const ebayOfferMargins = useEbayOfferMargins(categoryId);
@@ -180,7 +181,7 @@ export default function CashConvertersResearchForm({
     setDrillHistory(prev => prev.slice(0, targetLevel));
   }, []);
 
-  const handleComplete = useCallback(() => {
+  const handleComplete = useCallback((shellSelectedFilters) => {
     onComplete?.({
       listings,
       showHistogram,
@@ -189,13 +190,13 @@ export default function CashConvertersResearchForm({
       buyOffers,
       searchTerm,
       listingPageUrl,
-      selectedFilters: { basic: [], apiFilters: {} },
+      selectedFilters: shellSelectedFilters ?? { basic: [], apiFilters: {} },
       filterOptions: [],
       manualOffer,
     });
   }, [onComplete, listings, showHistogram, drillHistory, displayedStats, buyOffers, searchTerm, listingPageUrl, manualOffer]);
 
-  const handleCompleteWithSelection = useCallback((selectedOfferIndex, overrideManualOffer) => {
+  const handleCompleteWithSelection = useCallback((selectedOfferIndex, overrideManualOffer, shellSelectedFilters) => {
     const state = {
       listings,
       showHistogram,
@@ -204,7 +205,7 @@ export default function CashConvertersResearchForm({
       buyOffers,
       searchTerm,
       listingPageUrl,
-      selectedFilters: { basic: [], apiFilters: {} },
+      selectedFilters: shellSelectedFilters ?? { basic: [], apiFilters: {} },
       filterOptions: [],
       manualOffer: overrideManualOffer ?? manualOffer,
     };
@@ -330,6 +331,7 @@ export default function CashConvertersResearchForm({
       onManualOfferChange={showManualOffer ? setManualOffer : null}
       showManualOffer={showManualOffer}
       hideSearchAndFilters={true}
+      onAdvancedFiltersChange={onAdvancedFiltersChange}
       onRefineSearch={handleRefineSearch}
       refineError={error}
       refineLoading={loading}

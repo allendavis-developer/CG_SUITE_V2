@@ -34,8 +34,9 @@ const AppHeader = ({
   const [workspaceMode, setWorkspaceMode] = useState('builder'); // builder | ebay | cex
   const popupRef = useRef(null);
   const headerRef = useRef(null);
+  const secondRowRef = useRef(null);
   const categoryFilterInputRef = useRef(null);
-  const [mountedTop, setMountedTop] = useState(122);
+  const [mountedTop, setMountedTop] = useState(64);
   /** Pending header-search term when user pressed Enter — choose eBay vs CeX. */
   const [marketplaceSearchDialog, setMarketplaceSearchDialog] = useState(null);
   /** True once CeX fetch has started (loading) for this panel — avoids closing before load begins or resetting ref incorrectly */
@@ -45,47 +46,6 @@ const AppHeader = ({
     location.pathname === to || location.pathname.startsWith(to + '/');
 
   const path = location.pathname;
-  const showNewBuyBtn =
-    path.startsWith('/buyer') || path.startsWith('/negotiation');
-  const showNewRepricingBtn = path.startsWith('/repricing');
-
-  const handleNewBuy = () => {
-    // Synchronous wipe — no race between state reset and navigation
-    useAppStore.setState((s) => ({
-      mode: 'buyer',
-      cartItems: [],
-      customerData: { id: null, name: 'No Customer Selected', cancelRate: 0, transactionType: 'sale' },
-      intent: null,
-      request: null,
-      selectedCategory: null,
-      availableModels: [],
-      selectedModel: null,
-      selectedCartItemId: null,
-      cexProductData: null,
-      cexLoading: false,
-      isQuickRepriceOpen: false,
-      isCustomerModalOpen: true,
-      resetKey: s.resetKey + 1,
-    }));
-    navigate('/buyer');
-  };
-
-  const handleNewRepricing = () => {
-    useAppStore.setState((s) => ({
-      mode: 'repricing',
-      repricingSessionId: null,
-      repricingCartItems: [],
-      selectedCategory: null,
-      selectedModel: null,
-      selectedCartItemId: null,
-      cexProductData: null,
-      cexLoading: false,
-      isQuickRepriceOpen: false,
-      repricingWorkspaceNonce: s.repricingWorkspaceNonce + 1,
-    }));
-    navigate('/repricing');
-  };
-
   const showBuyerControls = Boolean(buyerControls?.enabled);
   const showNegotiationItemBuilder = Boolean(buyerControls?.enableNegotiationItemBuilder);
   const useVoucherOffers = Boolean(buyerControls?.useVoucherOffers);
@@ -362,11 +322,31 @@ const AppHeader = ({
     resetHeaderWorkspaceChrome,
   ]);
 
+  // Keep --workspace-overlay-top in sync with the top edge of the buyer-controls
+  // row so fixed research-form overlays in child pages know where to start.
+  useEffect(() => {
+    const update = () => {
+      const rect = secondRowRef.current?.getBoundingClientRect();
+      if (rect?.top != null) {
+        document.documentElement.style.setProperty(
+          '--workspace-overlay-top',
+          `${Math.max(0, Math.round(rect.top))}px`
+        );
+      }
+    };
+    update();
+    window.addEventListener('resize', update);
+    return () => {
+      window.removeEventListener('resize', update);
+      document.documentElement.style.removeProperty('--workspace-overlay-top');
+    };
+  }, [showBuyerControls]);
+
   useEffect(() => {
     if (!showMountedWorkspace) return;
     const updateTop = () => {
-      const rect = headerRef.current?.getBoundingClientRect();
-      if (rect?.bottom != null) setMountedTop(Math.max(0, Math.round(rect.bottom)));
+      const rect = secondRowRef.current?.getBoundingClientRect();
+      if (rect?.top != null) setMountedTop(Math.max(0, Math.round(rect.top)));
     };
     updateTop();
     window.addEventListener('resize', updateTop);
@@ -598,7 +578,7 @@ const AppHeader = ({
       </div>
       </div>
       {showBuyerControls && (
-        <div className="mt-3 flex items-center justify-center border-t border-white/20 pt-3">
+        <div ref={secondRowRef} className="mt-3 flex items-center justify-center border-t border-white/20 pt-3">
           <div className="relative" ref={popupRef}>
             <div className="flex flex-wrap items-center gap-2">
               {nonEbayTopLevelCategories.map((category) => {
@@ -641,6 +621,7 @@ const AppHeader = ({
                     const q = headerSearch.trim();
                     if (!q) return;
                     e.preventDefault();
+                    e.currentTarget.blur();
                     setMarketplaceSearchDialog(q);
                   }}
                   placeholder="Type in a search term"
@@ -682,16 +663,6 @@ const AppHeader = ({
                   c
                 </button>
               </div>
-              {showNewBuyBtn && !isRepricingWorkspace && (
-                <button
-                  type="button"
-                  onClick={handleNewBuy}
-                  className="flex h-10 shrink-0 items-center gap-2 rounded-lg border border-white/50 bg-white px-3 text-xs font-bold uppercase tracking-wide text-brand-blue shadow-sm transition-colors hover:bg-white/95"
-                >
-                  <span className="material-symbols-outlined text-[18px]">add_shopping_cart</span>
-                  New buy
-                </button>
-              )}
               {buyerControls?.onQuickReprice && (
                 <button
                   type="button"
@@ -702,22 +673,12 @@ const AppHeader = ({
                   Quick Reprice
                 </button>
               )}
-              {showNewRepricingBtn && (
-                <button
-                  type="button"
-                  onClick={handleNewRepricing}
-                  className="flex h-10 shrink-0 items-center gap-2 rounded-lg border border-white/50 bg-white px-3 text-xs font-bold uppercase tracking-wide text-brand-blue shadow-sm transition-colors hover:bg-white/95"
-                >
-                  <span className="material-symbols-outlined text-[18px]">add_chart</span>
-                  New repricing
-                </button>
-              )}
             </div>
             {showMountedWorkspace && (
               <div
                 className={
                   showNegotiationItemBuilder
-                    ? 'fixed left-0 right-80 bottom-0 z-50 flex gap-0 bg-white'
+                    ? 'fixed left-0 right-80 bottom-0 z-[200] flex gap-0 bg-white'
                     : 'absolute left-0 top-12 z-50 flex gap-0'
                 }
                 style={showNegotiationItemBuilder ? { top: `${mountedTop}px` } : undefined}

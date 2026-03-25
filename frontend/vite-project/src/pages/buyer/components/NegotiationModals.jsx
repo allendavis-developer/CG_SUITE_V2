@@ -37,7 +37,7 @@ export function ItemContextMenu({ x, y, onClose, onRemove, onSetManualOffer }) {
       <div className="border-t my-1" style={{ borderColor: 'var(--ui-border)' }} />
       <button
         className="w-full px-4 py-2.5 text-left text-sm font-semibold hover:bg-red-50 transition-colors flex items-center gap-2 text-red-600"
-        onClick={() => { onRemove(); onClose(); }}
+        onClick={async () => { await onRemove(); onClose(); }}
       >
         <span className="material-symbols-outlined text-[16px]">remove_circle</span>
         Remove from negotiation

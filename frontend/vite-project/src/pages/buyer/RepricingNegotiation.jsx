@@ -148,6 +148,8 @@ const RepricingNegotiation = () => {
   // Sale price confirm after research (shared with Negotiation)
   const [salePriceConfirmModal, setSalePriceConfirmModal] = useState(null); // { itemId, oldPricePerUnit, newPricePerUnit, source }
 
+  const [showNewRepricingConfirm, setShowNewRepricingConfirm] = useState(false);
+
   // Research modal state
   const [researchItem, setResearchItem] = useState(null);
   const [cashConvertersResearchItem, setCashConvertersResearchItem] = useState(null);
@@ -805,6 +807,24 @@ const RepricingNegotiation = () => {
     }
   };
 
+  const handleConfirmNewRepricing = useCallback(() => {
+    setShowNewRepricingConfirm(false);
+    // Mirrors the previous AppHeader "New repricing" behavior.
+    useAppStore.setState((s) => ({
+      mode: 'repricing',
+      repricingSessionId: null,
+      repricingCartItems: [],
+      selectedCategory: null,
+      selectedModel: null,
+      selectedCartItemId: null,
+      cexProductData: null,
+      cexLoading: false,
+      isQuickRepriceOpen: false,
+      repricingWorkspaceNonce: s.repricingWorkspaceNonce + 1,
+    }));
+    navigate('/repricing');
+  }, [navigate]);
+
   const handleCloseAmbiguousBarcodeModal = () => {
     setAmbiguousBarcodeModal(null);
   };
@@ -942,7 +962,7 @@ const RepricingNegotiation = () => {
         }}
       />
 
-      <main className="flex flex-1 overflow-hidden h-[calc(100vh-61px)]">
+      <main className="relative flex flex-1 overflow-hidden h-[calc(100vh-61px)]">
 
         {/* ── Main Table Section ─────────────────────────────────────────────── */}
         <section className="flex-1 bg-white flex flex-col overflow-hidden">
@@ -950,15 +970,6 @@ const RepricingNegotiation = () => {
           {/* Top Controls */}
           <div className="p-6 border-b" style={{ borderColor: '#e5e7eb' }}>
             <div className="flex items-center justify-between gap-6">
-              <button
-                onClick={() => navigate('/repricing-overview')}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg border font-medium text-sm transition-all hover:shadow-md"
-                style={{ borderColor: '#e5e7eb', color: '#144584' }}
-              >
-                <span className="material-symbols-outlined text-lg">history</span>
-                Session History
-              </button>
-
               <div
                 className="flex items-center gap-3 px-5 py-3 rounded-xl border"
                 style={{ borderColor: 'rgba(20,69,132,0.2)', background: 'rgba(20,69,132,0.03)' }}
@@ -1239,14 +1250,25 @@ const RepricingNegotiation = () => {
         >
           {/* Header */}
           <div className="px-5 py-4 border-b bg-blue-900" style={{ borderColor: 'rgba(20,69,132,0.2)' }}>
-            <div className="flex items-center gap-3">
-              <span className="material-symbols-outlined text-yellow-400 text-2xl">sell</span>
-              <div>
-                <p className="text-sm font-black uppercase tracking-wider text-white">Reprice List</p>
-                <p className="text-xs text-blue-200">
-                  {activeItems.length} item{activeItems.length !== 1 ? 's' : ''}
-                </p>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <span className="material-symbols-outlined text-yellow-400 text-2xl">sell</span>
+                <div>
+                  <p className="text-sm font-black uppercase tracking-wider text-white">Reprice List</p>
+                  <p className="text-xs text-blue-200">
+                    {activeItems.length} item{activeItems.length !== 1 ? 's' : ''}
+                  </p>
+                </div>
               </div>
+              <button
+                type="button"
+                onClick={() => setShowNewRepricingConfirm(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-white/10 hover:bg-white/20 text-white transition-colors"
+                title="Clear reprice list and start a new repricing session"
+              >
+                <span className="material-symbols-outlined text-[16px]">refresh</span>
+                New Repricing
+              </button>
             </div>
           </div>
 
@@ -1334,6 +1356,67 @@ const RepricingNegotiation = () => {
             )}
           </div>
         </aside>
+
+        {(researchItem || cashConvertersResearchItem) && (
+          <div className="fixed left-0 right-80 bottom-0 z-[90] min-h-0" style={{ top: 'var(--workspace-overlay-top, 64px)' }}>
+            <div className="relative h-full w-full min-h-0">
+              {researchItem && (
+                <EbayResearchForm
+                  mode="modal"
+                  containModalInParent
+                  category={researchItem.categoryObject || { path: [researchItem.category], name: researchItem.category }}
+                  savedState={researchItem.ebayResearchData}
+                  onComplete={handleResearchComplete}
+                  initialHistogramState={true}
+                  readOnly={false}
+                  showManualOffer={false}
+                  hideAddAction={true}
+                  hideOfferCards={true}
+                  initialSearchQuery={buildInitialSearchQuery(researchItem)}
+                  marketComparisonContext={{
+                    cexSalePrice: researchItem?.cexSellPrice ?? null,
+                    ourSalePrice: researchItem?.ourSalePrice ?? null,
+                    ebaySalePrice: researchItem?.ebayResearchData?.stats?.median ?? null,
+                    cashConvertersSalePrice: researchItem?.cashConvertersResearchData?.stats?.median ?? null,
+                    itemTitle: researchItem?.title || null,
+                    itemCondition: researchItem?.condition || null,
+                    itemSpecs: researchItem?.isCustomCeXItem ? null : buildItemSpecs(researchItem),
+                    cexSpecs: researchItem?.isCustomCeXItem ? buildItemSpecs(researchItem) : null,
+                    ebaySearchTerm: researchItem?.ebayResearchData?.searchTerm || null,
+                    cashConvertersSearchTerm: researchItem?.cashConvertersResearchData?.searchTerm || null,
+                  }}
+                />
+              )}
+              {cashConvertersResearchItem && (
+                <CashConvertersResearchForm
+                  mode="modal"
+                  containModalInParent
+                  category={cashConvertersResearchItem.categoryObject || { path: [cashConvertersResearchItem.category], name: cashConvertersResearchItem.category }}
+                  savedState={cashConvertersResearchItem.cashConvertersResearchData}
+                  onComplete={handleCashConvertersResearchComplete}
+                  initialHistogramState={true}
+                  readOnly={false}
+                  showManualOffer={false}
+                  hideAddAction={true}
+                  hideOfferCards={true}
+                  initialSearchQuery={buildInitialSearchQuery(cashConvertersResearchItem)}
+                  marketComparisonContext={{
+                    cexSalePrice: cashConvertersResearchItem?.cexSellPrice ?? null,
+                    ourSalePrice: cashConvertersResearchItem?.ourSalePrice ?? null,
+                    ebaySalePrice: cashConvertersResearchItem?.ebayResearchData?.stats?.median ?? null,
+                    cashConvertersSalePrice: cashConvertersResearchItem?.cashConvertersResearchData?.stats?.median ?? null,
+                    itemTitle: cashConvertersResearchItem?.title || null,
+                    itemCondition: cashConvertersResearchItem?.condition || null,
+                    itemSpecs: cashConvertersResearchItem?.isCustomCeXItem ? null : buildItemSpecs(cashConvertersResearchItem),
+                    cexSpecs: cashConvertersResearchItem?.isCustomCeXItem ? buildItemSpecs(cashConvertersResearchItem) : null,
+                    ebaySearchTerm: cashConvertersResearchItem?.ebayResearchData?.searchTerm || null,
+                    cashConvertersSearchTerm: cashConvertersResearchItem?.cashConvertersResearchData?.searchTerm || null,
+                  }}
+                />
+              )}
+            </div>
+          </div>
+        )}
       </main>
 
       {/* ── Context Menu ───────────────────────────────────────────────────────── */}
@@ -1354,6 +1437,35 @@ const RepricingNegotiation = () => {
         useResearchSuggestedPrice={false}
         priceLabel="New Sale Price"
       />
+
+      {showNewRepricingConfirm && (
+        <TinyModal
+          title="Start a new repricing?"
+          onClose={() => setShowNewRepricingConfirm(false)}
+        >
+          <p className="text-xs text-slate-600 mb-5">
+            This will clear your current reprice list and start fresh from the repricing workspace.
+          </p>
+          <div className="flex items-center justify-end gap-3">
+            <button
+              type="button"
+              className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
+              style={{ background: 'white', color: 'var(--text-muted)', border: '1px solid var(--ui-border)' }}
+              onClick={() => setShowNewRepricingConfirm(false)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="px-4 py-2 rounded-lg text-sm font-bold transition-colors hover:opacity-90"
+              style={{ background: '#f7b918', color: '#144584' }}
+              onClick={handleConfirmNewRepricing}
+            >
+              Yes, start new repricing
+            </button>
+          </div>
+        </TinyModal>
+      )}
 
       {isBackgroundRepricingRunning && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
@@ -1908,62 +2020,6 @@ const RepricingNegotiation = () => {
           </TinyModal>
         );
       })()}
-
-      {/* ── eBay Research Modal ────────────────────────────────────────────────── */}
-      {researchItem && (
-        <EbayResearchForm
-          mode="modal"
-          category={researchItem.categoryObject || { path: [researchItem.category], name: researchItem.category }}
-          savedState={researchItem.ebayResearchData}
-          onComplete={handleResearchComplete}
-          initialHistogramState={true}
-          readOnly={false}
-          showManualOffer={false}
-          hideAddAction={true}
-          hideOfferCards={true}
-          initialSearchQuery={buildInitialSearchQuery(researchItem)}
-          marketComparisonContext={{
-            cexSalePrice: researchItem?.cexSellPrice ?? null,
-            ourSalePrice: researchItem?.ourSalePrice ?? null,
-            ebaySalePrice: researchItem?.ebayResearchData?.stats?.median ?? null,
-            cashConvertersSalePrice: researchItem?.cashConvertersResearchData?.stats?.median ?? null,
-            itemTitle: researchItem?.title || null,
-            itemCondition: researchItem?.condition || null,
-            itemSpecs: researchItem?.isCustomCeXItem ? null : buildItemSpecs(researchItem),
-            cexSpecs: researchItem?.isCustomCeXItem ? buildItemSpecs(researchItem) : null,
-            ebaySearchTerm: researchItem?.ebayResearchData?.searchTerm || null,
-            cashConvertersSearchTerm: researchItem?.cashConvertersResearchData?.searchTerm || null,
-          }}
-        />
-      )}
-
-      {/* ── Cash Converters Research Modal ────────────────────────────────────── */}
-      {cashConvertersResearchItem && (
-        <CashConvertersResearchForm
-          mode="modal"
-          category={cashConvertersResearchItem.categoryObject || { path: [cashConvertersResearchItem.category], name: cashConvertersResearchItem.category }}
-          savedState={cashConvertersResearchItem.cashConvertersResearchData}
-          onComplete={handleCashConvertersResearchComplete}
-          initialHistogramState={true}
-          readOnly={false}
-          showManualOffer={false}
-          hideAddAction={true}
-          hideOfferCards={true}
-          initialSearchQuery={buildInitialSearchQuery(cashConvertersResearchItem)}
-          marketComparisonContext={{
-            cexSalePrice: cashConvertersResearchItem?.cexSellPrice ?? null,
-            ourSalePrice: cashConvertersResearchItem?.ourSalePrice ?? null,
-            ebaySalePrice: cashConvertersResearchItem?.ebayResearchData?.stats?.median ?? null,
-            cashConvertersSalePrice: cashConvertersResearchItem?.cashConvertersResearchData?.stats?.median ?? null,
-            itemTitle: cashConvertersResearchItem?.title || null,
-            itemCondition: cashConvertersResearchItem?.condition || null,
-            itemSpecs: cashConvertersResearchItem?.isCustomCeXItem ? null : buildItemSpecs(cashConvertersResearchItem),
-            cexSpecs: cashConvertersResearchItem?.isCustomCeXItem ? buildItemSpecs(cashConvertersResearchItem) : null,
-            ebaySearchTerm: cashConvertersResearchItem?.ebayResearchData?.searchTerm || null,
-            cashConvertersSearchTerm: cashConvertersResearchItem?.cashConvertersResearchData?.searchTerm || null,
-          }}
-        />
-      )}
 
       {isQuickRepriceOpen && (
         <QuickRepriceModal

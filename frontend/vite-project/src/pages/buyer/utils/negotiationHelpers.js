@@ -233,12 +233,30 @@ export function mapApiItemToNegotiationItem(item, transactionType, mode) {
   const cashConvertersTitle =
     cashConvertersResearchData?.searchTerm || cashConvertersResearchData?.title || null;
 
-  const ebaySubtitleFromFilters = isEbayResearchPayload
-    ? (Object.values(ebayResearchData.selectedFilters?.apiFilters || {})
-        .flat().join(' / ') ||
-       ebayResearchData.selectedFilters?.basic?.join(' / ') ||
-       'eBay Filters')
-    : null;
+  const ebaySubtitleFromFilters = isEbayResearchPayload ? (() => {
+    const apiParts = Object.values(ebayResearchData.selectedFilters?.apiFilters || {})
+      .flat()
+      .filter(Boolean);
+    const basicParts = (ebayResearchData.selectedFilters?.basic || []).filter(Boolean);
+
+    const priceRange = ebayResearchData.selectedFilters?.advanced?.priceRange;
+    const advancedParts = [];
+    if (priceRange?.min != null && priceRange?.max != null) {
+      const min = Number(priceRange.min);
+      const max = Number(priceRange.max);
+      if (Number.isFinite(min) && Number.isFinite(max)) {
+        advancedParts.push(`Price £${min.toFixed(2)} - £${max.toFixed(2)}`);
+      }
+    }
+
+    const soldDateRange = ebayResearchData.selectedFilters?.advanced?.soldDateRange;
+    if (soldDateRange?.fromLabel && soldDateRange?.toLabel) {
+      advancedParts.push(`Sold ${soldDateRange.fromLabel} - ${soldDateRange.toLabel}`);
+    }
+
+    const allParts = [...apiParts, ...basicParts, ...advancedParts].filter(Boolean);
+    return allParts.length ? allParts.join(' / ') : 'eBay Filters';
+  })() : null;
 
   const isCexItem = !!(cexTitle || rawCeXTitle);
 
