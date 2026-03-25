@@ -38,6 +38,7 @@ function EbayResearchForm({
   useVoucherOffers = false,
   onOffersChange = null,
   containModalInParent = false,
+  hideAddAction = false,
 }) {
   const categoryId = category?.id ?? null;
   const ebayOfferMargins = useEbayOfferMargins(categoryId);
@@ -121,9 +122,9 @@ function EbayResearchForm({
         setDrillHistory([]);
         setError(null);
       } else if (isExtensionListingFlowAborted(result)) {
-        if (mode === 'modal') {
-          onComplete?.({ cancel: true });
-        }
+        // Listing tab closed or flow cancelled during refine — keep cards + existing results.
+        // Do not call onComplete({ cancel }) here; that would dismiss the whole research UI.
+        setError(null);
       } else {
         setError(result?.error || "No data returned. Make sure you're on a listings page and clicked the button.");
       }
@@ -134,7 +135,7 @@ function EbayResearchForm({
     } finally {
       setLoading(false);
     }
-  }, [listingPageUrl, marketComparisonContext, mode, onComplete]);
+  }, [listingPageUrl, marketComparisonContext]);
 
   const autoTriggeredRef = useRef(false);
   // Auto-trigger get data once on mount in modal mode only.
@@ -441,6 +442,7 @@ function EbayResearchForm({
       hideOfferCards={hideOfferCards}
       useVoucherOffers={useVoucherOffers}
       containModalInParent={containModalInParent}
+      hidePrimaryAddAction={hideAddAction}
     />
     </>
   );

@@ -756,6 +756,7 @@ const MainContent = ({ mode = 'buyer' }) => {
               marketComparisonContext={buildMarketContext()}
               onComplete={(data) => { if (data?.cancel) { setEbayModalOpen(false); return; } handleEbayResearchComplete(data); setEbayModalOpen(false); }}
               hideOfferCards={isRepricing}
+              hideAddAction={Boolean(selectedCartItem)}
               useVoucherOffers={useVoucherOffers}
             />
           )}
@@ -768,6 +769,7 @@ const MainContent = ({ mode = 'buyer' }) => {
               marketComparisonContext={buildMarketContext()}
               onComplete={(data) => { if (data?.cancel) { setCashConvertersModalOpen(false); return; } handleCashConvertersResearchComplete(data); setCashConvertersModalOpen(false); }}
               hideOfferCards={isRepricing}
+              hideAddAction={Boolean(selectedCartItem)}
               useVoucherOffers={useVoucherOffers}
             />
           )}

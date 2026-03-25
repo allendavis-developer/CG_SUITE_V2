@@ -5,8 +5,16 @@ import { useNavigate } from 'react-router-dom';
  * Card for a launchpad module (Buying or Repricing).
  * Uses brand-orange accent button, primary icon background.
  */
-const ModuleCard = ({ icon, title, description, route, buttonLabel }) => {
+const ModuleCard = ({ icon, title, description, route, buttonLabel, onNavigate }) => {
   const navigate = useNavigate();
+
+  const handleClick = () => {
+    if (onNavigate) {
+      onNavigate();
+    } else {
+      navigate(route);
+    }
+  };
 
   return (
     <div className="group bg-white dark:bg-slate-900 rounded-xl p-8 shadow-sm border border-slate-200 dark:border-slate-800 hover:shadow-md transition-shadow flex flex-col items-start gap-4">
@@ -23,7 +31,7 @@ const ModuleCard = ({ icon, title, description, route, buttonLabel }) => {
       </div>
       <button
         type="button"
-        onClick={() => navigate(route)}
+        onClick={handleClick}
         className="mt-auto flex items-center justify-center gap-2 bg-brand-orange hover:bg-brand-orange-hover text-slate-900 font-bold py-3 px-6 rounded-lg transition-colors w-full sm:w-auto"
       >
         <span>{buttonLabel}</span>

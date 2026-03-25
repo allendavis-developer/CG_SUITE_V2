@@ -350,7 +350,7 @@ const PriceHistogram = React.memo(function PriceHistogram({ listings, onBucketSe
  * @param {Function} props.onZoomOut - Handler for zoom out (removes last level)
  * @param {Function} props.onNavigateToDrillLevel - Handler for navigating to specific drill level
  * @param {Function} props.onComplete - Handler for completion
- * @param {Function} props.onCancel - When mode is modal: dismiss without applying (header X, Cancel). Must not trigger onComplete success path.
+ * @param {Function} props.onCancel - When mode is modal: dismiss without applying (header close X). Must not trigger onComplete success path.
  * @param {string} props.mode - "modal" or "page"
  * @param {boolean} props.readOnly - Read-only mode
  * @param {Array} props.basicFilterOptions - Options for basic filters (e.g., ["Completed & Sold", "Used", "UK Only"])
@@ -363,7 +363,7 @@ const PriceHistogram = React.memo(function PriceHistogram({ listings, onBucketSe
  * @param {boolean} props.allowHistogramToggle - Whether to show the histogram toggle checkbox (default: true)
  * @param {boolean} props.hideSearchAndFilters - When true, hide search input and filters sidebar (e.g. extension-sourced data); only histogram toggle bar is shown
  * @param {Function} props.onRefineSearch - When set (e.g. extension flow), shows "Refine search" button; called when user wants to go back to the listing site to refine
- * @param {Function} props.onCancelRefine - When set, shows a "Cancel" button while refineLoading is true; closes the listing tab without leaving the cards view
+ * @param {Function} props.onCancelRefine - When set, shows a close control while refineLoading is true; closes the listing tab without leaving the cards view
  * @param {string} props.refineError - Optional error message to show after a failed refine (e.g. extension timeout)
  * @param {boolean} props.refineLoading - When true, Refine search button is disabled (refine in progress)
  * @param {Function} props.onResetSearch - Optional handler to reset the current research/search state (clear drill-down, exclusions, etc.)
@@ -420,10 +420,15 @@ export default function ResearchFormShell({
   hideOfferCards = false, // When true (e.g. repricing), hide the three offer cards and only show the single add action
   useVoucherOffers = false, // When true (store credit), display voucher prices instead of cash
   containModalInParent = false, // When true with mode="modal", render as absolute fill within parent panel
+  hidePrimaryAddAction = false, // When true, hide Add-to-cart/Reprice primary actions (used when editing existing table items)
 }) {
   // Get current price range (latest in history, or null for full view)
   const currentPriceRange = drillHistory.length > 0 ? drillHistory[drillHistory.length - 1] : null;
-  
+
+  /** Primary add actions: larger + stronger shadow so they read as the main commit control */
+  const prominentAddClass =
+    'shadow-lg shadow-yellow-500/30';
+
   // State for selected offer when opened from negotiation page
   const [selectedOfferIndex, setSelectedOfferIndex] = useState(null); // null, 0, 1, 2, or 'manual'
 
@@ -924,20 +929,20 @@ export default function ResearchFormShell({
             );
           })}
 
-          {useAddWithOfferFlow && showInlineOfferAction && (
+          {useAddWithOfferFlow && showInlineOfferAction && !hidePrimaryAddAction && (
             <>
               {buyOffers.length > 0 && <div className="w-px h-8 bg-gray-200" />}
               <button
                 type="button"
                 onClick={() => onAddToCartWithOffer(null)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-blue-900 font-extrabold text-xs uppercase shadow-sm transition-all ${
+                className={`flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-extrabold uppercase tracking-wide text-blue-900 transition-all ${
                   disableAddAction
-                    ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
-                    : 'bg-yellow-500 hover:bg-yellow-400 cursor-pointer'
+                    ? 'bg-gray-300 text-gray-600 cursor-not-allowed shadow-none ring-0'
+                    : `bg-yellow-500 hover:bg-yellow-400 cursor-pointer ${prominentAddClass}`
                 }`}
                 disabled={disableAddAction}
               >
-                <Icon name={addActionLabel === 'Add to Reprice List' ? 'sell' : 'add_shopping_cart'} className="text-sm" />
+                <Icon name={addActionLabel === 'Add to Reprice List' ? 'sell' : 'add_shopping_cart'} className="text-[22px]" />
                 {addActionLabel}
               </button>
             </>
@@ -958,7 +963,7 @@ export default function ResearchFormShell({
                     type="text"
                     key="manual-offer-input"
                     className={`text-lg font-extrabold text-blue-900 bg-transparent outline-none w-20 border-b-2 ml-0.5 transition-colors leading-tight ${
-                      selectedOfferIndex === 'manual' ? 'border-blue-900' : 'border-transparent focus:border-blue-200'
+                      selectedOfferIndex === 'manual' ? 'border-blue-900' : 'border-blue-200 focus:border-blue-400'
                     }`}
                     placeholder="0.00"
                     value={manualOffer}
@@ -988,78 +993,165 @@ export default function ResearchFormShell({
         </div>
       </React.Fragment>
     );
-  }, [buyOffers, showManualOffer, selectedOfferIndex, manualOffer, manualOfferPctOfSale, onManualOfferChange, readOnly, handleOfferClick, handleManualOfferCardClick, handleManualOfferChange, onAddToCartWithOffer, formatStat, enableRightClickManualOffer, openManualOfferDialog, hideOfferCards, addActionLabel, disableAddAction, useVoucherOffers, displayedStats?.suggestedPrice, showInlineOfferAction]);
+  }, [buyOffers, showManualOffer, selectedOfferIndex, manualOffer, manualOfferPctOfSale, onManualOfferChange, readOnly, handleOfferClick, handleManualOfferCardClick, handleManualOfferChange, onAddToCartWithOffer, formatStat, enableRightClickManualOffer, openManualOfferDialog, hideOfferCards, addActionLabel, disableAddAction, useVoucherOffers, displayedStats?.suggestedPrice, showInlineOfferAction, prominentAddClass, hidePrimaryAddAction]);
 
   const content = (
     <>
-      {/* Header - Only show in modal mode */}
+      {/* Unified header — modal mode: icon/title + controls + stats + offers + actions in one bar */}
       {mode === "modal" && (
-        <header className="bg-blue-900 px-6 py-4 flex items-center justify-between text-white shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="bg-white/10 p-1.5 rounded">
-              <Icon name={headerIcon} className="text-yellow-500" />
+        <header className="bg-white border-b border-gray-200 px-4 py-2 flex items-center gap-3 shrink-0 flex-wrap">
+          {/* Branding */}
+          <div className="flex items-center gap-2 shrink-0">
+            <div className="bg-blue-900 p-1.5 rounded">
+              <Icon name={headerIcon} className="text-yellow-400 text-[15px]" />
             </div>
-            <div>
-              <h2 className="text-lg font-bold">{headerTitle}</h2>
-              <p className="text-[10px] text-white/60 font-medium uppercase tracking-widest leading-none mt-0.5">
-                {headerSubtitle}
-              </p>
+            <div className="leading-tight">
+              <h2 className="text-sm font-bold text-blue-900 leading-none">{headerTitle}</h2>
+              {headerSubtitle && (
+                <p className="text-[9px] text-gray-400 font-medium uppercase tracking-widest leading-none mt-0.5">{headerSubtitle}</p>
+              )}
             </div>
           </div>
-          <WorkspaceCloseButton
-            title="Close"
-            onClick={onCancel ? handleModalCancel : handleComplete}
-          />
-        </header>
-      )}
 
-      {/* Stats at top when no histogram is shown (both page and modal modes) */}
-      {!showHistogram && listings && (
-        <div className="px-6 py-4 border-b border-gray-200 bg-white flex items-center justify-between gap-6 flex-wrap">
-          <div className="flex items-center gap-6 flex-wrap">
-            <StatsDisplay />
-            {BuyOffersDisplay}
-          </div>
-          {mode === "page" && onAddNewItem && (
-            <Button
-              variant="primary"
-              size="md"
-              onClick={onAddNewItem}
-              className="shrink-0 mt-2 md:mt-0"
-            >
-              <Icon name="add_circle" className="text-sm" />
-              Add new item
-            </Button>
+          {/* Extension-source controls (refine, reset, sort, show-only-relevant) shown inline in header */}
+          {hideSearchAndFilters && listings && (
+            <>
+              <div className="w-px h-6 bg-gray-200 shrink-0" />
+              {customControls}
+              {!readOnly && (onRefineSearch || onResetSearch) && (
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {onRefineSearch && (
+                    <Button variant="outline" size="sm" onClick={onRefineSearch} disabled={refineLoading}>
+                      {refineLoading ? 'Refining…' : 'Refine search'}
+                    </Button>
+                  )}
+                  {refineLoading && onCancelRefine && (
+                    <button
+                      type="button"
+                      onClick={onCancelRefine}
+                      className="inline-flex items-center justify-center h-7 w-7 rounded-full border border-red-300 text-red-500 hover:text-white hover:bg-red-500 hover:border-red-600 focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-offset-1"
+                      title="Cancel refine and close tab"
+                      aria-label="Cancel refine and close tab"
+                    >
+                      <span className="material-symbols-outlined text-[12px]">close</span>
+                    </button>
+                  )}
+                  {onResetSearch && (
+                    <Button variant="outline" size="sm" onClick={onResetSearch}>Reset search</Button>
+                  )}
+                </div>
+              )}
+              {refineError && (
+                <span className="text-xs text-red-600 font-medium shrink-0">{refineError}</span>
+              )}
+              {displayedListings && displayedListings.length > 0 && (
+                <div className="flex items-center gap-2.5 shrink-0">
+                  <CustomDropdown
+                    label="Sort"
+                    value={currentSortLabel}
+                    options={sortOptionLabels}
+                    onChange={(label) => {
+                      const found = sortOptions.find(o => o.label === label);
+                      if (found) {
+                        setSortOrder(found.value);
+                        setRightClickPivotIdx(null);
+                        setRightClickPivotAction(null);
+                      }
+                    }}
+                    labelPosition="left"
+                  />
+                  {(onToggleExclude || displayedListings.some(l => l.excluded)) && (() => {
+                    const excludedCount = displayedListings.filter(l => l.excluded).length;
+                    return (
+                      <div className="flex items-center gap-2">
+                        <span className="material-symbols-outlined text-sm text-gray-500">filter_list</span>
+                        <span className="text-xs font-medium text-gray-600">Relevant only</span>
+                        <button
+                          type="button"
+                          className="relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1"
+                          style={{ backgroundColor: showOnlyRelevant ? '#1e3a8a' : '#d1d5db' }}
+                          onClick={() => setShowOnlyRelevant(prev => !prev)}
+                          aria-pressed={showOnlyRelevant}
+                        >
+                          <span
+                            className={`absolute top-1/2 left-0.5 h-4 w-4 -translate-y-1/2 bg-white rounded-full shadow-sm transition-transform duration-150 ${
+                              showOnlyRelevant ? 'translate-x-4' : 'translate-x-0'
+                            }`}
+                          />
+                        </button>
+                        {excludedCount > 0 && !readOnly && (onToggleExclude || onClearAllExclusions) && (
+                          <button
+                            type="button"
+                            className="px-2 py-0.5 text-[11px] font-medium rounded border border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
+                            onClick={handleClearAllExclusions}
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+            </>
           )}
-          {/* When onAddToCartWithOffer is provided, the only Add to Cart control lives inline with the offers. */}
-          {mode === "page" && !onAddNewItem && !onAddToCartWithOffer && (
-            <Button
-              variant="primary"
-              size="md"
-              onClick={readOnly ? undefined : handleComplete}
-              className="shrink-0 mt-2 md:mt-0"
-              disabled={readOnly || disableAddAction}
-            >
-              <Icon name="add_shopping_cart" className="text-sm" />
-              {addActionLabel}
-            </Button>
+
+          {/* Stats + offers — only when results are loaded */}
+          {listings && displayedStats && (
+            <>
+              <div className="w-px h-6 bg-gray-200 shrink-0" />
+              <StatsDisplay />
+            </>
           )}
-          {mode === "modal" && (
-            <div className="flex gap-3 shrink-0 ml-auto">
-              <Button variant="outline" size="md" onClick={readOnly ? undefined : (onCancel ? handleModalCancel : handleComplete)} disabled={readOnly}>Cancel</Button>
-              {listings && (
+          {listings && BuyOffersDisplay}
+
+          {/* Spacer */}
+          <div className="flex-1 min-w-0" />
+
+          {/* Action buttons — shown once results are loaded */}
+          {listings && (
+            <div className="flex items-center gap-1.5 shrink-0">
+              {onAddNewItem && !readOnly && (
+                <Button variant="primary" size="sm" onClick={onAddNewItem}>
+                  <Icon name="add_circle" className="text-sm" />
+                  Add new item
+                </Button>
+              )}
+              {!onAddNewItem && !onAddToCartWithOffer && !readOnly && !hidePrimaryAddAction && (
                 <Button
                   variant="primary"
-                  size="md"
+                  size="lg"
+                  className={prominentAddClass}
                   onClick={handleComplete}
-                  disabled={loading && !readOnly}
+                  disabled={readOnly || disableAddAction}
                 >
+                  <Icon name="add_shopping_cart" className="text-[22px]" />
+                  {addActionLabel}
+                </Button>
+              )}
+              {!onAddNewItem && onAddToCartWithOffer && !showInlineOfferAction && !readOnly && !hidePrimaryAddAction && (
+                <Button
+                  variant="primary"
+                  size="lg"
+                  className={prominentAddClass}
+                  onClick={() => onAddToCartWithOffer(null)}
+                  disabled={readOnly || disableAddAction}
+                >
+                  <Icon name={addActionLabel === 'Add to Reprice List' ? 'sell' : 'add_shopping_cart'} className="text-[22px]" />
+                  {addActionLabel}
+                </Button>
+              )}
+              {(showManualOffer || hidePrimaryAddAction) && (
+                <Button variant="primary" size="md" onClick={handleComplete} disabled={loading && !readOnly}>
                   OK
                 </Button>
               )}
             </div>
           )}
-        </div>
+
+          {/* Close */}
+          <WorkspaceCloseButton title="Close" onClick={onCancel ? handleModalCancel : handleComplete} />
+        </header>
       )}
 
       {/* Search Input - hidden when hideSearchAndFilters (e.g. extension-sourced data) */}
@@ -1087,21 +1179,6 @@ export default function ResearchFormShell({
           </div>
           <div className="mt-3 flex items-center gap-4 flex-wrap">
             {customControls}
-            {listings && allowHistogramToggle && (
-              <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-gray-700">
-                <input
-                  type="checkbox"
-                  className="rounded border-gray-300 text-blue-900 focus:ring-blue-900"
-                  checked={showHistogram}
-                  onChange={readOnly ? undefined : (e) => onShowHistogramChange(e.target.checked)}
-                  disabled={readOnly}
-                />
-                <span className="flex items-center gap-1">
-                  <span className="material-symbols-outlined text-sm">bar_chart</span>
-                  Show Price Distribution
-                </span>
-              </label>
-            )}
             {displayedListings && displayedListings.length > 0 && (
               <CustomDropdown
                 label="Sort"
@@ -1164,109 +1241,45 @@ export default function ResearchFormShell({
         </div>
       )}
 
-      {/* When hideSearchAndFilters: only histogram toggle bar + optional Refine search (no search, no left filters) */}
-      {hideSearchAndFilters && listings && (
-        <div className="px-6 py-3 border-b border-gray-200 bg-gray-100/50 flex flex-col gap-2">
-          <div className="flex items-center gap-4 flex-wrap">
-            {customControls}
-            {(onRefineSearch || onResetSearch) && !readOnly && (
-              <div className="flex items-center gap-2">
-                {onRefineSearch && (
-                  <Button variant="outline" size="sm" onClick={onRefineSearch} disabled={refineLoading}>
-                    {refineLoading ? 'Refining…' : 'Refine search'}
-                  </Button>
-                )}
-                {refineLoading && onCancelRefine && (
-                  <button
-                    type="button"
-                    onClick={onCancelRefine}
-                    className="inline-flex items-center justify-center h-7 w-7 rounded-full border border-red-300 text-red-500 hover:text-white hover:bg-red-500 hover:border-red-600 focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-offset-1"
-                    title="Cancel refine and close tab"
-                    aria-label="Cancel refine and close tab"
-                  >
-                    <span className="material-symbols-outlined text-sm">close</span>
-                  </button>
-                )}
-                {onResetSearch && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={onResetSearch}
-                  >
-                    Reset search
-                  </Button>
-                )}
-              </div>
-            )}
-            {allowHistogramToggle && (
-            <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-gray-700">
-              <input
-                type="checkbox"
-                className="rounded border-gray-300 text-blue-900 focus:ring-blue-900"
-                checked={showHistogram}
-                onChange={readOnly ? undefined : (e) => onShowHistogramChange(e.target.checked)}
-                disabled={readOnly}
-              />
-              <span className="flex items-center gap-1">
-                <span className="material-symbols-outlined text-sm">bar_chart</span>
-                Show Price Distribution
-              </span>
-            </label>
-            )}
-            {displayedListings && displayedListings.length > 0 && (
-              <CustomDropdown
-                label="Sort"
-                value={currentSortLabel}
-                options={sortOptionLabels}
-                onChange={(label) => {
-                  const found = sortOptions.find(o => o.label === label);
-                  if (found) {
-                    setSortOrder(found.value);
-                    setRightClickPivotIdx(null);
-                    setRightClickPivotAction(null);
-                  }
-                }}
-                labelPosition="left"
-              />
-            )}
-            {/* Show only relevant toggle — visible whenever there are excluded listings or exclusion is available */}
-            {displayedListings && (onToggleExclude || displayedListings.some(l => l.excluded)) && (() => {
-              const excludedCount = displayedListings.filter(l => l.excluded).length;
-              return (
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-2">
-                    <span className="material-symbols-outlined text-sm text-gray-600">filter_list</span>
-                    <span className="text-xs font-medium text-gray-700">Show only relevant</span>
-                    <button
-                      type="button"
-                      className="relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1"
-                      style={{ backgroundColor: showOnlyRelevant ? '#1e3a8a' : '#d1d5db' }}
-                      onClick={() => setShowOnlyRelevant(prev => !prev)}
-                      aria-pressed={showOnlyRelevant}
-                    >
-                      <span
-                        className={`absolute top-1/2 left-0.5 h-4 w-4 -translate-y-1/2 bg-white rounded-full shadow-sm transition-transform duration-150 ${
-                          showOnlyRelevant ? 'translate-x-4' : 'translate-x-0'
-                        }`}
-                      />
-                    </button>
-                  </div>
-                  {excludedCount > 0 && (onToggleExclude || onClearAllExclusions) && !readOnly && (
-                    <button
-                      type="button"
-                      className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1"
-                      onClick={handleClearAllExclusions}
-                    >
-                      Clear selection
-                    </button>
-                  )}
-                </div>
-              );
-            })()}
+      {/* Stats strip — page mode only (modal stats live in the unified header above) */}
+      {listings && mode === 'page' && (
+        <div className="flex flex-col gap-2 border-b border-gray-200 bg-white px-4 py-2.5 shrink-0 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-2">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-2">
+            {displayedStats && <StatsDisplay />}
+            {BuyOffersDisplay}
           </div>
-          {refineError && (
-            <p className="text-sm text-red-600 bg-red-50 px-3 py-1.5 rounded">{refineError}</p>
-          )}
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 sm:ml-auto">
+            {onAddNewItem && (
+              <Button variant="primary" size="sm" onClick={onAddNewItem}>
+                <Icon name="add_circle" className="text-sm" />
+                Add new item
+              </Button>
+            )}
+            {!onAddNewItem && !onAddToCartWithOffer && !hidePrimaryAddAction && (
+              <Button
+                variant="primary"
+                size="lg"
+                className={readOnly ? '' : prominentAddClass}
+                onClick={readOnly ? undefined : handleComplete}
+                disabled={readOnly || disableAddAction}
+              >
+                <Icon name="add_shopping_cart" className="text-[22px]" />
+                {addActionLabel}
+              </Button>
+            )}
+            {!onAddNewItem && onAddToCartWithOffer && !showInlineOfferAction && !hidePrimaryAddAction && (
+              <Button
+                variant="primary"
+                size="lg"
+                className={readOnly ? '' : prominentAddClass}
+                onClick={() => onAddToCartWithOffer(null)}
+                disabled={readOnly || disableAddAction}
+              >
+                <Icon name={addActionLabel === 'Add to Reprice List' ? 'sell' : 'add_shopping_cart'} className="text-[22px]" />
+                {addActionLabel}
+              </Button>
+            )}
+          </div>
         </div>
       )}
 
@@ -1375,9 +1388,16 @@ export default function ResearchFormShell({
                         <span className="text-lg font-semibold tabular-nums text-blue-900">{displayListings.length}</span>
                       </div>
                       <div className="w-px h-5 bg-gray-400 rounded-full" aria-hidden="true" />
-                      <div className="flex items-baseline gap-1.5">
-                        <span className="text-xs font-medium uppercase tracking-wider text-gray-500">Excluded</span>
+                      <div className="relative group flex items-baseline gap-1.5">
+                        <span className="text-xs font-medium uppercase tracking-wider text-gray-500 cursor-help underline decoration-dotted decoration-gray-400">Excluded</span>
                         <span className="text-lg font-semibold tabular-nums">{displayedListings.filter(l => l.excluded).length}</span>
+                        {/* Tooltip */}
+                        <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-50 w-72">
+                          <div className="bg-gray-800 text-gray-100 text-[11px] leading-relaxed rounded-lg px-3 py-2 shadow-xl text-center">
+                            <strong>Click</strong> unexcluded to set pivot · <strong>Click pivot</strong> to exclude · <strong>Click excluded</strong> to re-include · <strong>Click pivot then another</strong> to exclude range · <strong>Right-click</strong> for before/after.
+                          </div>
+                          <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-800" />
+                        </div>
                       </div>
                       {drillHistory.length > 0 && (
                         <>
@@ -1388,17 +1408,13 @@ export default function ResearchFormShell({
                         </>
                       )}
                     </div>
-                    <div className="flex items-center gap-1.5 text-[11px] text-gray-600 text-center max-w-3xl">
-                      <span className="material-symbols-outlined text-[14px] text-gray-500 shrink-0">info</span>
-                      <span><strong className="font-semibold">Click</strong> unexcluded to set pivot · <strong className="font-semibold">Click pivot</strong> to exclude · <strong className="font-semibold">Click excluded</strong> to re-include · <strong className="font-semibold">Click pivot then another</strong> to exclude range · <strong className="font-semibold">Right-click</strong> for before/after.</span>
-                    </div>
                   </div>
                 </div>
               )}
 
               <div className={displayedListings && displayedListings.length > 0 ? 'pt-4' : undefined}>
               {/* Breadcrumb Navigation */}
-              {showHistogram && drillHistory.length > 0 && (
+              {drillHistory.length > 0 && (
                 <div className="mb-4 flex items-center gap-2 text-xs font-medium">
                   <button 
                     onClick={() => onNavigateToDrillLevel && onNavigateToDrillLevel(0)}
@@ -1425,7 +1441,7 @@ export default function ResearchFormShell({
                 </div>
               )}
 
-              <div className={`grid ${showHistogram ? 'grid-cols-1' : 'grid-cols-2'} gap-4`}>
+              <div className="grid grid-cols-1 gap-4">
                 {displayListings.map(({ item, origIdx, sortedIdx }, displayIdx) => (
                   <ListingCard
                     key={`${item._id || item.title}-${origIdx}`}
@@ -1446,115 +1462,18 @@ export default function ResearchFormShell({
             </div>
 
             {/* --- HISTOGRAM COMPONENT (Right Side) --- */}
-            {showHistogram && (
-              <aside className="w-80 border-l border-gray-200 overflow-hidden flex flex-col shrink-0">
-                {/* Stats + offers + actions panel above the histogram */}
-                {listings && (
-                  <div className="p-4 border-b border-gray-200 bg-white shrink-0 overflow-y-auto" style={{ maxHeight: '55%' }}>
-                    {/* Stats */}
-                    {displayedStats && (
-                      <div className="grid grid-cols-3 gap-x-3 mb-3 pb-3 border-b border-gray-100">
-                        {[
-                          { label: 'Average',   value: displayedStats.average,        cls: 'text-blue-900'  },
-                          { label: 'Median',    value: displayedStats.median,          cls: 'text-blue-900'  },
-                          { label: 'Suggested', value: displayedStats.suggestedPrice,  cls: 'text-green-600' },
-                        ].map(({ label, value, cls }) => (
-                          <div key={label} className="flex flex-col">
-                            <span className="text-[9px] font-bold uppercase tracking-wider text-gray-500 leading-none mb-0.5">{label}</span>
-                            <span className={`text-sm font-extrabold leading-tight ${cls}`}>£{formatStat(value)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Offer cards — left-click to add, right-click for manual amount */}
-                    {!hideOfferCards && buyOffers.length > 0 && (() => {
-                      const offerLabels = useVoucherOffers
-                        ? ['1st Voucher', '2nd Voucher', '3rd Voucher']
-                        : ['1st Cash', '2nd Cash', '3rd Cash'];
-                      return (
-                        <div className="flex gap-1.5 mb-3">
-                          {buyOffers.map((offer, idx) => {
-                            const price = useVoucherOffers ? toVoucherOfferPrice(offer.price) : offer.price;
-                            const pctOfSale = displayPctOfSaleForOffer(offer, displayedStats?.suggestedPrice);
-                            return (
-                              <button
-                                key={idx}
-                                type="button"
-                                className="flex flex-col text-left px-2.5 py-2 rounded-lg bg-blue-50 border border-blue-100 hover:bg-blue-100 active:bg-blue-200 transition-colors flex-1 focus:outline-none focus:ring-2 focus:ring-blue-400 shadow-sm"
-                                onClick={
-                                  onAddToCartWithOffer
-                                    ? () => onAddToCartWithOffer(idx)
-                                    : (showManualOffer && !readOnly ? () => handleOfferClick(price, idx) : undefined)
-                                }
-                                onContextMenu={(e) => {
-                                  e.preventDefault();
-                                  const basePrice = Number(price);
-                                  openManualOfferDialog(e, idx, Number.isFinite(basePrice) && basePrice > 0 ? basePrice.toFixed(2) : '');
-                                }}
-                                title="Left-click to select · Right-click for custom amount"
-                              >
-                                <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider leading-none mb-0.5">{offerLabels[idx]}</span>
-                                <span className="text-sm font-extrabold text-blue-900 leading-tight">£{formatStat(price)}</span>
-                                {pctOfSale != null && <span className="text-[10px] font-bold text-yellow-600 leading-none mt-0.5">{pctOfSale}%</span>}
-                                {onAddToCartWithOffer && (
-                                  <span className="text-[9px] font-semibold text-blue-700 leading-none mt-1">Add with this offer</span>
-                                )}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      );
-                    })()}
-
-                    {/* Action buttons */}
-                    <div className="flex flex-col gap-2">
-                      {onAddNewItem && (
-                        <Button variant="primary" size="sm" onClick={onAddNewItem} className="w-full">
-                          <Icon name="add_circle" className="text-sm" />
-                          Add new item
-                        </Button>
-                      )}
-                      {!onAddNewItem && !onAddToCartWithOffer && mode !== "modal" && (
-                        <Button variant="primary" size="sm" onClick={readOnly ? undefined : handleComplete} disabled={readOnly || disableAddAction} className="w-full">
-                          <Icon name="add_shopping_cart" className="text-sm" />
-                          {addActionLabel}
-                        </Button>
-                      )}
-                      {!onAddNewItem && onAddToCartWithOffer && (
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          onClick={() => onAddToCartWithOffer(null)}
-                          disabled={readOnly || disableAddAction}
-                          className="w-full"
-                        >
-                          <Icon name={addActionLabel === 'Add to Reprice List' ? 'sell' : 'add_shopping_cart'} className="text-sm" />
-                          {addActionLabel}
-                        </Button>
-                      )}
-                      {mode === "modal" && (
-                        <div className="flex gap-2 mt-1">
-                          <Button variant="outline" size="sm" onClick={readOnly ? undefined : (onCancel ? handleModalCancel : handleComplete)} disabled={readOnly} className="flex-1">Cancel</Button>
-                          <Button variant="primary" size="sm" onClick={handleComplete} disabled={loading && !readOnly} className="flex-1">OK</Button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-                {/* Histogram fills remaining space */}
-                <div className="flex-1 min-h-0 overflow-hidden">
-                  <PriceHistogram
-                    listings={histogramListings}
-                    onBucketSelect={onDrillDown}
-                    priceRange={currentPriceRange}
-                    onGoBack={onZoomOut}
-                    drillLevel={drillHistory.length}
-                    readOnly={readOnly}
-                  />
-                </div>
-              </aside>
-            )}
+            <aside className="w-80 border-l border-gray-200 overflow-hidden flex flex-col shrink-0">
+              <div className="flex-1 min-h-0 overflow-hidden">
+                <PriceHistogram
+                  listings={histogramListings}
+                  onBucketSelect={onDrillDown}
+                  priceRange={currentPriceRange}
+                  onGoBack={onZoomOut}
+                  drillLevel={drillHistory.length}
+                  readOnly={readOnly}
+                />
+              </div>
+            </aside>
           </main>
         )}
       </div>
@@ -1631,9 +1550,19 @@ export default function ResearchFormShell({
       role="dialog"
       aria-label="Set manual offer and add to cart"
     >
-      <p className="text-[11px] font-bold uppercase tracking-wider text-gray-600 mb-2">
-        Custom offer for this item
-      </p>
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <p className="text-[11px] font-bold uppercase tracking-wider text-gray-600 flex-1 min-w-0">
+          Custom offer for this item
+        </p>
+        <button
+          type="button"
+          onClick={closeManualOfferDialog}
+          className="p-0.5 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100 shrink-0 -mt-0.5 -mr-0.5"
+          aria-label="Close"
+        >
+          <span className="material-symbols-outlined text-[18px] leading-none">close</span>
+        </button>
+      </div>
       <p className="text-[11px] text-gray-500 mb-3">
         Type a per-item offer amount and press Enter or click Okay to add to cart with this manual offer.
       </p>
@@ -1666,15 +1595,6 @@ export default function ResearchFormShell({
           onClick={applyManualOfferDialog}
         >
           Okay
-        </button>
-      </div>
-      <div className="flex justify-end gap-2">
-        <button
-          type="button"
-          className="px-3 py-1.5 text-xs font-semibold text-gray-500 rounded-lg hover:bg-gray-50"
-          onClick={closeManualOfferDialog}
-        >
-          Cancel
         </button>
       </div>
     </div>

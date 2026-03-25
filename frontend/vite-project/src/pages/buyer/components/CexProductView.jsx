@@ -113,6 +113,7 @@ export default function CexProductView({
               ourSalePrice={resolvedOurSalePrice} initialSearchQuery={buildInitialSearchQuery(item) ?? item.title ?? item.model}
               marketComparisonContext={buildItemMarketContext()}
               hideOfferCards={isRepricing}
+              hideAddAction={true}
               useVoucherOffers={useVoucherOffers}
               onComplete={(d) => {
                 if (d?.cancel) { setCeXEbayModalOpen(false); return; }
@@ -127,6 +128,7 @@ export default function CexProductView({
               initialHistogramState={false} referenceData={refData} ourSalePrice={resolvedOurSalePrice}
               initialSearchQuery={buildInitialSearchQuery(item) ?? item.title ?? item.model} marketComparisonContext={buildItemMarketContext()}
               useVoucherOffers={useVoucherOffers}
+              hideAddAction={true}
               onComplete={(d) => {
                 if (d?.cancel) { setCeXCashConvertersModalOpen(false); return; }
                 onUpdateCartItemResearch?.(item.id, 'cashConverters', d);

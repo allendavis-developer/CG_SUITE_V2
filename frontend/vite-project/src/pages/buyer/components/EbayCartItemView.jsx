@@ -50,7 +50,7 @@ export default function EbayCartItemView({
               initialHistogramState={false} showManualOffer={false} resetDrillOnOpen={true}
               onAddNewItem={onDeselectCartItem}
               onOfferSelect={handleOfferSelect}
-              addActionLabel={isRepricing ? 'Add to Reprice List' : 'Add to Cart'} hideOfferCards={false}
+              addActionLabel={isRepricing ? 'Add to Reprice List' : 'Add to Cart'} hideOfferCards={isRepricing}
               useVoucherOffers={useVoucherOffers}
               onOffersChange={onOffersChange}
             />

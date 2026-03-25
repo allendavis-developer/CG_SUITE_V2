@@ -36,6 +36,7 @@ export default function CashConvertersResearchForm({
   hideOfferCards = false,
   useVoucherOffers = false,
   containModalInParent = false,
+  hideAddAction = false,
 }) {
   const categoryId = category?.id ?? null;
   const ebayOfferMargins = useEbayOfferMargins(categoryId);
@@ -118,9 +119,8 @@ export default function CashConvertersResearchForm({
         setDrillHistory([]);
         setError(null);
       } else if (isExtensionListingFlowAborted(result)) {
-        if (mode === 'modal') {
-          onComplete?.({ cancel: true });
-        }
+        // Listing tab closed during refine — stay on cards with previous results.
+        setError(null);
       } else {
         setError(result?.error || "No data returned. Make sure you're on a listings page and clicked the button.");
       }
@@ -343,6 +343,7 @@ export default function CashConvertersResearchForm({
       hideOfferCards={hideOfferCards}
       useVoucherOffers={useVoucherOffers}
       containModalInParent={containModalInParent}
+      hidePrimaryAddAction={hideAddAction}
     />
   );
 }

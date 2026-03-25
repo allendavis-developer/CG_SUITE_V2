@@ -1,10 +1,12 @@
 import React, { useEffect, useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import AppHeader from '@/components/AppHeader';
 import LaunchpadWelcome from './LaunchpadWelcome';
 import ModuleCard from './ModuleCard';
 import DailyOverview from './DailyOverview';
 import RecentActivityTable from './RecentActivityTable';
 import { API_BASE_URL } from '@/services/api';
+import useAppStore from '@/store/useAppStore';
 
 /**
  * Computes launchpad stats and recent transactions from requests overview data.
@@ -52,9 +54,46 @@ const computeLaunchpadData = (requests) => {
  * Matches MainContent styling (primary, accent, cards, tables).
  */
 const LaunchpadPage = () => {
+  const navigate = useNavigate();
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  const handleOpenBuyer = () => {
+    useAppStore.setState((s) => ({
+      mode: 'buyer',
+      cartItems: [],
+      customerData: { id: null, name: 'No Customer Selected', cancelRate: 0, transactionType: 'sale' },
+      intent: null,
+      request: null,
+      selectedCategory: null,
+      availableModels: [],
+      selectedModel: null,
+      selectedCartItemId: null,
+      cexProductData: null,
+      cexLoading: false,
+      isQuickRepriceOpen: false,
+      isCustomerModalOpen: true,
+      resetKey: s.resetKey + 1,
+    }));
+    navigate('/buyer');
+  };
+
+  const handleOpenRepricing = () => {
+    useAppStore.setState((s) => ({
+      mode: 'repricing',
+      repricingSessionId: null,
+      repricingCartItems: [],
+      selectedCategory: null,
+      selectedModel: null,
+      selectedCartItemId: null,
+      cexProductData: null,
+      cexLoading: false,
+      isQuickRepriceOpen: false,
+      repricingWorkspaceNonce: s.repricingWorkspaceNonce + 1,
+    }));
+    navigate('/repricing');
+  };
 
   useEffect(() => {
     const fetchRequests = async () => {
@@ -97,6 +136,7 @@ const LaunchpadPage = () => {
                 description="Manage and process all buys."
                 route="/buyer"
                 buttonLabel="Open Buying Module"
+                onNavigate={handleOpenBuyer}
               />
               <ModuleCard
                 icon="analytics"
@@ -104,6 +144,7 @@ const LaunchpadPage = () => {
                 description="Analyse real-time competitor data, and update product pricing."
                 route="/repricing"
                 buttonLabel="Open Repricing Module"
+                onNavigate={handleOpenRepricing}
               />
               <ModuleCard
                 icon="summarize"

@@ -957,6 +957,7 @@ const Negotiation = ({ mode }) => {
                   initialHistogramState={true}
                   readOnly={mode === 'view'}
                   showManualOffer={true}
+                  hideAddAction={true}
                   initialSearchQuery={buildInitialSearchQuery(researchItem)}
                   useVoucherOffers={useVoucherOffers}
                   marketComparisonContext={{
@@ -983,6 +984,7 @@ const Negotiation = ({ mode }) => {
                   initialHistogramState={true}
                   readOnly={mode === 'view'}
                   showManualOffer={true}
+                  hideAddAction={true}
                   useVoucherOffers={useVoucherOffers}
                   initialSearchQuery={buildInitialSearchQuery(cashConvertersResearchItem)}
                   marketComparisonContext={{

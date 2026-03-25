@@ -412,6 +412,15 @@ const AppHeader = ({
     setOurSalePrice('');
   };
 
+  /** Back to model list without changing leaf category (fixes wrong model pick). */
+  const handleBackToModelList = useCallback(() => {
+    setSelectedModel(null);
+    setVariants([]);
+    setOffers([]);
+    setReferenceData(null);
+    setOurSalePrice('');
+  }, []);
+
   useEffect(() => {
     if (!isFilteringCategories || filteredLeafMatches.length !== 1) return;
     const only = filteredLeafMatches[0];
@@ -842,9 +851,20 @@ const AppHeader = ({
                       />
                     ) : (
                       <div className="space-y-4 p-4">
+                        <button
+                          type="button"
+                          onClick={handleBackToModelList}
+                          title="Return to the model list for this category"
+                          className="inline-flex w-full sm:w-auto items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-brand-blue shadow-sm transition-colors hover:bg-gray-50"
+                        >
+                          <span className="material-symbols-outlined text-[18px]">arrow_back</span>
+                          Change model
+                        </button>
                         <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Selected Category</p>
-                          <p className="text-sm font-semibold text-gray-900">
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Selected model</p>
+                          <p className="text-sm font-semibold text-gray-900">{selectedModel.name}</p>
+                          <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-gray-500">Category</p>
+                          <p className="text-xs font-medium text-gray-700">
                             {(buyerControls.selectedCategory.path || []).join(' / ')}
                           </p>
                         </div>

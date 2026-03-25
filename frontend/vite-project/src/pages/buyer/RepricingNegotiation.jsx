@@ -1919,6 +1919,8 @@ const RepricingNegotiation = () => {
           initialHistogramState={true}
           readOnly={false}
           showManualOffer={false}
+          hideAddAction={true}
+          hideOfferCards={true}
           initialSearchQuery={buildInitialSearchQuery(researchItem)}
           marketComparisonContext={{
             cexSalePrice: researchItem?.cexSellPrice ?? null,
@@ -1945,6 +1947,8 @@ const RepricingNegotiation = () => {
           initialHistogramState={true}
           readOnly={false}
           showManualOffer={false}
+          hideAddAction={true}
+          hideOfferCards={true}
           initialSearchQuery={buildInitialSearchQuery(cashConvertersResearchItem)}
           marketComparisonContext={{
             cexSalePrice: cashConvertersResearchItem?.cexSellPrice ?? null,
