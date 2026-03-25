@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect } from "react";
-import useAppStore from '@/store/useAppStore';
 
 /**
  * Modal shown at finalisation when the customer was created as a placeholder.
@@ -12,8 +11,6 @@ export default function NewCustomerDetailsModal({ open, onClose, onSubmit, initi
   const [address, setAddress] = useState("");
   const [error, setError] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const workspaceMode = useAppStore((s) => s.mode);
-  const disableBookForTesting = workspaceMode === 'buyer';
 
   useEffect(() => {
     if (open) {
@@ -130,7 +127,7 @@ export default function NewCustomerDetailsModal({ open, onClose, onSubmit, initi
             </button>
             <button
               type="submit"
-              disabled={isSubmitting || disableBookForTesting}
+              disabled={isSubmitting}
               className="flex-1 bg-yellow-500 hover:brightness-105 text-blue-900 font-black py-4 px-6 rounded-xl shadow-lg flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isSubmitting ? (

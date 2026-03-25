@@ -624,9 +624,8 @@ export default function ResearchFormShell({
   }, [showManualOffer, readOnly, selectedOfferIndex, manualOffer, onManualOfferChange, onCompleteWithSelection, onComplete]);
 
   const handleModalCancel = useCallback(() => {
-    if (readOnly) return;
     onCancel?.();
-  }, [readOnly, onCancel]);
+  }, [onCancel]);
 
   const handleComplete = useCallback(() => {
     // For manual-offer selection, require a valid positive amount.
@@ -885,7 +884,7 @@ export default function ResearchFormShell({
 
   // ─── Action buttons (shared between banners) ──────────────────────────────
   const actionButtonsEl = !readOnly && (
-    <div className="flex items-center gap-1.5 shrink-0">
+    <div className="flex items-center gap-1.5 flex-1 min-w-0 justify-end">
       {onAddNewItem && (
         <Button variant="primary" size="sm" onClick={onAddNewItem}>
           <Icon name="add_circle" className="text-sm" />
@@ -915,7 +914,13 @@ export default function ResearchFormShell({
         </Button>
       )}
       {(showManualOffer || hidePrimaryAddAction) && (
-        <Button variant="primary" size="md" onClick={handleComplete} disabled={loading && !readOnly}>
+        <Button
+          variant="primary"
+          size="md"
+          className="flex-1 justify-center"
+          onClick={handleComplete}
+          disabled={loading && !readOnly}
+        >
           OK
         </Button>
       )}
@@ -1154,7 +1159,11 @@ export default function ResearchFormShell({
           {/* Right section: action buttons + close — w-80 matches histogram width */}
           <div className="w-80 shrink-0 flex items-center gap-2 justify-end px-4 py-2.5">
             {listings && actionButtonsEl}
-            <WorkspaceCloseButton title="Close" onClick={onCancel ? handleModalCancel : handleComplete} />
+            <WorkspaceCloseButton
+              className="ml-2"
+              title="Close"
+              onClick={onCancel ? handleModalCancel : handleComplete}
+            />
           </div>
         </header>
       )}

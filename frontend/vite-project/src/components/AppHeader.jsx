@@ -298,6 +298,11 @@ const AppHeader = ({
   }, [isFilteringCategories, visibleActiveTopLevelCategory]);
   const showMountedWorkspace = showNegotiationItemBuilder && (Boolean(activeTopLevelCategory) || workspaceMode !== 'builder');
 
+  // Expose workspace-open state to the rest of the app (e.g. disable finalize buttons)
+  useEffect(() => {
+    useAppStore.getState().setHeaderWorkspaceOpen(showMountedWorkspace);
+  }, [showMountedWorkspace]);
+
   // Collapse CeX workspace when the listing tab is closed / flow cancelled (no product, not loading).
   useLayoutEffect(() => {
     if (workspaceMode !== 'cex') {

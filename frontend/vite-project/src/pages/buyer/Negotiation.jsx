@@ -83,7 +83,7 @@ const Negotiation = ({ mode }) => {
   const storeCartItems = useAppStore((s) => s.cartItems);
   const storeCustomerData = useAppStore((s) => s.customerData);
   const storeRequest = useAppStore((s) => s.request);
-  const workspaceMode = useAppStore((s) => s.mode);
+  const headerWorkspaceOpen = useAppStore((s) => s.headerWorkspaceOpen);
   const selectedCategory = useAppStore((s) => s.selectedCategory);
   const selectCategory = useAppStore((s) => s.selectCategory);
   const handleAddFromCeX = useAppStore((s) => s.handleAddFromCeX);
@@ -907,11 +907,11 @@ const Negotiation = ({ mode }) => {
 
             <button
               className={`w-full font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 group active:scale-[0.98] ${
-                mode === 'view' || workspaceMode === 'buyer' || (hasTarget && !targetMatched) ? 'opacity-50 cursor-not-allowed' : ''
+                mode === 'view' || headerWorkspaceOpen || (hasTarget && !targetMatched) ? 'opacity-50 cursor-not-allowed' : ''
               }`}
               style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)', boxShadow: '0 10px 15px -3px rgba(247, 185, 24, 0.3)' }}
-              onClick={mode === 'view' || workspaceMode === 'buyer' || (hasTarget && !targetMatched) ? undefined : handleFinalizeTransaction}
-              disabled={mode === 'view' || workspaceMode === 'buyer' || (hasTarget && !targetMatched)}
+              onClick={mode === 'view' || headerWorkspaceOpen || (hasTarget && !targetMatched) ? undefined : handleFinalizeTransaction}
+              disabled={mode === 'view' || headerWorkspaceOpen || (hasTarget && !targetMatched)}
             >
               <span className="text-base uppercase tracking-tight">Book for Testing</span>
               <span className="material-symbols-outlined text-xl group-hover:translate-x-1 transition-transform">arrow_forward</span>

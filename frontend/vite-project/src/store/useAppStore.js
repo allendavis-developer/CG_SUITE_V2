@@ -95,6 +95,8 @@ const useAppStore = create(
       repricingSessionId: null,
       /** Incremented when starting a blank repricing workspace so the route remounts even if path is unchanged. */
       repricingWorkspaceNonce: 0,
+      /** True when the AppHeader workspace panel (builder/eBay/CeX) is mounted. */
+      headerWorkspaceOpen: false,
 
       bumpRepricingWorkspace: () =>
         set((s) => ({ repricingWorkspaceNonce: s.repricingWorkspaceNonce + 1 })),
@@ -119,8 +121,10 @@ const useAppStore = create(
           isQuickRepriceOpen: false,
           isCustomerModalOpen: false,
           resetKey: get().resetKey + 1,
+          headerWorkspaceOpen: false,
         });
       },
+      setHeaderWorkspaceOpen: (open) => set({ headerWorkspaceOpen: Boolean(open) }),
       setRepricingSessionId: (id) => set({ repricingSessionId: id }),
 
       // ─── eBay / Cash Converters offer % of sale (API keys ebay_offer_margin_*; three tiers) ──

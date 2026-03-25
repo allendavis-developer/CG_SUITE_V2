@@ -119,6 +119,7 @@ const RepricingNegotiation = () => {
   const cexProductData = useAppStore((s) => s.cexProductData);
   const setCexProductData = useAppStore((s) => s.setCexProductData);
   const clearCexProduct = useAppStore((s) => s.clearCexProduct);
+  const headerWorkspaceOpen = useAppStore((s) => s.headerWorkspaceOpen);
 
   // Cart items only come from navigation state (session restore / overview)
   const cartItems = location.state?.cartItems || [];
@@ -1283,7 +1284,7 @@ const RepricingNegotiation = () => {
           >
             <button
               className={`w-full font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 group active:scale-[0.98] ${
-                !allItemsReadyForRepricing || isRepricingFinished || isBackgroundRepricingRunning ? 'opacity-50 cursor-not-allowed' : ''
+                headerWorkspaceOpen || !allItemsReadyForRepricing || isRepricingFinished || isBackgroundRepricingRunning ? 'opacity-50 cursor-not-allowed' : ''
               }`}
               style={{
                 background: '#f7b918',
@@ -1291,7 +1292,7 @@ const RepricingNegotiation = () => {
                 boxShadow: '0 10px 15px -3px rgba(247,185,24,0.3)'
               }}
               onClick={handleProceed}
-              disabled={!allItemsReadyForRepricing || isRepricingFinished || isBackgroundRepricingRunning}
+              disabled={headerWorkspaceOpen || !allItemsReadyForRepricing || isRepricingFinished || isBackgroundRepricingRunning}
             >
               <span className="text-base uppercase tracking-tight">
                 {isRepricingFinished ? 'Repricing Finished' : isBackgroundRepricingRunning ? 'Repricing Running in Background' : 'Proceed with Repricing'}
