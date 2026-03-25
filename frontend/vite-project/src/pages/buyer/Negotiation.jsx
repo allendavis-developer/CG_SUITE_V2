@@ -10,7 +10,7 @@ import { ItemContextMenu, TargetOfferModal, ItemOfferModal, SeniorMgmtModal, Mar
 import NewCustomerDetailsModal from '@/components/modals/NewCustomerDetailsModal';
 import SalePriceConfirmModal from '@/components/modals/SalePriceConfirmModal';
 import TinyModal from '@/components/ui/TinyModal';
-import { finishRequest, fetchRequestDetail, updateCustomer, saveQuoteDraft, deleteRequestItem } from '@/services/api';
+import { finishRequest, fetchRequestDetail, updateCustomer, saveQuoteDraft } from '@/services/api';
 import { normalizeExplicitSalePrice, formatOfferPrice } from '@/utils/helpers';
 import { useNotification } from '@/contexts/NotificationContext';
 import useAppStore from '@/store/useAppStore';
@@ -365,91 +365,11 @@ const Negotiation = ({ mode }) => {
     setItems(prev => prev.map(i => i.id === itemId ? { ...i, ourSalePriceInput: currentValue } : i));
   }, []);
 
-  const handleRemoveFromNegotiation = useCallback(async (item) => {
-    const requestItemId = item?.request_item_id;
+  const handleRemoveFromNegotiation = useCallback((item) => {
     setItems(prev => prev.filter(i => i.id !== item.id));
     setContextMenu(null);
     showNotification(`"${item.title || 'Item'}" removed from negotiation`, 'info');
-
-    // Persist removal so Requests Overview doesn't show stale items.
-    if (mode !== 'view' && requestItemId) {
-      try {
-        await deleteRequestItem(requestItemId);
-      } catch (err) {
-        console.error('Failed to delete request item:', err);
-        showNotification('Failed to remove item from request (server).', 'error');
-      }
-    }
-  }, [showNotification, mode]);
-
-  const buildFiltersSubtitle = useCallback((selectedFilters, fallback) => {
-    const parts = [];
-    const basic = selectedFilters?.basic || [];
-    const apiValues = Object.values(selectedFilters?.apiFilters || {}).flat();
-    parts.push(...basic);
-    parts.push(...apiValues);
-
-    const priceRange = selectedFilters?.advanced?.priceRange;
-    if (priceRange?.min != null && priceRange?.max != null) {
-      const min = Number(priceRange.min);
-      const max = Number(priceRange.max);
-      if (Number.isFinite(min) && Number.isFinite(max)) parts.push(`Price £${min.toFixed(2)} - £${max.toFixed(2)}`);
-    }
-
-    const soldRange = selectedFilters?.advanced?.soldDateRange;
-    if (soldRange?.fromLabel && soldRange?.toLabel) {
-      parts.push(`Sold ${soldRange.fromLabel} - ${soldRange.toLabel}`);
-    }
-
-    const joined = parts.filter(Boolean).join(' / ');
-    return joined || fallback || 'No filters applied';
-  }, []);
-
-  // Live persistence: advanced slider changes should update the active request row
-  // so Requests Overview can show the latest exact filters.
-  const handleEbayAdvancedFiltersChange = useCallback((nextSelectedFilters) => {
-    if (!researchItem) return;
-    setItems(prevItems => prevItems.map(i => {
-      if (i.id !== researchItem.id) return i;
-      const fallback = i.ebayResearchData?.searchTerm || i.title || 'eBay Research Item';
-      const nextSubtitle = buildFiltersSubtitle(nextSelectedFilters, fallback);
-      return {
-        ...i,
-        ebayResearchData: { ...(i.ebayResearchData || {}), selectedFilters: nextSelectedFilters },
-        subtitle: nextSubtitle,
-      };
-    }));
-    setResearchItem(prev => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        ebayResearchData: { ...(prev.ebayResearchData || {}), selectedFilters: nextSelectedFilters },
-        subtitle: buildFiltersSubtitle(nextSelectedFilters, prev.ebayResearchData?.searchTerm || prev.title),
-      };
-    });
-  }, [researchItem, setItems, buildFiltersSubtitle]);
-
-  const handleCashConvertersAdvancedFiltersChange = useCallback((nextSelectedFilters) => {
-    if (!cashConvertersResearchItem) return;
-    setItems(prevItems => prevItems.map(i => {
-      if (i.id !== cashConvertersResearchItem.id) return i;
-      const fallback = i.cashConvertersResearchData?.searchTerm || i.title || 'Cash Converters Research Item';
-      const nextSubtitle = buildFiltersSubtitle(nextSelectedFilters, fallback);
-      return {
-        ...i,
-        cashConvertersResearchData: { ...(i.cashConvertersResearchData || {}), selectedFilters: nextSelectedFilters },
-        subtitle: nextSubtitle,
-      };
-    }));
-    setCashConvertersResearchItem(prev => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        cashConvertersResearchData: { ...(prev.cashConvertersResearchData || {}), selectedFilters: nextSelectedFilters },
-        subtitle: buildFiltersSubtitle(nextSelectedFilters, prev.cashConvertersResearchData?.searchTerm || prev.title),
-      };
-    });
-  }, [cashConvertersResearchItem, setItems, buildFiltersSubtitle]);
+  }, [showNotification]);
 
   const handleAddNegotiationItem = useCallback(async (cartItem) => {
     if (!cartItem) return;
@@ -1055,7 +975,6 @@ const Negotiation = ({ mode }) => {
                   category={researchItem.categoryObject || { path: [researchItem.category], name: researchItem.category }}
                   savedState={researchItem.ebayResearchData}
                   onComplete={handleResearchComplete}
-                  onAdvancedFiltersChange={handleEbayAdvancedFiltersChange}
                   initialHistogramState={true}
                   readOnly={mode === 'view'}
                   showManualOffer={true}
@@ -1083,7 +1002,6 @@ const Negotiation = ({ mode }) => {
                   category={cashConvertersResearchItem.categoryObject || { path: [cashConvertersResearchItem.category], name: cashConvertersResearchItem.category }}
                   savedState={cashConvertersResearchItem.cashConvertersResearchData}
                   onComplete={handleCashConvertersResearchComplete}
-                  onAdvancedFiltersChange={handleCashConvertersAdvancedFiltersChange}
                   initialHistogramState={true}
                   readOnly={mode === 'view'}
                   showManualOffer={true}

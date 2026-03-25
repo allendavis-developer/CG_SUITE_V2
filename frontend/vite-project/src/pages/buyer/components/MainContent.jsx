@@ -333,19 +333,8 @@ const MainContent = ({ mode = 'buyer' }) => {
     if (isEbayCategory) {
       const apiFilterValues = Object.values(data.selectedFilters?.apiFilters || {}).flat();
       const basicFilterValues = data.selectedFilters?.basic || [];
-      const advancedParts = [];
-      const priceRange = data.selectedFilters?.advanced?.priceRange;
-      if (priceRange?.min != null && priceRange?.max != null) {
-        advancedParts.push(`Price £${Number(priceRange.min).toFixed(2)} - £${Number(priceRange.max).toFixed(2)}`);
-      }
-      const soldDateRange = data.selectedFilters?.advanced?.soldDateRange;
-      if (soldDateRange?.fromLabel && soldDateRange?.toLabel) {
-        advancedParts.push(`Sold ${soldDateRange.fromLabel} - ${soldDateRange.toLabel}`);
-      }
-      const filterSubtitleParts = [...basicFilterValues, ...apiFilterValues, ...advancedParts].filter(Boolean);
-      const filterSubtitle = filterSubtitleParts.length > 0
-        ? filterSubtitleParts.join(' / ')
-        : (data.searchTerm || 'No filters applied');
+      const allFilters = [...basicFilterValues, ...apiFilterValues].filter(Boolean);
+      const filterSubtitle = allFilters.length > 0 ? allFilters.join(' / ') : (data.searchTerm || 'No filters applied');
       const cashOffers = (data.buyOffers || []).map((o, idx) => ({ id: `ebay-cash-${idx}`, title: ['1st Offer', '2nd Offer', '3rd Offer'][idx] || 'Offer', price: roundOfferPrice(o.price) }));
       const voucherOffers = cashOffers.map((o) => ({ id: `ebay-voucher-${o.id}`, title: o.title, price: toVoucherOfferPrice(o.price) }));
       const displayOffers = useVoucherOffers ? voucherOffers : cashOffers;
@@ -411,15 +400,8 @@ const MainContent = ({ mode = 'buyer' }) => {
     if (isCCCategory) {
       const apiFilterValues = Object.values(data.selectedFilters?.apiFilters || {}).flat();
       const basicFilterValues = data.selectedFilters?.basic || [];
-      const advancedParts = [];
-      const priceRange = data.selectedFilters?.advanced?.priceRange;
-      if (priceRange?.min != null && priceRange?.max != null) {
-        advancedParts.push(`Price £${Number(priceRange.min).toFixed(2)} - £${Number(priceRange.max).toFixed(2)}`);
-      }
-      const filterSubtitleParts = [...basicFilterValues, ...apiFilterValues, ...advancedParts].filter(Boolean);
-      const filterSubtitle = filterSubtitleParts.length > 0
-        ? filterSubtitleParts.join(' / ')
-        : (data.searchTerm || 'No filters applied');
+      const allFilters = [...basicFilterValues, ...apiFilterValues].filter(Boolean);
+      const filterSubtitle = allFilters.length > 0 ? allFilters.join(' / ') : (data.searchTerm || 'No filters applied');
       const cashOffers = data.buyOffers.map((o, idx) => ({ id: `cc-cash-${Date.now()}-${idx}`, title: ['1st Offer', '2nd Offer', '3rd Offer'][idx] || 'Offer', price: Number(o.price) }));
       const voucherOffers = cashOffers.map((o) => ({ id: `cc-voucher-${o.id}`, title: o.title, price: Number((o.price * 1.10).toFixed(2)) }));
 
@@ -496,20 +478,6 @@ const MainContent = ({ mode = 'buyer' }) => {
       }).catch(() => {});
     }
   }, [selectedCartItem, updateCartItem, updateCartItemOffers, useVoucherOffers]);
-
-  // Persist advanced slider filter changes for already-carted eBay items.
-  const handleEbayAdvancedFiltersChange = useCallback((nextSelectedFilters) => {
-    if (!selectedCartItem?.isCustomEbayItem) return;
-    if (!selectedCartItem?.request_item_id) return;
-    const updatedResearchData = {
-      ...(selectedCartItem.ebayResearchData || {}),
-      selectedFilters: nextSelectedFilters,
-    };
-    updateCartItem(selectedCartItem.id, { ebayResearchData: updatedResearchData });
-    updateRequestItemRawData(selectedCartItem.request_item_id, {
-      raw_data: updatedResearchData,
-    }).catch(() => {});
-  }, [selectedCartItem, updateCartItem]);
 
   // ── Offer editing callbacks ──
   const handleSelectOfferForSelectedItem = useCallback((offerArg) => {
@@ -625,7 +593,6 @@ const MainContent = ({ mode = 'buyer' }) => {
         onSelectOfferForCartItem={handleSelectOfferForSelectedItem}
         onEbayResearchComplete={handleEbayResearchComplete}
         onDeselectCartItem={deselectCartItem}
-        onAdvancedFiltersChange={handleEbayAdvancedFiltersChange}
         onOffersChange={handleEbayOffersChange}
       />
     );

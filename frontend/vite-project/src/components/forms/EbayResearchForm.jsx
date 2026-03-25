@@ -39,7 +39,6 @@ function EbayResearchForm({
   onOffersChange = null,
   containModalInParent = false,
   hideAddAction = false,
-  onAdvancedFiltersChange = null,
 }) {
   const categoryId = category?.id ?? null;
   const ebayOfferMargins = useEbayOfferMargins(categoryId);
@@ -237,7 +236,7 @@ function EbayResearchForm({
     setDrillHistory(prev => prev.slice(0, targetLevel));
   }, []);
 
-  const handleComplete = useCallback((shellSelectedFilters) => {
+  const handleComplete = useCallback(() => {
     onComplete?.({
       listings,
       showHistogram,
@@ -246,13 +245,13 @@ function EbayResearchForm({
       buyOffers,
       searchTerm,
       listingPageUrl,
-      selectedFilters: shellSelectedFilters ?? { basic: [], apiFilters: {} },
+      selectedFilters: { basic: [], apiFilters: {} },
       filterOptions: [],
       manualOffer,
     });
   }, [onComplete, listings, showHistogram, drillHistory, displayedStats, buyOffers, searchTerm, listingPageUrl, manualOffer]);
 
-  const handleCompleteWithSelection = useCallback((selectedOfferIndex, overrideManualOffer, shellSelectedFilters) => {
+  const handleCompleteWithSelection = useCallback((selectedOfferIndex, overrideManualOffer) => {
     const state = {
       listings,
       showHistogram,
@@ -261,7 +260,7 @@ function EbayResearchForm({
       buyOffers,
       searchTerm,
       listingPageUrl,
-      selectedFilters: shellSelectedFilters ?? { basic: [], apiFilters: {} },
+      selectedFilters: { basic: [], apiFilters: {} },
       filterOptions: [],
       manualOffer: overrideManualOffer ?? manualOffer,
     };
@@ -269,7 +268,7 @@ function EbayResearchForm({
     onComplete?.(state);
   }, [onComplete, listings, showHistogram, drillHistory, displayedStats, buyOffers, searchTerm, listingPageUrl, manualOffer, showManualOffer]);
 
-  const handleAddToCartWithOffer = useCallback((offerArg, shellSelectedFilters) => {
+  const handleAddToCartWithOffer = useCallback((offerArg) => {
     let selectedOfferIndex = offerArg;
     let nextManualOffer = manualOffer;
 
@@ -289,7 +288,7 @@ function EbayResearchForm({
       buyOffers,
       searchTerm,
       listingPageUrl,
-      selectedFilters: shellSelectedFilters ?? { basic: [], apiFilters: {} },
+      selectedFilters: { basic: [], apiFilters: {} },
       filterOptions: [],
       manualOffer: nextManualOffer,
       selectedOfferIndex,
@@ -418,7 +417,6 @@ function EbayResearchForm({
       showInlineOfferAction={mode === 'page' ? !onAddNewItem : !onOfferSelect}
       enableRightClickManualOffer={mode === 'page'}
       enableAdvancedSoldDateFilter={true}
-      onAdvancedFiltersChange={onAdvancedFiltersChange}
       mode={mode}
       readOnly={readOnly}
       basicFilterOptions={[]}

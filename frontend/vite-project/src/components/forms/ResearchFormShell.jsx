@@ -517,7 +517,6 @@ export default function ResearchFormShell({
   onResetSearch = null,
   enableRightClickManualOffer = false,
   enableAdvancedSoldDateFilter = false, // only eBay should show the advanced sold-date slider
-  onAdvancedFiltersChange = null,
   addActionLabel = "Add to Cart",
   disableAddAction = false,
   hideOfferCards = false,
@@ -589,21 +588,12 @@ export default function ResearchFormShell({
     const parsed = parseFloat(raw);
     if (Number.isNaN(parsed) || parsed <= 0) { closeManualOfferDialog(); return; }
     if (onAddToCartWithOffer) {
-      onAddToCartWithOffer(
-        { type: 'manual', amount: parsed, baseIndex: manualOfferDialog.baseIndex },
-        shellSelectedFiltersPayload
-      );
+      onAddToCartWithOffer({ type: 'manual', amount: parsed, baseIndex: manualOfferDialog.baseIndex });
     } else if (onCompleteWithSelection) {
-      onCompleteWithSelection('manual', parsed.toFixed(2), shellSelectedFiltersPayload);
+      onCompleteWithSelection('manual', parsed.toFixed(2));
     }
     closeManualOfferDialog();
-  }, [
-    manualOfferDialog,
-    onAddToCartWithOffer,
-    onCompleteWithSelection,
-    closeManualOfferDialog,
-    shellSelectedFiltersPayload,
-  ]);
+  }, [manualOfferDialog, onAddToCartWithOffer, onCompleteWithSelection, closeManualOfferDialog]);
 
   useEffect(() => {
     if (!manualOfferDialog) return;
@@ -758,53 +748,6 @@ export default function ResearchFormShell({
   const sliderPriceMax = draftPriceMax ?? effectivePriceMax;
   const sliderSoldFromIdx = draftSoldDateFromIdx ?? effectiveSoldDateFromIdx;
   const sliderSoldToIdx = draftSoldDateToIdx ?? effectiveSoldDateToIdx;
-
-  // Persist the exact advanced filter values (for request overview / DB storage).
-  const shellSelectedFiltersPayload = useMemo(() => {
-    const advanced = {
-      priceRange: {
-        min: effectivePriceMin,
-        max: effectivePriceMax,
-        isDefault: !priceFilterActive,
-      },
-    };
-
-    if (enableAdvancedSoldDateFilter) {
-      advanced.soldDateRange = {
-        fromMs: effectiveSoldDateFromIdx,
-        toMs: effectiveSoldDateToIdx,
-        fromLabel: formatSoldDateMs(effectiveSoldDateFromIdx),
-        toLabel: formatSoldDateMs(effectiveSoldDateToIdx),
-        isDefault: !soldDateRangeActive,
-      };
-    }
-
-    return {
-      basic: selectedFilters?.basic ?? [],
-      apiFilters: selectedFilters?.apiFilters ?? {},
-      advanced,
-    };
-  }, [
-    selectedFilters,
-    effectivePriceMin,
-    effectivePriceMax,
-    priceFilterActive,
-    enableAdvancedSoldDateFilter,
-    effectiveSoldDateFromIdx,
-    effectiveSoldDateToIdx,
-    soldDateRangeActive,
-  ]);
-
-  const lastAdvancedFiltersPayloadRef = useRef(null);
-  useEffect(() => {
-    if (!onAdvancedFiltersChange) return;
-    const payload = shellSelectedFiltersPayload;
-    const prev = lastAdvancedFiltersPayloadRef.current;
-    // Avoid spamming the DB when the payload is referentially new but value-identical.
-    if (prev && JSON.stringify(prev) === JSON.stringify(payload)) return;
-    lastAdvancedFiltersPayloadRef.current = payload;
-    onAdvancedFiltersChange(payload);
-  }, [onAdvancedFiltersChange, shellSelectedFiltersPayload]);
 
   // Sync drafts when applied values change (e.g. new results, resets).
   useEffect(() => {
@@ -1007,13 +950,13 @@ export default function ResearchFormShell({
     if (showManualOffer && !readOnly) {
       const priceStr = Number(price).toFixed(2);
       if (onCompleteWithSelection) {
-        onCompleteWithSelection(index, priceStr, shellSelectedFiltersPayload);
+        onCompleteWithSelection(index, priceStr);
       } else {
         onManualOfferChange?.(priceStr);
         setSelectedOfferIndex(index);
       }
     }
-  }, [showManualOffer, readOnly, onCompleteWithSelection, onManualOfferChange, shellSelectedFiltersPayload]);
+  }, [showManualOffer, readOnly, onCompleteWithSelection, onManualOfferChange]);
 
   const handleManualOfferCardClick = useCallback(() => {
     if (!showManualOffer || readOnly) return;
@@ -1024,14 +967,14 @@ export default function ResearchFormShell({
       const parsed = parseFloat(cleanManual);
       if (Number.isFinite(parsed) && parsed > 0) {
         onManualOfferChange?.(manualOffer);
-        if (onCompleteWithSelection) onCompleteWithSelection('manual', undefined, shellSelectedFiltersPayload);
-        else onComplete?.(shellSelectedFiltersPayload);
+        if (onCompleteWithSelection) onCompleteWithSelection('manual');
+        else onComplete?.();
       }
       return;
     }
 
     setSelectedOfferIndex('manual');
-  }, [showManualOffer, readOnly, selectedOfferIndex, manualOffer, onManualOfferChange, onCompleteWithSelection, onComplete, shellSelectedFiltersPayload]);
+  }, [showManualOffer, readOnly, selectedOfferIndex, manualOffer, onManualOfferChange, onCompleteWithSelection, onComplete]);
 
   const handleModalCancel = useCallback(() => {
     if (readOnly) return;
@@ -1047,11 +990,11 @@ export default function ResearchFormShell({
       onManualOfferChange?.(manualOffer);
     }
     if (onCompleteWithSelection) {
-      onCompleteWithSelection(selectedOfferIndex, undefined, shellSelectedFiltersPayload);
+      onCompleteWithSelection(selectedOfferIndex);
     } else {
-      onComplete?.(shellSelectedFiltersPayload);
+      onComplete?.();
     }
-  }, [readOnly, showManualOffer, selectedOfferIndex, manualOffer, onManualOfferChange, onComplete, onCompleteWithSelection, shellSelectedFiltersPayload]);
+  }, [readOnly, showManualOffer, selectedOfferIndex, manualOffer, onManualOfferChange, onComplete, onCompleteWithSelection]);
 
   const manualOfferPctOfSale = useMemo(() => {
     if (!activeStats?.suggestedPrice || !manualOffer) return null;
@@ -1211,7 +1154,7 @@ export default function ResearchFormShell({
                       }`}
                       onClick={
                         useAddWithOfferFlow
-                          ? () => onAddToCartWithOffer(idx, shellSelectedFiltersPayload)
+                          ? () => onAddToCartWithOffer(idx)
                           : (showManualOffer && !readOnly ? () => handleOfferClick(price, idx) : undefined)
                       }
                       title={useAddWithOfferFlow ? 'Add item with this offer' : 'Select this offer'}
@@ -1231,7 +1174,7 @@ export default function ResearchFormShell({
               {buyOffers.length > 0 && <div className="w-px h-8 bg-gray-200" />}
               <button
                 type="button"
-                onClick={() => onAddToCartWithOffer(null, shellSelectedFiltersPayload)}
+                onClick={() => onAddToCartWithOffer(null)}
                 className={`flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-extrabold uppercase tracking-wide text-blue-900 transition-all ${
                   disableAddAction
                     ? 'bg-gray-300 text-gray-600 cursor-not-allowed shadow-none ring-0'
@@ -1291,7 +1234,7 @@ export default function ResearchFormShell({
         </div>
       </React.Fragment>
     );
-  }, [buyOffers, showManualOffer, selectedOfferIndex, manualOffer, manualOfferPctOfSale, onManualOfferChange, readOnly, handleOfferClick, handleManualOfferCardClick, handleManualOfferChange, onAddToCartWithOffer, shellSelectedFiltersPayload, formatStat, enableRightClickManualOffer, openManualOfferDialog, hideOfferCards, addActionLabel, disableAddAction, useVoucherOffers, activeStats?.suggestedPrice, showInlineOfferAction, prominentAddClass, hidePrimaryAddAction]);
+  }, [buyOffers, showManualOffer, selectedOfferIndex, manualOffer, manualOfferPctOfSale, onManualOfferChange, readOnly, handleOfferClick, handleManualOfferCardClick, handleManualOfferChange, onAddToCartWithOffer, formatStat, enableRightClickManualOffer, openManualOfferDialog, hideOfferCards, addActionLabel, disableAddAction, useVoucherOffers, activeStats?.suggestedPrice, showInlineOfferAction, prominentAddClass, hidePrimaryAddAction]);
 
   // ─── Action buttons (shared between banners) ──────────────────────────────
   const actionButtonsEl = !readOnly && (
@@ -1317,7 +1260,7 @@ export default function ResearchFormShell({
         <Button
           variant="primary" size="lg"
           className={prominentAddClass}
-          onClick={() => onAddToCartWithOffer(null, shellSelectedFiltersPayload)}
+          onClick={() => onAddToCartWithOffer(null)}
           disabled={disableAddAction}
         >
           <Icon name={addActionLabel === 'Add to Reprice List' ? 'sell' : 'add_shopping_cart'} className="text-[22px]" />
