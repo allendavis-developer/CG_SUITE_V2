@@ -16,6 +16,7 @@ import { getDataFromListingPage } from '@/services/extensionClient';
 import { mapTransactionTypeToIntent } from '@/utils/transactionConstants';
 import { normalizeExplicitSalePrice, roundSalePrice, toVoucherOfferPrice, formatOfferPrice } from '@/utils/helpers';
 import { mapRequestItemsToCartItems, mapRequestToCustomerData } from '@/utils/requestToCartMapping';
+import { withDefaultRrpOffersSource } from '@/pages/buyer/utils/negotiationHelpers';
 import { validateBuyerCartItemOffers } from '@/utils/cartOfferValidation';
 
 const DEFAULT_CUSTOMER = {
@@ -845,7 +846,7 @@ const useAppStore = create(
             referenceData: null,
             request_item_id: null,
           };
-          addToCart(cartItem);
+          addToCart(withDefaultRrpOffersSource(cartItem));
           count++;
         }
         showNotification?.(`${count} item${count !== 1 ? 's' : ''} added to reprice list`, 'success');

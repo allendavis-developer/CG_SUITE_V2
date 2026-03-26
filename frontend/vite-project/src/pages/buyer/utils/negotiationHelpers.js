@@ -79,6 +79,25 @@ export function isCeXBackedNegotiationItem(item) {
   return false;
 }
 
+/**
+ * Default RRP/offers source highlight when unset: CeX-backed rows → Sell column;
+ * eBay-primary rows → eBay column (custom eBay lines or eBay research without CeX context).
+ */
+export function withDefaultRrpOffersSource(item) {
+  if (!item) return item;
+  if (item.rrpOffersSource != null && item.rrpOffersSource !== '') return item;
+  if (isCeXBackedNegotiationItem(item)) {
+    return { ...item, rrpOffersSource: NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL };
+  }
+  if (
+    item.isCustomEbayItem === true ||
+    (item.ebayResearchData && !item.isCustomCashConvertersItem)
+  ) {
+    return { ...item, rrpOffersSource: NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY };
+  }
+  return item;
+}
+
 /** Suggested retail from saved research stats (matches ResearchFormShell / median−£1 rule when needed). */
 export function resolveSuggestedRetailFromResearchStats(stats) {
   if (!stats) return null;
@@ -136,7 +155,27 @@ function resolveCexRrpFromItemLayers(item, ref, raw, rawRef) {
 
 function nextItemWithExplicitRrpAndOffers(item, { rrp, cashOffers, voucherOffers, useVoucherOffers, rrpOffersSource }) {
   const displayOffers = useVoucherOffers ? voucherOffers : cashOffers;
-  const selectedOfferId = displayOffers[0]?.id ?? null;
+
+  let selectedOfferId;
+  let manualOffer;
+  if (item.selectedOfferId === 'manual') {
+    selectedOfferId = 'manual';
+    manualOffer = item.manualOffer ?? '';
+  } else if (item.selectedOfferId != null && item.selectedOfferId !== '') {
+    const prevDisplay = getDisplayOffers(item, useVoucherOffers);
+    const prevIdx = prevDisplay.findIndex((o) => o.id === item.selectedOfferId);
+    if (prevIdx >= 0 && displayOffers.length) {
+      const idx = Math.min(prevIdx, displayOffers.length - 1);
+      selectedOfferId = displayOffers[idx].id;
+    } else {
+      selectedOfferId = null;
+    }
+    manualOffer = '';
+  } else {
+    selectedOfferId = null;
+    manualOffer = '';
+  }
+
   const next = { ...item };
   delete next.ourSalePriceInput;
   return {
@@ -147,7 +186,7 @@ function nextItemWithExplicitRrpAndOffers(item, { rrp, cashOffers, voucherOffers
     voucherOffers,
     offers: displayOffers,
     selectedOfferId,
-    manualOffer: '',
+    manualOffer,
     rrpOffersSource: rrpOffersSource ?? null,
   };
 }
@@ -558,7 +597,7 @@ export function normalizeCartItemForNegotiation(item) {
     // Internal DB / header builder: variant line is often only in subtitle; copy for research queries.
     next = { ...item, variantName: String(item.subtitle).trim() };
   }
-  return { ...next, selectedOfferId: resolvedSelectedOfferId };
+  return withDefaultRrpOffersSource({ ...next, selectedOfferId: resolvedSelectedOfferId });
 }
 
 // ─── Research completion → offer recalculation ─────────────────────────────
@@ -714,8 +753,13 @@ export function applyCeXProductDataToItem(item, cexProductData, useVoucherOffers
   const prevSelectedIndex = prevDisplayOffers.findIndex((o) => o.id === item.selectedOfferId);
 
   let nextSelectedOfferId = item.selectedOfferId;
-  if (item.selectedOfferId !== 'manual') {
-    nextSelectedOfferId = displayOffers[prevSelectedIndex]?.id ?? displayOffers[0]?.id ?? null;
+  if (item.selectedOfferId === 'manual') {
+    nextSelectedOfferId = 'manual';
+  } else if (prevSelectedIndex >= 0 && displayOffers.length) {
+    const idx = Math.min(prevSelectedIndex, displayOffers.length - 1);
+    nextSelectedOfferId = displayOffers[idx]?.id ?? null;
+  } else {
+    nextSelectedOfferId = null;
   }
   const mergedReferenceData = {
     ...(item.referenceData || {}),
@@ -724,6 +768,14 @@ export function applyCeXProductDataToItem(item, cexProductData, useVoucherOffers
     voucher_offers: voucherOffers,
     ...(cexProductData.id != null ? { cex_sku: cexProductData.id, id: cexProductData.id } : {}),
   };
+  const cexBasedRaw = mergedReferenceData.cex_based_sale_price;
+  const cexBasedRounded =
+    cexBasedRaw != null && Number.isFinite(Number(cexBasedRaw))
+      ? roundSalePrice(Number(cexBasedRaw))
+      : null;
+  if (cexBasedRounded != null) {
+    mergedReferenceData.our_sale_price = cexBasedRounded;
+  }
   const mergedRawData = {
     ...(item.rawData || {}),
     ...cexProductData,
@@ -739,6 +791,7 @@ export function applyCeXProductDataToItem(item, cexProductData, useVoucherOffers
     voucherOffers,
     offers: displayOffers,
     selectedOfferId: nextSelectedOfferId,
+    ...(cexBasedRounded != null ? { ourSalePrice: String(cexBasedRounded) } : {}),
     cexSellPrice: refData.cex_sale_price != null ? Number(refData.cex_sale_price) : item.cexSellPrice,
     cexBuyPrice: refData.cex_tradein_cash != null ? Number(refData.cex_tradein_cash) : item.cexBuyPrice,
     cexVoucherPrice: refData.cex_tradein_voucher != null ? Number(refData.cex_tradein_voucher) : item.cexVoucherPrice,
@@ -748,5 +801,6 @@ export function applyCeXProductDataToItem(item, cexProductData, useVoucherOffers
     cexProductData: cexProductData,
     referenceData: mergedReferenceData,
     rawData: mergedRawData,
+    rrpOffersSource: NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL,
   };
 }

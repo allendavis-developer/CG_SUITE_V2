@@ -12,7 +12,7 @@ import { getCartKey, loadRepricingProgress, saveRepricingProgress, clearRepricin
 import { getEditableSalePriceState, resolveRepricingSalePrice } from "./utils/repricingDisplay";
 import useAppStore from '@/store/useAppStore';
 import { normalizeExplicitSalePrice, formatOfferPrice, roundSalePrice } from '@/utils/helpers';
-import { applyCeXProductDataToItem, buildInitialSearchQuery } from './utils/negotiationHelpers';
+import { applyCeXProductDataToItem, buildInitialSearchQuery, withDefaultRrpOffersSource } from './utils/negotiationHelpers';
 import { EBAY_TOP_LEVEL_CATEGORY } from './constants';
 import { SPREADSHEET_CEX_TH_STYLES, RRP_SOURCE_CELL_STYLES } from './spreadsheetTableStyles';
 import { useResearchOverlay } from './hooks/useResearchOverlay';
@@ -581,7 +581,7 @@ const RepricingNegotiation = () => {
         });
       }
     });
-    setItems(prev => [...prev, ...newItems]);
+    setItems((prev) => [...prev, ...newItems.map(withDefaultRrpOffersSource)]);
     if (Object.keys(newBarcodes).length > 0) {
       setBarcodes(prev => ({ ...prev, ...newBarcodes }));
       setNosposLookups(prev => ({ ...prev, ...newLookups }));

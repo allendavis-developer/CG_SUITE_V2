@@ -4,6 +4,29 @@
  */
 
 import { normalizeExplicitSalePrice, roundOfferPrice, roundSalePrice, toVoucherOfferPrice, formatOfferPrice } from '@/utils/helpers';
+import { NEGOTIATION_ROW_CONTEXT } from '@/pages/buyer/rowContextZones';
+
+/** DB → cart: default source highlight when `raw_data` has no `rrpOffersSource` (see `withDefaultRrpOffersSource`). */
+function applyDefaultRrpSourceToMappedCartItem(cartItem) {
+  if (cartItem.rrpOffersSource != null && cartItem.rrpOffersSource !== '') return cartItem;
+  const cexBacked =
+    cartItem.isCustomCeXItem === true ||
+    (cartItem.variantId != null && cartItem.variantId !== '') ||
+    (cartItem.cexSku != null && cartItem.cexSku !== '') ||
+    (cartItem.cexBuyPrice != null && cartItem.cexBuyPrice !== '') ||
+    (cartItem.cexVoucherPrice != null && cartItem.cexVoucherPrice !== '') ||
+    (cartItem.cexSellPrice != null && cartItem.cexSellPrice !== '');
+  if (cexBacked) {
+    return { ...cartItem, rrpOffersSource: NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL };
+  }
+  if (
+    cartItem.isCustomEbayItem === true ||
+    (cartItem.ebayResearchData && !cartItem.isCustomCashConvertersItem)
+  ) {
+    return { ...cartItem, rrpOffersSource: NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY };
+  }
+  return cartItem;
+}
 
 /**
  * Map request items from API to cart item format for Buyer/MainContent
@@ -363,7 +386,7 @@ export function mapRequestItemsToCartItems(items, transactionType) {
       }
     }
 
-    return cartItem;
+    return applyDefaultRrpSourceToMappedCartItem(cartItem);
   });
 }
 
