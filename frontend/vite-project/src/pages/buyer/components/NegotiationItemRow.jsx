@@ -291,8 +291,9 @@ export default function NegotiationItemRow({
             <button
               className="flex items-center justify-center size-7 rounded transition-colors shrink-0"
               style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
-              onClick={() => onReopenResearch(item)}
-              title={isViewMode ? 'View eBay Research (Read-only)' : 'View/Refine Research'}
+              onClick={isViewMode ? undefined : () => onReopenResearch(item)}
+              title={isViewMode ? 'View-only: research locked' : 'View/Refine Research'}
+              disabled={isViewMode}
             >
               <span className="material-symbols-outlined text-[16px]">edit_note</span>
             </button>
@@ -301,11 +302,11 @@ export default function NegotiationItemRow({
           <div className="flex items-center justify-between gap-2">
             <span className="text-[13px] font-medium" style={{ color: 'var(--text-muted)' }}>—</span>
             <button
-              className={`flex items-center justify-center size-7 rounded transition-colors shrink-0 ${!ebayData && isViewMode ? 'opacity-50 cursor-not-allowed' : ''}`}
+              className={`flex items-center justify-center size-7 rounded transition-colors shrink-0 ${isViewMode ? 'opacity-50 cursor-not-allowed' : ''}`}
               style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
-              onClick={(!ebayData && isViewMode) ? undefined : () => onReopenResearch(item)}
-              title={(!ebayData && isViewMode) ? 'No research available' : (!ebayData ? 'Research' : 'View eBay Research (Read-only)')}
-              disabled={!ebayData && isViewMode}
+              onClick={isViewMode ? undefined : () => onReopenResearch(item)}
+              title={isViewMode ? 'View-only: research locked' : (!ebayData ? 'Research' : 'View/Refine Research')}
+              disabled={isViewMode}
             >
               <span className="material-symbols-outlined text-[16px]">search_insights</span>
             </button>
@@ -326,8 +327,9 @@ export default function NegotiationItemRow({
             <button
               className="flex items-center justify-center size-7 rounded transition-colors shrink-0"
               style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
-              onClick={() => onReopenCashConvertersResearch(item)}
-              title={isViewMode ? 'View Cash Converters Research (Read-only)' : 'View/Refine Research'}
+              onClick={isViewMode ? undefined : () => onReopenCashConvertersResearch(item)}
+              title={isViewMode ? 'View-only: research locked' : 'View/Refine Research'}
+              disabled={isViewMode}
             >
               <span className="material-symbols-outlined text-[16px]">store</span>
             </button>
@@ -336,11 +338,11 @@ export default function NegotiationItemRow({
           <div className="flex items-center justify-between gap-2">
             <span className="text-[13px] font-medium" style={{ color: 'var(--text-muted)' }}>—</span>
             <button
-              className={`flex items-center justify-center size-7 rounded transition-colors shrink-0 ${!cashConvertersData && isViewMode ? 'opacity-50 cursor-not-allowed' : ''}`}
+              className={`flex items-center justify-center size-7 rounded transition-colors shrink-0 ${isViewMode ? 'opacity-50 cursor-not-allowed' : ''}`}
               style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
-              onClick={(!cashConvertersData && isViewMode) ? undefined : () => onReopenCashConvertersResearch(item)}
-              title={(!cashConvertersData && isViewMode) ? 'No research available' : (!cashConvertersData ? 'Research' : 'View Cash Converters Research (Read-only)')}
-              disabled={!cashConvertersData && isViewMode}
+              onClick={isViewMode ? undefined : () => onReopenCashConvertersResearch(item)}
+              title={isViewMode ? 'View-only: research locked' : (!cashConvertersData ? 'Research' : 'View/Refine Research')}
+              disabled={isViewMode}
             >
               <span className="material-symbols-outlined text-[16px]">store</span>
             </button>

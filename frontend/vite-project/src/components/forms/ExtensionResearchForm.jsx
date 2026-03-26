@@ -101,7 +101,11 @@ function ExtensionResearchForm({
     if (categoryId) useAppStore.getState().loadEbayOfferMargins(categoryId);
   }, [categoryId]);
 
-  const [step, setStep] = useState(savedState?.listings?.length ? 'cards' : 'get-data');
+  const savedHasAnyResearch =
+    Boolean(savedState?.listings?.length) ||
+    Boolean(savedState?.buyOffers?.length) ||
+    Boolean(savedState?.stats && typeof savedState.stats === 'object');
+  const [step, setStep] = useState(savedHasAnyResearch ? 'cards' : 'get-data');
   const [listings, setListings] = useState(() =>
     prepareExtensionListingsForShell(source, savedState?.listings ?? [], config.idPrefix)
   );
@@ -281,9 +285,9 @@ function ExtensionResearchForm({
   );
 
   const otherResearchSummaries = useMemo(() => {
-    if (!showManualOffer || !lineItemContext) return null;
+    if (!lineItemContext) return null;
     return buildOtherResearchChannelsSummaries(lineItemContext, source, { ebayOfferMargins, useVoucherOffers });
-  }, [lineItemContext, showManualOffer, source, ebayOfferMargins, useVoucherOffers]);
+  }, [lineItemContext, source, ebayOfferMargins, useVoucherOffers]);
 
   // eBay-only: debounced onOffersChange when exclusions or offers change
   const onOffersChangeRef = useRef(onOffersChange);

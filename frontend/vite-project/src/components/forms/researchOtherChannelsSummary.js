@@ -2,7 +2,7 @@
  * Build read-only numeric summaries for research channels other than the one open.
  * Used by the negotiation research overlay "Others" action.
  * Only includes data that was actually saved for that channel (no synthetic offers from
- * category margins or computed CeX tiers from referenceData alone).
+ * category margins or computed CeX tiers).
  *
  * CeX offers use category pricing rules (% of CeX cash/voucher reference or margin-matched); see `cexOfferComputation.js`.
  * eBay / Cash Converters offers are % of suggested sale; see `calculateBuyOffers`.
@@ -10,7 +10,7 @@
 
 import { toVoucherOfferPrice } from '@/utils/helpers';
 import { calculateBuyOffers } from './researchStats';
-import { buildComputedCexOfferRows, resolveCexPricingInputs, zipPersistedCexOfferRows } from './cexOfferComputation';
+import { resolveCexPricingInputs, zipPersistedCexOfferRows } from './cexOfferComputation';
 
 /**
  * eBay / Cash Converters research maps buy-offer tiers onto `item.cashOffers` & `item.voucherOffers`
@@ -154,7 +154,7 @@ function cexStatRows(item, useVoucherOffers) {
 }
 
 /** @returns {SummaryRow[]} */
-function resolveCexOfferSectionRows(item, { allowComputedTiers = true } = {}) {
+function resolveCexOfferSectionRows(item) {
   const { tradeinCash, tradeinVoucher } = resolveCexPricingInputs(item);
   const tradeInRefs = { tradeinCash, tradeinVoucher };
   const zipped = itemTopLevelOffersAreEbayOrCashConvertersTiers(item)
@@ -162,13 +162,29 @@ function resolveCexOfferSectionRows(item, { allowComputedTiers = true } = {}) {
     : zipPersistedCexOfferRows(item.cashOffers, item.voucherOffers, tradeInRefs);
   if (zipped.length > 0) return zipped;
 
-  const pd = item.cexProductData;
-  if (pd && Array.isArray(pd.cash_offers) && Array.isArray(pd.voucher_offers)) {
-    const z = zipPersistedCexOfferRows(pd.cash_offers, pd.voucher_offers, tradeInRefs);
+  const raw = item.rawData;
+  if (raw && (Array.isArray(raw.cash_offers) || Array.isArray(raw.voucher_offers))) {
+    const z = zipPersistedCexOfferRows(raw.cash_offers, raw.voucher_offers, tradeInRefs);
     if (z.length > 0) return z;
   }
 
-  return allowComputedTiers ? buildComputedCexOfferRows(item) : [];
+  const pd = item.cexProductData;
+  if (pd && (Array.isArray(pd.cash_offers) || Array.isArray(pd.voucher_offers))) {
+    const z = zipPersistedCexOfferRows(pd.cash_offers, pd.voucher_offers, tradeInRefs);
+    if (z.length > 0) return z;
+  }
+  const ref = pd?.referenceData || pd?.reference_data;
+  if (ref && (Array.isArray(ref.cash_offers) || Array.isArray(ref.voucher_offers))) {
+    const z = zipPersistedCexOfferRows(ref.cash_offers, ref.voucher_offers, tradeInRefs);
+    if (z.length > 0) return z;
+  }
+
+  const topRef = item.referenceData;
+  if (topRef && (Array.isArray(topRef.cash_offers) || Array.isArray(topRef.voucher_offers))) {
+    return zipPersistedCexOfferRows(topRef.cash_offers, topRef.voucher_offers, tradeInRefs);
+  }
+
+  return [];
 }
 
 /**
@@ -196,13 +212,6 @@ function narrowCexDualOfferRowsForSelection(rows, useVoucherOffers) {
     } else if (pctStr != null) {
       value = `${pctStr}% of ${cexRefLabel}`;
     }
-    if (
-      r.marginVsOurSale != null &&
-      Number.isFinite(r.marginVsOurSale) &&
-      value
-    ) {
-      value += ` · ${r.marginVsOurSale}% vs our sale`;
-    }
     if (!value) continue;
     out.push({ kind: 'keyValue', metric: r.metric, value });
   }
@@ -210,10 +219,10 @@ function narrowCexDualOfferRowsForSelection(rows, useVoucherOffers) {
 }
 
 /** @returns {SummaryRow[]} */
-function tableRowsFromCeX(item, useVoucherOffers, { allowComputedTiers = true } = {}) {
+function tableRowsFromCeX(item, useVoucherOffers) {
   const stats = cexStatRows(item, useVoucherOffers);
   const offers = narrowCexDualOfferRowsForSelection(
-    resolveCexOfferSectionRows(item, { allowComputedTiers }),
+    resolveCexOfferSectionRows(item),
     useVoucherOffers
   );
   return [...stats, ...offers];
@@ -230,7 +239,7 @@ export function buildOtherResearchChannelsSummaries(item, activeResearchSource, 
   const { ebayOfferMargins = null, useVoucherOffers = false } = options;
   const blocks = [];
 
-  const cexRows = tableRowsFromCeX(item, useVoucherOffers, { allowComputedTiers: false });
+  const cexRows = tableRowsFromCeX(item, useVoucherOffers);
   if (cexRows.length) blocks.push({ title: 'CeX', rows: cexRows });
 
   if (activeResearchSource === 'eBay') {
@@ -258,7 +267,7 @@ export function buildOtherResearchChannelsSummaries(item, activeResearchSource, 
 /**
  * @typedef {(
  *   | { kind: 'keyValue', metric: string, value: string, valueVariant?: 'boolean' }
- *   | { kind: 'cexDual', metric: string, cash: string|null, voucher: string|null, basis: string, marginVsOurSale?: number|null, pctCash?: number|null, pctVoucher?: number|null }
+ *   | { kind: 'cexDual', metric: string, cash: string|null, voucher: string|null, basis: string, pctCash?: number|null, pctVoucher?: number|null }
  * )} SummaryRow
  */
 

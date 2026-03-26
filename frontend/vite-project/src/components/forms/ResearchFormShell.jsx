@@ -904,26 +904,55 @@ export default function ResearchFormShell({
     othersModalSig && othersSummarySig && othersModalSig === othersSummarySig && otherResearchSummaries
   );
 
+  // When opening "Others", we may temporarily force 1-column layout so the popup doesn't overlap the grid.
+  // Only restore 2-column layout if we were the reason it changed.
+  const othersForcedOneColRef = useRef(false);
+
+  const handleToggleOthersPanel = useCallback(() => {
+    if (othersPanelOpen) {
+      setOthersModalSig('');
+      if (othersForcedOneColRef.current) {
+        setTwoColumnLayout(true);
+        othersForcedOneColRef.current = false;
+      }
+      return;
+    }
+
+    // Opening
+    setOthersModalSig(othersSummarySig);
+    if (twoColumnLayout) {
+      setTwoColumnLayout(false);
+      othersForcedOneColRef.current = true;
+    } else {
+      // Already in 1-col; do nothing and don't auto-restore later.
+      othersForcedOneColRef.current = false;
+    }
+  }, [othersPanelOpen, othersSummarySig, twoColumnLayout]);
+
+  const canShowOthers = Boolean(othersSummarySig && otherResearchSummaries);
+
   const othersButtonBlock =
-    (showManualOffer || hidePrimaryAddAction) &&
-    othersSummarySig && (
+    canShowOthers && (
       <div className="relative shrink-0">
         <Button
           variant="secondary"
           size="md"
           className="shrink-0 justify-center text-xs font-bold uppercase tracking-wide shadow-md whitespace-nowrap px-4"
-          onClick={() => setOthersModalSig(othersPanelOpen ? '' : othersSummarySig)}
+          onClick={handleToggleOthersPanel}
         >
           {othersPanelOpen ? 'Close others' : 'Others'}
         </Button>
-        {othersPanelOpen && (
-          <ResearchOthersModal
-            summaries={otherResearchSummaries}
-            className="right-0 top-full mt-1.5"
-          />
-        )}
       </div>
     );
+
+  // Anchor the popup to the listing-card right edge (the boundary before the w-80 histogram column),
+  // while keeping the button next to OK in the action area.
+  const othersPopoverEl = othersPanelOpen && (
+    <ResearchOthersModal
+      summaries={otherResearchSummaries}
+      className="right-full top-full mt-1.5 -translate-x-72"
+    />
+  );
 
   const actionButtonsEl = (
     <div className="flex items-center gap-1.5 flex-1 min-w-0 justify-end">
@@ -1040,7 +1069,8 @@ export default function ResearchFormShell({
     [excludedCount, filteredOutByAdvancedCount]
   );
 
-  const totalRecordsCount = displayedListings?.length ?? 0;
+  // "Total" should always represent the full result set size (not the drilled slice).
+  const totalRecordsCount = listings?.length ?? displayedListings?.length ?? 0;
 
   const banner2El = listings && (
     <div className="bg-gray-50 border-b border-gray-200 px-4 py-2 flex items-center gap-2 flex-wrap shrink-0">
@@ -1133,11 +1163,7 @@ export default function ResearchFormShell({
       <button
         type="button"
         onClick={() => setTwoColumnLayout(prev => !prev)}
-        className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition-colors ${
-          twoColumnLayout
-            ? 'bg-brand-blue text-white border-brand-blue'
-            : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
-        }`}
+        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition-colors bg-white text-gray-600 border-gray-300 hover:bg-gray-50"
         title={twoColumnLayout ? 'Switch to single column' : 'Switch to two columns'}
       >
         <span className="material-symbols-outlined text-[14px]">{twoColumnLayout ? 'view_agenda' : 'grid_view'}</span>
@@ -1208,18 +1234,6 @@ export default function ResearchFormShell({
           <span className="font-extrabold text-gray-800 tabular-nums">{totalRecordsCount}</span>
           {' '}Total
         </span>
-        {drillHistory.length > 0 &&
-          listings &&
-          displayedListings &&
-          listings.length !== displayedListings.length && (
-            <>
-              <div className="w-px h-4 bg-gray-300" />
-              <span className="text-xs text-gray-500 shrink-0">
-                Full result{' '}
-                <span className="font-semibold tabular-nums text-gray-700">{listings.length}</span>
-              </span>
-            </>
-          )}
       </div>
     </div>
   );
@@ -1250,8 +1264,9 @@ export default function ResearchFormShell({
           </div>
 
           {/* Right section: actions — w-80 matches histogram width */}
-          <div className="w-80 shrink-0 flex items-center gap-2 justify-end px-4 py-2.5">
+          <div className="w-80 shrink-0 flex items-center gap-2 justify-end px-4 py-2.5 relative">
             {listings && actionButtonsEl}
+            {listings && othersPopoverEl}
           </div>
         </header>
       )}
@@ -1262,8 +1277,9 @@ export default function ResearchFormShell({
           <div className="flex-1 min-w-0 flex items-center gap-3 pl-4 pr-6 py-2.5 flex-wrap">
             {banner1MainContent}
           </div>
-          <div className="w-80 shrink-0 flex items-center gap-2 justify-end px-4 py-2.5">
+          <div className="w-80 shrink-0 flex items-center gap-2 justify-end px-4 py-2.5 relative">
             {actionButtonsEl}
+            {othersPopoverEl}
           </div>
         </div>
       )}

@@ -18,10 +18,33 @@ export function mapRequestItemsToCartItems(items, transactionType) {
   return items.map((item) => {
     const rawData = item.raw_data || null;
     const embeddedEbayResearchData = rawData?.ebayResearchData || null;
-    const ebayResearchData =
+    const rawDataHasExtensionResearchSignals = !!(
+      rawData &&
+      (
+        rawData.listings?.length > 0 ||
+        rawData.buyOffers?.length > 0 ||
+        (rawData.stats && typeof rawData.stats === 'object')
+      )
+    );
+    /**
+     * Prefer nested eBay blob; else top-level when it has filters; else flat raw_data when API omitted
+     * `selectedFilters` but listings/stats still exist (saved quotes).
+     */
+    let ebayResearchBlob =
       rawData?.stats && rawData?.selectedFilters
         ? rawData
         : embeddedEbayResearchData;
+    if (!ebayResearchBlob && rawDataHasExtensionResearchSignals && !embeddedEbayResearchData) {
+      ebayResearchBlob = rawData;
+    }
+    const hasPersistedExtensionEbayResearch = !!(
+      ebayResearchBlob &&
+      (
+        ebayResearchBlob.listings?.length > 0 ||
+        ebayResearchBlob.buyOffers?.length > 0 ||
+        (ebayResearchBlob.stats && typeof ebayResearchBlob.stats === 'object')
+      )
+    );
     const cashConvertersResearchData = item.cash_converters_data || rawData?.cashConvertersResearchData || null;
 
     let savedCashOffers = item.cash_offers_json || [];
@@ -65,11 +88,15 @@ export function mapRequestItemsToCartItems(items, transactionType) {
     }
 
     const isEbayResearchPayload = !!(
-      ebayResearchData?.stats && ebayResearchData?.selectedFilters
+      ebayResearchBlob?.stats && ebayResearchBlob?.selectedFilters
     );
 
-    if (isEbayResearchPayload && savedCashOffers.length === 0 && Array.isArray(ebayResearchData?.buyOffers)) {
-      savedCashOffers = ebayResearchData.buyOffers.map((offer, idx) => ({
+    if (
+      (isEbayResearchPayload || hasPersistedExtensionEbayResearch) &&
+      savedCashOffers.length === 0 &&
+      Array.isArray(ebayResearchBlob?.buyOffers)
+    ) {
+      savedCashOffers = ebayResearchBlob.buyOffers.map((offer, idx) => ({
         id: `ebay-cash-${idx}`,
         title: ["1st Offer", "2nd Offer", "3rd Offer"][idx] || "Offer",
         price: roundOfferPrice(offer.price),
@@ -77,7 +104,7 @@ export function mapRequestItemsToCartItems(items, transactionType) {
     }
 
     if (
-      isEbayResearchPayload &&
+      (isEbayResearchPayload || hasPersistedExtensionEbayResearch) &&
       savedCashOffers.length > 0 &&
       savedVoucherOffers.length === 0
     ) {
@@ -90,8 +117,8 @@ export function mapRequestItemsToCartItems(items, transactionType) {
 
     const displayOffers = useVoucher ? savedVoucherOffers : savedCashOffers;
 
-    const savedDisplayTitle = ebayResearchData?.display_title;
-    const savedDisplaySubtitle = ebayResearchData?.display_subtitle;
+    const savedDisplayTitle = ebayResearchBlob?.display_title;
+    const savedDisplaySubtitle = ebayResearchBlob?.display_subtitle;
     const hasSavedDisplay =
       savedDisplayTitle != null && savedDisplayTitle !== '';
 
@@ -100,21 +127,25 @@ export function mapRequestItemsToCartItems(items, transactionType) {
     const rawCeXTitle = (!isEbayResearchPayload || isAddFromCeXPayload)
       ? rawData?.title || rawData?.modelName
       : null;
-    const rawEbayTitle = isEbayResearchPayload
-      ? ebayResearchData?.searchTerm || ebayResearchData?.title || null
-      : null;
+    const rawEbayTitle =
+      isEbayResearchPayload || hasPersistedExtensionEbayResearch
+        ? ebayResearchBlob?.searchTerm || ebayResearchBlob?.title || null
+        : null;
     const cashConvertersTitle =
       cashConvertersResearchData?.searchTerm ||
       cashConvertersResearchData?.title ||
       null;
 
-    const ebaySubtitleFromFilters = isEbayResearchPayload
-      ? (Object.values(ebayResearchData?.selectedFilters?.apiFilters || {})
-          .flat()
-          .join(' / ') ||
-          ebayResearchData?.selectedFilters?.basic?.join(' / ') ||
-          'eBay Filters')
-      : null;
+    const ebaySubtitleFromFilters =
+      isEbayResearchPayload || hasPersistedExtensionEbayResearch
+        ? (isEbayResearchPayload
+            ? (Object.values(ebayResearchBlob?.selectedFilters?.apiFilters || {})
+                .flat()
+                .join(' / ') ||
+              ebayResearchBlob?.selectedFilters?.basic?.join(' / ') ||
+              'eBay Filters')
+            : '')
+        : null;
 
     const isCexItem = !!(cexTitle || rawCeXTitle || isAddFromCeXPayload);
     const cexSku = item.variant_details?.cex_sku || rawData?.id || null;
@@ -154,8 +185,8 @@ export function mapRequestItemsToCartItems(items, transactionType) {
         ? parseFloat(item.our_sale_price_at_negotiation)
         : rawData?.referenceData?.cex_based_sale_price != null
           ? parseFloat(rawData.referenceData.cex_based_sale_price)
-          : ebayResearchData?.stats?.suggestedPrice != null
-            ? parseFloat(ebayResearchData.stats.suggestedPrice)
+          : ebayResearchBlob?.stats?.suggestedPrice != null
+            ? parseFloat(ebayResearchBlob.stats.suggestedPrice)
             : null;
     const ourSalePrice =
       rawOurSale != null && !Number.isNaN(rawOurSale) && rawOurSale > 0
@@ -186,7 +217,7 @@ export function mapRequestItemsToCartItems(items, transactionType) {
       manualOffer: item.manual_offer_gbp != null ? formatOfferPrice(item.manual_offer_gbp) : '',
       manualOfferUsed: item.manual_offer_used ?? item.selected_offer_id === 'manual',
       customerExpectation: item.customer_expectation_gbp?.toString() || '',
-      ebayResearchData: isEbayResearchPayload ? ebayResearchData : null,
+      ebayResearchData: hasPersistedExtensionEbayResearch ? ebayResearchBlob : null,
       cashConvertersResearchData,
       cashOffers: savedCashOffers,
       voucherOffers: savedVoucherOffers,
@@ -255,7 +286,7 @@ export function mapRequestItemsToCartItems(items, transactionType) {
       cartItem.isCustomEbayItem = true;
       cartItem.isCustomCeXItem = false;
       cartItem.isCustomCashConvertersItem = false;
-      cartItem.category = ebayResearchData?.category || 'Other';
+      cartItem.category = ebayResearchBlob?.category || 'Other';
     } else if (cashConvertersResearchData) {
       cartItem.variantId = null;
       cartItem.isCustomEbayItem = false;

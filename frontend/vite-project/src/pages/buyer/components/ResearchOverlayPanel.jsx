@@ -3,6 +3,24 @@ import EbayResearchForm from '@/components/forms/EbayResearchForm';
 import CashConvertersResearchForm from '@/components/forms/CashConvertersResearchForm';
 import { buildMarketComparisonContext, buildInitialSearchQuery } from '../hooks/useResearchOverlay';
 
+/** Align with ExtensionResearchForm + mapRequestItemsToCartItems (quotes may omit `selectedFilters`). */
+function resolvedEbaySavedState(item) {
+  if (!item) return null;
+  if (item.ebayResearchData) return item.ebayResearchData;
+  const raw = item.rawData;
+  if (!raw) return null;
+  if (raw.stats && raw.selectedFilters) return raw;
+  if (raw.ebayResearchData) return raw.ebayResearchData;
+  if (
+    raw.listings?.length > 0 ||
+    raw.buyOffers?.length > 0 ||
+    (raw.stats && typeof raw.stats === 'object')
+  ) {
+    return raw;
+  }
+  return null;
+}
+
 /**
  * Fixed overlay panel rendering eBay and/or Cash Converters research forms.
  * Shared between Negotiation and RepricingNegotiation to eliminate duplicate JSX.
@@ -28,7 +46,7 @@ export default function ResearchOverlayPanel({
             mode="modal"
             containModalInParent
             category={researchItem.categoryObject || { path: [researchItem.category], name: researchItem.category }}
-            savedState={researchItem.ebayResearchData}
+            savedState={resolvedEbaySavedState(researchItem)}
             onComplete={onResearchComplete}
             initialHistogramState={true}
             readOnly={readOnly}

@@ -1,4 +1,5 @@
 import { normalizeExplicitSalePrice, roundOfferPrice, roundSalePrice, toVoucherOfferPrice } from '@/utils/helpers';
+import { mapRequestItemsToCartItems } from '@/utils/requestToCartMapping';
 
 // ─── Pure helper functions for Negotiation page ─────────────────────────────
 
@@ -181,124 +182,88 @@ export function buildFinishPayload(items, totalExpectation, targetOffer, useVouc
 // ─── Data mapping: API response → negotiation item shape ───────────────────
 
 export function mapApiItemToNegotiationItem(item, transactionType, mode) {
-  const ebayResearchData = item.raw_data || null;
-  const cashConvertersResearchData = item.cash_converters_data || null;
-
-  let savedCashOffers = item.cash_offers_json || [];
-  let savedVoucherOffers = item.voucher_offers_json || [];
-
-  const isEbayResearchPayload =
-    !!(ebayResearchData && ebayResearchData.stats && ebayResearchData.selectedFilters);
-
-  if (isEbayResearchPayload && savedCashOffers.length === 0 && Array.isArray(ebayResearchData?.buyOffers)) {
-    savedCashOffers = ebayResearchData.buyOffers.map((offer, idx) => ({
-      id: `ebay-cash-${idx}`,
-      title: ["1st Offer", "2nd Offer", "3rd Offer"][idx] || "Offer",
-      price: roundOfferPrice(offer.price),
-    }));
+  const [cartItem] = mapRequestItemsToCartItems([item], transactionType);
+  if (!cartItem) {
+    return {
+      id: item.request_item_id,
+      request_item_id: item.request_item_id,
+      title: 'N/A',
+      subtitle: '',
+      quantity: item.quantity || 1,
+      selectedOfferId: item.selected_offer_id,
+      manualOffer: item.manual_offer_gbp?.toString() || '',
+      manualOfferUsed: item.manual_offer_used ?? (item.selected_offer_id === 'manual'),
+      seniorMgmtApprovedBy: item.senior_mgmt_approved_by || null,
+      customerExpectation: item.customer_expectation_gbp?.toString() || '',
+      ebayResearchData: null,
+      cashConvertersResearchData: null,
+      offers: [],
+      cashOffers: [],
+      voucherOffers: [],
+    };
   }
 
-  if (isEbayResearchPayload && savedCashOffers.length > 0 && savedVoucherOffers.length === 0) {
-    savedVoucherOffers = savedCashOffers.map(offer => ({
-      id: `ebay-voucher-${offer.id}`,
-      title: offer.title,
-      price: toVoucherOfferPrice(offer.price),
-    }));
-  }
+  const ebayResearchData =
+    cartItem.ebayResearchData
+    || cartItem.rawData?.ebayResearchData
+    || (cartItem.rawData?.stats && cartItem.rawData?.selectedFilters ? cartItem.rawData : null);
 
-  const displayOffers = transactionType === 'store_credit' ? savedVoucherOffers : savedCashOffers;
-
-  const savedDisplayTitle = ebayResearchData?.display_title;
-  const savedDisplaySubtitle = ebayResearchData?.display_subtitle;
-  const hasSavedDisplay = savedDisplayTitle != null && savedDisplayTitle !== '';
-
-  const cexTitle = item.variant_details?.title;
-  const rawCeXTitle = !isEbayResearchPayload
-    ? (ebayResearchData?.title || ebayResearchData?.modelName)
-    : null;
-  const rawEbayTitle = isEbayResearchPayload
-    ? (ebayResearchData.searchTerm || ebayResearchData.title || null)
-    : null;
-  const cashConvertersTitle =
-    cashConvertersResearchData?.searchTerm || cashConvertersResearchData?.title || null;
-
-  const ebaySubtitleFromFilters = isEbayResearchPayload
-    ? (Object.values(ebayResearchData.selectedFilters?.apiFilters || {})
-        .flat().join(' / ') ||
-       ebayResearchData.selectedFilters?.basic?.join(' / ') ||
-       'eBay Filters')
-    : null;
-
-  const isCexItem = !!(cexTitle || rawCeXTitle);
-
-  const cexSkuFromVariant = item.variant_details?.cex_sku || null;
-  const cexSkuFromRaw = !isEbayResearchPayload
-    ? (ebayResearchData?.id || ebayResearchData?.sku || null)
-    : null;
-  const effectiveCexSku = cexSkuFromVariant || cexSkuFromRaw || null;
-
-  const cexUrl =
-    (ebayResearchData && !isEbayResearchPayload && (ebayResearchData.url || ebayResearchData.listingPageUrl)) ||
-    (effectiveCexSku ? `https://uk.webuy.com/product-detail?id=${effectiveCexSku}` : null);
-
-  return {
-    id: item.request_item_id,
-    request_item_id: item.request_item_id,
-    title: hasSavedDisplay
-      ? savedDisplayTitle
-      : (isCexItem ? (cexTitle || rawCeXTitle || 'N/A') : (rawEbayTitle || cashConvertersTitle || 'N/A')),
-    subtitle: hasSavedDisplay
-      ? (savedDisplaySubtitle ?? '')
-      : (isCexItem ? '' : (ebaySubtitleFromFilters || 'No details')),
-    variantName: item.variant_details?.title || cexTitle || null,
-    quantity: item.quantity,
-    selectedOfferId: item.selected_offer_id,
-    manualOffer: item.manual_offer_gbp?.toString() || '',
-    manualOfferUsed: item.manual_offer_used ?? (item.selected_offer_id === 'manual'),
+  let next = normalizeCartItemForNegotiation({
+    ...cartItem,
     seniorMgmtApprovedBy: item.senior_mgmt_approved_by || null,
-    customerExpectation: item.customer_expectation_gbp?.toString() || '',
-    ebayResearchData,
-    cashConvertersResearchData,
-    cexBuyPrice: (mode === 'view' && item.cex_buy_cash_at_negotiation !== null)
-      ? parseFloat(item.cex_buy_cash_at_negotiation)
-      : (item.variant_details?.tradein_cash ? parseFloat(item.variant_details.tradein_cash) : null),
-    cexVoucherPrice: (mode === 'view' && item.cex_buy_voucher_at_negotiation !== null)
-      ? parseFloat(item.cex_buy_voucher_at_negotiation)
-      : (item.variant_details?.tradein_voucher ? parseFloat(item.variant_details.tradein_voucher) : null),
-    cexSellPrice: (mode === 'view' && item.cex_sell_at_negotiation !== null)
-      ? parseFloat(item.cex_sell_at_negotiation)
-      : (item.variant_details?.current_price_gbp ? parseFloat(item.variant_details.current_price_gbp) : null),
-    cexOutOfStock: item.variant_details?.cex_out_of_stock ?? false,
-    cexUrl,
-    ourSalePrice: (() => {
-      // Always hydrate from DB when resuming a QUOTE in negotiate mode (not only view).
-      // Match requestToCartMapping: explicit column → referenceData CeX calc → eBay suggested.
-      const rawSaved =
-        item.our_sale_price_at_negotiation != null && item.our_sale_price_at_negotiation !== ''
-          ? parseFloat(item.our_sale_price_at_negotiation)
-          : null;
-      if (rawSaved != null && !Number.isNaN(rawSaved) && rawSaved > 0) {
-        return normalizeExplicitSalePrice(rawSaved);
-      }
-      const refRaw =
-        ebayResearchData?.referenceData?.cex_based_sale_price ??
-        ebayResearchData?.reference_data?.cex_based_sale_price;
-      const fromRef =
-        refRaw != null && refRaw !== '' ? parseFloat(refRaw) : null;
-      if (fromRef != null && !Number.isNaN(fromRef) && fromRef > 0) {
-        return roundSalePrice(fromRef);
-      }
-      const fromSuggested =
-        ebayResearchData?.stats?.suggestedPrice != null
-          ? parseFloat(ebayResearchData.stats.suggestedPrice)
-          : null;
-      return fromSuggested != null && !Number.isNaN(fromSuggested) && fromSuggested > 0
-        ? roundSalePrice(fromSuggested)
+  });
+
+  const resolveOurSaleFromApi = () => {
+    const rawSaved =
+      item.our_sale_price_at_negotiation != null && item.our_sale_price_at_negotiation !== ''
+        ? parseFloat(item.our_sale_price_at_negotiation)
         : null;
-    })(),
-    offers: displayOffers,
-    cashOffers: savedCashOffers,
-    voucherOffers: savedVoucherOffers,
+    if (rawSaved != null && !Number.isNaN(rawSaved) && rawSaved > 0) {
+      return normalizeExplicitSalePrice(rawSaved);
+    }
+    const refRaw =
+      ebayResearchData?.referenceData?.cex_based_sale_price ??
+      ebayResearchData?.reference_data?.cex_based_sale_price ??
+      cartItem.rawData?.referenceData?.cex_based_sale_price ??
+      cartItem.rawData?.reference_data?.cex_based_sale_price;
+    const fromRef =
+      refRaw != null && refRaw !== '' ? parseFloat(refRaw) : null;
+    if (fromRef != null && !Number.isNaN(fromRef) && fromRef > 0) {
+      return roundSalePrice(fromRef);
+    }
+    const fromSuggested =
+      ebayResearchData?.stats?.suggestedPrice != null
+        ? parseFloat(ebayResearchData.stats.suggestedPrice)
+        : null;
+    return fromSuggested != null && !Number.isNaN(fromSuggested) && fromSuggested > 0
+      ? roundSalePrice(fromSuggested)
+      : null;
+  };
+
+  if (mode === 'view') {
+    return {
+      ...next,
+      cexBuyPrice: (item.cex_buy_cash_at_negotiation != null && item.cex_buy_cash_at_negotiation !== '')
+        ? parseFloat(item.cex_buy_cash_at_negotiation)
+        : next.cexBuyPrice,
+      cexVoucherPrice: (item.cex_buy_voucher_at_negotiation != null && item.cex_buy_voucher_at_negotiation !== '')
+        ? parseFloat(item.cex_buy_voucher_at_negotiation)
+        : next.cexVoucherPrice,
+      cexSellPrice: (item.cex_sell_at_negotiation != null && item.cex_sell_at_negotiation !== '')
+        ? parseFloat(item.cex_sell_at_negotiation)
+        : next.cexSellPrice,
+      cexOutOfStock: item.variant_details?.cex_out_of_stock ?? next.cexOutOfStock,
+      ourSalePrice: resolveOurSaleFromApi(),
+    };
+  }
+
+  const vd = item.variant_details;
+  return {
+    ...next,
+    cexBuyPrice: vd?.tradein_cash != null ? parseFloat(vd.tradein_cash) : next.cexBuyPrice,
+    cexVoucherPrice: vd?.tradein_voucher != null ? parseFloat(vd.tradein_voucher) : next.cexVoucherPrice,
+    cexSellPrice: vd?.current_price_gbp != null ? parseFloat(vd.current_price_gbp) : next.cexSellPrice,
+    ourSalePrice: resolveOurSaleFromApi(),
   };
 }
 

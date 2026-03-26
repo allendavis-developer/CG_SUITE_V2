@@ -40,7 +40,7 @@ export default function ResearchOthersModal({ summaries, className = '' }) {
       role="dialog"
       aria-modal="true"
       aria-labelledby="research-others-title"
-      className={`absolute z-[200] flex max-h-[min(62vh,440px)] w-[min(calc(100vw-1.5rem),40rem)] min-w-[17rem] flex-col overflow-hidden rounded-xl border-2 bg-white shadow-2xl ${className}`}
+      className={`absolute z-[200] flex w-[min(calc(100vw-1.5rem),22rem)] min-w-[14rem] flex-col overflow-visible rounded-xl border-2 bg-white shadow-2xl ${className}`}
       style={{
         borderColor: BLUE_BORDER,
         boxShadow: BLUE_PANEL_SHADOW,
@@ -60,12 +60,12 @@ export default function ResearchOthersModal({ summaries, className = '' }) {
           Other data
         </h2>
       </div>
-      <div className="min-h-0 w-full flex-1 overflow-x-auto overflow-y-auto">
-        <div className="flex min-w-0 w-full flex-row items-stretch">
+      <div className="w-full flex-1">
+        <div className="flex min-w-0 w-full flex-col">
           {summaries.blocks.map((b, blockIdx) => (
             <section
               key={`${b.title}-${blockIdx}`}
-              className={`min-w-0 flex-1 px-3 py-3 sm:px-4 ${blockIdx > 0 ? 'border-l' : ''}`}
+              className={`min-w-0 px-3 py-3 sm:px-4 ${blockIdx > 0 ? 'border-t' : ''}`}
               style={{
                 borderColor: BLUE_BORDER,
                 background: BLUE_TINT_BG,
@@ -81,7 +81,7 @@ export default function ResearchOthersModal({ summaries, className = '' }) {
               >
                 {b.title}
               </h3>
-              <table className="w-full border-collapse">
+              <table className="w-full border-collapse table-fixed">
                 <tbody>
                   {b.rows.map((r, idx) => (
                     <tr
@@ -90,12 +90,12 @@ export default function ResearchOthersModal({ summaries, className = '' }) {
                       style={{ borderColor: BLUE_ROW_DIVIDER }}
                     >
                       <td
-                        className="max-w-[11rem] py-2.5 pr-3 align-middle text-sm font-medium leading-snug"
+                        className="w-1/2 py-1.5 pr-2 align-middle text-sm font-medium leading-snug break-words"
                         style={{ color: 'var(--text-muted, #475569)' }}
                       >
                         {r.metric}
                       </td>
-                      <td className="py-2.5 text-right align-middle">
+                      <td className="w-1/2 py-1.5 text-right align-middle">
                         <ValueCell value={r.value} valueVariant={r.valueVariant} />
                       </td>
                     </tr>
