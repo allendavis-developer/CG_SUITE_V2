@@ -369,6 +369,10 @@ export default function ResearchFormShell({
     };
   }, [listings]);
 
+  const hasResearchListings = (listings?.length ?? 0) > 0;
+  /** Hide price slider when there are no rows or no usable span (single/no prices). */
+  const showAdvancedPriceSlider = hasResearchListings && allPriceRange.max > allPriceRange.min;
+
   // Effective slider values (null = use min/max from data)
   const effectivePriceMin = advancedPriceMin ?? allPriceRange.min;
   const effectivePriceMax = advancedPriceMax ?? allPriceRange.max;
@@ -391,6 +395,18 @@ export default function ResearchFormShell({
     if (!msValues.length) return { minMs: null, maxMs: null };
     return { minMs: Math.min(...msValues), maxMs: Math.max(...msValues) };
   }, [listings]);
+
+  const showAdvancedSoldDateSlider =
+    enableAdvancedSoldDateFilter &&
+    soldDateRangeMs.minMs != null &&
+    soldDateRangeMs.maxMs != null &&
+    soldDateRangeMs.maxMs > soldDateRangeMs.minMs;
+  const showSingleSoldDayMessage =
+    enableAdvancedSoldDateFilter &&
+    hasResearchListings &&
+    soldDateRangeMs.minMs != null &&
+    soldDateRangeMs.maxMs != null &&
+    soldDateRangeMs.minMs === soldDateRangeMs.maxMs;
 
   const soldDateMinMs = soldDateRangeMs.minMs ?? 0;
   const soldDateMaxMs = soldDateRangeMs.maxMs ?? 0;
@@ -1502,7 +1518,8 @@ export default function ResearchFormShell({
       </div>
 
       <div className="p-4 space-y-5">
-        {/* Price range */}
+        {/* Price range — only when the dataset has a usable price span */}
+        {showAdvancedPriceSlider && (
         <div>
           <div className="flex items-center justify-between mb-3">
             <h4 className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Price Range</h4>
@@ -1516,26 +1533,23 @@ export default function ResearchFormShell({
               </button>
             )}
           </div>
-          {allPriceRange.max > allPriceRange.min ? (
-            <DualRangeSlider
-              min={allPriceRange.min}
-              max={allPriceRange.max}
-              valueMin={sliderPriceMin}
-              valueMax={sliderPriceMax}
-              onMinChange={setDraftPriceMin}
-              onMaxChange={setDraftPriceMax}
-            />
-          ) : (
-            <p className="text-xs text-gray-400 italic">Not enough price variation in data.</p>
-          )}
+          <DualRangeSlider
+            min={allPriceRange.min}
+            max={allPriceRange.max}
+            valueMin={sliderPriceMin}
+            valueMax={sliderPriceMax}
+            onMinChange={setDraftPriceMin}
+            onMaxChange={setDraftPriceMax}
+          />
           <div className="mt-2 text-[10px] text-gray-400 text-center">
             Full range: £{allPriceRange.min.toFixed(2)} – £{allPriceRange.max.toFixed(2)}
           </div>
         </div>
+        )}
 
         {/* Sold date */}
-        {enableAdvancedSoldDateFilter && soldDateMaxMs > soldDateMinMs && (
-          <div className="border-t border-gray-100 pt-4">
+        {showAdvancedSoldDateSlider && (
+          <div className={`border-gray-100 pt-4 ${showAdvancedPriceSlider ? 'border-t' : ''}`}>
             <div className="flex items-center justify-between mb-3">
               <h4 className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Sold Date</h4>
               {soldDateRangeActive && (
@@ -1573,16 +1587,22 @@ export default function ResearchFormShell({
             </div>
           </div>
         )}
-        {enableAdvancedSoldDateFilter && soldDateMaxMs === soldDateMinMs && (
-          <p className="text-xs text-gray-400 italic mt-3">Only one sold day found in data.</p>
+        {showSingleSoldDayMessage && (
+          <p className="text-xs text-gray-400 italic">Only one sold day found in data.</p>
         )}
 
         {isEbayResearchSource && ebayHasBroadMatchListings && (onIncludeEbayBroadMatchChange || readOnly) && (
           <div
-            className={`border-t pt-4 ${
-              includeEbayBroadMatchListings
-                ? 'border-brand-orange/60 bg-brand-orange/10 -mx-4 px-4 pb-3 rounded-b-lg'
-                : 'border-gray-100'
+            className={`pt-4 ${
+              showAdvancedPriceSlider || showAdvancedSoldDateSlider || showSingleSoldDayMessage
+                ? `border-t ${
+                    includeEbayBroadMatchListings
+                      ? 'border-brand-orange/60 bg-brand-orange/10 -mx-4 px-4 pb-3 rounded-b-lg'
+                      : 'border-gray-100'
+                  }`
+                : includeEbayBroadMatchListings
+                  ? 'border border-brand-orange/60 bg-brand-orange/10 -mx-4 px-4 py-3 rounded-lg'
+                  : ''
             }`}
           >
             <div className="flex items-center justify-between gap-2">

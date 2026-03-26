@@ -132,9 +132,18 @@ export function buildFinishPayload(items, totalExpectation, targetOffer, useVouc
         item.ebayResearchData ||
         {};
       const rawData = { ...rawDataSource };
+      // Overlay live research from React state: `item.rawData` is the API snapshot from load and does not
+      // update when the user changes eBay advanced filters, price/date drill, or listings in the overlay.
       if (item.isCustomCeXItem) {
-        if (item.ebayResearchData && !rawData.ebayResearchData) rawData.ebayResearchData = item.ebayResearchData;
-        if (item.cashConvertersResearchData && !rawData.cashConvertersResearchData) rawData.cashConvertersResearchData = item.cashConvertersResearchData;
+        if (item.ebayResearchData) rawData.ebayResearchData = item.ebayResearchData;
+        if (item.cashConvertersResearchData) {
+          rawData.cashConvertersResearchData = item.cashConvertersResearchData;
+        }
+      } else if (item.ebayResearchData) {
+        const ebay = item.ebayResearchData;
+        for (const key of Object.keys(ebay)) {
+          if (ebay[key] !== undefined) rawData[key] = ebay[key];
+        }
       }
       // Always embed referenceData (with percentage_used etc.) so it survives round-trips
       if (item.referenceData && !rawData.referenceData && !rawData.reference_data) {
