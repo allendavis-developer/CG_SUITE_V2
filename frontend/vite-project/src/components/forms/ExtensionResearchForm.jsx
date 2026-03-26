@@ -106,6 +106,20 @@ function ExtensionResearchForm({
     prepareExtensionListingsForShell(source, savedState?.listings ?? [], config.idPrefix)
   );
   const [dataVersion, setDataVersion] = useState(0);
+  /** eBay: when false, rows with isRelevant === 'no' are omitted everywhere (list, histogram, stats, offers). Persisted in advancedFilterState. */
+  const [includeEbayBroadMatchListings, setIncludeEbayBroadMatchListings] = useState(() =>
+    source === 'eBay' && Boolean(savedState?.advancedFilterState?.includeEbayBroadMatchListings)
+  );
+
+  const skipBroadMatchResetOnMountRef = useRef(true);
+  useEffect(() => {
+    if (!isEbay) return;
+    if (skipBroadMatchResetOnMountRef.current) {
+      skipBroadMatchResetOnMountRef.current = false;
+      return;
+    }
+    setIncludeEbayBroadMatchListings(false);
+  }, [dataVersion, isEbay]);
   const [searchTerm, setSearchTerm] = useState(() => {
     if (savedState?.searchTerm != null && String(savedState.searchTerm).trim() !== '') {
       return String(savedState.searchTerm).trim();
@@ -211,6 +225,18 @@ function ExtensionResearchForm({
   // ─── Listings / stats / offers ──────────────────────────────────────────
   const currentPriceRange = drillHistory.length > 0 ? drillHistory[drillHistory.length - 1] : null;
 
+  const ebayHasBroadMatchListings = useMemo(() => {
+    if (!isEbay) return false;
+    if ((listings || []).some((l) => String(l?.isRelevant || '').toLowerCase() === 'no')) return true;
+    // Saved sessions (e.g. request overview) after older saves may lack per-row isRelevant; flag on advancedFilterState.
+    return Boolean(savedState?.advancedFilterState?.ebayHadBroadMatchListings);
+  }, [isEbay, listings, savedState?.advancedFilterState?.ebayHadBroadMatchListings]);
+
+  const listingsForResearch = useMemo(() => {
+    if (!isEbay || includeEbayBroadMatchListings) return listings;
+    return (listings || []).filter((l) => String(l?.isRelevant || '').toLowerCase() !== 'no');
+  }, [listings, isEbay, includeEbayBroadMatchListings]);
+
   const handleToggleExclude = useCallback((listingId) => {
     setListings(prev => prev.map(l => l._id === listingId ? { ...l, excluded: !l.excluded } : l));
   }, []);
@@ -220,15 +246,28 @@ function ExtensionResearchForm({
   }, []);
 
   const displayedListings = useMemo(() => {
-    if (!listings || listings.length === 0) return null;
-    if (!currentPriceRange) return listings;
-    return listings.filter(item => {
+    if (!listingsForResearch || listingsForResearch.length === 0) return null;
+    if (!currentPriceRange) return listingsForResearch;
+    return listingsForResearch.filter(item => {
       const p = typeof item.price === 'string' ? parseFloat(item.price.replace(/[^0-9.]/g, '')) : item.price;
       return !isNaN(p) && p >= currentPriceRange.min && p <= currentPriceRange.max;
     });
-  }, [listings, currentPriceRange]);
+  }, [listingsForResearch, currentPriceRange]);
 
-  const stats = useMemo(() => calculateStats(listings.filter(l => !l.excluded)), [listings]);
+  // Histogram drill can target a range that only has rows under a wider cohort (e.g. looser matches on).
+  // When the cohort shrinks and that range is empty, snap back to root so the grid/histogram aren’t blank.
+  useEffect(() => {
+    if (drillHistory.length === 0) return;
+    if (!listingsForResearch?.length) return;
+    if (!displayedListings || displayedListings.length > 0) return;
+    setDrillHistory([]);
+  }, [drillHistory.length, listingsForResearch, displayedListings]);
+
+  const resetDrillToRoot = useCallback(() => {
+    setDrillHistory([]);
+  }, []);
+
+  const stats = useMemo(() => calculateStats(listingsForResearch.filter(l => !l.excluded)), [listingsForResearch]);
   const displayedStats = useMemo(() => {
     if (!displayedListings || displayedListings.length === 0) return stats;
     const relevant = displayedListings.filter(l => !l.excluded);
@@ -250,21 +289,63 @@ function ExtensionResearchForm({
   const onOffersChangeRef = useRef(onOffersChange);
   useEffect(() => { onOffersChangeRef.current = onOffersChange; });
   const offersChangeInitializedRef = useRef(false);
-  useEffect(() => {
-    if (!isEbay) return;
-    if (!offersChangeInitializedRef.current) { offersChangeInitializedRef.current = true; return; }
-    const t = window.setTimeout(() => {
-      onOffersChangeRef.current?.({ buyOffers, listings, stats: displayedStats });
-    }, 120);
-    return () => window.clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEbay, listings, buyOffers]);
-
   // ─── Advanced filter state tracking (for persistence) ────────────────────
   const advancedFilterStateRef = useRef(savedState?.advancedFilterState ?? null);
   const handleAdvancedFilterChange = useCallback((filterState) => {
-    advancedFilterStateRef.current = filterState;
-  }, []);
+    const base = filterState && typeof filterState === 'object' ? filterState : {};
+    advancedFilterStateRef.current = {
+      ...base,
+      ...(isEbay ? { includeEbayBroadMatchListings } : {}),
+    };
+  }, [isEbay, includeEbayBroadMatchListings]);
+
+  useEffect(() => {
+    if (!isEbay) return;
+    const cur = advancedFilterStateRef.current;
+    const base = cur && typeof cur === 'object' ? cur : {};
+    const hasBroad = (listings || []).some((l) => String(l?.isRelevant || '').toLowerCase() === 'no');
+    advancedFilterStateRef.current = {
+      ...base,
+      includeEbayBroadMatchListings,
+      ...(hasBroad ? { ebayHadBroadMatchListings: true } : {}),
+    };
+  }, [isEbay, includeEbayBroadMatchListings, listings]);
+
+  const savedAdvInclude = savedState?.advancedFilterState?.includeEbayBroadMatchListings;
+  useEffect(() => {
+    if (source !== 'eBay') return;
+    setIncludeEbayBroadMatchListings(Boolean(savedAdvInclude));
+  }, [source, savedAdvInclude]);
+
+  useEffect(() => {
+    if (!isEbay) return;
+    if (!offersChangeInitializedRef.current) {
+      offersChangeInitializedRef.current = true;
+      return;
+    }
+    const advSnapshot = {
+      ...(advancedFilterStateRef.current && typeof advancedFilterStateRef.current === 'object'
+        ? advancedFilterStateRef.current
+        : {}),
+      includeEbayBroadMatchListings,
+    };
+    const t = window.setTimeout(() => {
+      onOffersChangeRef.current?.({
+        buyOffers,
+        listings: listingsForResearch,
+        stats: displayedStats,
+        advancedFilterState: advSnapshot,
+      });
+    }, 120);
+    return () => window.clearTimeout(t);
+  }, [
+    isEbay,
+    listings,
+    buyOffers,
+    listingsForResearch,
+    displayedStats,
+    includeEbayBroadMatchListings,
+  ]);
 
   // ─── Drill handlers ─────────────────────────────────────────────────────
   const handleDrillDown = useCallback((rangeStart, rangeEnd) => {
@@ -280,24 +361,46 @@ function ExtensionResearchForm({
   }, []);
 
   // ─── Completion helpers ─────────────────────────────────────────────────
-  const buildPayload = useCallback((extras = {}) => ({
-    listings,
-    showHistogram,
-    drillHistory,
-    stats: displayedStats,
-    buyOffers,
-    searchTerm,
-    listingPageUrl,
-    selectedFilters: { basic: [], apiFilters: {} },
-    filterOptions: [],
-    manualOffer,
-    advancedFilterState: advancedFilterStateRef.current,
-    ...extras,
-  }), [listings, showHistogram, drillHistory, displayedStats, buyOffers, searchTerm, listingPageUrl, manualOffer]);
+  const buildPayload = useCallback((extras = {}) => {
+    const prevAdv = advancedFilterStateRef.current;
+    const advBase = prevAdv && typeof prevAdv === 'object' ? prevAdv : {};
+    const hasBroadRows =
+      isEbay &&
+      (listings || []).some((l) => String(l?.isRelevant || '').toLowerCase() === 'no');
+    const advancedFilterState = isEbay
+      ? {
+          ...advBase,
+          includeEbayBroadMatchListings,
+          ...(hasBroadRows || advBase.ebayHadBroadMatchListings
+            ? { ebayHadBroadMatchListings: true }
+            : {}),
+        }
+      : prevAdv;
+    return {
+      listings,
+      showHistogram,
+      drillHistory,
+      stats: displayedStats,
+      buyOffers,
+      searchTerm,
+      listingPageUrl,
+      selectedFilters: { basic: [], apiFilters: {} },
+      filterOptions: [],
+      manualOffer,
+      advancedFilterState,
+      ...extras,
+    };
+  }, [listings, showHistogram, drillHistory, displayedStats, buyOffers, searchTerm, listingPageUrl, manualOffer, isEbay, includeEbayBroadMatchListings]);
 
   const handleComplete = useCallback(() => {
     onComplete?.(buildPayload());
   }, [onComplete, buildPayload]);
+
+  /** Shell footer OK: view-only overlays close with cancel (no save). */
+  const handleShellOnComplete = useCallback(() => {
+    if (readOnly) onComplete?.({ cancel: true });
+    else handleComplete();
+  }, [readOnly, onComplete, handleComplete]);
 
   const handleCompleteWithSelection = useCallback((selectedOfferIndex, overrideManualOffer) => {
     const state = buildPayload({ manualOffer: overrideManualOffer ?? manualOffer });
@@ -401,10 +504,8 @@ function ExtensionResearchForm({
       searchTerm=""
       onSearchTermChange={() => {}}
       onSearch={() => {}}
-      listings={listings}
+      listings={listingsForResearch}
       displayedListings={displayedListings}
-      stats={stats}
-      displayedStats={displayedStats}
       filterOptions={[]}
       selectedFilters={{ basic: [], apiFilters: {} }}
       onBasicFilterChange={() => {}}
@@ -416,7 +517,8 @@ function ExtensionResearchForm({
       onDrillDown={handleDrillDown}
       onZoomOut={handleZoomOut}
       onNavigateToDrillLevel={handleNavigateToDrillLevel}
-      onComplete={handleComplete}
+      onResetDrillToRoot={resetDrillToRoot}
+      onComplete={handleShellOnComplete}
       onCompleteWithSelection={showManualOffer ? handleCompleteWithSelection : undefined}
       onAddToCartWithOffer={
         isEbay && !readOnly
@@ -461,6 +563,10 @@ function ExtensionResearchForm({
       onAdvancedFilterChange={handleAdvancedFilterChange}
       dataVersion={dataVersion}
       otherResearchSummaries={otherResearchSummaries}
+      isEbayResearchSource={isEbay}
+      ebayHasBroadMatchListings={ebayHasBroadMatchListings}
+      includeEbayBroadMatchListings={includeEbayBroadMatchListings}
+      onIncludeEbayBroadMatchChange={isEbay && !readOnly ? setIncludeEbayBroadMatchListings : undefined}
     />
   );
 }

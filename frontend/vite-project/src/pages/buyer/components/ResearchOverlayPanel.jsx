@@ -24,6 +24,7 @@ export default function ResearchOverlayPanel({
       <div className="relative h-full w-full min-h-0">
         {researchItem && (
           <EbayResearchForm
+            key={researchItem.request_item_id ?? researchItem.id ?? 'ebay-research'}
             mode="modal"
             containModalInParent
             category={researchItem.categoryObject || { path: [researchItem.category], name: researchItem.category }}

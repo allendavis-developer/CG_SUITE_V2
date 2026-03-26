@@ -1,6 +1,8 @@
 /**
  * Build read-only numeric summaries for research channels other than the one open.
  * Used by the negotiation research overlay "Others" action.
+ * Only includes data that was actually saved for that channel (no synthetic offers from
+ * category margins or computed CeX tiers from referenceData alone).
  *
  * CeX offers use category pricing rules (% of CeX cash/voucher reference or margin-matched); see `cexOfferComputation.js`.
  * eBay / Cash Converters offers are % of suggested sale; see `calculateBuyOffers`.
@@ -9,6 +11,18 @@
 import { toVoucherOfferPrice } from '@/utils/helpers';
 import { calculateBuyOffers } from './researchStats';
 import { buildComputedCexOfferRows, resolveCexPricingInputs, zipPersistedCexOfferRows } from './cexOfferComputation';
+
+/**
+ * eBay / Cash Converters research maps buy-offer tiers onto `item.cashOffers` & `item.voucherOffers`
+ * (ids like `ebay-cash-0`, `cc-cash-…`). Those are not CeX trade-in tiers — do not show them under CeX in Others.
+ */
+function itemTopLevelOffersAreEbayOrCashConvertersTiers(item) {
+  if (!item || typeof item !== 'object') return false;
+  if (item.isCustomEbayItem === true || item.isCustomCashConvertersItem === true) return true;
+  const sample = item.cashOffers?.[0] ?? item.voucherOffers?.[0];
+  const id = sample?.id != null ? String(sample.id) : '';
+  return /^ebay-(cash|voucher)-|^cc-(cash|voucher)-/.test(id);
+}
 
 function fmtMoney(n) {
   if (n == null || n === '') return null;
@@ -33,11 +47,19 @@ const VOUCHER_OFFER_LABELS = ['1st Voucher Offer', '2nd Voucher Offer', '3rd Vou
  * @param {{ price: number, pctOfSale: number }[] | null | undefined} savedBuyOffers
  * @param {boolean} [useVoucherOffers]
  */
-function offerRowsFromSuggestedSale(suggestedPrice, ebayOfferMargins, savedBuyOffers, useVoucherOffers = false) {
+function offerRowsFromSuggestedSale(
+  suggestedPrice,
+  ebayOfferMargins,
+  savedBuyOffers,
+  useVoucherOffers = false,
+  /** When true, never invent offers from category margins (Others panel = saved research only). */
+  noSyntheticFallback = false
+) {
   let offers = [];
   if (Array.isArray(savedBuyOffers) && savedBuyOffers.length > 0) {
     offers = savedBuyOffers.slice(0, 3);
   } else {
+    if (noSyntheticFallback) return [];
     const sp = suggestedPrice != null ? Number(suggestedPrice) : NaN;
     if (Number.isFinite(sp) && sp > 0) {
       offers = calculateBuyOffers(sp, ebayOfferMargins);
@@ -57,11 +79,25 @@ function offerRowsFromSuggestedSale(suggestedPrice, ebayOfferMargins, savedBuyOf
 }
 
 /** @returns {{ kind: 'keyValue', metric: string, value: string }[]} */
-function tableRowsFromResearchSnapshot(data, ebayOfferMargins, useVoucherOffers) {
+function tableRowsFromResearchSnapshot(
+  data,
+  ebayOfferMargins,
+  useVoucherOffers,
+  /** Only rows backed by saved listings or saved buy offers (no margin-synthesized offers or orphan stats). */
+  persistedResearchOnly = false
+) {
   if (!data || typeof data !== 'object') return [];
+  const listings = data.listings;
+  const listingCount = Array.isArray(listings) ? listings.length : 0;
+  const savedOffers = Array.isArray(data.buyOffers) ? data.buyOffers : [];
+  if (persistedResearchOnly) {
+    if (listingCount === 0 && savedOffers.length === 0) return [];
+  }
+
   const rows = [];
   const s = data.stats;
-  if (s && typeof s === 'object') {
+  const showStats = !persistedResearchOnly || listingCount > 0;
+  if (showStats && s && typeof s === 'object') {
     const avg = fmtMoney(s.average);
     if (avg) rows.push({ kind: 'keyValue', metric: 'Average (£)', value: avg });
     const med = fmtMoney(s.median);
@@ -70,9 +106,12 @@ function tableRowsFromResearchSnapshot(data, ebayOfferMargins, useVoucherOffers)
     if (sug) rows.push({ kind: 'keyValue', metric: 'Suggested (£)', value: sug });
   }
   const sugRaw = s?.suggestedPrice;
-  rows.push(...offerRowsFromSuggestedSale(sugRaw, ebayOfferMargins, data.buyOffers, useVoucherOffers));
-  const listings = data.listings;
-  if (Array.isArray(listings)) rows.push({ kind: 'keyValue', metric: 'Listings (n)', value: String(listings.length) });
+  rows.push(
+    ...offerRowsFromSuggestedSale(sugRaw, ebayOfferMargins, data.buyOffers, useVoucherOffers, persistedResearchOnly)
+  );
+  if (Array.isArray(listings) && (!persistedResearchOnly || listingCount > 0)) {
+    rows.push({ kind: 'keyValue', metric: 'Listings (n)', value: String(listings.length) });
+  }
   return rows;
 }
 
@@ -115,10 +154,12 @@ function cexStatRows(item, useVoucherOffers) {
 }
 
 /** @returns {SummaryRow[]} */
-function resolveCexOfferSectionRows(item) {
+function resolveCexOfferSectionRows(item, { allowComputedTiers = true } = {}) {
   const { tradeinCash, tradeinVoucher } = resolveCexPricingInputs(item);
   const tradeInRefs = { tradeinCash, tradeinVoucher };
-  const zipped = zipPersistedCexOfferRows(item.cashOffers, item.voucherOffers, tradeInRefs);
+  const zipped = itemTopLevelOffersAreEbayOrCashConvertersTiers(item)
+    ? []
+    : zipPersistedCexOfferRows(item.cashOffers, item.voucherOffers, tradeInRefs);
   if (zipped.length > 0) return zipped;
 
   const pd = item.cexProductData;
@@ -127,7 +168,7 @@ function resolveCexOfferSectionRows(item) {
     if (z.length > 0) return z;
   }
 
-  return buildComputedCexOfferRows(item);
+  return allowComputedTiers ? buildComputedCexOfferRows(item) : [];
 }
 
 /**
@@ -169,9 +210,12 @@ function narrowCexDualOfferRowsForSelection(rows, useVoucherOffers) {
 }
 
 /** @returns {SummaryRow[]} */
-function tableRowsFromCeX(item, useVoucherOffers) {
+function tableRowsFromCeX(item, useVoucherOffers, { allowComputedTiers = true } = {}) {
   const stats = cexStatRows(item, useVoucherOffers);
-  const offers = narrowCexDualOfferRowsForSelection(resolveCexOfferSectionRows(item), useVoucherOffers);
+  const offers = narrowCexDualOfferRowsForSelection(
+    resolveCexOfferSectionRows(item, { allowComputedTiers }),
+    useVoucherOffers
+  );
   return [...stats, ...offers];
 }
 
@@ -186,14 +230,24 @@ export function buildOtherResearchChannelsSummaries(item, activeResearchSource, 
   const { ebayOfferMargins = null, useVoucherOffers = false } = options;
   const blocks = [];
 
-  const cexRows = tableRowsFromCeX(item, useVoucherOffers);
+  const cexRows = tableRowsFromCeX(item, useVoucherOffers, { allowComputedTiers: false });
   if (cexRows.length) blocks.push({ title: 'CeX', rows: cexRows });
 
   if (activeResearchSource === 'eBay') {
-    const rows = tableRowsFromResearchSnapshot(item.cashConvertersResearchData, ebayOfferMargins, useVoucherOffers);
+    const rows = tableRowsFromResearchSnapshot(
+      item.cashConvertersResearchData,
+      ebayOfferMargins,
+      useVoucherOffers,
+      true
+    );
     if (rows.length) blocks.push({ title: 'Cash Converters', rows });
   } else {
-    const rows = tableRowsFromResearchSnapshot(item.ebayResearchData, ebayOfferMargins, useVoucherOffers);
+    const rows = tableRowsFromResearchSnapshot(
+      item.ebayResearchData,
+      ebayOfferMargins,
+      useVoucherOffers,
+      true
+    );
     if (rows.length) blocks.push({ title: 'eBay', rows });
   }
 

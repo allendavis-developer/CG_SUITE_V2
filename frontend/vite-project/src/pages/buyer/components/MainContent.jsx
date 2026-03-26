@@ -447,7 +447,7 @@ const MainContent = ({ mode = 'buyer' }) => {
   // an exclusion on an already-carted eBay item. Re-derives cash/voucher offers
   // from the updated buyOffers and writes them back to the cart item so that
   // the offer cards and sidebar both reflect the new prices immediately.
-  const handleEbayOffersChange = useCallback(({ buyOffers: newBuyOffers, listings: newListings, stats: newStats }) => {
+  const handleEbayOffersChange = useCallback(({ buyOffers: newBuyOffers, listings: newListings, stats: newStats, advancedFilterState: newAdvancedFilterState }) => {
     if (!selectedCartItem?.isCustomEbayItem) return;
 
     const cashOffers = (newBuyOffers || []).map((o, idx) => ({
@@ -469,6 +469,9 @@ const MainContent = ({ mode = 'buyer' }) => {
       listings: newListings,
       buyOffers: newBuyOffers,
       stats: newStats,
+      ...(newAdvancedFilterState != null && typeof newAdvancedFilterState === 'object'
+        ? { advancedFilterState: newAdvancedFilterState }
+        : {}),
     };
     updateCartItem(selectedCartItem.id, { ebayResearchData: updatedResearchData });
 

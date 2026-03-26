@@ -105,8 +105,6 @@ export default function ResearchFormShell({
   onSearch,
   listings,
   displayedListings,
-  stats,
-  displayedStats,
   filterOptions,
   selectedFilters,
   onBasicFilterChange,
@@ -118,6 +116,8 @@ export default function ResearchFormShell({
   onDrillDown,
   onZoomOut,
   onNavigateToDrillLevel,
+  /** Clear histogram drill when an advanced filter leaves the drilled slice empty (price/sold-date in shell). */
+  onResetDrillToRoot = null,
   onComplete,
   onCompleteWithSelection = null,
   mode = "modal",
@@ -156,6 +156,13 @@ export default function ResearchFormShell({
   onAdvancedFilterChange = null,
   dataVersion = 0,
   otherResearchSummaries = null,
+  /** eBay: scraped data includes looser keyword matches (isRelevant === 'no'). */
+  ebayHasBroadMatchListings = false,
+  /** eBay: when true, those looser matches are included in the research cohort. */
+  includeEbayBroadMatchListings = true,
+  onIncludeEbayBroadMatchChange = null,
+  /** When false, looser-match UI and styling never apply (e.g. Cash Converters). */
+  isEbayResearchSource = false,
 }) {
   const currentPriceRange = drillHistory.length > 0 ? drillHistory[drillHistory.length - 1] : null;
   const prominentAddClass = 'shadow-lg shadow-brand-orange/30';
@@ -342,7 +349,10 @@ export default function ResearchFormShell({
     setDraftPriceMax(null);
     setDraftSoldDateFromIdx(null);
     setDraftSoldDateToIdx(null);
-  }, []);
+    if (!readOnly && isEbayResearchSource && ebayHasBroadMatchListings && onIncludeEbayBroadMatchChange) {
+      onIncludeEbayBroadMatchChange(false);
+    }
+  }, [readOnly, isEbayResearchSource, ebayHasBroadMatchListings, onIncludeEbayBroadMatchChange]);
 
   // ─── Derived price range from all listings ────────────────────────────────
   const allPriceRange = useMemo(() => {
@@ -365,7 +375,11 @@ export default function ResearchFormShell({
   const priceFilterActive = effectivePriceMin > allPriceRange.min || effectivePriceMax < allPriceRange.max;
   const soldDateRangeActive = enableAdvancedSoldDateFilter
     && (advancedSoldDateFromIdx != null || advancedSoldDateToIdx != null);
-  const advancedFilterActive = priceFilterActive || soldDateRangeActive;
+  /** Looser eBay toggle (or saved read-only state) counts as an active advanced filter for orange styling. */
+  const ebayLooserMatchesAdvancedOn = Boolean(
+    isEbayResearchSource && ebayHasBroadMatchListings && includeEbayBroadMatchListings
+  );
+  const advancedFilterActive = priceFilterActive || soldDateRangeActive || ebayLooserMatchesAdvancedOn;
 
   // ─── Sold date range derived from all listings (continuous day range) ───────────────────────────────
   const soldDateRangeMs = useMemo(() => {
@@ -472,6 +486,21 @@ export default function ResearchFormShell({
     effectiveSoldDateToIdx,
   ]);
 
+  useEffect(() => {
+    if (typeof onResetDrillToRoot !== 'function') return;
+    if (drillHistory.length === 0) return;
+    if (!displayedListings?.length) return;
+    if (!advancedFilterActive) return;
+    if ((advancedFilteredListings ?? []).length > 0) return;
+    onResetDrillToRoot();
+  }, [
+    onResetDrillToRoot,
+    drillHistory.length,
+    displayedListings,
+    advancedFilteredListings,
+    advancedFilterActive,
+  ]);
+
   // ─── Sorting (uses advancedFilteredListings) ──────────────────────────────
   const sortedListings = useMemo(() => {
     const list = advancedFilteredListings || [];
@@ -505,13 +534,12 @@ export default function ResearchFormShell({
   }, []);
 
   // ─── Combined stats computation ───────────────────────────────────────────
-  // Uses advancedFilteredListings so stats update with active filters
+  // Uses advancedFilteredListings so stats update with active filters (same cohort as list + histogram).
   const { activeStats, statsWorkingOut } = useMemo(() => {
     const included = (advancedFilteredListings ?? []).filter(l => !l.excluded);
     const { stats, workingOut } = calculateResearchStats(included);
-    if (!workingOut) return { activeStats: displayedStats, statsWorkingOut: null };
     return { activeStats: stats, statsWorkingOut: workingOut };
-  }, [displayedStats, advancedFilteredListings]);
+  }, [advancedFilteredListings]);
 
   // ─── Stats display (offer-card style boxes with tooltips) ─────────────────
   const StatsDisplay = useMemo(() => {
@@ -613,7 +641,11 @@ export default function ResearchFormShell({
   }, [showManualOffer, readOnly, selectedOfferIndex, manualOffer, onManualOfferChange, onCompleteWithSelection, onComplete]);
 
   const handleComplete = useCallback(() => {
-    if (!readOnly && showManualOffer && selectedOfferIndex === 'manual') {
+    if (readOnly) {
+      onComplete?.();
+      return;
+    }
+    if (showManualOffer && selectedOfferIndex === 'manual') {
       const cleanManual = String(manualOffer ?? '').replace(/[£,]/g, '').trim();
       const parsed = parseFloat(cleanManual);
       if (Number.isFinite(parsed) && parsed > 0) {
@@ -893,8 +925,7 @@ export default function ResearchFormShell({
       </div>
     );
 
-  const actionButtonsEl =
-    (!readOnly || othersButtonBlock) && (
+  const actionButtonsEl = (
     <div className="flex items-center gap-1.5 flex-1 min-w-0 justify-end">
       {!readOnly && (
         <>
@@ -934,7 +965,7 @@ export default function ResearchFormShell({
                 size="md"
                 className="flex-1 justify-center"
                 onClick={handleComplete}
-                disabled={loading && !readOnly}
+                disabled={loading}
               >
                 OK
               </Button>
@@ -942,9 +973,21 @@ export default function ResearchFormShell({
           )}
         </>
       )}
-      {readOnly && othersButtonBlock}
+      {readOnly && (
+        <>
+          {othersButtonBlock}
+          <Button
+            variant="primary"
+            size="md"
+            className="flex-1 justify-center min-w-[4.5rem]"
+            onClick={handleComplete}
+          >
+            OK
+          </Button>
+        </>
+      )}
     </div>
-    );
+  );
 
   // ─── Banner 1: search term + stats + offers ──────────────────────────────
   // The header is split into a flex-1 left section (matching listing area width)
@@ -1117,7 +1160,7 @@ export default function ResearchFormShell({
       </button>
 
       {/* Reset filters */}
-      {advancedFilterActive && (
+      {advancedFilterActive && !readOnly && (
         <button
           type="button"
           onClick={resetAdvancedFilters}
@@ -1152,7 +1195,7 @@ export default function ResearchFormShell({
                 </p>
               )}
               <span className="font-semibold">Excluded:</span> listings you removed from stats (pivot / exclude / range / right-click).{' '}
-              <span className="font-semibold">Filtered:</span> listings hidden by <strong>Advanced filters</strong> (price or sold date).{' '}
+              <span className="font-semibold">Filtered:</span> listings hidden by <strong>Advanced filters</strong> (price, sold date, or looser eBay matches off).{' '}
               <span className="block mt-1.5 pt-1.5 border-t border-gray-600 text-gray-300">
                 <strong>Click</strong> unexcluded to set pivot · <strong>Click pivot</strong> to exclude · <strong>Click excluded</strong> to re-include · <strong>Right-click</strong> for before/after.
               </span>
@@ -1413,13 +1456,21 @@ export default function ResearchFormShell({
   const advancedFilterPanelEl = showAdvancedFilter && listings && (
     <div
       ref={advancedFilterRef}
-      className="fixed z-[130] bg-white rounded-xl shadow-2xl border border-gray-200 w-80 overflow-hidden"
+      className={`fixed z-[130] bg-white rounded-xl shadow-2xl w-80 overflow-hidden border-2 ${
+        advancedFilterActive ? 'border-brand-orange' : 'border-gray-200'
+      }`}
       style={{ top: filterPanelPos.top, left: filterPanelPos.left }}
       role="dialog"
       aria-label="Advanced Filters"
     >
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50">
+      {/* Header — same orange accent as the toolbar Advanced Filters button when any filter is active. */}
+      <div
+        className={`flex items-center justify-between px-4 py-3 border-b ${
+          advancedFilterActive
+            ? 'bg-brand-orange border-brand-orange'
+            : 'border-gray-100 bg-gray-50'
+        }`}
+      >
         <div className="flex items-center gap-2">
           <span className="material-symbols-outlined text-[16px] text-brand-blue">tune</span>
           <h3 className="text-sm font-bold text-brand-blue uppercase tracking-wider">Advanced Filters</h3>
@@ -1510,9 +1561,57 @@ export default function ResearchFormShell({
           <p className="text-xs text-gray-400 italic mt-3">Only one sold day found in data.</p>
         )}
 
+        {isEbayResearchSource && ebayHasBroadMatchListings && (onIncludeEbayBroadMatchChange || readOnly) && (
+          <div
+            className={`border-t pt-4 ${
+              includeEbayBroadMatchListings
+                ? 'border-brand-orange/60 bg-brand-orange/10 -mx-4 px-4 pb-3 rounded-b-lg'
+                : 'border-gray-100'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <h4 className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Looser eBay matches</h4>
+                <p className="text-[10px] text-gray-400 mt-1 leading-snug">
+                  {readOnly
+                    ? 'View only: this shows whether looser eBay matches were included in research.'
+                    : 'By default those listings are hidden and ignored (not in the grid, histogram, or stats). Turn on to include them.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={readOnly || !onIncludeEbayBroadMatchChange}
+                className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-brand-orange/60 focus:ring-offset-1 disabled:opacity-90 disabled:cursor-default ${
+                  includeEbayBroadMatchListings ? 'bg-brand-orange' : 'bg-gray-300'
+                }`}
+                onClick={
+                  readOnly || !onIncludeEbayBroadMatchChange
+                    ? undefined
+                    : () => onIncludeEbayBroadMatchChange(!includeEbayBroadMatchListings)
+                }
+                aria-pressed={includeEbayBroadMatchListings}
+                aria-disabled={readOnly || !onIncludeEbayBroadMatchChange}
+                title={
+                  readOnly
+                    ? (includeEbayBroadMatchListings ? 'Looser matches were included' : 'Looser matches were excluded')
+                    : includeEbayBroadMatchListings
+                      ? 'Including looser matches'
+                      : 'Looser matches excluded'
+                }
+              >
+                <span
+                  className={`absolute top-1/2 left-0.5 h-4 w-4 -translate-y-1/2 bg-white rounded-full shadow-sm transition-transform duration-150 ${
+                    includeEbayBroadMatchListings ? 'translate-x-4' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Footer buttons */}
         <div className="border-t border-gray-100 pt-3 flex items-center gap-2">
-          {advancedFilterActive && (
+          {advancedFilterActive && !readOnly && (
             <button
               type="button"
               onClick={resetAdvancedFilters}

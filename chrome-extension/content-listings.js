@@ -35,6 +35,21 @@
   }
   ensureCgSuiteRoboto();
 
+  /**
+   * eBay SRP: "6 results for rode m1" in h1.srp-controls__count-heading — strict keyword matches.
+   * Listings after that index are broader / fewer-keywords matches.
+   */
+  function getEbayKeywordMatchCountFromHeading() {
+    var h1 = document.querySelector('h1.srp-controls__count-heading');
+    if (!h1) return null;
+    var text = (h1.textContent || '').replace(/\s+/g, ' ').trim();
+    var m = text.match(/^([\d,]+)\s+results?\s+for\b/i);
+    if (!m) return null;
+    var n = parseInt(String(m[1]).replace(/,/g, ''), 10);
+    if (!Number.isFinite(n) || n < 0) return null;
+    return n;
+  }
+
   // —— Site configs: one place for URL detection, search term, and card scraping ——
   const SITE_CONFIGS = {
     ebay: {
@@ -1475,7 +1490,7 @@
     const competitor = config ? config.competitor : 'eBay';
     const searchTerm = config ? config.getSearchTerm() : '';
     const container = config ? config.getListContainer() : null;
-    const results = config ? config.scrapeCards(container) : [];
+    let results = config ? config.scrapeCards(container) : [];
     const out = {
       success: true,
       results: results,
@@ -1483,6 +1498,20 @@
       searchTerm: searchTerm,
       listingPageUrl: window.location.href
     };
+    if (config === SITE_CONFIGS.ebay) {
+      var strictN = getEbayKeywordMatchCountFromHeading();
+      out.ebayKeywordMatchCount = strictN;
+      results = results.map(function (row, idx) {
+        var rel = strictN == null ? 'yes' : idx < strictN ? 'yes' : 'no';
+        var copy = {};
+        for (var k in row) {
+          if (Object.prototype.hasOwnProperty.call(row, k)) copy[k] = row[k];
+        }
+        copy.isRelevant = rel;
+        return copy;
+      });
+      out.results = results;
+    }
     if (typeof console !== 'undefined') {
       console.log('[CG Suite] scrapeListings returning:', JSON.stringify(out, null, 2));
     }

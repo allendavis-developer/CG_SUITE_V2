@@ -82,11 +82,28 @@ def _strip_known_keys(d: dict, keys: frozenset) -> dict | None:
     return extra if extra else None
 
 
+def _merge_advanced_filter_state(prev: Any, new: Any) -> Any:
+    """Keep keys from previous session when the payload omits them (e.g. partial raw_data updates)."""
+    if new is None:
+        return prev
+    if not isinstance(new, dict):
+        return new
+    prev_d = prev if isinstance(prev, dict) else {}
+    return {**prev_d, **new}
+
+
 def replace_request_item_research(
     request_item: RequestItem,
     platform: str,
     payload: dict | None,
 ) -> None:
+    prev_adv = (
+        MarketResearchSession.objects.filter(
+            request_item=request_item, platform=platform
+        )
+        .values_list("advanced_filter_state", flat=True)
+        .first()
+    )
     MarketResearchSession.objects.filter(request_item=request_item, platform=platform).delete()
     if not payload or not isinstance(payload, dict):
         return
@@ -110,7 +127,9 @@ def replace_request_item_research(
         stat_average_gbp=_dec(stats.get("average")),
         stat_median_gbp=_dec(stats.get("median")),
         stat_suggested_sale_gbp=_dec(stats.get("suggestedPrice")),
-        advanced_filter_state=payload.get("advancedFilterState"),
+        advanced_filter_state=_merge_advanced_filter_state(
+            prev_adv, payload.get("advancedFilterState")
+        ),
         filter_state_json=filter_state,
         buy_offers_json=payload.get("buyOffers"),
     )
@@ -152,6 +171,13 @@ def replace_repricing_item_research(
     platform: str,
     payload: dict | None,
 ) -> None:
+    prev_adv = (
+        MarketResearchSession.objects.filter(
+            repricing_session_item=repricing_item, platform=platform
+        )
+        .values_list("advanced_filter_state", flat=True)
+        .first()
+    )
     MarketResearchSession.objects.filter(
         repricing_session_item=repricing_item, platform=platform
     ).delete()
@@ -177,7 +203,9 @@ def replace_repricing_item_research(
         stat_average_gbp=_dec(stats.get("average")),
         stat_median_gbp=_dec(stats.get("median")),
         stat_suggested_sale_gbp=_dec(stats.get("suggestedPrice")),
-        advanced_filter_state=payload.get("advancedFilterState"),
+        advanced_filter_state=_merge_advanced_filter_state(
+            prev_adv, payload.get("advancedFilterState")
+        ),
         filter_state_json=filter_state,
         buy_offers_json=payload.get("buyOffers"),
     )
