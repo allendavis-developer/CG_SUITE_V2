@@ -12,16 +12,25 @@ import { buildItemSpecs, buildInitialSearchQuery } from '../utils/negotiationHel
  * @param {Function} opts.applyEbayResearch - (item, updatedState) => newItem. Called to merge eBay research data.
  * @param {Function} opts.applyCCResearch - (item, updatedState) => newItem. Called to merge CC research data.
  * @param {Function} opts.resolveSalePrice - Sale price resolver function for maybeShowSalePriceConfirm.
- * @param {boolean} [opts.readOnly=false] - Whether the overlay is read-only.
+ * @param {boolean} [opts.readOnly=false] - Whether the overlay is read-only (no in-form edits).
+ * @param {boolean} [opts.persistResearchOnComplete=true] - When false, OK/complete does not apply research back to `items` (sandbox / preview).
  */
-export function useResearchOverlay({ items, setItems, applyEbayResearch, applyCCResearch, resolveSalePrice, readOnly = false }) {
+export function useResearchOverlay({
+  items,
+  setItems,
+  applyEbayResearch,
+  applyCCResearch,
+  resolveSalePrice,
+  readOnly = false,
+  persistResearchOnComplete = true,
+}) {
   const [researchItem, setResearchItem] = useState(null);
   const [cashConvertersResearchItem, setCashConvertersResearchItem] = useState(null);
   const [salePriceConfirmModal, setSalePriceConfirmModal] = useState(null);
 
   const handleResearchComplete = useCallback((updatedState) => {
     if (updatedState?.cancel) { setResearchItem(null); return; }
-    if (updatedState && researchItem && !readOnly) {
+    if (updatedState && researchItem && persistResearchOnComplete) {
       const currentItem = items.find(i => i.id === researchItem.id);
       setItems(prev => prev.map(i => {
         if (i.id !== researchItem.id) return i;
@@ -30,11 +39,11 @@ export function useResearchOverlay({ items, setItems, applyEbayResearch, applyCC
       maybeShowSalePriceConfirm(updatedState, currentItem, researchItem, setSalePriceConfirmModal, resolveSalePrice, 'ebay');
     }
     setResearchItem(null);
-  }, [researchItem, items, readOnly, setItems, applyEbayResearch, resolveSalePrice]);
+  }, [researchItem, items, persistResearchOnComplete, setItems, applyEbayResearch, resolveSalePrice]);
 
   const handleCashConvertersResearchComplete = useCallback((updatedState) => {
     if (updatedState?.cancel) { setCashConvertersResearchItem(null); return; }
-    if (updatedState && cashConvertersResearchItem && !readOnly) {
+    if (updatedState && cashConvertersResearchItem && persistResearchOnComplete) {
       const currentItem = items.find(i => i.id === cashConvertersResearchItem.id);
       setItems(prev => prev.map(i => {
         if (i.id !== cashConvertersResearchItem.id) return i;
@@ -43,7 +52,7 @@ export function useResearchOverlay({ items, setItems, applyEbayResearch, applyCC
       maybeShowSalePriceConfirm(updatedState, currentItem, cashConvertersResearchItem, setSalePriceConfirmModal, resolveSalePrice, 'cashConverters');
     }
     setCashConvertersResearchItem(null);
-  }, [cashConvertersResearchItem, items, readOnly, setItems, applyCCResearch, resolveSalePrice]);
+  }, [cashConvertersResearchItem, items, persistResearchOnComplete, setItems, applyCCResearch, resolveSalePrice]);
 
   return {
     researchItem,

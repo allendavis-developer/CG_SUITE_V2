@@ -527,14 +527,18 @@ const useAppStore = create(
             const merged = { ...product, ...priceData, listingPageUrl: data.listingPageUrl };
             set({ cexProductData: merged });
             showNotification?.('CeX product loaded', 'success');
+            return merged;
           } else if (data?.cancelled) {
             // Tab closed or extension cancelled — workspace closes in AppHeader; no error toast
+            return null;
           } else {
             showNotification?.(data?.error || 'No data returned', 'error');
+            return null;
           }
         } catch (err) {
           console.error('[Store] handleAddFromCeX error:', err);
           showNotification?.(err?.message || 'Extension communication failed', 'error');
+          return null;
         } finally {
           set({ cexLoading: false });
         }

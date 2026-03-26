@@ -88,6 +88,7 @@ export default function CexProductView({
             competitorStats={cexCompetitorStats}
             ourSalePrice={resolvedOurSalePrice}
             referenceData={refData}
+            cexProductUrl={item.cexUrl}
             ebayData={item.ebayResearchData || null}
             cashConvertersData={item.cashConvertersResearchData || null}
             onOpenEbayResearch={() => setCeXEbayModalOpen(true)}

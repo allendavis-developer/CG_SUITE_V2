@@ -91,7 +91,14 @@ export function mapRequestItemsToCartItems(items, transactionType) {
       ebayResearchBlob?.stats && ebayResearchBlob?.selectedFilters
     );
 
+    const cexTitle = item.variant_details?.title;
+    const rawCeXTitle = (!isEbayResearchPayload || isAddFromCeXPayload)
+      ? rawData?.title || rawData?.modelName
+      : null;
+    const isCexItem = !!(cexTitle || rawCeXTitle || isAddFromCeXPayload);
+
     if (
+      !isCexItem &&
       (isEbayResearchPayload || hasPersistedExtensionEbayResearch) &&
       savedCashOffers.length === 0 &&
       Array.isArray(ebayResearchBlob?.buyOffers)
@@ -122,11 +129,7 @@ export function mapRequestItemsToCartItems(items, transactionType) {
     const hasSavedDisplay =
       savedDisplayTitle != null && savedDisplayTitle !== '';
 
-    const cexTitle = item.variant_details?.title;
     const variantId = item.variant_details?.variant_id ?? null;
-    const rawCeXTitle = (!isEbayResearchPayload || isAddFromCeXPayload)
-      ? rawData?.title || rawData?.modelName
-      : null;
     const rawEbayTitle =
       isEbayResearchPayload || hasPersistedExtensionEbayResearch
         ? ebayResearchBlob?.searchTerm || ebayResearchBlob?.title || null
@@ -147,7 +150,6 @@ export function mapRequestItemsToCartItems(items, transactionType) {
             : '')
         : null;
 
-    const isCexItem = !!(cexTitle || rawCeXTitle || isAddFromCeXPayload);
     const cexSku = item.variant_details?.cex_sku || rawData?.id || null;
     const productName = item.variant_details?.product_name || null;
     const categoryId = item.variant_details?.category_id ?? null;
@@ -227,6 +229,7 @@ export function mapRequestItemsToCartItems(items, transactionType) {
       cexSellPrice,
       cexOutOfStock: item.variant_details?.cex_out_of_stock ?? rawData?.isOutOfStock ?? false,
       ourSalePrice,
+      rrpOffersSource: rawData?.rrpOffersSource ?? null,
     };
 
     if (isAddFromCeXPayload) {
@@ -342,6 +345,22 @@ export function mapRequestItemsToCartItems(items, transactionType) {
       }
       if (cartItem.image == null) cartItem.image = rawData?.image || null;
       if (!cartItem.cexSku) cartItem.cexSku = rawData?.id ?? null;
+    }
+
+    if (!cartItem.cexUrl) {
+      const rd = cartItem.referenceData || {};
+      const rawRd = rawData?.referenceData || rawData?.reference_data;
+      const skuForUrl =
+        cartItem.cexSku ??
+        rd.cex_sku ??
+        rd.id ??
+        rawRd?.cex_sku ??
+        rawRd?.id ??
+        item.variant_details?.cex_sku ??
+        (cartItem.isCustomCeXItem && rawData?.id != null ? rawData.id : null);
+      if (skuForUrl != null && String(skuForUrl).trim() !== '') {
+        cartItem.cexUrl = `https://uk.webuy.com/product-detail?id=${skuForUrl}`;
+      }
     }
 
     return cartItem;

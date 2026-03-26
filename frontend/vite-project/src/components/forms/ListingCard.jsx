@@ -25,7 +25,7 @@ const ListingCard = React.memo(function ListingCard({ item, origIdx, sortedIdx, 
         href={item.url}
         target="_blank"
         rel="noopener noreferrer"
-        className={`flex gap-4 rounded-xl border p-4 hover:shadow-md transition-[background-color,border-color,box-shadow] duration-150 ${
+        className={`flex gap-4 rounded-xl border p-4 ring-2 ring-transparent hover:bg-gray-100 hover:ring-brand-blue transition-[background-color,border-color,box-shadow] duration-150 ${
           item.excluded ? 'bg-orange-50/60 border-orange-300' : 'bg-white border-gray-200'
         }`}
         style={entryAnimationStyle}

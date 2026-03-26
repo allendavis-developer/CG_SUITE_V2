@@ -15,11 +15,15 @@ import { useProductAttributes } from '@/pages/buyer/hooks/useProductAttributes';
 import { fetchVariantPrices, updateRequestItemRawData } from '@/services/api';
 import { mapTransactionTypeToIntent } from '@/utils/transactionConstants';
 import { roundOfferPrice, roundSalePrice, toVoucherOfferPrice, formatOfferPrice } from '@/utils/helpers';
+import { EBAY_TOP_LEVEL_CATEGORY } from '@/pages/buyer/constants';
+import {
+  referenceDataWithNormalizedCexOffers,
+  ourSalePriceFieldFromVariantResponse,
+  slimCexNegotiationOfferRows,
+} from '@/utils/cexOfferMapping';
 import { validateBuyerCartItemOffers } from '@/utils/cartOfferValidation';
 import useAppStore, { useCartItems, useSelectedCartItem, useIsRepricing, useUseVoucherOffers } from '@/store/useAppStore';
 import { useNotification } from '@/contexts/NotificationContext';
-
-const EBAY_TOP_LEVEL_CATEGORY = { name: 'eBay', path: ['eBay'] };
 
 const MainContent = ({ mode = 'buyer' }) => {
   const isRepricing = useIsRepricing();
@@ -114,17 +118,10 @@ const MainContent = ({ mode = 'buyer' }) => {
       setIsLoadingOffers(true);
       try {
         const data = await fetchVariantPrices(variant);
-        setOffers(useVoucherOffers ? data.voucher_offers : data.cash_offers);
-        const cexBased = data.referenceData?.cex_based_sale_price;
-        setReferenceData({
-          ...data.referenceData,
-          cash_offers: data.cash_offers,
-          voucher_offers: data.voucher_offers,
-          our_sale_price: cexBased != null && Number.isFinite(Number(cexBased)) ? roundSalePrice(Number(cexBased)) : null,
-        });
-        if (cexBased != null && Number.isFinite(Number(cexBased))) {
-          setOurSalePrice(String(roundSalePrice(Number(cexBased))));
-        }
+        const referenceData = referenceDataWithNormalizedCexOffers(data);
+        setOffers(useVoucherOffers ? referenceData.voucher_offers : referenceData.cash_offers);
+        setReferenceData(referenceData);
+        setOurSalePrice(ourSalePriceFieldFromVariantResponse(data));
       } catch { setOffers([]); setReferenceData(null); setOurSalePrice(''); }
       finally { setIsLoadingOffers(false); }
     };
@@ -205,13 +202,13 @@ const MainContent = ({ mode = 'buyer' }) => {
   // ── Cart item creation ──
   const buildCartItem = (selectedOfferIdForItem, manualOfferPerUnit) => {
     const selectedVariant = variants.find((v) => v.cex_sku === variant);
-    const cashOffers = referenceData?.cash_offers?.map((o) => ({ id: o.id, title: o.title, price: o.id?.endsWith('_3') ? Number(o.price) : roundOfferPrice(o.price) })) || [];
-    const voucherOffers = referenceData?.voucher_offers?.map((o) => ({ id: o.id, title: o.title, price: o.id?.endsWith('_3') ? Number(o.price) : roundOfferPrice(o.price) })) || [];
+    const cashOffers = slimCexNegotiationOfferRows(referenceData?.cash_offers);
+    const voucherOffers = slimCexNegotiationOfferRows(referenceData?.voucher_offers);
     return {
       id: crypto.randomUUID?.() ?? `cart-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       title: selectedModel.name,
       subtitle: selectedVariant?.title || Object.values(attributeValues).filter((v) => v).join(' / ') || 'Standard',
-      offers: offers.map((o) => ({ id: o.id, title: o.title, price: o.id?.endsWith('_3') ? Number(o.price) : roundOfferPrice(o.price) })),
+      offers: slimCexNegotiationOfferRows(offers),
       cashOffers, voucherOffers, quantity: 1,
       variantId: selectedVariant?.variant_id,
       category: selectedCategory?.name,

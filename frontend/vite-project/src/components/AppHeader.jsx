@@ -9,7 +9,12 @@ import EbayResearchForm from '@/components/forms/EbayResearchForm';
 import CexProductView from '@/pages/buyer/components/CexProductView';
 import { useProductAttributes } from '@/pages/buyer/hooks/useProductAttributes';
 import { fetchProductModels, fetchVariantPrices } from '@/services/api';
-import { formatOfferPrice, roundOfferPrice, roundSalePrice } from '@/utils/helpers';
+import { formatOfferPrice, roundSalePrice } from '@/utils/helpers';
+import {
+  referenceDataWithNormalizedCexOffers,
+  ourSalePriceFieldFromVariantResponse,
+  slimCexNegotiationOfferRows,
+} from '@/utils/cexOfferMapping';
 import WorkspaceCloseButton from '@/components/ui/WorkspaceCloseButton';
 
 const AppHeader = ({
@@ -223,20 +228,10 @@ const AppHeader = ({
     fetchVariantPrices(variant)
       .then((data) => {
         if (cancelled) return;
-        const cashOffers = (data?.cash_offers || []).map((o) => ({ ...o, price: roundOfferPrice(o.price) }));
-        const voucherOffers = (data?.voucher_offers || []).map((o) => ({ ...o, price: roundOfferPrice(o.price) }));
-        setOffers(useVoucherOffers ? voucherOffers : cashOffers);
-        setReferenceData({
-          ...(data?.referenceData || {}),
-          cash_offers: cashOffers,
-          voucher_offers: voucherOffers,
-        });
-        const cexBased = data?.referenceData?.cex_based_sale_price;
-        if (cexBased != null && Number.isFinite(Number(cexBased))) {
-          setOurSalePrice(String(roundSalePrice(Number(cexBased))));
-        } else {
-          setOurSalePrice('');
-        }
+        const referenceData = referenceDataWithNormalizedCexOffers(data);
+        setOffers(useVoucherOffers ? referenceData.voucher_offers : referenceData.cash_offers);
+        setReferenceData(referenceData);
+        setOurSalePrice(ourSalePriceFieldFromVariantResponse(data));
       })
       .finally(() => {
         if (!cancelled) setIsLoadingOffers(false);
@@ -417,12 +412,8 @@ const AppHeader = ({
   const handleAddNegotiationItem = async (offerArg) => {
     if (!showNegotiationItemBuilder || !selectedModel || !variant || !buyerControls?.onAddNegotiationItem) return;
     const selectedVariant = variants.find((v) => v.cex_sku === variant);
-    const cashOffers = referenceData?.cash_offers?.map((o) => ({
-      id: o.id, title: o.title, price: roundOfferPrice(o.price),
-    })) || [];
-    const voucherOffers = referenceData?.voucher_offers?.map((o) => ({
-      id: o.id, title: o.title, price: roundOfferPrice(o.price),
-    })) || [];
+    const cashOffers = slimCexNegotiationOfferRows(referenceData?.cash_offers);
+    const voucherOffers = slimCexNegotiationOfferRows(referenceData?.voucher_offers);
     let selectedOfferId = null;
     let manualOffer = null;
     if (offerArg && typeof offerArg === 'object' && offerArg.type === 'manual') {
@@ -603,18 +594,18 @@ const AppHeader = ({
                         prev.includes(category.category_id) ? prev : [...prev, category.category_id]
                       );
                     }}
-                    className={`min-h-10 inline-flex items-center gap-2 px-2 py-1.5 text-left text-xs font-semibold transition-colors ${
+                    className={`min-h-11 inline-flex items-center gap-2 px-2.5 py-2 text-left text-sm font-bold transition-colors ${
                       isHighlighted
                         ? 'text-brand-orange/90 underline decoration-brand-orange/80 decoration-2 underline-offset-4'
                         : 'text-white/90 hover:text-white'
                     }`}
                   >
-                    <span className="material-symbols-outlined text-sm opacity-80">folder</span>
+                    <span className="material-symbols-outlined text-[18px] opacity-85">folder</span>
                     <span className="truncate">{category.name}</span>
                   </button>
                 );
               })}
-              <div className="flex h-10 min-w-[340px] items-stretch overflow-hidden rounded-lg border border-white/25 bg-white/10">
+              <div className="flex h-11 min-w-[380px] md:min-w-[480px] lg:min-w-[580px] xl:min-w-[680px] max-w-4xl flex-1 items-stretch overflow-hidden rounded-lg border-2 border-slate-200/95 bg-white shadow-[0_4px_20px_rgba(0,0,0,0.18)] ring-2 ring-white/70">
                 <input
                   type="text"
                   value={headerSearch}
@@ -628,7 +619,7 @@ const AppHeader = ({
                     setMarketplaceSearchDialog(q);
                   }}
                   placeholder="Type in a search term"
-                  className="h-full w-full bg-transparent px-3 text-sm font-medium text-white placeholder:text-white/60 focus:outline-none"
+                  className="h-full min-w-0 flex-1 bg-white px-4 text-sm font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-blue/25"
                 />
                 <button
                   type="button"
@@ -638,10 +629,10 @@ const AppHeader = ({
                     setWorkspaceMode('ebay');
                     setActiveTopLevelId(null);
                   }}
-                  className={`h-full min-w-11 border-l px-3 text-sm font-extrabold uppercase tracking-wide transition-colors ${
+                  className={`h-full min-w-[3rem] shrink-0 border-l-2 border-slate-200 px-3.5 text-sm font-extrabold uppercase tracking-wide transition-colors ${
                     workspaceMode === 'ebay'
-                      ? 'border-brand-orange/70 bg-brand-orange/25 text-brand-orange/80 ring-1 ring-inset ring-brand-orange/50'
-                      : 'border-white/20 bg-white/5 text-white hover:bg-white/15'
+                      ? 'bg-emerald-700 text-white shadow-inner ring-2 ring-inset ring-emerald-400/90'
+                      : 'bg-emerald-600 text-white hover:bg-emerald-700'
                   }`}
                   title="eBay"
                 >
@@ -656,10 +647,10 @@ const AppHeader = ({
                     setActiveTopLevelId(null);
                   }}
                   disabled={buyerControls?.isCeXLoading}
-                  className={`h-full min-w-11 border-l px-3 text-sm font-extrabold uppercase tracking-wide transition-colors ${
+                  className={`h-full min-w-[3rem] shrink-0 border-l-2 border-slate-200 px-3.5 text-sm font-extrabold uppercase tracking-wide transition-colors ${
                     workspaceMode === 'cex'
-                      ? 'border-brand-orange/70 bg-brand-orange/25 text-brand-orange/80 ring-1 ring-inset ring-brand-orange/50'
-                      : 'border-white/20 bg-white/5 text-white hover:bg-white/15'
+                      ? 'bg-red-700 text-white shadow-inner ring-2 ring-inset ring-red-300/90'
+                      : 'bg-red-600 text-white hover:bg-red-700'
                   } disabled:cursor-not-allowed disabled:opacity-60`}
                   title="Add from CeX"
                 >
@@ -694,9 +685,10 @@ const AppHeader = ({
                       : 'w-[420px] max-h-[440px] overflow-y-auto rounded-l-xl border border-white/10 bg-brand-blue p-2 shadow-2xl'
                   }
                 >
-                <div className="mb-2 border-b border-white/10 px-2 pb-2">
-                  <p className="text-xs font-bold uppercase tracking-wide text-white/70">
-                    {activeTopLevelCategory.name} Categories
+                <div className="mb-3 border-b border-white/20 px-2 pb-3">
+                  <p className="text-lg sm:text-xl font-black uppercase tracking-wide text-white leading-snug">
+                    <span className="text-white">{activeTopLevelCategory.name}</span>
+                    <span className="ml-2 text-brand-orange drop-shadow-sm">Categories</span>
                   </p>
                 </div>
                 <div className="px-2 pb-3">
@@ -926,7 +918,7 @@ const AppHeader = ({
               <button
                 type="button"
                 disabled={!ebayTopLevelCategory}
-                className="rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-bold text-brand-blue hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-lg border-2 border-emerald-700 bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={() => {
                   if (!ebayTopLevelCategory) return;
                   handleCategorySelect(ebayTopLevelCategory);
@@ -940,7 +932,7 @@ const AppHeader = ({
               <button
                 type="button"
                 disabled={buyerControls?.isCeXLoading}
-                className="rounded-lg bg-brand-blue px-4 py-2.5 text-sm font-bold text-white hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-lg border-2 border-red-800 bg-red-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={() => {
                   setWorkspaceMode('cex');
                   buyerControls?.onAddFromCeX?.({ searchQuery: marketplaceSearchDialog });

@@ -122,6 +122,8 @@ export default function ResearchFormShell({
   onCompleteWithSelection = null,
   mode = "modal",
   readOnly = false,
+  /** Optional banner below modal header: preview / non-persisting research session. */
+  ephemeralSessionNotice = null,
   basicFilterOptions = ["Completed & Sold", "Used", "UK Only"],
   searchPlaceholder = "Search listings...",
   headerTitle = "Market Research",
@@ -611,8 +613,8 @@ export default function ResearchFormShell({
         <StatCard
           label="Suggested Sale Price"
           value={activeStats?.suggestedPrice}
-          valueClass="text-green-600"
-          cardClass="bg-green-50 border-green-200"
+          valueClass="text-red-600"
+          cardClass="bg-red-50 border-red-200"
           tooltipContent={wo && (
             <><div className="font-semibold text-gray-200 mb-1">Suggested Sale Price</div><div>Median £{formatStat(activeStats?.median)} − £1 = £{formatStat(wo.preSuggestedRaw)}; rounded to {wo.suggestedSaleRoundingLabel} → £{formatStat(activeStats?.suggestedPrice)}</div></>
           )}
@@ -805,7 +807,7 @@ export default function ResearchFormShell({
             const inner = (
               <>
                 <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider leading-none">{offerLabels[idx]}</span>
-                <span className={`text-lg font-extrabold leading-tight ${isSelected ? 'text-brand-blue' : 'text-brand-blue'}`}>
+                <span className={`text-lg font-extrabold leading-tight ${isSelected ? 'text-brand-blue' : 'text-brand-blue group-hover:text-green-600'}`}>
                   £{formatStat(price)}
                 </span>
                 {pctOfSale != null && (
@@ -829,7 +831,7 @@ export default function ResearchFormShell({
                       className={`flex flex-col text-left cursor-pointer transition-all focus:outline-none rounded-lg border px-2.5 py-1.5 shadow-sm ${
                         isSelected
                           ? 'ring-2 ring-brand-blue bg-brand-blue/10 border-brand-blue/30'
-                          : 'bg-brand-blue/5 border-brand-blue/20 hover:bg-brand-blue/10 hover:border-brand-blue/30 active:scale-[0.99]'
+                          : 'group bg-brand-blue/5 border-brand-blue/20 hover:bg-green-50 hover:border-green-200 active:scale-[0.99]'
                       }`}
                       onClick={
                         useAddWithOfferFlow
@@ -920,7 +922,7 @@ export default function ResearchFormShell({
     othersModalSig && othersSummarySig && othersModalSig === othersSummarySig && otherResearchSummaries
   );
 
-  // When opening "Others", we may temporarily force 1-column layout so the popup doesn't overlap the grid.
+  // When opening "Others", temporarily force 1-column layout so the grid shares horizontal space cleanly with the side panel.
   // Only restore 2-column layout if we were the reason it changed.
   const othersForcedOneColRef = useRef(false);
 
@@ -949,26 +951,17 @@ export default function ResearchFormShell({
 
   const othersButtonBlock =
     canShowOthers && (
-      <div className="relative shrink-0">
+      <div className="shrink-0">
         <Button
           variant="secondary"
           size="md"
           className="shrink-0 justify-center text-xs font-bold uppercase tracking-wide shadow-md whitespace-nowrap px-4"
           onClick={handleToggleOthersPanel}
         >
-          {othersPanelOpen ? 'Close others' : 'Others'}
+          Others
         </Button>
       </div>
     );
-
-  // Anchor the popup to the listing-card right edge (the boundary before the w-80 histogram column),
-  // while keeping the button next to OK in the action area.
-  const othersPopoverEl = othersPanelOpen && (
-    <ResearchOthersModal
-      summaries={otherResearchSummaries}
-      className="right-full top-full mt-1.5 -translate-x-72"
-    />
-  );
 
   const actionButtonsEl = (
     <div className="flex items-center gap-1.5 flex-1 min-w-0 justify-end">
@@ -1280,11 +1273,19 @@ export default function ResearchFormShell({
           </div>
 
           {/* Right section: actions — w-80 matches histogram width */}
-          <div className="w-80 shrink-0 flex items-center gap-2 justify-end px-4 py-2.5 relative">
+          <div className="w-80 shrink-0 flex items-center gap-2 justify-end px-4 py-2.5">
             {listings && actionButtonsEl}
-            {listings && othersPopoverEl}
           </div>
         </header>
+      )}
+
+      {mode === "modal" && ephemeralSessionNotice && (
+        <div
+          className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2.5 text-center text-xs font-semibold text-amber-950"
+          role="status"
+        >
+          {ephemeralSessionNotice}
+        </div>
       )}
 
       {/* ── PAGE MODE: banner 1 (search term + stats + offers + add to cart) ── */}
@@ -1293,9 +1294,8 @@ export default function ResearchFormShell({
           <div className="flex-1 min-w-0 flex items-center gap-3 pl-4 pr-6 py-2.5 flex-wrap">
             {banner1MainContent}
           </div>
-          <div className="w-80 shrink-0 flex items-center gap-2 justify-end px-4 py-2.5 relative">
+          <div className="w-80 shrink-0 flex items-center gap-2 justify-end px-4 py-2.5">
             {actionButtonsEl}
-            {othersPopoverEl}
           </div>
         </div>
       )}
@@ -1417,51 +1417,62 @@ export default function ResearchFormShell({
           <main className="flex-1 min-h-0 overflow-hidden bg-gray-100 flex">
             <div className="flex-1 min-h-0 min-w-0 flex flex-col">
               <div
-                className={`flex-1 min-h-0 overflow-y-auto histogram-scrollbar ${
+                className={`flex-1 min-h-0 overflow-y-auto min-w-0 histogram-scrollbar ${
                   displayedListings && displayedListings.length > 0 ? 'px-6 pb-6 pt-4' : 'p-6'
-                }`}
+                } ${othersPanelOpen ? 'flex flex-row gap-4 items-start' : ''}`}
               >
-                {/* Breadcrumb navigation */}
-                {drillHistory.length > 0 && (
-                  <div className="mb-4 flex items-center gap-2 text-xs font-medium">
-                    <button
-                      onClick={() => onNavigateToDrillLevel && onNavigateToDrillLevel(0)}
-                      className="text-brand-blue hover:underline flex items-center gap-1"
-                    >
-                      <span className="material-symbols-outlined text-sm">home</span>
-                      All Prices
-                    </button>
-                    {drillHistory.map((range, idx) => (
-                      <React.Fragment key={idx}>
-                        <span className="text-gray-400">/</span>
-                        <button
-                          onClick={() => onNavigateToDrillLevel && onNavigateToDrillLevel(idx + 1)}
-                          className={idx === drillHistory.length - 1 ? 'text-gray-900 font-bold' : 'text-brand-blue hover:underline'}
-                        >
-                          £{range.min.toFixed(2)} - £{range.max.toFixed(2)}
-                        </button>
-                      </React.Fragment>
+                <div className={othersPanelOpen ? 'flex-1 min-w-0' : ''}>
+                  {/* Breadcrumb navigation */}
+                  {drillHistory.length > 0 && (
+                    <div className="mb-4 flex items-center gap-2 text-xs font-medium">
+                      <button
+                        onClick={() => onNavigateToDrillLevel && onNavigateToDrillLevel(0)}
+                        className="text-brand-blue hover:underline flex items-center gap-1"
+                      >
+                        <span className="material-symbols-outlined text-sm">home</span>
+                        All Prices
+                      </button>
+                      {drillHistory.map((range, idx) => (
+                        <React.Fragment key={idx}>
+                          <span className="text-gray-400">/</span>
+                          <button
+                            onClick={() => onNavigateToDrillLevel && onNavigateToDrillLevel(idx + 1)}
+                            className={idx === drillHistory.length - 1 ? 'text-gray-900 font-bold' : 'text-brand-blue hover:underline'}
+                          >
+                            £{range.min.toFixed(2)} - £{range.max.toFixed(2)}
+                          </button>
+                        </React.Fragment>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Listings grid */}
+                  <div className={`grid ${twoColumnLayout ? 'grid-cols-2' : 'grid-cols-1'} gap-4`}>
+                    {displayListings.map(({ item, origIdx, sortedIdx }, displayIdx) => (
+                      <ListingCard
+                        key={`${item._id || item.title}-${origIdx}`}
+                        item={item}
+                        origIdx={origIdx}
+                        sortedIdx={sortedIdx}
+                        displayIdx={displayIdx}
+                        onExcludeClick={handleExcludeClick}
+                        onExcludeContextMenu={handleExcludeContextMenu}
+                        showExcludeButton={Boolean(onToggleExclude && !readOnly)}
+                        readOnly={readOnly}
+                        isPivot={rightClickPivotIdx === sortedIdx}
+                      />
                     ))}
                   </div>
-                )}
-
-                {/* Listings grid */}
-                <div className={`grid ${twoColumnLayout ? 'grid-cols-2' : 'grid-cols-1'} gap-4`}>
-                  {displayListings.map(({ item, origIdx, sortedIdx }, displayIdx) => (
-                    <ListingCard
-                      key={`${item._id || item.title}-${origIdx}`}
-                      item={item}
-                      origIdx={origIdx}
-                      sortedIdx={sortedIdx}
-                      displayIdx={displayIdx}
-                      onExcludeClick={handleExcludeClick}
-                      onExcludeContextMenu={handleExcludeContextMenu}
-                      showExcludeButton={Boolean(onToggleExclude && !readOnly)}
-                      readOnly={readOnly}
-                      isPivot={rightClickPivotIdx === sortedIdx}
-                    />
-                  ))}
                 </div>
+
+                {/* Other channel summaries — horizontal column beside listing cards */}
+                {othersPanelOpen && (
+                  <div
+                    className="w-[min(22rem,calc(100vw-12rem))] shrink-0 sticky top-4 max-h-[min(70vh,calc(100vh-10rem))] overflow-y-auto histogram-scrollbar self-start"
+                  >
+                    <ResearchOthersModal summaries={otherResearchSummaries} variant="inline" />
+                  </div>
+                )}
               </div>
             </div>
 

@@ -25,6 +25,16 @@ export function maybeShowSalePriceConfirm(
       : null;
 
   if (newSalePricePerUnit == null || Number.isNaN(newSalePricePerUnit)) return;
+  if (newSalePricePerUnit <= 0) {
+    setSalePriceConfirmModal({
+      itemId: researchItem.id,
+      oldPricePerUnit: oldSalePricePerUnit,
+      newPricePerUnit: newSalePricePerUnit,
+      source,
+      zeroSuggestedPrice: true,
+    });
+    return;
+  }
 
   const hasMeaningfulChange =
     oldSalePricePerUnit == null || Math.abs(newSalePricePerUnit - oldSalePricePerUnit) > 0.0005;

@@ -4,7 +4,9 @@ import AppHeader from "@/components/AppHeader";
 import CustomerTransactionHeader from './components/CustomerTransactionHeader';
 import CustomerIntakeModal from '@/components/modals/CustomerIntakeModal.jsx';
 import NegotiationItemRow from './components/NegotiationItemRow';
-import { ItemContextMenu, TargetOfferModal, ItemOfferModal, SeniorMgmtModal, MarginResultModal } from './components/NegotiationModals';
+import { TargetOfferModal, ItemOfferModal, SeniorMgmtModal, MarginResultModal } from './components/NegotiationModals';
+import NegotiationRowContextMenu from './components/NegotiationRowContextMenu';
+import { handlePriceSourceAsRrpOffersSource } from './utils/priceSourceAsRrpOffers';
 import NewCustomerDetailsModal from '@/components/modals/NewCustomerDetailsModal';
 import SalePriceConfirmModal from '@/components/modals/SalePriceConfirmModal';
 import ResearchOverlayPanel from './components/ResearchOverlayPanel';
@@ -25,34 +27,11 @@ import {
   normalizeCartItemForNegotiation,
   applyEbayResearchToItem,
   applyCashConvertersResearchToItem,
+  applyCeXProductDataToItem,
+  getDisplayOffers,
 } from './utils/negotiationHelpers';
-
-// ─── Inline styles (shared with layout) ────────────────────────────────────
-
-const NEGOTIATION_STYLES = `
-  .spreadsheet-table th {
-    background: var(--brand-blue);
-    color: white;
-    font-weight: 600;
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    padding: 0.75rem;
-    border-right: 1px solid rgba(255, 255, 255, 0.1);
-    position: sticky;
-    top: 0;
-    z-index: 10;
-  }
-  .spreadsheet-table th:last-child { border-right: 0; }
-  .spreadsheet-table td {
-    padding: 0.5rem 0.75rem;
-    border-right: 1px solid var(--ui-border);
-    vertical-align: middle;
-  }
-  .spreadsheet-table td:last-child { border-right: 0; }
-  .spreadsheet-table tr { border-bottom: 1px solid var(--ui-border); }
-  .spreadsheet-table tr:hover { background: rgba(20, 69, 132, 0.05); }
-`;
+import { EBAY_TOP_LEVEL_CATEGORY } from './constants';
+import { SPREADSHEET_TABLE_STYLES } from './spreadsheetTableStyles';
 
 // ─── Component ─────────────────────────────────────────────────────────────
 
@@ -106,6 +85,8 @@ const Negotiation = ({ mode }) => {
   const [seniorMgmtModal, setSeniorMgmtModal] = useState(null);
   const [marginResultModal, setMarginResultModal] = useState(null);
   const [isCustomerModalOpen, setCustomerModalOpen] = useState(false);
+  /** BOOKED_FOR_TESTING | COMPLETE | QUOTE | null — used for research sandbox in view mode. */
+  const [viewRequestStatus, setViewRequestStatus] = useState(null);
 
   // Refs
   const hasInitializedNegotiateRef = useRef(false);
@@ -114,6 +95,13 @@ const Negotiation = ({ mode }) => {
   const prevTransactionTypeRef = useRef(transactionType);
 
   const useVoucherOffers = transactionType === 'store_credit';
+
+  const researchSandboxBookedView =
+    mode === 'view' && viewRequestStatus === 'BOOKED_FOR_TESTING';
+  const researchFormReadOnly = mode === 'view' && !researchSandboxBookedView;
+  const researchEphemeralNotice = researchSandboxBookedView
+    ? "Nothing you change here is saved. When you close this form, it shows the request's stored research again."
+    : null;
 
   // ─── Research overlay (shared hook) ─────────────────────────────────────
   const applyEbay = useCallback((item, state) => applyEbayResearchToItem(item, state, useVoucherOffers), [useVoucherOffers]);
@@ -129,7 +117,8 @@ const Negotiation = ({ mode }) => {
     applyEbayResearch: applyEbay,
     applyCCResearch: applyCC,
     resolveSalePrice: resolveOurSalePrice,
-    readOnly: mode === 'view',
+    readOnly: researchFormReadOnly,
+    persistResearchOnComplete: mode === 'negotiate',
   });
 
   // ─── Derived values ────────────────────────────────────────────────────
@@ -148,9 +137,7 @@ const Negotiation = ({ mode }) => {
     let min = 0, max = 0;
     for (const item of activeItems) {
       const qty = item.quantity || 1;
-      const displayOffers = useVoucherOffers
-        ? (item.voucherOffers || item.offers || [])
-        : (item.cashOffers || item.offers || []);
+      const displayOffers = getDisplayOffers(item, useVoucherOffers);
       const prices = displayOffers.map(o => Number(o.price)).filter(p => !isNaN(p) && p >= 0);
       if (prices.length > 0) {
         min += Math.min(...prices) * qty;
@@ -237,14 +224,14 @@ const Negotiation = ({ mode }) => {
       if (rawSaleInput !== '') {
         const parsedTotalSale = parseFloat(rawSaleInput);
         if (!Number.isFinite(parsedTotalSale) || parsedTotalSale <= 0) {
-          showNotification(`Our sale price must be greater than £0 for item: ${item.title || 'Unknown Item'}`, 'error');
+          showNotification(`Our RRP must be greater than £0 for item: ${item.title || 'Unknown Item'}`, 'error');
           return;
         }
       }
 
       const resolvedSalePrice = resolveOurSalePrice(item);
       if (!Number.isFinite(Number(resolvedSalePrice)) || Number(resolvedSalePrice) <= 0) {
-        showNotification(`Please set a valid Our Sale Price above £0 for item: ${item.title || 'Unknown Item'}`, 'error');
+        showNotification(`Please set a valid Our RRP above £0 for item: ${item.title || 'Unknown Item'}`, 'error');
         return;
       }
     }
@@ -426,7 +413,7 @@ const Negotiation = ({ mode }) => {
       subtitle: 'eBay Research',
       quantity: 1,
       category: 'eBay',
-      categoryObject: { name: 'eBay', path: ['eBay'] },
+      categoryObject: EBAY_TOP_LEVEL_CATEGORY,
       offers: displayOffers,
       cashOffers,
       voucherOffers,
@@ -440,6 +427,17 @@ const Negotiation = ({ mode }) => {
     };
     await handleAddNegotiationItem(customItem);
   }, [handleAddNegotiationItem, useVoucherOffers]);
+
+  const handleRefreshCeXData = useCallback(async (item) => {
+    const searchQuery = buildInitialSearchQuery(item);
+    const cexData = await handleAddFromCeX({ showNotification, ...(searchQuery ? { searchQuery } : {}) });
+    if (!cexData) return;
+    setItems((prev) => prev.map((row) => (
+      row.id === item.id ? applyCeXProductDataToItem(row, cexData, useVoucherOffers) : row
+    )));
+    // Row-level CeX refresh should not leave header workspace product state behind.
+    clearCexProduct();
+  }, [handleAddFromCeX, showNotification, useVoucherOffers, clearCexProduct]);
 
   // ─── Effects: initialization ───────────────────────────────────────────
 
@@ -485,6 +483,7 @@ const Negotiation = ({ mode }) => {
           const txType = data.intent === 'DIRECT_SALE' ? 'sale' : data.intent === 'BUYBACK' ? 'buyback' : 'store_credit';
           const isBookedOrComplete = status === 'BOOKED_FOR_TESTING' || status === 'COMPLETE';
 
+          setViewRequestStatus(status || null);
           setCustomerData(mapRequestToCustomerData(data));
           setTotalExpectation(data.overall_expectation_gbp?.toString() || '');
           setTargetOffer(data.target_offer_gbp != null ? data.target_offer_gbp.toString() : '');
@@ -569,8 +568,8 @@ const Negotiation = ({ mode }) => {
       if (item.selectedOfferId === 'manual') return item;
         const prevUseVoucher = prevType === 'store_credit';
         const newUseVoucher = transactionType === 'store_credit';
-      const prevOffers = prevUseVoucher ? (item.voucherOffers || item.offers) : (item.cashOffers || item.offers);
-      const newOffers = newUseVoucher ? (item.voucherOffers || item.offers) : (item.cashOffers || item.offers);
+      const prevOffers = getDisplayOffers(item, prevUseVoucher);
+      const newOffers = getDisplayOffers(item, newUseVoucher);
         if (!prevOffers || !newOffers) return item;
         const prevIndex = prevOffers.findIndex(o => o.id === item.selectedOfferId);
         if (prevIndex < 0 || !newOffers[prevIndex]) return item;
@@ -659,7 +658,7 @@ const Negotiation = ({ mode }) => {
     <div className="bg-ui-bg text-text-main min-h-screen flex flex-col text-sm overflow-hidden">
       <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
       <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
-      <style>{NEGOTIATION_STYLES}</style>
+      <style>{SPREADSHEET_TABLE_STYLES}</style>
 
       {mode === 'negotiate' && (
         <CustomerIntakeModal
@@ -732,10 +731,7 @@ const Negotiation = ({ mode }) => {
                     <label className="block text-[10px] font-black uppercase tracking-wider mb-1" style={{ color: 'var(--brand-blue)' }}>
                       Offer Min
                     </label>
-                    <p className="text-[9px] mb-2" style={{ color: 'var(--text-muted)' }}>
-                      {useVoucherOffers ? '(Voucher)' : '(Cash)'}
-                    </p>
-                    <div className="flex items-baseline gap-1">
+                    <div className="flex items-baseline gap-1 mt-2">
                       <span className="font-bold text-base" style={{ color: 'var(--brand-blue)' }}>£</span>
                       <span className="text-xl font-black tracking-tight" style={{ color: 'var(--brand-blue)' }}>
                         {offerMin !== null ? formatOfferPrice(offerMin) : '—'}
@@ -747,10 +743,7 @@ const Negotiation = ({ mode }) => {
                     <label className="block text-[10px] font-black uppercase tracking-wider mb-1" style={{ color: 'var(--brand-blue)' }}>
                       Offer Max
                     </label>
-                    <p className="text-[9px] mb-2" style={{ color: 'var(--text-muted)' }}>
-                      {useVoucherOffers ? '(Voucher)' : '(Cash)'}
-                    </p>
-                    <div className="flex items-baseline gap-1">
+                    <div className="flex items-baseline gap-1 mt-2">
                       <span className="font-bold text-base" style={{ color: 'var(--brand-blue)' }}>£</span>
                       <span className="text-xl font-black tracking-tight" style={{ color: 'var(--brand-blue)' }}>
                         {offerMax !== null ? formatOfferPrice(offerMax) : '—'}
@@ -801,15 +794,15 @@ const Negotiation = ({ mode }) => {
                 <tr>
                   <th className="w-12 text-center">Qty</th>
                   <th className="min-w-[220px]">Item Name &amp; Attributes</th>
-                  <th className="w-24">CeX Buy (Cash)</th>
-                  <th className="w-24">CeX Buy (Voucher)</th>
-                  <th className="w-24">CeX Sell</th>
-                  <th className="w-24">1st Offer {useVoucherOffers ? '(Voucher)' : '(Cash)'}</th>
-                  <th className="w-24">2nd Offer {useVoucherOffers ? '(Voucher)' : '(Cash)'}</th>
-                  <th className="w-24">3rd Offer {useVoucherOffers ? '(Voucher)' : '(Cash)'}</th>
-                  <th className="w-36">Manual Offer</th>
+                  <th className="w-24 spreadsheet-th-cex">Sell</th>
+                  <th className="w-24 spreadsheet-th-cex">Voucher</th>
+                  <th className="w-24 spreadsheet-th-cex">Cash</th>
+                  <th className="w-24 spreadsheet-th-offer-tier">1st</th>
+                  <th className="w-24 spreadsheet-th-offer-tier">2nd</th>
+                  <th className="w-24 spreadsheet-th-offer-tier">3rd</th>
+                  <th className="w-36">Manual</th>
                   <th className="w-32">Customer Expectation</th>
-                  <th className="w-24">Our Sale Price</th>
+                  <th className="w-24">Our RRP</th>
                   <th className="w-36">eBay Price</th>
                   <th className="w-36">Cash Converters</th>
                 </tr>
@@ -821,15 +814,18 @@ const Negotiation = ({ mode }) => {
                     item={item}
                     index={index}
                     mode={mode}
+                    allowResearchSandboxInView={researchSandboxBookedView}
                     useVoucherOffers={useVoucherOffers}
                     onQuantityChange={handleQuantityChange}
                     onSelectOffer={handleSelectOffer}
-                    onContextMenu={(e, it) => setContextMenu({ x: e.clientX, y: e.clientY, item: it })}
+                    onRowContextMenu={(e, it, zone) =>
+                      setContextMenu({ x: e.clientX, y: e.clientY, item: it, zone })}
                     onSetManualOffer={(it) => setItemOfferModal({ item: it })}
                     onCustomerExpectationChange={handleCustomerExpectationChange}
                     onOurSalePriceChange={handleOurSalePriceChange}
                     onOurSalePriceBlur={handleOurSalePriceBlur}
                     onOurSalePriceFocus={handleOurSalePriceFocus}
+                    onRefreshCeXData={handleRefreshCeXData}
                     onReopenResearch={setResearchItem}
                     onReopenCashConvertersResearch={setCashConvertersResearchItem}
                   />
@@ -910,11 +906,11 @@ const Negotiation = ({ mode }) => {
 
             <button
               className={`w-full font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 group active:scale-[0.98] ${
-                mode === 'view' || headerWorkspaceOpen || (hasTarget && !targetMatched) ? 'opacity-50 cursor-not-allowed' : ''
+                mode === 'view' || headerWorkspaceOpen || researchItem || cashConvertersResearchItem || (hasTarget && !targetMatched) ? 'opacity-50 cursor-not-allowed' : ''
               }`}
               style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)', boxShadow: '0 10px 15px -3px rgba(247, 185, 24, 0.3)' }}
-              onClick={mode === 'view' || headerWorkspaceOpen || (hasTarget && !targetMatched) ? undefined : handleFinalizeTransaction}
-              disabled={mode === 'view' || headerWorkspaceOpen || (hasTarget && !targetMatched)}
+              onClick={mode === 'view' || headerWorkspaceOpen || researchItem || cashConvertersResearchItem || (hasTarget && !targetMatched) ? undefined : handleFinalizeTransaction}
+              disabled={mode === 'view' || headerWorkspaceOpen || researchItem || cashConvertersResearchItem || (hasTarget && !targetMatched)}
             >
               <span className="text-base uppercase tracking-tight">Book for Testing</span>
               <span className="material-symbols-outlined text-xl group-hover:translate-x-1 transition-transform">arrow_forward</span>
@@ -934,7 +930,8 @@ const Negotiation = ({ mode }) => {
           cashConvertersResearchItem={cashConvertersResearchItem}
           onResearchComplete={handleResearchComplete}
           onCashConvertersResearchComplete={handleCashConvertersResearchComplete}
-          readOnly={mode === 'view'}
+          readOnly={researchFormReadOnly}
+          ephemeralSessionNotice={researchEphemeralNotice}
           showManualOffer={true}
           useVoucherOffers={useVoucherOffers}
         />
@@ -943,12 +940,19 @@ const Negotiation = ({ mode }) => {
       {/* ── Overlays & Modals ── */}
 
       {contextMenu && (
-        <ItemContextMenu
+        <NegotiationRowContextMenu
           x={contextMenu.x}
           y={contextMenu.y}
+          zone={contextMenu.zone}
           onClose={() => setContextMenu(null)}
           onRemove={() => handleRemoveFromNegotiation(contextMenu.item)}
-          onSetManualOffer={() => { setItemOfferModal({ item: contextMenu.item }); }}
+          onSetManualOffer={() => setItemOfferModal({ item: contextMenu.item })}
+          onUseAsRrpOffersSource={() =>
+            handlePriceSourceAsRrpOffersSource(contextMenu.item, contextMenu.zone, {
+              showNotification,
+              setItems,
+              useVoucherOffers,
+            })}
         />
       )}
 
@@ -995,6 +999,9 @@ const Negotiation = ({ mode }) => {
         setItems={setItems}
         onClose={() => setSalePriceConfirmModal(null)}
         useResearchSuggestedPrice={true}
+        priceLabel="Our RRP"
+        useVoucherOffers={useVoucherOffers}
+        showNotification={showNotification}
       />
 
       <NewCustomerDetailsModal

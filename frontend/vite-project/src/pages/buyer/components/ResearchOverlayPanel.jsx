@@ -31,6 +31,8 @@ export default function ResearchOverlayPanel({
   onResearchComplete,
   onCashConvertersResearchComplete,
   readOnly = false,
+  /** Shown at top of research UI when edits are intentionally not persisted (e.g. booked-for-testing preview). */
+  ephemeralSessionNotice = null,
   showManualOffer = false,
   useVoucherOffers = false,
   hideOfferCards = false,
@@ -50,6 +52,7 @@ export default function ResearchOverlayPanel({
             onComplete={onResearchComplete}
             initialHistogramState={true}
             readOnly={readOnly}
+            ephemeralSessionNotice={ephemeralSessionNotice}
             showManualOffer={showManualOffer}
             hideAddAction={true}
             hideOfferCards={hideOfferCards}
@@ -68,6 +71,7 @@ export default function ResearchOverlayPanel({
             onComplete={onCashConvertersResearchComplete}
             initialHistogramState={true}
             readOnly={readOnly}
+            ephemeralSessionNotice={ephemeralSessionNotice}
             showManualOffer={showManualOffer}
             hideAddAction={true}
             hideOfferCards={hideOfferCards}

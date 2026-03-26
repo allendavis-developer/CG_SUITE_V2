@@ -6,6 +6,7 @@ import CashConvertersResearchForm from "@/components/forms/CashConvertersResearc
 import { useNotification } from "@/contexts/NotificationContext";
 import { fetchRepricingSessionDetail, updateRepricingSession } from "@/services/api";
 import { formatMoney, getResearchMedian } from "./utils/repricingDisplay";
+import { SPREADSHEET_TABLE_STYLES } from "./spreadsheetTableStyles";
 import { TableCheckbox } from "@/components/ui/components";
 
 function attachBarcodesFromSessionItems(cartItems, sessionItems) {
@@ -149,29 +150,7 @@ const RepricingSessionView = () => {
 
   return (
     <div className="bg-ui-bg text-text-main min-h-screen flex flex-col text-sm overflow-hidden">
-      <style>{`
-        .spreadsheet-table th {
-          background: var(--brand-blue);
-          color: white;
-          font-weight: 600;
-          font-size: 10px;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-          padding: 0.75rem;
-          border-right: 1px solid rgba(255, 255, 255, 0.1);
-          position: sticky;
-          top: 0;
-          z-index: 10;
-        }
-        .spreadsheet-table td {
-          padding: 0.5rem 0.75rem;
-          border-right: 1px solid var(--ui-border);
-          vertical-align: middle;
-        }
-        .spreadsheet-table tr {
-          border-bottom: 1px solid var(--ui-border);
-        }
-      `}</style>
+      <style>{SPREADSHEET_TABLE_STYLES}</style>
 
       <AppHeader />
 
@@ -278,7 +257,7 @@ const RepricingSessionView = () => {
                   <th className="w-28">NoSPos ID</th>
                   <th className="w-28">Old Retail</th>
                   <th className="w-28">New Retail</th>
-                  <th className="w-28">CeX Sell</th>
+                  <th className="w-28 spreadsheet-th-cex">Sell</th>
                   <th className="w-28">eBay</th>
                   <th className="w-32">Cash Converters</th>
                 </tr>
@@ -334,7 +313,7 @@ const RepricingSessionView = () => {
                     <td className="font-semibold text-emerald-700">
                       {formatMoney(item.new_retail_price ?? item.our_sale_price_at_repricing)}
                     </td>
-                    <td className="font-semibold text-brand-blue">{formatMoney(item.cex_sell_at_repricing)}</td>
+                    <td className="font-semibold text-red-700">{formatMoney(item.cex_sell_at_repricing)}</td>
                     <td>
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-semibold">{getResearchMedian(item.raw_data)}</span>

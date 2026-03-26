@@ -1,7 +1,6 @@
 import React from 'react';
 import EbayResearchForm from '@/components/forms/EbayResearchForm.jsx';
-
-const EBAY_TOP_LEVEL_CATEGORY = { name: 'eBay', path: ['eBay'] };
+import { EBAY_TOP_LEVEL_CATEGORY } from '@/pages/buyer/constants';
 
 export default function EbayCartItemView({
   item,

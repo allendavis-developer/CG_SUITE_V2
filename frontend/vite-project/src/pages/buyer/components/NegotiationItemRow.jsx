@@ -1,17 +1,19 @@
 import React from 'react';
 import { normalizeExplicitSalePrice, roundSalePrice } from '@/utils/helpers';
 import { resolveOurSalePrice, getDisplayOffers } from '../utils/negotiationHelpers';
+import { NEGOTIATION_ROW_CONTEXT, RRP_SOURCE_CELL_CLASS } from '../rowContextZones';
 
 // ─── Reusable offer cell (1st / 2nd / 3rd) ────────────────────────────────
 
-function OfferCell({ offer, item, quantity, mode, isSelected, onSelect, ourSalePrice }) {
+function OfferCell({ offer, item, quantity, mode, isSelected, onSelect, ourSalePrice, onContextMenu }) {
   const margin = ourSalePrice && offer ? ((ourSalePrice - offer.price) / ourSalePrice) * 100 : null;
 
   return (
     <td
-      className={`align-top font-semibold ${mode === 'view' ? '' : 'cursor-pointer'}`}
+      className={`align-top font-semibold text-[13px] leading-snug ${mode === 'view' ? '' : 'cursor-pointer'}`}
       style={isSelected ? { background: 'rgba(34, 197, 94, 0.15)', fontWeight: 'bold', color: '#166534' } : {}}
       onClick={() => { if (offer && mode !== 'view') onSelect(offer.id); }}
+      onContextMenu={onContextMenu}
     >
       {offer ? (
         <div>
@@ -32,20 +34,21 @@ function OfferCell({ offer, item, quantity, mode, isSelected, onSelect, ourSaleP
 
 // ─── Price cell with optional link ─────────────────────────────────────────
 
-function PriceCell({ value, quantity, className, href }) {
-  if (value == null) return <td className={className}>—</td>;
+function PriceCell({ value, quantity, className, href, onContextMenu, sourceHighlight }) {
+  const tdClass = [className, 'align-top', sourceHighlight ? RRP_SOURCE_CELL_CLASS : ''].filter(Boolean).join(' ');
+  if (value == null) return <td className={tdClass} onContextMenu={onContextMenu}>—</td>;
   const total = (value * quantity).toFixed(2);
   const inner = (
     <div>
       {href ? (
-        <a href={href} target="_blank" rel="noopener noreferrer" className="underline decoration-dotted">£{total}</a>
+        <a href={href} target="_blank" rel="noopener noreferrer" className="text-inherit underline decoration-dotted">£{total}</a>
       ) : (
         <div>£{total}</div>
       )}
       {quantity > 1 && <div className="text-[9px] opacity-70">(£{value.toFixed(2)} × {quantity})</div>}
     </div>
   );
-  return <td className={`${className} align-top`}>{inner}</td>;
+  return <td className={tdClass} onContextMenu={onContextMenu}>{inner}</td>;
 }
 
 // ─── Main row component ────────────────────────────────────────────────────
@@ -54,15 +57,18 @@ export default function NegotiationItemRow({
   item,
   index,
   mode,
+  /** When true (booked-for-testing view), eBay/CC research buttons stay usable as an unsaved preview. */
+  allowResearchSandboxInView = false,
   useVoucherOffers,
   onQuantityChange,
   onSelectOffer,
-  onContextMenu,
+  onRowContextMenu,
   onSetManualOffer,
   onCustomerExpectationChange,
   onOurSalePriceChange,
   onOurSalePriceBlur,
   onOurSalePriceFocus,
+  onRefreshCeXData,
   onReopenResearch,
   onReopenCashConvertersResearch,
 }) {
@@ -72,6 +78,7 @@ export default function NegotiationItemRow({
   const offer2 = displayOffers?.[1];
   const offer3 = displayOffers?.[2];
   const isViewMode = mode === 'view';
+  const researchButtonsDisabled = isViewMode && !allowResearchSandboxInView;
   const ebayData = item.ebayResearchData;
   const cashConvertersData = item.cashConvertersResearchData;
   const ourSalePrice = resolveOurSalePrice(item);
@@ -103,15 +110,29 @@ export default function NegotiationItemRow({
     ? item.ourSalePriceInput
     : (totalOurPrice != null && !Number.isNaN(totalOurPrice) ? totalOurPrice.toFixed(2) : '');
 
+  const openRowContext = (e, zone) => {
+    e.preventDefault();
+    if (mode !== 'negotiate' || !onRowContextMenu) return;
+    onRowContextMenu(e, item, zone);
+  };
+
+  const ctxRemoveOnly =
+    mode === 'negotiate' && onRowContextMenu
+      ? (e) => openRowContext(e, NEGOTIATION_ROW_CONTEXT.ITEM_META)
+      : undefined;
+
+  const hlCexSource = item.rrpOffersSource === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL;
+  const hlEbaySource = item.rrpOffersSource === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY;
+  const hlCcSource = item.rrpOffersSource === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS;
+
   return (
     <tr
       key={item.id || index}
       className={item.isRemoved ? 'opacity-60' : ''}
       style={item.isRemoved ? { textDecoration: 'line-through' } : {}}
-      onContextMenu={mode === 'negotiate' ? (e) => { e.preventDefault(); onContextMenu(e, item); } : undefined}
     >
       {/* Qty */}
-      <td className="text-center">
+      <td className="text-center" onContextMenu={ctxRemoveOnly}>
         {isViewMode ? (
           <span className="font-bold">{quantity}</span>
         ) : (
@@ -129,7 +150,7 @@ export default function NegotiationItemRow({
       </td>
 
       {/* Item Name & Attributes */}
-      <td>
+      <td onContextMenu={ctxRemoveOnly}>
         <div className="font-bold text-[13px] flex items-center gap-2 flex-wrap" style={{ color: 'var(--brand-blue)' }}>
           {primaryItemName}
           {item.isRemoved && (
@@ -151,22 +172,70 @@ export default function NegotiationItemRow({
         )}
       </td>
 
-      {/* CeX Buy Cash / Voucher / Sell */}
-      <PriceCell value={item.cexBuyPrice} quantity={quantity} className="font-medium text-emerald-700" />
-      <PriceCell value={item.cexVoucherPrice} quantity={quantity} className="font-medium text-amber-700" />
-      <PriceCell value={item.cexSellPrice} quantity={quantity} className="font-medium text-brand-blue" href={item.cexUrl} />
+      {/* CeX Sell / Buy (Voucher) / Buy (Cash) — same order as CeX listings */}
+      {isViewMode ? (
+        <PriceCell
+          value={item.cexSellPrice}
+          quantity={quantity}
+          className={hlCexSource ? 'font-medium text-white' : 'font-medium text-red-700'}
+          href={item.cexUrl}
+          sourceHighlight={hlCexSource}
+        />
+      ) : (
+        <td
+          className={[
+            'font-medium align-top',
+            hlCexSource ? `text-white ${RRP_SOURCE_CELL_CLASS}` : 'text-red-700',
+          ].join(' ')}
+          onContextMenu={mode === 'negotiate' && onRowContextMenu ? (e) => openRowContext(e, NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL) : undefined}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              {item.cexSellPrice != null ? (
+                <div>
+                  {item.cexUrl ? (
+                    <a
+                      href={item.cexUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={hlCexSource ? 'text-white underline decoration-dotted' : 'text-red-700 underline decoration-dotted'}
+                    >
+                      £{(item.cexSellPrice * quantity).toFixed(2)}
+                    </a>
+                  ) : (
+                    <div>£{(item.cexSellPrice * quantity).toFixed(2)}</div>
+                  )}
+                  {quantity > 1 && <div className="text-[9px] opacity-70">(£{item.cexSellPrice.toFixed(2)} × {quantity})</div>}
+                </div>
+              ) : '—'}
+            </div>
+            <button
+              className="flex items-center justify-center size-7 rounded transition-colors shrink-0"
+              style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
+              onClick={() => onRefreshCeXData(item)}
+              title="Refresh CeX prices"
+              type="button"
+            >
+              <span className="material-symbols-outlined text-[16px]">edit</span>
+            </button>
+          </div>
+        </td>
+      )}
+      <PriceCell value={item.cexVoucherPrice} quantity={quantity} className="font-medium text-red-700" onContextMenu={ctxRemoveOnly} />
+      <PriceCell value={item.cexBuyPrice} quantity={quantity} className="font-medium text-red-700" onContextMenu={ctxRemoveOnly} />
 
       {/* 1st / 2nd / 3rd Offer */}
       <OfferCell offer={offer1} item={item} quantity={quantity} mode={mode} ourSalePrice={ourSalePrice}
-        isSelected={item.selectedOfferId === offer1?.id} onSelect={(id) => onSelectOffer(item.id, id)} />
+        isSelected={item.selectedOfferId === offer1?.id} onSelect={(id) => onSelectOffer(item.id, id)} onContextMenu={ctxRemoveOnly} />
       <OfferCell offer={offer2} item={item} quantity={quantity} mode={mode} ourSalePrice={ourSalePrice}
-        isSelected={item.selectedOfferId === offer2?.id} onSelect={(id) => onSelectOffer(item.id, id)} />
+        isSelected={item.selectedOfferId === offer2?.id} onSelect={(id) => onSelectOffer(item.id, id)} onContextMenu={ctxRemoveOnly} />
       <OfferCell offer={offer3} item={item} quantity={quantity} mode={mode} ourSalePrice={ourSalePrice}
-        isSelected={item.selectedOfferId === offer3?.id} onSelect={(id) => onSelectOffer(item.id, id)} />
+        isSelected={item.selectedOfferId === offer3?.id} onSelect={(id) => onSelectOffer(item.id, id)} onContextMenu={ctxRemoveOnly} />
 
       {/* Manual Offer */}
       <td
         className={`relative ${mode === 'negotiate' ? 'cursor-pointer' : ''}`}
+        onContextMenu={mode === 'negotiate' && onRowContextMenu ? (e) => openRowContext(e, NEGOTIATION_ROW_CONTEXT.MANUAL_OFFER) : undefined}
         onClick={mode === 'negotiate' ? (e) => { e.stopPropagation(); onSetManualOffer(item); } : undefined}
         role={mode === 'negotiate' ? 'button' : undefined}
         tabIndex={mode === 'negotiate' ? 0 : undefined}
@@ -216,7 +285,7 @@ export default function NegotiationItemRow({
       </td>
 
       {/* Customer Expectation */}
-      <td className="p-0">
+      <td className="p-0" onContextMenu={ctxRemoveOnly}>
         <input
           className="w-full h-full border-0 text-xs font-semibold text-center px-3 py-2 focus:outline-none focus:ring-0"
           style={{ background: '#f8fafc', outline: 'none' }}
@@ -234,8 +303,8 @@ export default function NegotiationItemRow({
         />
       </td>
 
-      {/* Our Sale Price */}
-      <td className="font-medium text-purple-700">
+      {/* Our RRP (explicit per-unit retail; was fed by research or CeX reference) */}
+      <td className="font-medium text-red-700" onContextMenu={ctxRemoveOnly}>
         {isViewMode ? (
           perUnitOurPrice != null ? (
             <div>
@@ -277,36 +346,52 @@ export default function NegotiationItemRow({
       </td>
 
       {/* eBay Research */}
-      <td>
+      <td
+        className={hlEbaySource ? RRP_SOURCE_CELL_CLASS : undefined}
+        onContextMenu={mode === 'negotiate' && onRowContextMenu ? (e) => openRowContext(e, NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY) : undefined}
+      >
         {ebayData?.stats?.median ? (
           <div className="flex items-center justify-between gap-2">
             <div>
-              <div className="text-[13px] font-bold" style={{ color: 'var(--brand-blue)' }}>
+              <div
+                className="text-[13px] font-bold"
+                style={{ color: hlEbaySource ? '#fff' : 'var(--brand-blue)' }}
+              >
                 £{(Number(ebayData.stats.median) * quantity).toFixed(2)}
               </div>
               {quantity > 1 && (
-                <div className="text-[9px]" style={{ color: 'var(--text-muted)' }}>(£{Number(ebayData.stats.median).toFixed(2)} × {quantity})</div>
+                <div
+                  className="text-[9px]"
+                  style={{ color: hlEbaySource ? 'rgba(255,255,255,0.88)' : 'var(--text-muted)' }}
+                >
+                  (£{Number(ebayData.stats.median).toFixed(2)} × {quantity})
+                </div>
               )}
             </div>
             <button
               className="flex items-center justify-center size-7 rounded transition-colors shrink-0"
               style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
-              onClick={isViewMode ? undefined : () => onReopenResearch(item)}
-              title={isViewMode ? 'View-only: research locked' : 'View/Refine Research'}
-              disabled={isViewMode}
+              onClick={researchButtonsDisabled ? undefined : () => onReopenResearch(item)}
+              title={researchButtonsDisabled ? 'View-only: research locked' : 'View/Refine Research'}
+              disabled={researchButtonsDisabled}
             >
               <span className="material-symbols-outlined text-[16px]">edit_note</span>
             </button>
           </div>
         ) : (
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[13px] font-medium" style={{ color: 'var(--text-muted)' }}>—</span>
+            <span
+              className="text-[13px] font-medium"
+              style={{ color: hlEbaySource ? 'rgba(255,255,255,0.85)' : 'var(--text-muted)' }}
+            >
+              —
+            </span>
             <button
-              className={`flex items-center justify-center size-7 rounded transition-colors shrink-0 ${isViewMode ? 'opacity-50 cursor-not-allowed' : ''}`}
+              className={`flex items-center justify-center size-7 rounded transition-colors shrink-0 ${researchButtonsDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
               style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
-              onClick={isViewMode ? undefined : () => onReopenResearch(item)}
-              title={isViewMode ? 'View-only: research locked' : (!ebayData ? 'Research' : 'View/Refine Research')}
-              disabled={isViewMode}
+              onClick={researchButtonsDisabled ? undefined : () => onReopenResearch(item)}
+              title={researchButtonsDisabled ? 'View-only: research locked' : (!ebayData ? 'Research' : 'View/Refine Research')}
+              disabled={researchButtonsDisabled}
             >
               <span className="material-symbols-outlined text-[16px]">search_insights</span>
             </button>
@@ -315,34 +400,50 @@ export default function NegotiationItemRow({
       </td>
 
       {/* Cash Converters */}
-      <td>
+      <td
+        className={hlCcSource ? RRP_SOURCE_CELL_CLASS : undefined}
+        onContextMenu={mode === 'negotiate' && onRowContextMenu ? (e) => openRowContext(e, NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS) : undefined}
+      >
         {cashConvertersData?.stats?.median ? (
           <div className="flex items-center justify-between gap-2">
-            <div className="text-[13px] font-medium" style={{ color: 'var(--brand-blue)' }}>
+            <div
+              className="text-[13px] font-medium"
+              style={{ color: hlCcSource ? '#fff' : 'var(--brand-blue)' }}
+            >
               <div>£{(Number(cashConvertersData.stats.median) * quantity).toFixed(2)}</div>
               {quantity > 1 && (
-                <div className="text-[9px] opacity-70">(£{Number(cashConvertersData.stats.median).toFixed(2)} × {quantity})</div>
+                <div
+                  className="text-[9px]"
+                  style={{ opacity: hlCcSource ? 0.88 : 0.7 }}
+                >
+                  (£{Number(cashConvertersData.stats.median).toFixed(2)} × {quantity})
+                </div>
               )}
             </div>
             <button
               className="flex items-center justify-center size-7 rounded transition-colors shrink-0"
               style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
-              onClick={isViewMode ? undefined : () => onReopenCashConvertersResearch(item)}
-              title={isViewMode ? 'View-only: research locked' : 'View/Refine Research'}
-              disabled={isViewMode}
+              onClick={researchButtonsDisabled ? undefined : () => onReopenCashConvertersResearch(item)}
+              title={researchButtonsDisabled ? 'View-only: research locked' : 'View/Refine Research'}
+              disabled={researchButtonsDisabled}
             >
               <span className="material-symbols-outlined text-[16px]">store</span>
             </button>
           </div>
         ) : (
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[13px] font-medium" style={{ color: 'var(--text-muted)' }}>—</span>
+            <span
+              className="text-[13px] font-medium"
+              style={{ color: hlCcSource ? 'rgba(255,255,255,0.85)' : 'var(--text-muted)' }}
+            >
+              —
+            </span>
             <button
-              className={`flex items-center justify-center size-7 rounded transition-colors shrink-0 ${isViewMode ? 'opacity-50 cursor-not-allowed' : ''}`}
+              className={`flex items-center justify-center size-7 rounded transition-colors shrink-0 ${researchButtonsDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
               style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
-              onClick={isViewMode ? undefined : () => onReopenCashConvertersResearch(item)}
-              title={isViewMode ? 'View-only: research locked' : (!cashConvertersData ? 'Research' : 'View/Refine Research')}
-              disabled={isViewMode}
+              onClick={researchButtonsDisabled ? undefined : () => onReopenCashConvertersResearch(item)}
+              title={researchButtonsDisabled ? 'View-only: research locked' : (!cashConvertersData ? 'Research' : 'View/Refine Research')}
+              disabled={researchButtonsDisabled}
             >
               <span className="material-symbols-outlined text-[16px]">store</span>
             </button>

@@ -40,6 +40,23 @@ export const normalizeExplicitSalePrice = (value) => {
   return Math.round(amount * 100) / 100;
 };
 
+/**
+ * CeX negotiation tiers from `variant_prices` / `cex_product_prices`: 1st and 2nd use the offer £ grid;
+ * 3rd must match CeX cash/voucher trade-in exactly (pence only), not £2/£5 rounding.
+ * @param {{ id?: string, price?: unknown }} offer
+ * @param {number} tierIndex - 0-based; third tier = 2
+ */
+export function priceForCexNegotiationTier(offer, tierIndex) {
+  const amount = Number(offer?.price);
+  if (!Number.isFinite(amount)) return 0;
+  const id = offer?.id != null ? String(offer.id) : '';
+  const isThirdTier =
+    tierIndex === 2 ||
+    /(^|_)3$/.test(id);
+  if (isThirdTier) return normalizeExplicitSalePrice(amount);
+  return roundOfferPrice(amount);
+}
+
 export const toVoucherOfferPrice = (cashOfferPrice) =>
   roundOfferPrice(Number(cashOfferPrice) * 1.1);
 

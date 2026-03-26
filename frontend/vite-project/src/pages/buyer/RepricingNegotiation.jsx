@@ -12,42 +12,13 @@ import { getCartKey, loadRepricingProgress, saveRepricingProgress, clearRepricin
 import { getEditableSalePriceState, resolveRepricingSalePrice } from "./utils/repricingDisplay";
 import useAppStore from '@/store/useAppStore';
 import { normalizeExplicitSalePrice, formatOfferPrice, roundSalePrice } from '@/utils/helpers';
-import { buildInitialSearchQuery } from './utils/negotiationHelpers';
-import { useResearchOverlay, makeSalePriceBlurHandler } from './hooks/useResearchOverlay';
-
-// ─── Right-click context menu (remove only) ────────────────────────────────
-const ContextMenu = ({ x, y, onClose, onRemove }) => {
-  const menuRef = useRef(null);
-
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) onClose();
-    };
-    const handleEscape = (e) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('keydown', handleEscape);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleEscape);
-    };
-  }, [onClose]);
-
-  return (
-    <div
-      ref={menuRef}
-      className="fixed z-50 min-w-[200px] py-1 border shadow-xl bg-white rounded-lg"
-      style={{ left: x, top: y, borderColor: 'var(--ui-border)' }}
-    >
-      <button
-        className="w-full px-4 py-2.5 text-left text-sm font-semibold hover:bg-red-50 transition-colors flex items-center gap-2 text-red-600"
-        onClick={() => { onRemove(); onClose(); }}
-      >
-        <span className="material-symbols-outlined text-[16px]">remove_circle</span>
-        Remove from reprice list
-      </button>
-    </div>
-  );
-};
+import { applyCeXProductDataToItem, buildInitialSearchQuery } from './utils/negotiationHelpers';
+import { EBAY_TOP_LEVEL_CATEGORY } from './constants';
+import { SPREADSHEET_CEX_TH_STYLES, RRP_SOURCE_CELL_STYLES } from './spreadsheetTableStyles';
+import { useResearchOverlay } from './hooks/useResearchOverlay';
+import NegotiationRowContextMenu from './components/NegotiationRowContextMenu';
+import { NEGOTIATION_ROW_CONTEXT, RRP_SOURCE_CELL_CLASS } from './rowContextZones';
+import { handlePriceSourceAsRrpOffersSource } from './utils/priceSourceAsRrpOffers';
 
 const getNosposIdFromUrl = (stockUrl) => {
   if (!stockUrl) return "";
@@ -168,9 +139,10 @@ const RepricingNegotiation = () => {
   const [ambiguousBarcodeModal, setAmbiguousBarcodeModal] = useState(null);
   const [unverifiedModal, setUnverifiedModal] = useState(null); // { entries: [] }
   const [repricingJob, setRepricingJob] = useState(null);
+  const [zeroSalePriceModal, setZeroSalePriceModal] = useState(null); // { itemTitles: string[] }
 
   // Right-click context menu
-  const [contextMenu, setContextMenu] = useState(null); // { x, y, item }
+  const [contextMenu, setContextMenu] = useState(null); // { x, y, item, zone }
 
   const hasInitialized = useRef(false);
   const lastHandledCompletionRef = useRef("");
@@ -193,12 +165,12 @@ const RepricingNegotiation = () => {
         isCustomCeXItem, isCustomEbayItem, isCustomCashConvertersItem, condition, categoryObject,
         nosposBarcodes, ebayResearchData, cashConvertersResearchData, quantity, isRemoved,
         variantId, cexSku, attributeValues, referenceData, offers, cashOffers, voucherOffers,
-        image }) => ({
+        image, rrpOffersSource }) => ({
         id, title, subtitle, category, model, cexSellPrice, cexBuyPrice, cexVoucherPrice, cexUrl,
         ourSalePrice, ourSalePriceInput, cexOutOfStock, cexProductData, isCustomCeXItem,
         isCustomEbayItem, isCustomCashConvertersItem, condition, categoryObject, nosposBarcodes,
         ebayResearchData, cashConvertersResearchData, quantity, isRemoved, variantId, cexSku,
-        attributeValues, referenceData, offers, cashOffers, voucherOffers, image,
+        attributeValues, referenceData, offers, cashOffers, voucherOffers, image, rrpOffersSource,
       })),
       barcodes: snapshotBarcodes,
       nosposLookups: snapshotLookups,
@@ -437,7 +409,7 @@ const RepricingNegotiation = () => {
         cashConvertersResearchData: item.cashConvertersResearchData, quantity: item.quantity,
         variantId: item.variantId, cexSku: item.cexSku, attributeValues: item.attributeValues,
         referenceData: item.referenceData, offers: item.offers, cashOffers: item.cashOffers,
-        voucherOffers: item.voucherOffers, image: item.image,
+        voucherOffers: item.voucherOffers, image: item.image, rrpOffersSource: item.rrpOffersSource,
       }));
       const restoredBarcodes = saved?.barcodes || sessionBarcodes || {};
       const restoredLookups = saved?.nosposLookups || sessionNosposLookups || {};
@@ -640,7 +612,7 @@ const RepricingNegotiation = () => {
       subtitle: 'eBay Research',
       quantity: 1,
       category: 'eBay',
-      categoryObject: { name: 'eBay', path: ['eBay'] },
+      categoryObject: EBAY_TOP_LEVEL_CATEGORY,
       offers: [],
       cashOffers: [],
       voucherOffers: [],
@@ -712,7 +684,19 @@ const RepricingNegotiation = () => {
     showNotification(`${newItems.length} item${newItems.length !== 1 ? 's' : ''} added to reprice list`, 'success');
   }, [addItemsWithBarcodePrepopulation, showNotification]);
 
+  const handleRefreshCeXData = useCallback(async (item) => {
+    const searchQuery = buildInitialSearchQuery(item);
+    const cexData = await handleAddFromCeX({ showNotification, ...(searchQuery ? { searchQuery } : {}) });
+    if (!cexData) return;
+    setItems((prev) => prev.map((row) => (
+      row.id === item.id ? applyCeXProductDataToItem(row, cexData, false) : row
+    )));
+    // Row-level CeX refresh should not leave header workspace product state behind.
+    clearCexProduct();
+  }, [handleAddFromCeX, showNotification, clearCexProduct]);
+
   const handleProceed = async () => {
+    const zeroSalePriceItems = [];
     for (const item of activeItems) {
       const rawSaleInput = String(item.ourSalePriceInput ?? '').replace(/[£,]/g, '').trim();
       if (rawSaleInput !== '') {
@@ -724,8 +708,8 @@ const RepricingNegotiation = () => {
       }
       const resolvedSalePrice = resolveRepricingSalePrice(item);
       if (!Number.isFinite(Number(resolvedSalePrice)) || Number(resolvedSalePrice) <= 0) {
-        showNotification(`Set a valid new sale price above £0 for: ${item.title || 'Unknown Item'}`, 'error');
-        return;
+        zeroSalePriceItems.push(item.title || 'Unknown Item');
+        continue;
       }
       if (!(barcodes[item.id] || []).length) {
         showNotification(`Add at least one barcode for: ${item.title || 'Unknown Item'}`, 'error');
@@ -735,6 +719,10 @@ const RepricingNegotiation = () => {
         showNotification(`Verify the NosPos barcode for: ${item.title || 'Unknown Item'}`, 'error');
         return;
       }
+    }
+    if (zeroSalePriceItems.length > 0) {
+      setZeroSalePriceModal({ itemTitles: zeroSalePriceItems });
+      return;
     }
     showNotification("Starting background repricing…", 'info');
     try {
@@ -763,16 +751,19 @@ const RepricingNegotiation = () => {
           message: 'Starting background repricing…'
         }]
       });
-      const repricingData = activeItems.map((item) => ({
-        itemId: item.id,
-        title: item.title || "",
-        salePrice: resolveRepricingSalePrice(item),
-        ourSalePriceAtRepricing: resolveRepricingSalePrice(item),
-        cexSellAtRepricing: item.cexSellPrice ?? null,
-        raw_data: item.ebayResearchData || {},
-        cash_converters_data: item.cashConvertersResearchData || {},
-        barcodes: getVerifiedBarcodesForItem(item.id)
-      }));
+      const repricingData = activeItems.map((item) => {
+        const resolvedSalePrice = resolveRepricingSalePrice(item);
+        return {
+          itemId: item.id,
+          title: item.title || "",
+          salePrice: resolvedSalePrice,
+          ourSalePriceAtRepricing: resolvedSalePrice,
+          cexSellAtRepricing: item.cexSellPrice ?? null,
+          raw_data: item.ebayResearchData || {},
+          cash_converters_data: item.cashConvertersResearchData || {},
+          barcodes: getVerifiedBarcodesForItem(item.id)
+        };
+      });
       await openNospos(repricingData, { completedBarcodes: freshCompletedBarcodes, completedItems: freshCompletedItems, cartKey: activeCartKey });
     } catch (err) {
       showNotification(err?.message || "Could not open NoSpos", "error");
@@ -896,10 +887,17 @@ const RepricingNegotiation = () => {
           padding: 0.5rem 0.75rem;
           border-right: 1px solid #e5e7eb;
           vertical-align: middle;
+          transition: background-color 0.1s ease, box-shadow 0.1s ease;
+          box-shadow: inset 0 0 0 0 transparent;
         }
         .reprice-table td:last-child { border-right: 0; }
         .reprice-table tr { border-bottom: 1px solid #e5e7eb; }
-        .reprice-table tr:hover { background: var(--brand-blue-alpha-05); }
+        .reprice-table tbody td:hover {
+          background: var(--brand-blue-alpha-10);
+          box-shadow: inset 0 0 0 2px var(--brand-blue-alpha-30);
+        }
+        ${SPREADSHEET_CEX_TH_STYLES}
+        ${RRP_SOURCE_CELL_STYLES}
       `}</style>
 
       <AppHeader
@@ -962,7 +960,9 @@ const RepricingNegotiation = () => {
               <thead>
                 <tr>
                   <th className="min-w-[220px]">Item Name &amp; Attributes</th>
-                  <th className="w-24">CeX Sell</th>
+                  <th className="w-24 spreadsheet-th-cex">Sell</th>
+                  <th className="w-24 spreadsheet-th-cex">Voucher</th>
+                  <th className="w-24 spreadsheet-th-cex">Cash</th>
                   <th className="w-28">New Sale Price</th>
                   <th className="w-36">eBay Price</th>
                   <th className="w-36">Cash Converters</th>
@@ -979,7 +979,6 @@ const RepricingNegotiation = () => {
                   const hasBarcodes = itemBarcodes.length > 0;
 
                   const {
-                    perUnitSalePrice,
                     totalSalePrice,
                     isEditingRowTotal,
                     displayValue: salePriceDisplayValue,
@@ -1009,18 +1008,23 @@ const RepricingNegotiation = () => {
                     }
                   };
 
+                  const openRowContext = (e, zone) => {
+                    e.preventDefault();
+                    setContextMenu({ x: e.clientX, y: e.clientY, item, zone });
+                  };
+
+                  const hlCexSource = item.rrpOffersSource === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL;
+                  const hlEbaySource = item.rrpOffersSource === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY;
+                  const hlCcSource = item.rrpOffersSource === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS;
+
                   return (
                     <tr
                       key={item.id || index}
                       className={item.isRemoved ? 'opacity-60' : ''}
                       style={item.isRemoved ? { textDecoration: 'line-through' } : {}}
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        setContextMenu({ x: e.clientX, y: e.clientY, item });
-                      }}
                     >
                       {/* Item Name & Attributes */}
-                      <td>
+                      <td onContextMenu={(e) => openRowContext(e, NEGOTIATION_ROW_CONTEXT.ITEM_META)}>
                         <div
                           className="font-bold text-[13px] flex items-center gap-2 flex-wrap"
                           style={{ color: 'var(--brand-blue)' }}
@@ -1042,27 +1046,56 @@ const RepricingNegotiation = () => {
                       </td>
 
                       {/* CeX Sell */}
-                      <td className="font-medium text-brand-blue align-top">
-                        {item.cexSellPrice != null ? (
+                      <td
+                        className={[
+                          'font-medium align-top',
+                          hlCexSource ? `text-white ${RRP_SOURCE_CELL_CLASS}` : 'text-red-700',
+                        ].join(' ')}
+                        onContextMenu={(e) => openRowContext(e, NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL)}
+                      >
+                        <div className="flex items-center justify-between gap-2">
                           <div>
-                            {item.cexUrl ? (
-                              <a
-                                href={item.cexUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="underline decoration-dotted"
-                              >
-                                £{item.cexSellPrice.toFixed(2)}
-                              </a>
-                            ) : (
-                              <div>£{item.cexSellPrice.toFixed(2)}</div>
-                            )}
+                            {item.cexSellPrice != null ? (
+                              <div>
+                                {item.cexUrl ? (
+                                  <a
+                                    href={item.cexUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className={hlCexSource ? 'text-white underline decoration-dotted' : 'text-red-700 underline decoration-dotted'}
+                                  >
+                                    £{item.cexSellPrice.toFixed(2)}
+                                  </a>
+                                ) : (
+                                  <div>£{item.cexSellPrice.toFixed(2)}</div>
+                                )}
+                              </div>
+                            ) : '—'}
                           </div>
-                        ) : '—'}
+                          <button
+                            className="flex items-center justify-center size-7 rounded transition-colors shrink-0"
+                            style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
+                            onClick={() => handleRefreshCeXData(item)}
+                            title="Refresh CeX prices"
+                          >
+                            <span className="material-symbols-outlined text-[16px]">edit</span>
+                          </button>
+                        </div>
+                      </td>
+
+                      <td className="font-medium text-red-700 align-top">
+                        {item.cexVoucherPrice != null && !Number.isNaN(Number(item.cexVoucherPrice))
+                          ? `£${Number(item.cexVoucherPrice).toFixed(2)}`
+                          : '—'}
+                      </td>
+                      <td className="font-medium text-red-700 align-top">
+                        {item.cexBuyPrice != null && !Number.isNaN(Number(item.cexBuyPrice))
+                          ? `£${Number(item.cexBuyPrice).toFixed(2)}`
+                          : '—'}
                       </td>
 
                       {/* New Sale Price — editable */}
-                      <td className="font-medium text-purple-700">
+                      <td className="font-medium text-red-700">
                         <div>
                           <input
                             className="w-full border-0 text-xs font-semibold text-center px-3 py-2 focus:outline-none focus:ring-0 bg-white rounded"
@@ -1099,10 +1132,16 @@ const RepricingNegotiation = () => {
                       </td>
 
                       {/* eBay Price */}
-                      <td>
+                      <td
+                        className={hlEbaySource ? RRP_SOURCE_CELL_CLASS : undefined}
+                        onContextMenu={(e) => openRowContext(e, NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY)}
+                      >
                         {ebayData?.stats?.median ? (
                           <div className="flex items-center justify-between gap-2">
-                            <div className="text-[13px] font-medium" style={{ color: 'var(--brand-blue)' }}>
+                            <div
+                              className="text-[13px] font-medium"
+                              style={{ color: hlEbaySource ? '#fff' : 'var(--brand-blue)' }}
+                            >
                               <div>£{Number(ebayData.stats.median).toFixed(2)}</div>
                             </div>
                             <button
@@ -1116,7 +1155,12 @@ const RepricingNegotiation = () => {
                           </div>
                         ) : (
                           <div className="flex items-center justify-between gap-2">
-                            <span className="text-[13px] font-medium" style={{ color: '#64748b' }}>—</span>
+                            <span
+                              className="text-[13px] font-medium"
+                              style={{ color: hlEbaySource ? 'rgba(255,255,255,0.85)' : '#64748b' }}
+                            >
+                              —
+                            </span>
                             <button
                               className="flex items-center justify-center size-7 rounded transition-colors shrink-0"
                               style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
@@ -1130,10 +1174,16 @@ const RepricingNegotiation = () => {
                       </td>
 
                       {/* Cash Converters */}
-                      <td>
+                      <td
+                        className={hlCcSource ? RRP_SOURCE_CELL_CLASS : undefined}
+                        onContextMenu={(e) => openRowContext(e, NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS)}
+                      >
                         {ccData?.stats?.median ? (
                           <div className="flex items-center justify-between gap-2">
-                            <div className="text-[13px] font-medium" style={{ color: 'var(--brand-blue)' }}>
+                            <div
+                              className="text-[13px] font-medium"
+                              style={{ color: hlCcSource ? '#fff' : 'var(--brand-blue)' }}
+                            >
                               <div>£{Number(ccData.stats.median).toFixed(2)}</div>
                             </div>
                             <button
@@ -1147,7 +1197,12 @@ const RepricingNegotiation = () => {
                           </div>
                         ) : (
                           <div className="flex items-center justify-between gap-2">
-                            <span className="text-[13px] font-medium" style={{ color: '#64748b' }}>—</span>
+                            <span
+                              className="text-[13px] font-medium"
+                              style={{ color: hlCcSource ? 'rgba(255,255,255,0.85)' : '#64748b' }}
+                            >
+                              —
+                            </span>
                             <button
                               className="flex items-center justify-center size-7 rounded transition-colors shrink-0"
                               style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
@@ -1272,7 +1327,7 @@ const RepricingNegotiation = () => {
           >
             <button
               className={`w-full font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 group active:scale-[0.98] ${
-                headerWorkspaceOpen || !allItemsReadyForRepricing || isRepricingFinished || isBackgroundRepricingRunning ? 'opacity-50 cursor-not-allowed' : ''
+                headerWorkspaceOpen || researchItem || cashConvertersResearchItem || !allItemsReadyForRepricing || isRepricingFinished || isBackgroundRepricingRunning ? 'opacity-50 cursor-not-allowed' : ''
               }`}
               style={{
                 background: 'var(--brand-orange)',
@@ -1280,7 +1335,7 @@ const RepricingNegotiation = () => {
                 boxShadow: '0 10px 15px -3px rgba(247,185,24,0.3)'
               }}
               onClick={handleProceed}
-              disabled={headerWorkspaceOpen || !allItemsReadyForRepricing || isRepricingFinished || isBackgroundRepricingRunning}
+              disabled={headerWorkspaceOpen || researchItem || cashConvertersResearchItem || !allItemsReadyForRepricing || isRepricingFinished || isBackgroundRepricingRunning}
             >
               <span className="text-base uppercase tracking-tight">
                 {isRepricingFinished ? 'Repricing Finished' : isBackgroundRepricingRunning ? 'Repricing Running in Background' : 'Proceed with Repricing'}
@@ -1328,11 +1383,19 @@ const RepricingNegotiation = () => {
 
       {/* ── Context Menu ───────────────────────────────────────────────────────── */}
       {contextMenu && (
-        <ContextMenu
+        <NegotiationRowContextMenu
           x={contextMenu.x}
           y={contextMenu.y}
+          zone={contextMenu.zone}
+          removeLabel="Remove from reprice list"
           onClose={() => setContextMenu(null)}
           onRemove={() => handleRemoveItem(contextMenu.item)}
+          onUseAsRrpOffersSource={() =>
+            handlePriceSourceAsRrpOffersSource(contextMenu.item, contextMenu.zone, {
+              showNotification,
+              setItems,
+              useVoucherOffers: false,
+            })}
         />
       )}
 
@@ -1343,6 +1406,8 @@ const RepricingNegotiation = () => {
         onClose={() => setSalePriceConfirmModal(null)}
         useResearchSuggestedPrice={false}
         priceLabel="New Sale Price"
+        repricingMode
+        showNotification={showNotification}
       />
 
       {showNewRepricingConfirm && (
@@ -1933,6 +1998,43 @@ const RepricingNegotiation = () => {
           onClose={() => setIsQuickRepriceOpen(false)}
           onAddItems={handleQuickRepriceItems}
         />
+      )}
+
+      {zeroSalePriceModal && (
+        <div className="fixed inset-0 z-[140] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+            <div className="px-6 py-5 border-b" style={{ borderColor: 'var(--brand-blue-alpha-15)' }}>
+              <p className="text-[11px] font-black uppercase tracking-wider text-amber-600">
+                Cannot Update Sale Price
+              </p>
+              <p className="text-sm mt-2" style={{ color: '#475569' }}>
+                Sale price is £0 based on current data, so this item cannot be updated in NoSpos.
+              </p>
+            </div>
+            <div className="px-6 py-4">
+              <p className="text-[10px] font-black uppercase tracking-wider mb-2" style={{ color: '#64748b' }}>
+                Affected item{zeroSalePriceModal.itemTitles.length !== 1 ? 's' : ''}
+              </p>
+              <ul className="space-y-1 max-h-36 overflow-y-auto">
+                {zeroSalePriceModal.itemTitles.map((title, idx) => (
+                  <li key={`${title}-${idx}`} className="text-xs font-semibold text-brand-blue">
+                    {title}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="px-6 py-4 border-t flex justify-end" style={{ borderColor: 'var(--brand-blue-alpha-15)', background: 'var(--ui-bg)' }}>
+              <button
+                className="px-4 py-2 rounded-lg text-sm font-bold transition-all hover:opacity-90"
+                style={{ background: 'var(--brand-blue)', color: 'white' }}
+                onClick={() => setZeroSalePriceModal(null)}
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

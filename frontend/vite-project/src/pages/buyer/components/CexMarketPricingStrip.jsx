@@ -31,6 +31,8 @@ export default function CexMarketPricingStrip({
   referenceData = null,
   hideBuyInPrice = false,
   cexSku: explicitCexSku = null,
+  /** Prefer persisted URL from cart (same as when the product was added). */
+  cexProductUrl = null,
   ebayData = null,
   cashConvertersData = null,
   onOpenEbayResearch,
@@ -46,9 +48,9 @@ export default function CexMarketPricingStrip({
 
   const inferredCexSku =
     explicitCexSku ?? referenceData?.cex_sku ?? referenceData?.id ?? null;
-  const cexUrl = inferredCexSku
-    ? `https://uk.webuy.com/product-detail?id=${inferredCexSku}`
-    : null;
+  const cexUrl =
+    cexProductUrl ||
+    (inferredCexSku ? `https://uk.webuy.com/product-detail?id=${inferredCexSku}` : null);
 
   const ourNum = parseOurSale(ourSalePrice);
   const methodLabel =

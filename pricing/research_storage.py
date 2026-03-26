@@ -333,7 +333,7 @@ def compose_raw_data_for_request_item(item: RequestItem) -> dict | None:
             out["referenceData"] = ref
         if ebay_blob:
             out["ebayResearchData"] = ebay_blob
-        for k in ("display_title", "display_subtitle"):
+        for k in ("display_title", "display_subtitle", "rrpOffersSource"):
             if meta.get(k) is not None:
                 out[k] = meta[k]
         return out if out else None
@@ -342,7 +342,7 @@ def compose_raw_data_for_request_item(item: RequestItem) -> dict | None:
         out = dict(ebay_blob)
         if ref is not None:
             out["referenceData"] = ref
-        for k in ("display_title", "display_subtitle"):
+        for k in ("display_title", "display_subtitle", "rrpOffersSource"):
             if meta.get(k) is not None:
                 out[k] = meta[k]
         return out if (out.get("listings") or ref or meta) else None
@@ -401,6 +401,13 @@ def sync_merged_raw_into_request_item(item: RequestItem, raw: dict | None) -> No
     for k in ("display_title", "display_subtitle"):
         if raw.get(k) is not None:
             meta[k] = raw[k]
+    # Negotiation UI: which column (CeX sell / eBay / CC) was used as RRP+offers source
+    if "rrpOffersSource" in raw:
+        v = raw.get("rrpOffersSource")
+        if v is None or v == "":
+            meta.pop("rrpOffersSource", None)
+        else:
+            meta["rrpOffersSource"] = v
     item.line_metadata_json = meta if meta else None
 
     ebay_src = None

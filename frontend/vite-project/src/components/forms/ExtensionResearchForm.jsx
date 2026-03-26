@@ -78,6 +78,7 @@ function ExtensionResearchForm({
   savedState = null,
   initialHistogramState = null,
   readOnly = false,
+  ephemeralSessionNotice = null,
   showManualOffer = false,
   initialSearchQuery = null,
   marketComparisonContext = null,
@@ -485,6 +486,14 @@ function ExtensionResearchForm({
                 onClick={() => onComplete?.({ cancel: true })}
               />
             </header>
+            {ephemeralSessionNotice && (
+              <div
+                className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2.5 text-center text-xs font-semibold text-amber-950"
+                role="status"
+              >
+                {ephemeralSessionNotice}
+              </div>
+            )}
             <main className="flex-1 overflow-auto bg-gray-50 flex flex-col">{getDataBody}</main>
           </div>
         </div>
@@ -534,6 +543,7 @@ function ExtensionResearchForm({
       enableAdvancedSoldDateFilter={config.enableAdvancedSoldDateFilter}
       mode={mode}
       readOnly={readOnly}
+      ephemeralSessionNotice={ephemeralSessionNotice}
       basicFilterOptions={[]}
       searchPlaceholder=""
       headerTitle={searchTerm || config.headerTitle}

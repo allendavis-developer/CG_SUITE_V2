@@ -2,50 +2,6 @@ import React from 'react';
 import TinyModal from '@/components/ui/TinyModal';
 import { resolveOurSalePrice, getDisplayOffers, calculateItemTargetContribution } from '../utils/negotiationHelpers';
 
-// ─── Context menu (right-click on item row) ────────────────────────────────
-
-export function ItemContextMenu({ x, y, onClose, onRemove, onSetManualOffer }) {
-  const menuRef = React.useRef(null);
-
-  React.useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) onClose();
-    };
-    const handleEscape = (e) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('keydown', handleEscape);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleEscape);
-    };
-  }, [onClose]);
-
-  return (
-    <div
-      ref={menuRef}
-      className="fixed z-50 min-w-[210px] py-1 border shadow-xl bg-white rounded-lg"
-      style={{ left: x, top: y, borderColor: 'var(--ui-border)' }}
-    >
-      <button
-        className="w-full px-4 py-2.5 text-left text-sm font-semibold hover:bg-brand-blue/5 transition-colors flex items-center gap-2"
-        style={{ color: 'var(--brand-blue)' }}
-        onClick={() => { onSetManualOffer(); onClose(); }}
-      >
-        <span className="material-symbols-outlined text-[16px]">edit</span>
-        Set manual offer
-      </button>
-      <div className="border-t my-1" style={{ borderColor: 'var(--ui-border)' }} />
-      <button
-        className="w-full px-4 py-2.5 text-left text-sm font-semibold hover:bg-red-50 transition-colors flex items-center gap-2 text-red-600"
-        onClick={() => { onRemove(); onClose(); }}
-      >
-        <span className="material-symbols-outlined text-[16px]">remove_circle</span>
-        Remove from negotiation
-      </button>
-    </div>
-  );
-}
-
 // ─── Target Offer Modal ────────────────────────────────────────────────────
 
 export function TargetOfferModal({ targetOffer, onSetTarget, onClose }) {

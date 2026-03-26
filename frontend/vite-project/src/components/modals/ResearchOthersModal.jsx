@@ -30,20 +30,26 @@ function ValueCell({ value, valueVariant }) {
 }
 
 /**
- * Anchored panel below the Others control. Uses --brand-blue and blue tints only.
+ * Summary of the non-active research channel(s). Uses --brand-blue and blue tints only.
+ * @param {'inline' | 'popover'} [variant='inline'] — `inline` flows with listing cards; `popover` is the legacy anchored popup.
  */
-export default function ResearchOthersModal({ summaries, className = '' }) {
+export default function ResearchOthersModal({ summaries, className = '', variant = 'inline' }) {
   if (!summaries?.blocks?.length) return null;
+
+  const isPopover = variant === 'popover';
+  const shellClass = isPopover
+    ? `absolute z-[200] flex w-[min(calc(100vw-1.5rem),22rem)] min-w-[14rem] flex-col overflow-visible rounded-xl border-2 bg-white shadow-2xl ${className}`
+    : `flex w-full min-w-0 flex-col rounded-xl border-2 bg-white shadow-md ${className}`;
 
   return (
     <div
-      role="dialog"
-      aria-modal="true"
+      role={isPopover ? 'dialog' : 'region'}
+      aria-modal={isPopover ? 'true' : undefined}
       aria-labelledby="research-others-title"
-      className={`absolute z-[200] flex w-[min(calc(100vw-1.5rem),22rem)] min-w-[14rem] flex-col overflow-visible rounded-xl border-2 bg-white shadow-2xl ${className}`}
+      className={shellClass}
       style={{
         borderColor: BLUE_BORDER,
-        boxShadow: BLUE_PANEL_SHADOW,
+        boxShadow: isPopover ? BLUE_PANEL_SHADOW : undefined,
       }}
     >
       <div
