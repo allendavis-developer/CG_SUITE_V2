@@ -727,16 +727,16 @@
   }
 
   // —— Message from background: we're the tab that was chosen for this pending request ——
+  // Return false when ignoring so other content scripts (e.g. cex-scrape/content-cex-nav-scrape.js) can respond.
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-    if (msg.type === 'WAITING_FOR_DATA') {
-      if (typeof console !== 'undefined') {
-        console.log('[CG Suite content-listings] WAITING_FOR_DATA received, requestId=', msg.requestId, 'url=', window.location.href);
-      }
-      currentRequestId = msg.requestId;
-      showPanel(!!msg.isRefine, msg.marketComparisonContext || null);
-      sendResponse({ ok: true });
+    if (msg.type !== 'WAITING_FOR_DATA') return false;
+    if (typeof console !== 'undefined') {
+      console.log('[CG Suite content-listings] WAITING_FOR_DATA received, requestId=', msg.requestId, 'url=', window.location.href);
     }
-    return true;
+    currentRequestId = msg.requestId;
+    showPanel(!!msg.isRefine, msg.marketComparisonContext || null);
+    sendResponse({ ok: true });
+    return false;
   });
 
   function isListingsPage() {

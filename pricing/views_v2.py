@@ -46,6 +46,14 @@ _RESEARCH_SESSION_PREFETCH = Prefetch(
 )
 
 
+def _is_jewellery_placeholder_variant(variant):
+    """Synthetic catalogue rows use cex_sku JEW-… — do not treat as CeX prices."""
+    if variant is None:
+        return False
+    sku = getattr(variant, "cex_sku", None) or ""
+    return str(sku).upper().startswith("JEW-")
+
+
 def _resolve_cex_sku_to_variant(item_payload):
     """When variant is null and cex_sku (CeX product ID from URL) is provided, look up variant and use it."""
     if item_payload.get('variant') is not None:
@@ -831,6 +839,16 @@ def finish_request(request, request_id):
         existing_request.customer_enrichment_json = customer_enrichment
         update_request_fields.append('customer_enrichment_json')
 
+    jewellery_reference_scrape = request.data.get('jewellery_reference_scrape')
+    if jewellery_reference_scrape is not None:
+        if not isinstance(jewellery_reference_scrape, dict):
+            return Response(
+                {"error": "jewellery_reference_scrape must be a JSON object"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        existing_request.jewellery_reference_scrape_json = jewellery_reference_scrape
+        update_request_fields.append('jewellery_reference_scrape_json')
+
     existing_request.save(update_fields=update_request_fields)
 
     # Update individual request items
@@ -868,7 +886,7 @@ def finish_request(request, request_id):
                         update_fields.append(field)
                     except (InvalidOperation, TypeError):
                         pass
-        elif request_item.variant:
+        elif request_item.variant and not _is_jewellery_placeholder_variant(request_item.variant):
             request_item.cex_buy_cash_at_negotiation = request_item.variant.tradein_cash
             update_fields.append('cex_buy_cash_at_negotiation')
             request_item.cex_buy_voucher_at_negotiation = request_item.variant.tradein_voucher

@@ -1,6 +1,8 @@
 /**
  * CG Suite Research – content script that runs ONLY on the app origin (localhost / 127.0.0.1).
  *
+ * Jewellery scrap: background sends JEWELLERY_SCRAP_PRICES_TO_CONTENT → post JEWELLERY_SCRAP_PRICES (see jewelleryScrapBridge.js).
+ *
  * Bridges the app page and the extension background:
  * - App posts EXTENSION_MESSAGE (e.g. startWaitingForData for "Add from CeX") → we send BRIDGE_FORWARD to background.
  * - Background eventually sends EXTENSION_RESPONSE_TO_PAGE to this tab (when user clicks "Yes" on the listing page or closes the tab) → we post EXTENSION_RESPONSE to the page so extensionBridge.js can resolve the promise.
@@ -8,6 +10,9 @@
  * For startWaitingForData we do NOT post a response immediately; the app waits until the listing-page tab sends scraped data (or error). So the app's getDataFromListingPage() promise only resolves when the user confirms on CeX/eBay/CC or the tab is closed.
  */
 (function () {
+  const JEWELLERY_SCRAP_TO_PAGE = 'JEWELLERY_SCRAP_PRICES_TO_CONTENT';
+  const JEWELLERY_SCRAP_WINDOW = 'JEWELLERY_SCRAP_PRICES';
+
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg.type === 'EXTENSION_RESPONSE_TO_PAGE') {
       if (typeof console !== 'undefined') {
@@ -29,6 +34,10 @@
       window.postMessage({ type: 'REPRICING_COMPLETE', payload: msg.payload }, '*');
       sendResponse({ ok: true });
     }
+    if (msg.type === JEWELLERY_SCRAP_TO_PAGE) {
+      window.postMessage({ type: JEWELLERY_SCRAP_WINDOW, payload: msg.payload }, '*');
+      sendResponse({ ok: true });
+    }
     return true;
   });
 
@@ -44,7 +53,7 @@
       payload: message
     }, (bridgeResponse) => {
       // For these actions we don't resolve here; the target page will send data/ready later and background will send EXTENSION_RESPONSE_TO_PAGE to this tab.
-      if (message.action === 'startWaitingForData' || message.action === 'startRefine' || message.action === 'openNosposAndWait' || message.action === 'openNosposForCustomerIntake') {
+      if (message.action === 'startWaitingForData' || message.action === 'startRefine' || message.action === 'openNosposAndWait' || message.action === 'openNosposForCustomerIntake' || message.action === 'scrapeCexSuperCategories') {
         if (typeof console !== 'undefined') {
           console.log('[CG Suite content-bridge] deferred action – not posting response; waiting for target page', message.action);
         }

@@ -756,6 +756,12 @@ class Request(models.Model):
         help_text="Enriched customer data from NoSpos (rates, dates, etc.) for display in buyer UI"
     )
 
+    jewellery_reference_scrape_json = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Cached Mastermelt-style reference sections from the jewellery workspace scrape",
+    )
+
     def __str__(self):
         # This will show "Request #101 - John Doe (BUYBACK)"
         return f"Request #{self.request_id} - {self.customer.name} ({self.intent})"

@@ -254,6 +254,7 @@ class RequestSerializer(serializers.ModelSerializer):
             'target_offer_gbp',
             'negotiated_grand_total_gbp',
             'customer_enrichment_json',
+            'jewellery_reference_scrape_json',
             'items',
             'current_status',
             'status_history'

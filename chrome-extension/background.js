@@ -16,6 +16,8 @@
  * 5. We send WAITING_FOR_DATA to that tab so the content script shows "Have you got the data yet?". We retry a few times in case the content script isn't ready yet.
  */
 
+importScripts('jewellery-scrap/constants.js', 'jewellery-scrap/worker-session.js');
+
 // ── eBay filter enforcement ────────────────────────────────────────────────────
 
 /**
@@ -319,6 +321,124 @@ async function focusAppTab(appTabId) {
   }
 }
 
+importScripts('tasks/jewellery-scrap-prices-tab.js');
+
+// ── CeX nav scrape (super-categories) — see cex-scrape/ in repo ──────────────
+
+function waitForTabLoadComplete(tabId, timeoutMs) {
+  const ms = timeoutMs == null ? 90000 : timeoutMs;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      chrome.tabs.onUpdated.removeListener(onUpdated);
+      reject(new Error('CeX tab load timed out'));
+    }, ms);
+
+    function onUpdated(updatedTabId, info) {
+      if (updatedTabId !== tabId) return;
+      if (info.status === 'complete') {
+        chrome.tabs.onUpdated.removeListener(onUpdated);
+        clearTimeout(timer);
+        resolve();
+      }
+    }
+
+    chrome.tabs.onUpdated.addListener(onUpdated);
+    chrome.tabs.get(tabId).then((tab) => {
+      if (tab && tab.status === 'complete') {
+        chrome.tabs.onUpdated.removeListener(onUpdated);
+        clearTimeout(timer);
+        resolve();
+      }
+    }).catch(() => {});
+  });
+}
+
+async function notifyAppExtensionResponse(appTabId, requestId, response) {
+  if (!appTabId) return;
+  await focusAppTab(appTabId);
+  await chrome.tabs.sendMessage(appTabId, {
+    type: 'EXTENSION_RESPONSE_TO_PAGE',
+    requestId,
+    response,
+  }).catch(() => {});
+}
+
+async function clearPendingRequest(requestId) {
+  const pending = await getPending();
+  if (pending[requestId]) {
+    delete pending[requestId];
+    await setPending(pending);
+  }
+}
+
+/**
+ * Opens uk.webuy.com, reads ul.nav-menu super-category links via cex-scrape content script,
+ * posts results to the app tab. Deferred promise (content-bridge does not resolve early).
+ */
+async function executeCexSuperCategoryNavScrape(requestId, appTabId) {
+  const CEX_HOME = 'https://uk.webuy.com/';
+  let scrapeTabId = null;
+  try {
+    const tab = await chrome.tabs.create({ url: CEX_HOME, active: true });
+    scrapeTabId = tab.id;
+    await putTabInYellowGroup(scrapeTabId);
+
+    const pending = await getPending();
+    pending[requestId] = {
+      appTabId,
+      listingTabId: scrapeTabId,
+      type: 'cexNavScrape',
+    };
+    await setPending(pending);
+
+    await waitForTabLoadComplete(scrapeTabId, 90000);
+
+    const maxAttempts = 32;
+    let lastCode = 'NOT_TRIED';
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      if (attempt > 0) {
+        await new Promise((r) => setTimeout(r, 400));
+      }
+      try {
+        const resp = await chrome.tabs.sendMessage(scrapeTabId, {
+          type: 'CEX_SCRAPE_SUPER_CATEGORIES',
+        });
+        if (resp && resp.ok && Array.isArray(resp.categories) && resp.categories.length > 0) {
+          await clearPendingRequest(requestId);
+          await notifyAppExtensionResponse(appTabId, requestId, {
+            success: true,
+            categories: resp.categories,
+            scrapedAt: resp.scrapedAt,
+            sourceTabUrl: resp.sourceUrl,
+            warnings: resp.warnings,
+          });
+          return;
+        }
+        lastCode = (resp && resp.code) || 'EMPTY_OR_NOT_READY';
+      } catch (e) {
+        lastCode = (e && e.message) || 'SEND_MESSAGE_FAILED';
+      }
+    }
+
+    await clearPendingRequest(requestId);
+    await notifyAppExtensionResponse(appTabId, requestId, {
+      success: false,
+      error:
+        'Could not read CeX super-categories after ' +
+        maxAttempts +
+        ' attempts (' +
+        lastCode +
+        '). The site may still be loading or the header layout changed.',
+    });
+  } catch (e) {
+    await clearPendingRequest(requestId);
+    await notifyAppExtensionResponse(appTabId, requestId, {
+      success: false,
+      error: (e && e.message) || 'CeX scrape failed',
+    });
+  }
+}
+
 async function sendRepricingComplete(appTabId, payload) {
   if (!appTabId) return;
   await chrome.tabs.sendMessage(appTabId, {
@@ -462,6 +582,22 @@ async function handleFetchAddressSuggestions(message) {
 // ── Message router ─────────────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === CG_JEWELLERY_SCRAP.MSG_SCRAPED) {
+    const tabId = sender.tab?.id;
+    if (tabId == null) {
+      sendResponse({ ok: false });
+      return true;
+    }
+    forwardJewelleryScrapPricesToApp(tabId, message.payload)
+      .catch((e) => console.warn('[CG Suite] Jewellery scrap forward to app:', e?.message))
+      .finally(async () => {
+        await unregisterJewelleryScrapWorkerTab(tabId);
+        await chrome.tabs.remove(tabId).catch(() => {});
+        sendResponse({ ok: true });
+      });
+    return true;
+  }
+
   if (message.type === 'BRIDGE_FORWARD') {
     handleBridgeForward(message, sender)
       .then(r => sendResponse(r))
@@ -589,6 +725,11 @@ async function handleBridgeForward(message, sender) {
     return { ok: true };
   }
 
+  if (payload.action === 'scrapeCexSuperCategories' && appTabId != null) {
+    void executeCexSuperCategoryNavScrape(requestId, appTabId);
+    return { ok: true };
+  }
+
   if (payload.action === 'cancelRequest' && appTabId != null) {
     // User clicked Cancel/Reset in the app while a listing tab was open.
     // Find the pending entry for this app tab, close the listing tab, and
@@ -596,7 +737,12 @@ async function handleBridgeForward(message, sender) {
     // Skip openNospos entries – we never close the NoSpos tab (user needs it to log in).
     const pending = await getPending();
     for (const [reqId, entry] of Object.entries(pending)) {
-      if (entry.appTabId === appTabId && entry.type !== 'openNospos' && entry.type !== 'openNosposCustomerIntake' && entry.type !== 'openNosposCustomerIntakeWaiting') {
+      if (
+        entry.appTabId === appTabId &&
+        entry.type !== 'openNospos' &&
+        entry.type !== 'openNosposCustomerIntake' &&
+        entry.type !== 'openNosposCustomerIntakeWaiting'
+      ) {
         const listingTabId = entry.listingTabId;
         delete pending[reqId];
         await setPending(pending);
@@ -663,6 +809,20 @@ async function handleBridgeForward(message, sender) {
     }
     const newTab = await chrome.tabs.create({ url });
     await putTabInYellowGroup(newTab.id);
+    return { ok: true };
+  }
+
+  // Negotiation Jewellery workspace (jewellery-scrap/* + tasks/jewellery-scrap-prices-tab.js).
+  if (payload.action === CG_JEWELLERY_SCRAP.BRIDGE_OPEN_ACTION) {
+    try {
+      const result = await openJewelleryScrapPricesTab(appTabId);
+      if (result?.tabId != null && appTabId != null) {
+        await registerJewelleryScrapWorkerTab(result.tabId, appTabId);
+        scheduleJewelleryScrapInject(result.tabId);
+      }
+    } catch (e) {
+      console.warn('[CG Suite] openJewelleryScrapPrices failed:', e?.message);
+    }
     return { ok: true };
   }
 
@@ -874,6 +1034,10 @@ async function handleListingPageReady(message, sender) {
   // Do NOT re-associate to a different tab: user must use the single tab we opened. Other CeX tabs are ignored.
 
   if (matchedEntry) {
+    if (matchedEntry.type === 'cexNavScrape') {
+      console.log('[CG Suite] LISTING_PAGE_READY ignored for cexNavScrape flow', { matchedId, tabId });
+      return;
+    }
     console.log('[CG Suite] LISTING_PAGE_READY matched', { matchedId, tabId, competitor: matchedEntry.competitor });
     await sendWaitingForData(tabId, matchedId, matchedEntry.marketComparisonContext || null, 5);
   } else {
@@ -1613,4 +1777,6 @@ chrome.tabs.onRemoved.addListener(async (removedTabId) => {
       break;
     }
   }
+
+  await unregisterJewelleryScrapWorkerTab(removedTabId);
 });
