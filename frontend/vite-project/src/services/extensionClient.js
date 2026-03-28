@@ -1,4 +1,5 @@
 import { sendMessage } from '@/services/extensionBridge';
+import { JEWELLERY_SCRAP_OPEN_TAB_ACTION } from '@/constants/jewelleryScrapBridge';
 
 /**
  * Open eBay, Cash Converters, or CeX in a new tab and wait for the user to confirm
@@ -125,4 +126,37 @@ export async function getDataFromRefine(competitor, listingPageUrl, marketCompar
     listingPageUrl: listingPageUrl || null,
     marketComparisonContext: marketComparisonContext || null
   });
+}
+
+/**
+ * Opens https://uk.webuy.com/ in a new tab (via extension), scrapes super-category links from
+ * `ul.nav-menu`, and returns a tree-shaped list (children reserved for future sub-category scrapes).
+ *
+ * @returns {Promise<{
+ *   success: boolean,
+ *   categories?: Array<{
+ *     id: string,
+ *     label: string,
+ *     href: string,
+ *     superCatId: string | null,
+ *     superCatNameFromQuery: string | null,
+ *     path: string[],
+ *     children: unknown[]
+ *   }>,
+ *   scrapedAt?: string,
+ *   sourceTabUrl?: string,
+ *   warnings?: string[],
+ *   error?: string,
+ *   cancelled?: boolean
+ * }>}
+ */
+export async function scrapeCexSuperCategories() {
+  return sendMessage({ action: 'scrapeCexSuperCategories' });
+}
+
+/**
+ * Opens jewellery reference scrap worker tab (extension jewellery-scrap/*).
+ */
+export async function openJewelleryScrapPrices() {
+  return sendMessage({ action: JEWELLERY_SCRAP_OPEN_TAB_ACTION });
 }

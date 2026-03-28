@@ -98,6 +98,10 @@ const useAppStore = create(
       repricingWorkspaceNonce: 0,
       /** True when the AppHeader workspace panel (builder/eBay/CeX) is mounted. */
       headerWorkspaceOpen: false,
+      /** Synced from AppHeader: `builder` | `ebay` | `cex` | `jewellery` */
+      headerWorkspaceMode: 'builder',
+      /** Increment to ask AppHeader to run full workspace reset (e.g. after jewellery Complete). */
+      closeHeaderWorkspaceTick: 0,
 
       bumpRepricingWorkspace: () =>
         set((s) => ({ repricingWorkspaceNonce: s.repricingWorkspaceNonce + 1 })),
@@ -123,9 +127,14 @@ const useAppStore = create(
           isCustomerModalOpen: false,
           resetKey: get().resetKey + 1,
           headerWorkspaceOpen: false,
+          headerWorkspaceMode: 'builder',
         });
       },
       setHeaderWorkspaceOpen: (open) => set({ headerWorkspaceOpen: Boolean(open) }),
+      setHeaderWorkspaceMode: (mode) =>
+        set({ headerWorkspaceMode: typeof mode === 'string' && mode ? mode : 'builder' }),
+      requestCloseHeaderWorkspace: () =>
+        set((s) => ({ closeHeaderWorkspaceTick: s.closeHeaderWorkspaceTick + 1 })),
       setRepricingSessionId: (id) => set({ repricingSessionId: id }),
 
       // ─── eBay / Cash Converters offer % of sale (API keys ebay_offer_margin_*; three tiers) ──

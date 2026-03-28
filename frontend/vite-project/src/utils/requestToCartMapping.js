@@ -9,6 +9,9 @@ import { NEGOTIATION_ROW_CONTEXT } from '@/pages/buyer/rowContextZones';
 /** DB → cart: default source highlight when `raw_data` has no `rrpOffersSource` (see `withDefaultRrpOffersSource`). */
 function applyDefaultRrpSourceToMappedCartItem(cartItem) {
   if (cartItem.rrpOffersSource != null && cartItem.rrpOffersSource !== '') return cartItem;
+  if (cartItem.isJewelleryItem === true) {
+    return { ...cartItem, rrpOffersSource: NEGOTIATION_ROW_CONTEXT.MANUAL_OFFER };
+  }
   const cexBacked =
     cartItem.isCustomCeXItem === true ||
     (cartItem.variantId != null && cartItem.variantId !== '') ||
@@ -80,6 +83,88 @@ export function mapRequestItemsToCartItems(items, transactionType) {
       ...offer,
       price: normalizeExplicitSalePrice(offer?.price),
     }));
+
+    const jewelleryRef = rawData?.referenceData;
+    if (jewelleryRef && jewelleryRef.jewellery_line === true) {
+      let cash = savedCashOffers;
+      let voucher = savedVoucherOffers;
+      if (!cash.length) {
+        const t = Number(jewelleryRef.computed_total_gbp ?? 0);
+        cash = [
+          {
+            id: 'jewellery-ref',
+            title: 'Reference offer',
+            price: normalizeExplicitSalePrice(t),
+          },
+        ];
+      }
+      if (!voucher.length) {
+        voucher = cash.map((o) => ({
+          id: `jewellery-v-${o.id}`,
+          title: o.title,
+          price: normalizeExplicitSalePrice(toVoucherOfferPrice(o.price)),
+        }));
+      }
+      const displayOffers = useVoucher ? voucher : cash;
+      const variantId = item.variant_details?.variant_id ?? jewelleryRef.variant_id ?? null;
+      const title =
+        jewelleryRef.line_title ||
+        item.variant_details?.title ||
+        [jewelleryRef.product_name, jewelleryRef.material_grade].filter(Boolean).join(' — ') ||
+        'Jewellery';
+      const wu = jewelleryRef.weight_unit === 'each' ? 'ea' : jewelleryRef.weight_unit || 'g';
+      const subtitle = [
+        jewelleryRef.reference_display_name ??
+          jewelleryRef[['master', 'melt', '_display_name'].join('')],
+        jewelleryRef.weight != null && jewelleryRef.weight !== ''
+          ? `${jewelleryRef.weight}${wu}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(' · ');
+
+      const cartItem = {
+        id: item.request_item_id,
+        request_item_id: item.request_item_id,
+        rawData,
+        title,
+        subtitle,
+        quantity: item.quantity,
+        selectedOfferId: item.selected_offer_id,
+        manualOffer: item.manual_offer_gbp != null ? formatOfferPrice(item.manual_offer_gbp) : '',
+        manualOfferUsed: item.manual_offer_used ?? item.selected_offer_id === 'manual',
+        customerExpectation: item.customer_expectation_gbp?.toString() || '',
+        ebayResearchData: null,
+        cashConvertersResearchData: null,
+        cashOffers: cash,
+        voucherOffers: voucher,
+        offers: displayOffers,
+        cexBuyPrice: null,
+        cexVoucherPrice: null,
+        cexSellPrice: null,
+        cexOutOfStock: false,
+        ourSalePrice:
+          item.our_sale_price_at_negotiation != null
+            ? normalizeExplicitSalePrice(parseFloat(item.our_sale_price_at_negotiation))
+            : jewelleryRef.computed_total_gbp != null
+              ? normalizeExplicitSalePrice(Number(jewelleryRef.computed_total_gbp))
+              : null,
+        rrpOffersSource: rawData?.rrpOffersSource ?? null,
+        variantId,
+        model: title,
+        category: 'Jewellery',
+        categoryObject: { name: 'Jewellery', path: ['Jewellery'] },
+        attributeValues: {
+          material_grade: jewelleryRef.material_grade,
+        },
+        isJewelleryItem: true,
+        isCustomCeXItem: false,
+        isCustomEbayItem: false,
+        isCustomCashConvertersItem: false,
+        referenceData: jewelleryRef,
+      };
+      return applyDefaultRrpSourceToMappedCartItem(cartItem);
+    }
 
     // Add from CeX: raw_data has id, title, and either CeX structure or no eBay fields
     // Include items with stats/selectedFilters (eBay research merged) when CeX structure is present

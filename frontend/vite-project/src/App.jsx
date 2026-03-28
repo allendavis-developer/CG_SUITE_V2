@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect } from "react";
-import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import Negotiation from "./pages/buyer/Negotiation";
 import RepricingNegotiation from "./pages/buyer/RepricingNegotiation";
 import RepricingOverview from "./pages/buyer/RepricingOverview";
@@ -9,6 +9,7 @@ import RequestsOverview from "./pages/buyer/RequestsOverview";
 import LaunchpadPage from "./pages/launchpad/LaunchpadPage";
 import ReportsPage from "./pages/reports/ReportsPage";
 import PricingRulesPage from "./pages/pricing/PricingRulesPage";
+import DataPage from "./pages/data/DataPage";
 import useAppStore from "./store/useAppStore";
 
 const FRESH_CUSTOMER = {
@@ -158,6 +159,8 @@ export default function App() {
         <Route path="/buyer" element={<BuyerNegotiationRoute />} />
         <Route path="/repricing" element={<RepricingWorkspaceRoute />} />
         <Route path="/reports" element={<ReportsPage />} />
+        <Route path="/data" element={<DataPage />} />
+        <Route path="/scrape" element={<Navigate to="/data" replace />} />
         {/* Route for new negotiations. When navigating from /buyer, state will be passed. */}
         <Route path="/negotiation" element={<BuyerNegotiationRoute />} />
         <Route path="/repricing-negotiation" element={<RepricingWorkspaceRoute />} />

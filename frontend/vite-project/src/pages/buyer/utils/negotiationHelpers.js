@@ -361,7 +361,15 @@ export function calculateTotalOfferPrice(items, useVoucherOffers) {
 
 // ─── Payload builders ──────────────────────────────────────────────────────
 
-export function buildFinishPayload(items, totalExpectation, targetOffer, useVoucherOffers, totalOfferPrice, customerData = null) {
+export function buildFinishPayload(
+  items,
+  totalExpectation,
+  targetOffer,
+  useVoucherOffers,
+  totalOfferPrice,
+  customerData = null,
+  jewelleryReferenceScrape = null
+) {
   const itemsData = items
     .filter(item => !item.isRemoved && item.request_item_id)
     .map(item => {
@@ -457,7 +465,21 @@ export function buildFinishPayload(items, totalExpectation, targetOffer, useVouc
     negotiated_grand_total_gbp: totalOfferPrice,
     ...(targetOfferValue && { target_offer_gbp: targetOfferValue }),
     ...(customerData && { customer_enrichment: customerData }),
+    ...(jewelleryReferenceScrape != null &&
+      typeof jewelleryReferenceScrape === 'object' &&
+      Array.isArray(jewelleryReferenceScrape.sections) &&
+      jewelleryReferenceScrape.sections.length > 0 && {
+        jewellery_reference_scrape: jewelleryReferenceScrape,
+      }),
   };
+}
+
+/** True when a quote draft POST should run (line items and/or persisted jewellery reference). */
+export function isQuoteDraftPayloadSaveable(payload) {
+  if (!payload) return false;
+  if ((payload.items_data?.length ?? 0) > 0) return true;
+  if ((payload.jewellery_reference_scrape?.sections?.length ?? 0) > 0) return true;
+  return false;
 }
 
 // ─── Data mapping: API response → negotiation item shape ───────────────────
@@ -502,6 +524,11 @@ export function mapApiItemToNegotiationItem(item, transactionType, mode) {
     if (rawSaved != null && !Number.isNaN(rawSaved) && rawSaved > 0) {
       return normalizeExplicitSalePrice(rawSaved);
     }
+    const jewRef = cartItem.referenceData || cartItem.rawData?.referenceData;
+    if (cartItem.isJewelleryItem && jewRef?.computed_total_gbp != null && jewRef?.jewellery_line === true) {
+      const jt = parseFloat(jewRef.computed_total_gbp);
+      if (!Number.isNaN(jt) && jt > 0) return normalizeExplicitSalePrice(jt);
+    }
     const refRaw =
       ebayResearchData?.referenceData?.cex_based_sale_price ??
       ebayResearchData?.reference_data?.cex_based_sale_price ??
@@ -522,6 +549,16 @@ export function mapApiItemToNegotiationItem(item, transactionType, mode) {
   };
 
   if (mode === 'view') {
+    if (next.isJewelleryItem === true) {
+      return {
+        ...next,
+        ourSalePrice: resolveOurSaleFromApi(),
+        cexBuyPrice: null,
+        cexVoucherPrice: null,
+        cexSellPrice: null,
+        cexUrl: null,
+      };
+    }
     const ref = next.referenceData || {};
     const rawRef = next.rawData?.referenceData || next.rawData?.reference_data;
     const cexSkuForUrl =
@@ -555,6 +592,16 @@ export function mapApiItemToNegotiationItem(item, transactionType, mode) {
     };
   }
 
+  if (next.isJewelleryItem === true) {
+    return {
+      ...next,
+      cexBuyPrice: null,
+      cexVoucherPrice: null,
+      cexSellPrice: null,
+      ourSalePrice: resolveOurSaleFromApi(),
+    };
+  }
+
   const vd = item.variant_details;
   return {
     ...next,
@@ -567,14 +614,17 @@ export function mapApiItemToNegotiationItem(item, transactionType, mode) {
 
 /** Normalize a cart item from the buyer store into the shape the negotiation page expects. */
 export function normalizeCartItemForNegotiation(item) {
+  const resolvedSelectedOfferId = (item.selectedOfferId != null && item.selectedOfferId !== '')
+    ? item.selectedOfferId
+    : null;
+  if (item.isJewelleryItem === true) {
+    return withDefaultRrpOffersSource({ ...item, selectedOfferId: resolvedSelectedOfferId });
+  }
   const isEbayPayload = !!(item.ebayResearchData?.stats && item.ebayResearchData?.selectedFilters);
   const cexName = item.variant_details?.title
     || (!isEbayPayload && (item.ebayResearchData?.title || item.ebayResearchData?.modelName))
     || (item.isCustomCeXItem && item.title) || null;
   const isCexItem = !!(cexName || item.isCustomCeXItem || (item.cexBuyPrice != null || item.cexSellPrice != null));
-  const resolvedSelectedOfferId = (item.selectedOfferId != null && item.selectedOfferId !== '')
-    ? item.selectedOfferId
-    : null;
   let next = item;
   if (isCexItem) {
     // Prefer explicit variantName first (e.g. CeX add-from-browser: title + specs for eBay search).

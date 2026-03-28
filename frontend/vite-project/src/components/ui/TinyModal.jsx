@@ -1,17 +1,41 @@
 import React from "react";
 
 /** Shared tiny modal shell for negotiation/repricing flows */
-const TinyModal = ({ title, onClose, children }) => (
-  <div className="fixed inset-0 z-[120] flex items-center justify-center">
+const TinyModal = ({
+  title,
+  onClose,
+  children,
+  zClass = 'z-[120]',
+  panelClassName = '',
+  /** When false, panel grows with content; outer overlay scrolls (no inner scroll area). */
+  bodyScroll = true,
+}) => (
+  <div
+    className={`fixed inset-0 ${zClass} flex justify-center ${
+      bodyScroll ? 'items-center overflow-hidden' : 'items-start overflow-y-auto py-8'
+    }`}
+  >
     <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-    <div className="relative bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm mx-4">
-      <div className="flex items-center justify-between mb-5">
+    <div
+      className={`relative mx-4 flex w-full max-w-sm flex-col rounded-2xl bg-white p-6 shadow-2xl ${
+        bodyScroll ? 'max-h-[min(92vh,720px)] overflow-hidden' : 'my-2 shrink-0'
+      } ${panelClassName}`}
+    >
+      <div className="mb-4 flex shrink-0 items-center justify-between">
         <h3 className="text-sm font-black uppercase tracking-wider" style={{ color: 'var(--brand-blue)' }}>{title}</h3>
         <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors">
           <span className="material-symbols-outlined text-[20px]">close</span>
         </button>
       </div>
-      {children}
+      <div
+        className={
+          bodyScroll
+            ? 'min-h-0 min-w-0 flex-1 overflow-y-auto'
+            : 'flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden'
+        }
+      >
+        {children}
+      </div>
     </div>
   </div>
 );

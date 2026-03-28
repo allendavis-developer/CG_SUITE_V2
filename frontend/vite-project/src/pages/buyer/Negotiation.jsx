@@ -1,6 +1,13 @@
 import React, { useEffect, useLayoutEffect, useMemo, useState, useRef, useCallback } from "react";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
 import AppHeader from "@/components/AppHeader";
+import JewelleryNegotiationSlimTable from '@/components/jewellery/JewelleryNegotiationSlimTable';
+import { buildJewelleryNegotiationCartItem, getJewelleryWorkspaceDerivedState } from '@/components/jewellery/jewelleryNegotiationCart';
+import { negotiationJewelleryItemsToWorkspaceLines } from '@/components/jewellery/jewelleryWorkspaceMapping';
+import {
+  applyJewelleryScrapeToNegotiationItem,
+  remapJewelleryWorkspaceLines,
+} from '@/components/jewellery/jewelleryScrapeRemap';
 import CustomerTransactionHeader from './components/CustomerTransactionHeader';
 import CustomerIntakeModal from '@/components/modals/CustomerIntakeModal.jsx';
 import NegotiationItemRow from './components/NegotiationItemRow';
@@ -11,7 +18,7 @@ import NewCustomerDetailsModal from '@/components/modals/NewCustomerDetailsModal
 import SalePriceConfirmModal from '@/components/modals/SalePriceConfirmModal';
 import ResearchOverlayPanel from './components/ResearchOverlayPanel';
 import TinyModal from '@/components/ui/TinyModal';
-import { finishRequest, fetchRequestDetail, updateCustomer, saveQuoteDraft, deleteRequestItem } from '@/services/api';
+import { finishRequest, fetchRequestDetail, updateCustomer, saveQuoteDraft, deleteRequestItem, updateRequestItemOffer } from '@/services/api';
 import { normalizeExplicitSalePrice, formatOfferPrice } from '@/utils/helpers';
 import { useNotification } from '@/contexts/NotificationContext';
 import useAppStore from '@/store/useAppStore';
@@ -23,6 +30,7 @@ import {
   resolveOurSalePrice,
   calculateTotalOfferPrice,
   buildFinishPayload,
+  isQuoteDraftPayloadSaveable,
   mapApiItemToNegotiationItem,
   normalizeCartItemForNegotiation,
   applyEbayResearchToItem,
@@ -46,6 +54,7 @@ const Negotiation = ({ mode }) => {
   const storeCustomerData = useAppStore((s) => s.customerData);
   const storeRequest = useAppStore((s) => s.request);
   const headerWorkspaceOpen = useAppStore((s) => s.headerWorkspaceOpen);
+  const headerWorkspaceMode = useAppStore((s) => s.headerWorkspaceMode);
   const selectedCategory = useAppStore((s) => s.selectedCategory);
   const selectCategory = useAppStore((s) => s.selectCategory);
   const handleAddFromCeX = useAppStore((s) => s.handleAddFromCeX);
@@ -69,6 +78,12 @@ const Negotiation = ({ mode }) => {
   // ─── Local negotiation state ───────────────────────────────────────────
 
   const [items, setItems] = useState([]);
+  /** Lines for the header jewellery workspace (hydrated from quote + draft rows without request_item_id). */
+  const [jewelleryWorkspaceLines, setJewelleryWorkspaceLines] = useState([]);
+  const jewelleryWorkspaceLinesRef = useRef(jewelleryWorkspaceLines);
+  jewelleryWorkspaceLinesRef.current = jewelleryWorkspaceLines;
+  /** Mastermelt reference scrape cached for this quote request only (one extension run per request). */
+  const [jewelleryReferenceScrape, setJewelleryReferenceScrape] = useState(null);
   const [customerData, setCustomerData] = useState({});
   const [transactionType, setTransactionType] = useState('sale');
   const [totalExpectation, setTotalExpectation] = useState("");
@@ -93,6 +108,8 @@ const Negotiation = ({ mode }) => {
   const completedRef = useRef(false);
   const draftPayloadRef = useRef(null);
   const prevTransactionTypeRef = useRef(transactionType);
+  /** Only clear jewellery reference when switching to a different request, not on undefined→id (avoids wiping hydrated scrape). */
+  const prevNegotiationRequestIdRef = useRef(null);
 
   const useVoucherOffers = transactionType === 'store_credit';
 
@@ -113,7 +130,8 @@ const Negotiation = ({ mode }) => {
     handleResearchComplete,
     handleCashConvertersResearchComplete,
   } = useResearchOverlay({
-    items, setItems,
+    items,
+    setItems,
     applyEbayResearch: applyEbay,
     applyCCResearch: applyCC,
     resolveSalePrice: resolveOurSalePrice,
@@ -125,6 +143,153 @@ const Negotiation = ({ mode }) => {
 
   const parsedTarget = parseFloat(targetOffer) || 0;
   const totalOfferPrice = calculateTotalOfferPrice(items, useVoucherOffers);
+  const mainNegotiationItems = useMemo(
+    () => items.filter((i) => !i.isJewelleryItem),
+    [items]
+  );
+  const jewelleryNegotiationItems = useMemo(
+    () => items.filter((i) => i.isJewelleryItem === true),
+    [items]
+  );
+
+  useEffect(() => {
+    if (mode !== 'negotiate') {
+      prevNegotiationRequestIdRef.current = null;
+      return;
+    }
+    const id =
+      actualRequestId != null && actualRequestId !== ''
+        ? Number(actualRequestId)
+        : null;
+    const prev = prevNegotiationRequestIdRef.current;
+
+    if (id == null || Number.isNaN(id)) {
+      if (prev != null) setJewelleryReferenceScrape(null);
+      prevNegotiationRequestIdRef.current = null;
+      return;
+    }
+
+    if (prev != null && prev !== id) {
+      setJewelleryReferenceScrape(null);
+    }
+    prevNegotiationRequestIdRef.current = id;
+  }, [mode, actualRequestId]);
+
+  // After resume, location.state may be cleared (replaceState) while zustand still holds the full request from fetch.
+  useEffect(() => {
+    if (mode !== 'negotiate' || actualRequestId == null || actualRequestId === '') return;
+    const jr = storeRequest?.jewellery_reference_scrape_json;
+    if (!storeRequest || !jr?.sections?.length) return;
+    if (Number(storeRequest.request_id) !== Number(actualRequestId)) return;
+    setJewelleryReferenceScrape((cur) => {
+      if (cur?.sections?.length) return cur;
+      return {
+        sections: jr.sections,
+        scrapedAt: jr.scrapedAt ?? null,
+        sourceUrl: jr.sourceUrl ?? null,
+      };
+    });
+  }, [mode, actualRequestId, storeRequest]);
+
+  useEffect(() => {
+    if (!headerWorkspaceOpen || headerWorkspaceMode !== 'jewellery') return;
+    const fromQuote = negotiationJewelleryItemsToWorkspaceLines(jewelleryNegotiationItems);
+    setJewelleryWorkspaceLines((prev) => {
+      const drafts = prev.filter((l) => !l.request_item_id);
+      const quoteIds = new Set(fromQuote.map((l) => l.id));
+      const draftsNotInQuote = drafts.filter((d) => !quoteIds.has(d.id));
+      return [...fromQuote, ...draftsNotInQuote];
+    });
+  }, [jewelleryNegotiationItems, headerWorkspaceOpen, headerWorkspaceMode]);
+
+  const normalizeOffersForApi = useCallback((offers) => {
+    if (!Array.isArray(offers)) return [];
+    return offers.map((o) => ({
+      id: o.id,
+      title: o.title,
+      price: normalizeExplicitSalePrice(o.price),
+    }));
+  }, []);
+
+  const syncJewelleryWorkspaceLinesToNegotiation = useCallback(
+    (lines) => {
+      setItems((prev) =>
+        prev.map((item) => {
+          if (!item.isJewelleryItem || !item.request_item_id) return item;
+          const line = lines.find((l) => l.id === item.id);
+          if (!line) return item;
+          const d = getJewelleryWorkspaceDerivedState(line, useVoucherOffers);
+          const ourSale =
+            d.ourSalePrice != null && d.ourSalePrice > 0 ? d.ourSalePrice : item.ourSalePrice;
+          return {
+            ...item,
+            cashOffers: d.cashOffers,
+            voucherOffers: d.voucherOffers,
+            offers: d.offers,
+            selectedOfferId: d.selectedOfferId,
+            manualOffer: d.manualOffer,
+            manualOfferUsed: d.manualOfferUsed,
+            ourSalePrice: ourSale,
+            referenceData: d.referenceData,
+            rawData:
+              item.rawData != null && typeof item.rawData === 'object'
+                ? { ...item.rawData, referenceData: d.referenceData }
+                : { referenceData: d.referenceData },
+          };
+        })
+      );
+
+      for (const line of lines) {
+        if (!line.request_item_id) continue;
+        const d = getJewelleryWorkspaceDerivedState(line, useVoucherOffers);
+        const payload = {
+          selected_offer_id: d.selectedOfferId,
+          manual_offer_used: d.selectedOfferId === 'manual',
+          manual_offer_gbp:
+            d.selectedOfferId === 'manual' && d.manualOffer
+              ? normalizeExplicitSalePrice(parseFloat(String(d.manualOffer).replace(/[£,]/g, '')))
+              : null,
+          our_sale_price_at_negotiation:
+            d.ourSalePrice != null && d.ourSalePrice > 0 ? d.ourSalePrice : null,
+          cash_offers_json: normalizeOffersForApi(d.cashOffers),
+          voucher_offers_json: normalizeOffersForApi(d.voucherOffers),
+        };
+        updateRequestItemOffer(line.request_item_id, payload).catch(() => {});
+      }
+    },
+    [normalizeOffersForApi, useVoucherOffers]
+  );
+
+  const handleJewelleryWorkspaceLinesChange = useCallback(
+    (updater) => {
+      setJewelleryWorkspaceLines((prev) => {
+        const next = typeof updater === 'function' ? updater(prev) : updater;
+        Promise.resolve().then(() => syncJewelleryWorkspaceLinesToNegotiation(next));
+        return next;
+      });
+    },
+    [syncJewelleryWorkspaceLinesToNegotiation]
+  );
+
+  const prevJewelleryWorkspaceVisibleRef = useRef(false);
+  const prevHeaderWorkspaceOpenRef = useRef(headerWorkspaceOpen);
+  useEffect(() => {
+    const visible = Boolean(headerWorkspaceOpen && headerWorkspaceMode === 'jewellery');
+    const prevVisible = prevJewelleryWorkspaceVisibleRef.current;
+    prevJewelleryWorkspaceVisibleRef.current = visible;
+    if (prevVisible && !visible && mode === 'negotiate') {
+      syncJewelleryWorkspaceLinesToNegotiation(jewelleryWorkspaceLinesRef.current);
+    }
+
+    const wasHeaderWorkspaceOpen = prevHeaderWorkspaceOpenRef.current;
+    prevHeaderWorkspaceOpenRef.current = headerWorkspaceOpen;
+    // Dropping the whole workspace (X): remove draft jewellery rows that were never added via Complete.
+    // Switching Jewellery → another tab while the panel stays open keeps drafts until the user closes the workspace.
+    if (wasHeaderWorkspaceOpen && !headerWorkspaceOpen && mode === 'negotiate') {
+      setJewelleryWorkspaceLines((prev) => prev.filter((l) => l.request_item_id));
+    }
+  }, [headerWorkspaceOpen, headerWorkspaceMode, mode, syncJewelleryWorkspaceLinesToNegotiation]);
+
   const hasTarget = parsedTarget > 0;
   const targetDelta = hasTarget ? totalOfferPrice - parsedTarget : 0;
   const targetMatched = hasTarget && Math.abs(targetDelta) <= 0.005;
@@ -254,7 +419,8 @@ const Negotiation = ({ mode }) => {
       targetOffer,
       useVoucherOffers,
       totalOfferPrice,
-      customerData
+      customerData,
+      jewelleryReferenceScrape
     );
 
     if (customerData?.isNewCustomer) {
@@ -263,7 +429,19 @@ const Negotiation = ({ mode }) => {
     } else {
       await doFinishRequest(payload);
     }
-  }, [actualRequestId, items, targetOffer, totalOfferPrice, totalExpectation, useVoucherOffers, customerData, doFinishRequest, navigate, showNotification]);
+  }, [
+    actualRequestId,
+    items,
+    targetOffer,
+    totalOfferPrice,
+    totalExpectation,
+    useVoucherOffers,
+    customerData,
+    jewelleryReferenceScrape,
+    doFinishRequest,
+    navigate,
+    showNotification,
+  ]);
 
   const handleNewCustomerDetailsSubmit = useCallback(async (formData) => {
     await updateCustomer(customerData.id, {
@@ -348,20 +526,27 @@ const Negotiation = ({ mode }) => {
       }
     }
     setItems((prev) => prev.filter((i) => i.id !== item.id));
+    setJewelleryWorkspaceLines((prev) => prev.filter((l) => l.id !== item.id));
     setContextMenu(null);
     showNotification(`"${item.title || 'Item'}" removed from negotiation`, 'info');
   }, [showNotification, storeRequest, setRequest]);
 
-  const handleAddNegotiationItem = useCallback(async (cartItem) => {
-    if (!cartItem) return;
+  const handleAddNegotiationItem = useCallback(async (cartItem, options = {}) => {
+    if (!cartItem) return false;
+    const { skipSuccessNotification = false } = options;
     try {
       // CeX (and any other) flows may persist the request row before calling onAddToCart — skip a second POST.
       let reqItemId = cartItem.request_item_id;
       if (reqItemId == null || reqItemId === '') {
-        const embeddedRawData = cartItem.referenceData ? { referenceData: cartItem.referenceData } : null;
+        const rawDataPayload =
+          cartItem.rawData != null && typeof cartItem.rawData === 'object'
+            ? cartItem.rawData
+            : cartItem.referenceData != null && typeof cartItem.referenceData === 'object'
+              ? { referenceData: cartItem.referenceData }
+              : null;
         reqItemId = await createOrAppendRequestItem({
           variantId: cartItem.variantId,
-          rawData: embeddedRawData,
+          rawData: rawDataPayload,
           cashConvertersData: cartItem.cashConvertersResearchData || null,
           cashOffers: cartItem.cashOffers || [],
           voucherOffers: cartItem.voucherOffers || [],
@@ -373,12 +558,54 @@ const Negotiation = ({ mode }) => {
       }
       const withRequestId = { ...cartItem, request_item_id: reqItemId };
       setItems((prev) => [...prev, normalizeCartItemForNegotiation(withRequestId)]);
-      showNotification(`Added "${cartItem.title}" to negotiation`, 'success');
+      if (!skipSuccessNotification) {
+        showNotification(`Added "${cartItem.title}" to negotiation`, 'success');
+      }
+      return true;
     } catch (err) {
       console.error('Failed to add negotiation item:', err);
       showNotification(err?.message || 'Failed to add item', 'error');
+      return false;
     }
   }, [createOrAppendRequestItem, showNotification]);
+
+  const handleAddJewelleryItemsFromWorkspace = useCallback(
+    async (draftWorkspaceLines) => {
+      if (!Array.isArray(draftWorkspaceLines) || draftWorkspaceLines.length === 0) return;
+      for (const line of draftWorkspaceLines) {
+        try {
+          const cartItem = buildJewelleryNegotiationCartItem(line, useVoucherOffers);
+          const ok = await handleAddNegotiationItem(cartItem, { skipSuccessNotification: true });
+          if (!ok) return;
+        } catch (err) {
+          console.error(err);
+          showNotification(err?.message || 'Failed to add jewellery item', 'error');
+          return;
+        }
+      }
+      setJewelleryWorkspaceLines([]);
+      useAppStore.getState().requestCloseHeaderWorkspace();
+      showNotification(
+        `${draftWorkspaceLines.length} jewellery item${draftWorkspaceLines.length !== 1 ? 's' : ''} added to negotiation`,
+        'success'
+      );
+    },
+    [handleAddNegotiationItem, useVoucherOffers, showNotification]
+  );
+
+  const handleRemoveJewelleryWorkspaceRow = useCallback(
+    async (line) => {
+      if (line.request_item_id) {
+        const item = items.find((i) => i.id === line.id);
+        if (item) {
+          await handleRemoveFromNegotiation(item);
+          return;
+        }
+      }
+      setJewelleryWorkspaceLines((prev) => prev.filter((l) => l.id !== line.id));
+    },
+    [items, handleRemoveFromNegotiation]
+  );
 
   const handleEbayResearchCompleteFromHeader = useCallback(async (data) => {
     if (!data) return;
@@ -516,6 +743,14 @@ const Negotiation = ({ mode }) => {
           setTotalExpectation(openQuoteRequest.overall_expectation_gbp?.toString() || '');
           setTargetOffer(openQuoteRequest.target_offer_gbp != null ? openQuoteRequest.target_offer_gbp.toString() : '');
           setItems((openQuoteRequest.items || []).map((apiItem) => mapApiItemToNegotiationItem(apiItem, txType, 'negotiate')));
+          const jr = openQuoteRequest.jewellery_reference_scrape_json;
+          if (jr?.sections?.length) {
+            setJewelleryReferenceScrape({
+              sections: jr.sections,
+              scrapedAt: jr.scrapedAt ?? null,
+              sourceUrl: jr.sourceUrl ?? null,
+            });
+          }
           hasInitializedNegotiateRef.current = true;
           window.history.replaceState({}, document.title);
           setIsLoading(false);
@@ -582,7 +817,9 @@ const Negotiation = ({ mode }) => {
   // cleanup functions (eliminates the race where an effect-based ref update
   // hasn't run yet when the component unmounts).
   const draftPayload = useMemo(() => {
-    if (mode !== 'negotiate' || !actualRequestId || items.length === 0) return null;
+    if (mode !== 'negotiate' || !actualRequestId) return null;
+    const hasJewelleryRef = jewelleryReferenceScrape?.sections?.length > 0;
+    if (items.length === 0 && !hasJewelleryRef) return null;
     const total = calculateTotalOfferPrice(items, useVoucherOffers);
     return buildFinishPayload(
       items,
@@ -590,15 +827,36 @@ const Negotiation = ({ mode }) => {
       targetOffer,
       useVoucherOffers,
       total,
-      customerData
+      customerData,
+      jewelleryReferenceScrape
     );
-  }, [items, totalExpectation, targetOffer, useVoucherOffers, mode, actualRequestId, customerData]);
+  }, [
+    items,
+    totalExpectation,
+    targetOffer,
+    useVoucherOffers,
+    mode,
+    actualRequestId,
+    customerData,
+    jewelleryReferenceScrape,
+  ]);
+
+  const handleJewelleryReferenceScrapeResult = useCallback((scrape) => {
+    if (!scrape?.sections?.length) return;
+    setJewelleryReferenceScrape(scrape);
+    setJewelleryWorkspaceLines((prev) => remapJewelleryWorkspaceLines(prev, scrape.sections));
+    setItems((prev) =>
+      prev.map((i) =>
+        i.isJewelleryItem ? applyJewelleryScrapeToNegotiationItem(i, scrape.sections, useVoucherOffers) : i
+      )
+    );
+  }, [useVoucherOffers]);
 
   draftPayloadRef.current = draftPayload;
 
   // Debounced auto-save
   useEffect(() => {
-    if (!draftPayload?.items_data?.length || completedRef.current) return;
+    if (!isQuoteDraftPayloadSaveable(draftPayload) || completedRef.current) return;
     const timer = setTimeout(() => {
       if (completedRef.current) return;
       saveQuoteDraft(actualRequestId, draftPayloadRef.current).catch((err) => {
@@ -627,7 +885,7 @@ const Negotiation = ({ mode }) => {
     const flushDraft = (opts = {}) => {
       if (completedRef.current) return;
       const payload = draftPayloadRef.current;
-      if (payload?.items_data?.length) {
+      if (isQuoteDraftPayloadSaveable(payload)) {
         saveQuoteDraft(actualRequestId, payload, opts).catch(() => {});
       }
     };
@@ -684,6 +942,7 @@ const Negotiation = ({ mode }) => {
           enableNegotiationItemBuilder: true,
           useVoucherOffers,
           onAddNegotiationItem: handleAddNegotiationItem,
+          onAddJewelleryToNegotiation: handleAddJewelleryItemsFromWorkspace,
           onEbayResearchComplete: handleEbayResearchCompleteFromHeader,
           cexProductData,
           setCexProductData,
@@ -692,6 +951,11 @@ const Negotiation = ({ mode }) => {
           customerData,
           existingItems: items,
           showNotification,
+          jewelleryWorkspaceLines,
+          setJewelleryWorkspaceLines: handleJewelleryWorkspaceLinesChange,
+          onRemoveJewelleryWorkspaceRow: handleRemoveJewelleryWorkspaceRow,
+          jewelleryReferenceScrape,
+          onJewelleryReferenceScrapeResult: handleJewelleryReferenceScrapeResult,
         } : null}
       />
 
@@ -787,53 +1051,87 @@ const Negotiation = ({ mode }) => {
             </div>
           </div>
 
-          {/* Table */}
-          <div className="overflow-auto flex-1">
-            <table className="w-full spreadsheet-table border-collapse text-left">
-              <thead>
-                <tr>
-                  <th className="w-12 text-center">Qty</th>
-                  <th className="min-w-[220px]">Item Name &amp; Attributes</th>
-                  <th className="w-24 spreadsheet-th-cex">Sell</th>
-                  <th className="w-24 spreadsheet-th-cex">Voucher</th>
-                  <th className="w-24 spreadsheet-th-cex">Cash</th>
-                  <th className="w-24 spreadsheet-th-offer-tier">1st</th>
-                  <th className="w-24 spreadsheet-th-offer-tier">2nd</th>
-                  <th className="w-24 spreadsheet-th-offer-tier">3rd</th>
-                  <th className="w-36">Manual</th>
-                  <th className="w-32">Customer Expectation</th>
-                  <th className="w-24">Our RRP</th>
-                  <th className="w-36">eBay Price</th>
-                  <th className="w-36">Cash Converters</th>
-                </tr>
-              </thead>
-              <tbody className="text-xs">
-                {items.map((item, index) => (
-                  <NegotiationItemRow
-                      key={item.id || index}
-                    item={item}
-                    index={index}
-                    mode={mode}
-                    allowResearchSandboxInView={researchSandboxBookedView}
-                    useVoucherOffers={useVoucherOffers}
-                    onQuantityChange={handleQuantityChange}
-                    onSelectOffer={handleSelectOffer}
-                    onRowContextMenu={(e, it, zone) =>
-                      setContextMenu({ x: e.clientX, y: e.clientY, item: it, zone })}
-                    onSetManualOffer={(it) => setItemOfferModal({ item: it })}
-                    onCustomerExpectationChange={handleCustomerExpectationChange}
-                    onOurSalePriceChange={handleOurSalePriceChange}
-                    onOurSalePriceBlur={handleOurSalePriceBlur}
-                    onOurSalePriceFocus={handleOurSalePriceFocus}
-                    onRefreshCeXData={handleRefreshCeXData}
-                    onReopenResearch={setResearchItem}
-                    onReopenCashConvertersResearch={setCashConvertersResearchItem}
-                  />
-                ))}
-                <tr className="h-10 opacity-50"><td colSpan="13"></td></tr>
-                <tr className="h-10 opacity-50"><td colSpan="13"></td></tr>
-              </tbody>
-            </table>
+          {/* Tables: jewellery first (full width like items table), then main items */}
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            {jewelleryNegotiationItems.length > 0 ? (
+              <div
+                className="max-h-[min(40vh,420px)] shrink-0 overflow-auto border-b-2 bg-white"
+                style={{ borderColor: 'rgba(20, 69, 132, 0.2)' }}
+              >
+                <div className="sticky top-0 z-[5] border-b bg-white px-6 py-3" style={{ borderColor: 'var(--ui-border)' }}>
+                  <h3 className="text-sm font-black uppercase tracking-wider text-brand-blue">Jewellery</h3>
+                  <p className="mt-0.5 text-[11px] text-gray-600">
+                    Workspace-style columns plus manual offer and customer expectation. Grand total includes these lines.
+                  </p>
+                </div>
+                <JewelleryNegotiationSlimTable
+                  items={jewelleryNegotiationItems}
+                  mode={mode}
+                  useVoucherOffers={useVoucherOffers}
+                  onSelectOffer={handleSelectOffer}
+                  onRowContextMenu={(e, it, zone) =>
+                    setContextMenu({ x: e.clientX, y: e.clientY, item: it, zone })
+                  }
+                  onSetManualOffer={(it) => setItemOfferModal({ item: it })}
+                  onCustomerExpectationChange={handleCustomerExpectationChange}
+                />
+              </div>
+            ) : null}
+            <div className="min-h-0 flex-1 overflow-auto">
+              <div className="px-6 pt-4 pb-2">
+                <h3 className="text-sm font-black uppercase tracking-wider text-brand-blue">Items</h3>
+                <p className="text-[11px] text-gray-600">Phones, CeX, eBay, and other catalogue lines.</p>
+              </div>
+              <table className="w-full spreadsheet-table border-collapse text-left">
+                <thead>
+                  <tr>
+                    <th className="w-12 text-center">Qty</th>
+                    <th className="min-w-[220px]">Item Name &amp; Attributes</th>
+                    <th className="w-24 spreadsheet-th-cex">Sell</th>
+                    <th className="w-24 spreadsheet-th-cex">Voucher</th>
+                    <th className="w-24 spreadsheet-th-cex">Cash</th>
+                    <th className="w-24 spreadsheet-th-offer-tier">1st</th>
+                    <th className="w-24 spreadsheet-th-offer-tier">2nd</th>
+                    <th className="w-24 spreadsheet-th-offer-tier">3rd</th>
+                    <th className="w-36">Manual</th>
+                    <th className="w-32">Customer Expectation</th>
+                    <th className="w-24">Our RRP</th>
+                    <th className="w-36">eBay Price</th>
+                    <th className="w-36">Cash Converters</th>
+                  </tr>
+                </thead>
+                <tbody className="text-xs">
+                  {mainNegotiationItems.map((item, index) => (
+                    <NegotiationItemRow
+                      key={item.id || `main-${index}`}
+                      item={item}
+                      index={index}
+                      mode={mode}
+                      allowResearchSandboxInView={researchSandboxBookedView}
+                      useVoucherOffers={useVoucherOffers}
+                      onQuantityChange={handleQuantityChange}
+                      onSelectOffer={handleSelectOffer}
+                      onRowContextMenu={(e, it, zone) =>
+                        setContextMenu({ x: e.clientX, y: e.clientY, item: it, zone })}
+                      onSetManualOffer={(it) => setItemOfferModal({ item: it })}
+                      onCustomerExpectationChange={handleCustomerExpectationChange}
+                      onOurSalePriceChange={handleOurSalePriceChange}
+                      onOurSalePriceBlur={handleOurSalePriceBlur}
+                      onOurSalePriceFocus={handleOurSalePriceFocus}
+                      onRefreshCeXData={handleRefreshCeXData}
+                      onReopenResearch={setResearchItem}
+                      onReopenCashConvertersResearch={setCashConvertersResearchItem}
+                    />
+                  ))}
+                  <tr className="h-10 opacity-50">
+                    <td colSpan="13"></td>
+                  </tr>
+                  <tr className="h-10 opacity-50">
+                    <td colSpan="13"></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </section>
 

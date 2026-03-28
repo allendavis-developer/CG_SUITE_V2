@@ -16,6 +16,14 @@ import {
   slimCexNegotiationOfferRows,
 } from '@/utils/cexOfferMapping';
 import WorkspaceCloseButton from '@/components/ui/WorkspaceCloseButton';
+import JewelleryReferencePricesTable from '@/components/jewellery/JewelleryReferencePricesTable';
+import { useJewelleryScrapWorkspace } from '@/hooks/useJewelleryScrapWorkspace';
+
+/** Jewellery is only added via the header Jewellery button, not the category tree. */
+function isJewelleryCategoryName(name) {
+  const n = String(name || '').trim().toLowerCase();
+  return n === 'jewellery' || n === 'jewelry';
+}
 
 const AppHeader = ({
   buyerControls = null,
@@ -34,12 +42,18 @@ const AppHeader = ({
   const [isLoadingOffers, setIsLoadingOffers] = useState(false);
   const [referenceData, setReferenceData] = useState(null);
   const [ourSalePrice, setOurSalePrice] = useState('');
-  const [workspaceMode, setWorkspaceMode] = useState('builder'); // builder | ebay | cex
+  const [workspaceMode, setWorkspaceMode] = useState('builder'); // builder | ebay | cex | jewellery
   const popupRef = useRef(null);
   const headerRef = useRef(null);
   const secondRowRef = useRef(null);
   const categoryFilterInputRef = useRef(null);
   const [mountedTop, setMountedTop] = useState(64);
+  const {
+    scrape: jewelleryScrape,
+    loading: jewelleryScrapeLoading,
+    startScrapeSession: startJewelleryScrapeSession,
+    reset: resetJewelleryScrape,
+  } = useJewelleryScrapWorkspace();
   /** Pending header-search term when user pressed Enter — choose eBay vs CeX. */
   const [marketplaceSearchDialog, setMarketplaceSearchDialog] = useState(null);
   /** True once CeX fetch has started (loading) for this panel — avoids closing before load begins or resetting ref incorrectly */
@@ -73,11 +87,55 @@ const AppHeader = ({
 
   /** Full reset: builder UI, top-level picker, workspace mode, marketplace dialog. */
   const resetHeaderWorkspaceChrome = useCallback(() => {
+    resetJewelleryScrape();
     clearHeaderBuilderState();
     setActiveTopLevelId(null);
     setWorkspaceMode('builder');
     setMarketplaceSearchDialog(null);
-  }, [clearHeaderBuilderState]);
+  }, [clearHeaderBuilderState, resetJewelleryScrape]);
+
+  const setHeaderWorkspaceModeGlobal = useAppStore((s) => s.setHeaderWorkspaceMode);
+  const closeHeaderWorkspaceTick = useAppStore((s) => s.closeHeaderWorkspaceTick);
+  const prevCloseHeaderTickRef = useRef(0);
+
+  useEffect(() => {
+    setHeaderWorkspaceModeGlobal(showNegotiationItemBuilder ? workspaceMode : 'builder');
+  }, [workspaceMode, showNegotiationItemBuilder, setHeaderWorkspaceModeGlobal]);
+
+  useEffect(() => {
+    if (
+      closeHeaderWorkspaceTick > prevCloseHeaderTickRef.current &&
+      showNegotiationItemBuilder
+    ) {
+      resetHeaderWorkspaceChrome();
+    }
+    prevCloseHeaderTickRef.current = closeHeaderWorkspaceTick;
+  }, [
+    closeHeaderWorkspaceTick,
+    showNegotiationItemBuilder,
+    resetHeaderWorkspaceChrome,
+  ]);
+
+  /** Push each successful extension scrape to Negotiation (remaps lines + items; also saved on quote draft). */
+  useEffect(() => {
+    if (!showNegotiationItemBuilder) return;
+    const scrape = jewelleryScrape;
+    const persist = buyerControlsRef.current?.onJewelleryReferenceScrapeResult;
+    if (!scrape?.sections?.length || typeof persist !== 'function') return;
+    persist(scrape);
+  }, [jewelleryScrape, showNegotiationItemBuilder]);
+
+  const jewellerySectionsForPanel = useMemo(() => {
+    const cached = buyerControls?.jewelleryReferenceScrape?.sections;
+    if (Array.isArray(cached) && cached.length > 0) return cached;
+    const live = jewelleryScrape?.sections;
+    return Array.isArray(live) && live.length > 0 ? live : [];
+  }, [buyerControls?.jewelleryReferenceScrape, jewelleryScrape]);
+
+  const jewelleryPanelFromCache = Boolean(
+    buyerControls?.jewelleryReferenceScrape?.sections?.length
+  );
+  const jewelleryPanelLoading = !jewelleryPanelFromCache && jewelleryScrapeLoading;
 
   const { attributes, attributeValues, variant, setVariant, handleAttributeChange, setAllAttributeValues } =
     useProductAttributes(selectedModel?.product_id, variants);
@@ -148,8 +206,26 @@ const AppHeader = ({
       setActiveTopLevelId(null);
       return;
     }
+    if (isJewelleryCategoryName(selectedTopLevel.name)) {
+      setActiveTopLevelId(null);
+      return;
+    }
     setActiveTopLevelId(selectedTopLevel.category_id);
   }, [showBuyerControls, selectedTopLevel]);
+
+  /** Drop catalogue selection if it sits under Jewellery (not reachable from header pills). */
+  useEffect(() => {
+    if (!showBuyerControls || !showNegotiationItemBuilder) return;
+    const p0 = buyerControls?.selectedCategory?.path?.[0];
+    if (!p0 || !isJewelleryCategoryName(p0)) return;
+    clearHeaderBuilderState();
+    setActiveTopLevelId(null);
+  }, [
+    showBuyerControls,
+    showNegotiationItemBuilder,
+    buyerControls?.selectedCategory?.path,
+    clearHeaderBuilderState,
+  ]);
 
   useEffect(() => {
     if (!showBuyerControls || !activeTopLevelId) return undefined;
@@ -249,8 +325,12 @@ const AppHeader = ({
     () => categories.find((cat) => String(cat.name || '').toLowerCase() === 'ebay') || null,
     [categories]
   );
-  const nonEbayTopLevelCategories = useMemo(
-    () => categories.filter((cat) => String(cat.name || '').toLowerCase() !== 'ebay'),
+  const builderTopLevelCategories = useMemo(
+    () =>
+      categories.filter((cat) => {
+        const n = String(cat.name || '').toLowerCase();
+        return n !== 'ebay' && !isJewelleryCategoryName(cat.name);
+      }),
     [categories]
   );
 
@@ -378,6 +458,7 @@ const AppHeader = ({
   const handleCategorySelect = (category) => {
     const path = getCategoryPath(category.category_id, categories);
     if (!path || !buyerControls?.onCategorySelect) return;
+    if (path[0] && isJewelleryCategoryName(path[0])) return;
     buyerControls.onCategorySelect({
       id: category.category_id,
       name: category.name,
@@ -563,6 +644,12 @@ const AppHeader = ({
             tooltip="Reports"
           />
           <NavIcon
+            to="/data"
+            icon="dataset_linked"
+            label="Data"
+            tooltip="Data"
+          />
+          <NavIcon
             to="/pricing-rules"
             icon="tune"
             label="Pricing Rules"
@@ -575,7 +662,7 @@ const AppHeader = ({
         <div ref={secondRowRef} className="mt-3 flex items-center justify-center border-t border-white/20 pt-3">
           <div className="relative" ref={popupRef}>
             <div className="flex flex-wrap items-center gap-2">
-              {nonEbayTopLevelCategories.map((category) => {
+              {builderTopLevelCategories.map((category) => {
                 const isActive = String(activeTopLevelId) === String(category.category_id);
                 const isSelectedTop = selectedTopLevelName === category.name;
                 const isHighlighted = activeTopLevelId
@@ -587,6 +674,7 @@ const AppHeader = ({
                     type="button"
                     onClick={() => {
                       clearHeaderBuilderState();
+                      setWorkspaceMode('builder');
                       setActiveTopLevelId((prev) =>
                         String(prev) === String(category.category_id) ? null : category.category_id
                       );
@@ -657,6 +745,29 @@ const AppHeader = ({
                   c
                 </button>
               </div>
+              {showNegotiationItemBuilder && !isRepricingWorkspace && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearHeaderBuilderState();
+                    setActiveTopLevelId(null);
+                    setWorkspaceMode('jewellery');
+                    resetJewelleryScrape();
+                    const bc = buyerControlsRef.current;
+                    if (!bc?.jewelleryReferenceScrape?.sections?.length) {
+                      startJewelleryScrapeSession();
+                    }
+                  }}
+                  className={`min-h-11 inline-flex items-center gap-2 px-2.5 py-2 text-left text-sm font-bold transition-colors ${
+                    workspaceMode === 'jewellery'
+                      ? 'text-brand-orange/90 underline decoration-brand-orange/80 decoration-2 underline-offset-4'
+                      : 'text-white/90 hover:text-white'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[18px] opacity-85">diamond</span>
+                  <span className="truncate">Jewellery</span>
+                </button>
+              )}
               {buyerControls?.onQuickReprice && (
                 <button
                   type="button"
@@ -727,7 +838,7 @@ const AppHeader = ({
                 )}
                 {showNegotiationItemBuilder && (
                   <div className="flex h-full min-h-0 flex-1 flex-col border-l-0 border-gray-200 bg-white">
-                    {workspaceMode === 'builder' && (
+                    {(workspaceMode === 'builder' || workspaceMode === 'jewellery') && (
                       <div className="flex shrink-0 items-center justify-end border-b border-gray-200 bg-gray-50 px-3 py-2">
                         <WorkspaceCloseButton
                           title="Close workspace"
@@ -740,7 +851,32 @@ const AppHeader = ({
                         workspaceMode === 'ebay' ? 'overflow-hidden p-0' : 'overflow-y-auto'
                       }`}
                     >
-                    {workspaceMode === 'ebay' ? (
+                    {workspaceMode === 'jewellery' ? (
+                      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+                        {jewelleryPanelLoading ? (
+                          <div
+                            className="flex min-h-[200px] flex-col items-center justify-center gap-3 text-brand-blue"
+                            role="status"
+                            aria-live="polite"
+                          >
+                            <span className="material-symbols-outlined animate-spin text-4xl">progress_activity</span>
+                            <p className="text-sm font-semibold text-gray-600">Fetching reference prices…</p>
+                          </div>
+                        ) : (
+                          <JewelleryReferencePricesTable
+                            sections={jewellerySectionsForPanel}
+                            useVoucherOffers={useVoucherOffers}
+                            onAddJewelleryToNegotiation={buyerControls?.onAddJewelleryToNegotiation}
+                            showNotification={buyerControls?.showNotification}
+                            workspaceLines={buyerControls?.jewelleryWorkspaceLines}
+                            onWorkspaceLinesChange={buyerControls?.setJewelleryWorkspaceLines}
+                            onRemoveJewelleryWorkspaceRow={buyerControls?.onRemoveJewelleryWorkspaceRow}
+                            onUpdateReferenceRequest={() => startJewelleryScrapeSession()}
+                            updateReferenceLoading={jewelleryScrapeLoading}
+                          />
+                        )}
+                      </div>
+                    ) : workspaceMode === 'ebay' ? (
                       <div className="relative h-full min-h-0">
                         <EbayResearchForm
                           key={`ebay-header-${headerSearch.trim()}`}

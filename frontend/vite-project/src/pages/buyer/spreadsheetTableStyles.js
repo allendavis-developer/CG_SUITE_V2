@@ -48,6 +48,12 @@ export const SPREADSHEET_TABLE_STYLES = `
   }
   ${SPREADSHEET_CEX_TH_STYLES}
   .spreadsheet-table th:last-child { border-right: 0; }
+  /* Optional: scroll with body (e.g. jewellery workspace panel) instead of sticking inside overflow-y-auto */
+  .spreadsheet-table.spreadsheet-table--static-header th {
+    position: static;
+    top: auto;
+    z-index: auto;
+  }
   .spreadsheet-table td {
     padding: 0.5rem 0.75rem;
     border-right: 1px solid var(--ui-border);

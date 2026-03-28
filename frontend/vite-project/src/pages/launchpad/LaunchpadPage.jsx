@@ -153,6 +153,13 @@ const LaunchpadPage = () => {
                 route="/reports"
                 buttonLabel="Open Reports"
               />
+              <ModuleCard
+                icon="dataset_linked"
+                title="Data"
+                description="Import and explore external catalogue structure using the browser extension."
+                route="/data"
+                buttonLabel="Open Data"
+              />
             </div>
 
             {/* Daily Overview */}
