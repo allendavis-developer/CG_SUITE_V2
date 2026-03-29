@@ -641,6 +641,21 @@ export default function ResearchFormShell({
   }, [showManualOffer, readOnly, onCompleteWithSelection, onManualOfferChange]);
 
   const handleManualOfferCardClick = useCallback(() => {
+    const cartManualMode = Boolean(onAddToCartWithOffer && !readOnly && !showManualOffer);
+
+    if (cartManualMode) {
+      if (selectedOfferIndex === 'manual') {
+        const cleanManual = String(manualOffer ?? '').replace(/[£,]/g, '').trim();
+        const parsed = parseFloat(cleanManual);
+        if (Number.isFinite(parsed) && parsed > 0) {
+          onAddToCartWithOffer({ type: 'manual', amount: parsed });
+        }
+        return;
+      }
+      setSelectedOfferIndex('manual');
+      return;
+    }
+
     if (!showManualOffer || readOnly) return;
 
     // Second tap on manual card: same as OK — always finish and close (no amount gate).
@@ -656,7 +671,7 @@ export default function ResearchFormShell({
     }
 
     setSelectedOfferIndex('manual');
-  }, [showManualOffer, readOnly, selectedOfferIndex, manualOffer, onManualOfferChange, onCompleteWithSelection, onComplete]);
+  }, [showManualOffer, readOnly, selectedOfferIndex, manualOffer, onManualOfferChange, onCompleteWithSelection, onComplete, onAddToCartWithOffer]);
 
   const handleComplete = useCallback(() => {
     if (readOnly) {
@@ -782,8 +797,13 @@ export default function ResearchFormShell({
   // ─── Buy offers display ───────────────────────────────────────────────────
   const BuyOffersDisplay = useMemo(() => {
     const useAddWithOfferFlow = Boolean(onAddToCartWithOffer && !readOnly);
+    const showInlineCartManual =
+      Boolean(onManualOfferChange && !showManualOffer && useAddWithOfferFlow && showInlineOfferAction && !hidePrimaryAddAction);
+    const showManualOfferCard =
+      Boolean(onManualOfferChange) &&
+      (Boolean(showManualOffer && !hideOfferCards) || showInlineCartManual);
     if (hideOfferCards && !useAddWithOfferFlow) return null;
-    if (!hideOfferCards && !buyOffers.length && !showManualOffer) return null;
+    if (!hideOfferCards && !buyOffers.length && !showManualOffer && !showInlineCartManual) return null;
 
     const offerLabels = useVoucherOffers
       ? ["1st Voucher Offer", "2nd Voucher Offer", "3rd Voucher Offer"]
@@ -850,30 +870,11 @@ export default function ResearchFormShell({
             );
           })}
 
-          {useAddWithOfferFlow && showInlineOfferAction && !hidePrimaryAddAction && (
+          {showManualOfferCard && (
             <>
-              {buyOffers.length > 0 && <div className="w-px h-8 bg-gray-200" />}
-              <button
-                type="button"
-                onClick={() => onAddToCartWithOffer(null)}
-                className={`flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-extrabold uppercase tracking-wide text-brand-blue transition-all ${
-                  disableAddAction
-                    ? 'bg-gray-300 text-gray-600 cursor-not-allowed shadow-none ring-0'
-                    : `bg-brand-orange hover:bg-brand-orange-hover cursor-pointer ${prominentAddClass}`
-                }`}
-                disabled={disableAddAction}
-              >
-                <Icon name={addActionLabel === 'Add to Reprice List' ? 'sell' : 'add_shopping_cart'} className="text-[22px]" />
-                {addActionLabel}
-              </button>
-            </>
-          )}
-
-          {!hideOfferCards && showManualOffer && onManualOfferChange && (
-            <>
-              {(buyOffers.length > 0 || useAddWithOfferFlow) && <div className="w-px h-8 bg-gray-200" />}
+              {(buyOffers.length > 0 || showInlineCartManual) && <div className="w-px h-8 bg-gray-200" />}
               <div
-                className={`flex flex-col cursor-text rounded-lg border px-2.5 py-1.5 shadow-sm transition-all ${
+                className={`flex flex-col cursor-text rounded-lg border px-2.5 py-1.5 shadow-sm transition-all shrink-0 ${
                   selectedOfferIndex === 'manual'
                     ? 'ring-2 ring-brand-blue bg-brand-blue/10 border-brand-blue/30'
                     : 'bg-brand-blue/5 border-brand-blue/20 hover:bg-brand-blue/10 hover:border-brand-blue/30 active:scale-[0.99]'
@@ -898,10 +899,23 @@ export default function ResearchFormShell({
                     onChange={(e) => {
                       e.stopPropagation();
                       handleManualOfferChange(e);
-                      if (!readOnly && showManualOffer && selectedOfferIndex !== 'manual') setSelectedOfferIndex('manual');
+                      if (!readOnly && showManualOfferCard && selectedOfferIndex !== 'manual') setSelectedOfferIndex('manual');
                     }}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleComplete(); } }}
-                    onFocus={() => { if (!readOnly && showManualOffer) setSelectedOfferIndex('manual'); }}
+                    onKeyDown={(e) => {
+                      if (e.key !== 'Enter') return;
+                      e.preventDefault();
+                      if (showInlineCartManual) {
+                        const parsed = parseFloat(String(manualOffer ?? '').replace(/[£,]/g, ''));
+                        if (Number.isFinite(parsed) && parsed > 0) {
+                          onAddToCartWithOffer({ type: 'manual', amount: parsed });
+                        }
+                      } else {
+                        handleComplete();
+                      }
+                    }}
+                    onFocus={() => {
+                      if (!readOnly && showManualOfferCard) setSelectedOfferIndex('manual');
+                    }}
                     disabled={readOnly}
                     readOnly={readOnly}
                   />
@@ -910,6 +924,26 @@ export default function ResearchFormShell({
                   <span className="text-[10px] font-bold text-brand-orange-hover">{manualOfferPctOfSale}% sale</span>
                 )}
               </div>
+            </>
+          )}
+
+          {useAddWithOfferFlow && showInlineOfferAction && !hidePrimaryAddAction && (
+            <>
+              {buyOffers.length > 0 && !showManualOfferCard && <div className="w-px h-8 bg-gray-200" />}
+              {showManualOfferCard && showInlineCartManual && <div className="w-px h-8 bg-gray-200 shrink-0" />}
+              <button
+                type="button"
+                onClick={() => onAddToCartWithOffer(null)}
+                className={`flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-extrabold uppercase tracking-wide text-brand-blue transition-all shrink-0 ${
+                  disableAddAction
+                    ? 'bg-gray-300 text-gray-600 cursor-not-allowed shadow-none ring-0'
+                    : `bg-brand-orange hover:bg-brand-orange-hover cursor-pointer ${prominentAddClass}`
+                }`}
+                disabled={disableAddAction}
+              >
+                <Icon name={addActionLabel === 'Add to Reprice List' ? 'sell' : 'add_shopping_cart'} className="text-[22px]" />
+                {addActionLabel}
+              </button>
             </>
           )}
         </div>

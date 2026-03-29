@@ -14,6 +14,10 @@ export default function EbayCartItemView({
   const displayOffers = useVoucherOffers ? (item.voucherOffers || []) : (item.cashOffers || []);
   const handleOfferSelect = (offerArg) => {
     if (!onSelectOfferForCartItem) return;
+    if (offerArg == null) {
+      onSelectOfferForCartItem(null);
+      return;
+    }
     if (offerArg && typeof offerArg === 'object' && offerArg.type === 'manual') {
       onSelectOfferForCartItem(offerArg);
       return;

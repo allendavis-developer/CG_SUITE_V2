@@ -420,6 +420,12 @@ function ExtensionResearchForm({
       selectedOfferIndex = 'manual';
       const amount = Number(offerArg.amount);
       if (Number.isFinite(amount) && amount > 0) nextManualOffer = amount.toFixed(2);
+    } else if (offerArg == null) {
+      selectedOfferIndex = null;
+      nextManualOffer = '';
+    } else {
+      selectedOfferIndex = offerArg;
+      nextManualOffer = '';
     }
     onComplete?.(buildPayload({ manualOffer: nextManualOffer, selectedOfferIndex }));
   }, [onComplete, buildPayload, manualOffer]);
@@ -557,7 +563,7 @@ function ExtensionResearchForm({
       customControls={null}
       allowHistogramToggle={initialHistogramState !== false}
       manualOffer={manualOffer}
-      onManualOfferChange={showManualOffer ? setManualOffer : null}
+      onManualOfferChange={!readOnly && (showManualOffer || isEbay) ? setManualOffer : null}
       showManualOffer={showManualOffer}
       hideSearchAndFilters={true}
       onRefineSearch={handleRefineSearch}
