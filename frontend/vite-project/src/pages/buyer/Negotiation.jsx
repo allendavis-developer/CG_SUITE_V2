@@ -11,6 +11,7 @@ import {
 import CustomerTransactionHeader from './components/CustomerTransactionHeader';
 import CustomerIntakeModal from '@/components/modals/CustomerIntakeModal.jsx';
 import NegotiationItemRow from './components/NegotiationItemRow';
+import JewelleryReferencePricesTable from '@/components/jewellery/JewelleryReferencePricesTable';
 import { TargetOfferModal, ItemOfferModal, SeniorMgmtModal, MarginResultModal } from './components/NegotiationModals';
 import NegotiationRowContextMenu from './components/NegotiationRowContextMenu';
 import { handlePriceSourceAsRrpOffersSource } from './utils/priceSourceAsRrpOffers';
@@ -102,6 +103,7 @@ const Negotiation = ({ mode }) => {
   const [isCustomerModalOpen, setCustomerModalOpen] = useState(false);
   /** BOOKED_FOR_TESTING | COMPLETE | QUOTE | null — used for research sandbox in view mode. */
   const [viewRequestStatus, setViewRequestStatus] = useState(null);
+  const [showJewelleryReferenceModal, setShowJewelleryReferenceModal] = useState(false);
 
   // Refs
   const hasInitializedNegotiateRef = useRef(false);
@@ -801,6 +803,16 @@ const Negotiation = ({ mode }) => {
             return { ...mapped, isRemoved };
           });
           setItems(mappedItems);
+          const jr = data.jewellery_reference_scrape_json;
+          setJewelleryReferenceScrape(
+            jr?.sections?.length
+              ? {
+                  sections: jr.sections,
+                  scrapedAt: jr.scrapedAt ?? null,
+                  sourceUrl: jr.sourceUrl ?? null,
+                }
+              : null
+          );
         } catch (err) {
           console.error("Failed to load request details:", err);
           showNotification(`Failed to load request details: ${err.message}`, "error");
@@ -1139,7 +1151,19 @@ const Negotiation = ({ mode }) => {
                 style={{ borderColor: 'rgba(20, 69, 132, 0.2)' }}
               >
                 <div className="sticky top-0 z-[5] border-b bg-white px-6 py-3" style={{ borderColor: 'var(--ui-border)' }}>
-                  <h3 className="text-sm font-black uppercase tracking-wider text-brand-blue">Jewellery</h3>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-sm font-black uppercase tracking-wider text-brand-blue">Jewellery</h3>
+                    {mode === 'view' && jewelleryReferenceScrape?.sections?.length ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowJewelleryReferenceModal(true)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-[11px] font-extrabold uppercase tracking-wide text-brand-blue shadow-sm transition-colors hover:bg-gray-50"
+                      >
+                        <span className="material-symbols-outlined text-[16px] leading-none">table_view</span>
+                        View reference table
+                      </button>
+                    ) : null}
+                  </div>
                   <p className="mt-0.5 text-[11px] text-gray-600">
                     Workspace-style columns plus manual offer and customer expectation. Grand total includes these lines.
                   </p>
@@ -1417,6 +1441,23 @@ const Negotiation = ({ mode }) => {
           </div>
         </TinyModal>
       )}
+
+      {showJewelleryReferenceModal ? (
+        <TinyModal
+          title="Jewellery reference table"
+          zClass="z-[220]"
+          panelClassName="!max-w-5xl !h-[min(92vh,860px)]"
+          onClose={() => setShowJewelleryReferenceModal(false)}
+        >
+          <JewelleryReferencePricesTable
+            sections={jewelleryReferenceScrape?.sections || []}
+            showLineItems={false}
+            defaultOpen={true}
+            hideToggle={true}
+            title="Reference prices (saved snapshot)"
+          />
+        </TinyModal>
+      ) : null}
 
     </div>
   );
