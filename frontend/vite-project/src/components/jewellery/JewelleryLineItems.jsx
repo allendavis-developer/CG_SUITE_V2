@@ -672,6 +672,7 @@ export default function JewelleryLineItems({
               {lines.map((line) => {
                 const total = computeLineTotal(line);
                 const isUnit = line.sourceKind === 'UNIT';
+                const manualSelected = String(line.manualOfferInput ?? '').trim() !== '';
                 return (
                   <tr
                     key={line.id}
@@ -721,7 +722,17 @@ export default function JewelleryLineItems({
                         onSelect={() => handleSelectJewelleryTier(line.id, pct)}
                       />
                     ))}
-                    <td>
+                    <td
+                      style={
+                        manualSelected
+                          ? {
+                              background: 'rgba(34, 197, 94, 0.15)',
+                              fontWeight: 700,
+                              color: '#166534',
+                            }
+                          : undefined
+                      }
+                    >
                       <input
                         type="text"
                         inputMode="decimal"
@@ -733,7 +744,7 @@ export default function JewelleryLineItems({
                           })
                         }
                         placeholder="—"
-                        className="h-8 w-full min-w-[4.5rem] rounded border border-gray-300 px-2 font-semibold tabular-nums text-gray-900 placeholder:text-gray-400 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-blue/30"
+                        className="h-8 w-full min-w-[4.5rem] rounded border border-gray-300 px-2 font-semibold tabular-nums text-gray-900 placeholder:text-gray-400 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-blue/30 bg-transparent"
                         aria-label="Manual offer GBP"
                       />
                     </td>
@@ -748,8 +759,24 @@ export default function JewelleryLineItems({
           >
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
               <div className="min-w-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSyncMarginInput('');
+                    setSyncMarginsOpen(true);
+                  }}
+                  className="inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-extrabold uppercase tracking-wide shadow-md transition-colors"
+                  style={{
+                    background: 'var(--brand-blue)',
+                    color: 'white',
+                    boxShadow: '0 7px 18px -6px rgba(15, 23, 42, 0.45)',
+                  }}
+                >
+                  <span className="material-symbols-outlined text-[18px] leading-none">tune</span>
+                  Sync margins
+                </button>
                 <p
-                  className="text-[10px] font-black uppercase tracking-wider"
+                  className="mt-3 text-[10px] font-black uppercase tracking-wider"
                   style={{ color: 'var(--brand-blue)' }}
                 >
                   Selected totals
@@ -757,16 +784,6 @@ export default function JewelleryLineItems({
                 <p className="text-[11px] text-gray-600">
                   Totals use a selected tier or a manual £ amount per row (typing manual clears tier selection).
                 </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSyncMarginInput('');
-                    setSyncMarginsOpen(true);
-                  }}
-                  className="mt-2 inline-flex w-fit items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-brand-blue shadow-sm transition-colors hover:bg-gray-50"
-                >
-                  Sync margins
-                </button>
               </div>
               <div className="flex flex-col gap-2 sm:items-end sm:text-right">
                 <div>

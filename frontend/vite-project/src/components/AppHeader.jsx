@@ -728,10 +728,11 @@ const AppHeader = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
+                  onClick={async () => {
                     setWorkspaceMode('cex');
                     const q = headerSearch.trim();
-                    buyerControls?.onAddFromCeX?.(q ? { searchQuery: q } : undefined);
+                    const loaded = await buyerControls?.onAddFromCeX?.(q ? { searchQuery: q } : undefined);
+                    if (loaded) setHeaderSearch('');
                     setActiveTopLevelId(null);
                   }}
                   disabled={buyerControls?.isCeXLoading}
@@ -890,6 +891,7 @@ const AppHeader = ({
                               return;
                             }
                             buyerControls?.onEbayResearchComplete?.(data);
+                            setHeaderSearch('');
                             resetHeaderWorkspaceChrome();
                           }}
                           initialHistogramState={true}
@@ -1069,9 +1071,10 @@ const AppHeader = ({
                 type="button"
                 disabled={buyerControls?.isCeXLoading}
                 className="rounded-lg border-2 border-red-800 bg-red-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
-                onClick={() => {
+                onClick={async () => {
                   setWorkspaceMode('cex');
-                  buyerControls?.onAddFromCeX?.({ searchQuery: marketplaceSearchDialog });
+                  const loaded = await buyerControls?.onAddFromCeX?.({ searchQuery: marketplaceSearchDialog });
+                  if (loaded) setHeaderSearch('');
                   setActiveTopLevelId(null);
                   setMarketplaceSearchDialog(null);
                 }}
