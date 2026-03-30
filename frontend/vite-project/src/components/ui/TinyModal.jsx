@@ -9,13 +9,18 @@ const TinyModal = ({
   panelClassName = '',
   /** When false, panel grows with content; outer overlay scrolls (no inner scroll area). */
   bodyScroll = true,
+  closeOnBackdrop = true,
+  showCloseButton = true,
 }) => (
   <div
     className={`fixed inset-0 ${zClass} flex justify-center ${
       bodyScroll ? 'items-center overflow-hidden' : 'items-start overflow-y-auto py-8'
     }`}
   >
-    <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+    <div
+      className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+      onClick={closeOnBackdrop ? onClose : undefined}
+    />
     <div
       className={`relative mx-4 flex w-full max-w-sm flex-col rounded-2xl bg-white p-6 shadow-2xl ${
         bodyScroll ? 'max-h-[min(92vh,720px)] overflow-hidden' : 'my-2 shrink-0'
@@ -23,9 +28,11 @@ const TinyModal = ({
     >
       <div className="mb-4 flex shrink-0 items-center justify-between">
         <h3 className="text-sm font-black uppercase tracking-wider" style={{ color: 'var(--brand-blue)' }}>{title}</h3>
-        <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors">
-          <span className="material-symbols-outlined text-[20px]">close</span>
-        </button>
+        {showCloseButton ? (
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors">
+            <span className="material-symbols-outlined text-[20px]">close</span>
+          </button>
+        ) : null}
       </div>
       <div
         className={

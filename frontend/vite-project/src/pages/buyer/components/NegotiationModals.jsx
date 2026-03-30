@@ -184,7 +184,12 @@ export function SeniorMgmtModal({ item, proposedPerUnit, onConfirm, onClose }) {
   const qty = item.quantity || 1;
 
   return (
-    <TinyModal title="Override Confirmation Required" onClose={onClose}>
+    <TinyModal
+      title="Override Confirmation Required"
+      onClose={onClose}
+      closeOnBackdrop={false}
+      showCloseButton={false}
+    >
       <div className="rounded-lg p-3 mb-4 bg-red-50 border border-red-200">
         <div className="flex items-start gap-2">
           <span className="material-symbols-outlined text-red-500 shrink-0">warning</span>
@@ -223,27 +228,9 @@ export function SeniorMgmtModal({ item, proposedPerUnit, onConfirm, onClose }) {
           }
         }}
       />
-      <div className="flex gap-2">
-        <button
-          className="flex-1 py-2.5 rounded-lg border text-sm font-semibold transition-colors hover:bg-slate-50"
-          style={{ borderColor: 'var(--ui-border)', color: 'var(--text-muted)' }}
-          onClick={onClose}
-        >
-          Cancel
-        </button>
-        <button
-          className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all ${!name.trim() ? 'opacity-40 cursor-not-allowed' : 'hover:opacity-90'}`}
-          style={{ background: '#dc2626', color: 'white' }}
-          disabled={!name.trim()}
-          onClick={() => {
-            if (!name.trim()) return;
-            onConfirm(name.trim());
-            onClose();
-          }}
-        >
-          Confirm Override
-        </button>
-      </div>
+      <p className="text-[11px] text-slate-500">
+        Enter the approver name, then press Enter to continue.
+      </p>
     </TinyModal>
   );
 }
