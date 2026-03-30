@@ -401,6 +401,35 @@
     containerSelector: '.fake-menu__items',
   };
 
+  // Apply eBay sort as default once per search term.
+  // If the user changes sort, keep their choice for that search.
+  // When search term changes (new Enter search), apply default again.
+  const EBAY_SORT_DEFAULT_APPLIED_SEARCH_KEY = 'cgSuiteEbaySortDefaultAppliedSearchKey';
+
+  function getEbaySearchKey(url) {
+    try {
+      const u = new URL(url || window.location.href);
+      const kw = (u.searchParams.get('_nkw') || '').trim().toLowerCase();
+      return kw;
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function hasAppliedEbaySortDefaultForSearch(searchKey) {
+    try {
+      return sessionStorage.getItem(EBAY_SORT_DEFAULT_APPLIED_SEARCH_KEY) === searchKey;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function markAppliedEbaySortDefaultForSearch(searchKey) {
+    try {
+      sessionStorage.setItem(EBAY_SORT_DEFAULT_APPLIED_SEARCH_KEY, searchKey);
+    } catch (e) {}
+  }
+
   /**
    * Returns the href of the eBay-provided link for a given filter spec.
    * For radio filters the link wraps the input; for checkboxes the <a> IS the link.
@@ -574,12 +603,24 @@
     const log = typeof console !== 'undefined' ? console.log.bind(console) : function () {};
     if (getSiteConfig() !== SITE_CONFIGS.ebay) return false;
     const filtersOk = hasRequiredEbayFilters(window.location.href);
-    const sortOk = hasRequiredEbaySort(window.location.href);
+    const currentSearchKey = getEbaySearchKey(window.location.href);
+    const shouldEnforceSortDefault = !hasAppliedEbaySortDefaultForSearch(currentSearchKey);
+    const sortOk = shouldEnforceSortDefault ? hasRequiredEbaySort(window.location.href) : true;
     const pageSizeOk = (function () {
       try { return new URL(window.location.href).searchParams.get('_ipg') === '120'; } catch (e) { return false; }
     })();
     if (filtersOk && sortOk && pageSizeOk) return false;
-    log('[CG Suite] enforceEbayFilters: requirements missing (filters ok:', filtersOk, '/ sort ok:', sortOk, '/ page size ok:', pageSizeOk, ') — building redirect URL');
+    log(
+      '[CG Suite] enforceEbayFilters: requirements missing (filters ok:',
+      filtersOk,
+      '/ sort ok:',
+      sortOk,
+      '/ page size ok:',
+      pageSizeOk,
+      '/ enforce sort default:',
+      shouldEnforceSortDefault,
+      ') — building redirect URL'
+    );
     try {
       const NAV_PARAMS = ['_nkw', '_sacat', '_pgn', '_from', 'rt'];
       const target = new URL(window.location.href);
@@ -619,8 +660,11 @@
         target.searchParams.set(f.urlParam, f.urlValue);
       });
 
-      // —— Sort enforcement ——
-      if (target.searchParams.get(EBAY_REQUIRED_SORT.urlParam) === EBAY_REQUIRED_SORT.urlValue) {
+      // —— Sort enforcement (default only; do not re-apply after first pass) ——
+      if (!shouldEnforceSortDefault) {
+        const msg = '[CG Suite]   sort default previously applied for this tab/session — skipping sort enforcement';
+        log(msg); trail.push(msg);
+      } else if (target.searchParams.get(EBAY_REQUIRED_SORT.urlParam) === EBAY_REQUIRED_SORT.urlValue) {
         const msg = '[CG Suite]   sort ' + EBAY_REQUIRED_SORT.urlParam + ' → already in URL, skipped';
         log(msg); trail.push(msg);
       } else {
@@ -668,6 +712,7 @@
       trail.push('[CG Suite] ── end of pre-redirect log (replayed on reloaded page) ──────');
 
       try { sessionStorage.setItem('cgSuiteFilterTrail', JSON.stringify(trail)); } catch (e) {}
+      if (shouldEnforceSortDefault) markAppliedEbaySortDefaultForSearch(currentSearchKey);
 
       window.location.replace(target.toString());
       return true;
