@@ -166,6 +166,15 @@ export default function ResearchFormShell({
   /** When false, looser-match UI and styling never apply (e.g. Cash Converters). */
   isEbayResearchSource = false,
 }) {
+  const sanitizeManualOfferInput = useCallback((rawValue) => {
+    const value = String(rawValue ?? '');
+    // Keep only digits and a single decimal point.
+    const cleaned = value.replace(/[^0-9.]/g, '');
+    const firstDot = cleaned.indexOf('.');
+    if (firstDot === -1) return cleaned;
+    return `${cleaned.slice(0, firstDot + 1)}${cleaned.slice(firstDot + 1).replace(/\./g, '')}`;
+  }, []);
+
   const currentPriceRange = drillHistory.length > 0 ? drillHistory[drillHistory.length - 1] : null;
   const prominentAddClass = 'shadow-lg shadow-brand-orange/30';
 
@@ -625,8 +634,9 @@ export default function ResearchFormShell({
 
   // ─── Manual offer handler ─────────────────────────────────────────────────
   const handleManualOfferChange = useCallback((e) => {
-    onManualOfferChange?.(e.target.value);
-  }, [onManualOfferChange]);
+    const cleaned = sanitizeManualOfferInput(e.target.value);
+    onManualOfferChange?.(cleaned);
+  }, [onManualOfferChange, sanitizeManualOfferInput]);
 
   const handleOfferClick = useCallback((price, index) => {
     if (showManualOffer && !readOnly) {
@@ -1794,7 +1804,7 @@ export default function ResearchFormShell({
             placeholder="0.00"
             value={manualOfferDialog.value}
             onChange={(e) => {
-              const val = e.target.value;
+              const val = sanitizeManualOfferInput(e.target.value);
               setManualOfferDialog((prev) => (prev ? { ...prev, value: val } : prev));
             }}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); applyManualOfferDialog(); } }}

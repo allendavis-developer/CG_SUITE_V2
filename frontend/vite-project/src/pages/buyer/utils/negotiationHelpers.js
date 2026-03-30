@@ -65,6 +65,52 @@ export function resolveOurSalePrice(item) {
 }
 
 /**
+ * After research completes with a manual offer, run the same checks as adding from the builder:
+ * senior management if the manual offer exceeds our sale / suggested RRP; otherwise the margin summary modal.
+ * Uses queueMicrotask so it runs after the parent `setItems` update is scheduled.
+ */
+export function maybeShowResearchManualOfferSafetyModals({
+  mergedItem,
+  setSeniorMgmtModal,
+  setMarginResultModal,
+}) {
+  if (!mergedItem || mergedItem.selectedOfferId !== 'manual') return;
+
+  const manualPerUnit = parseFloat(String(mergedItem.manualOffer ?? '').replace(/[£,]/g, '').trim());
+  if (!Number.isFinite(manualPerUnit) || manualPerUnit <= 0) return;
+
+  let ourSalePrice = resolveOurSalePrice(mergedItem);
+  if (
+    (ourSalePrice == null || !Number.isFinite(ourSalePrice) || ourSalePrice <= 0) &&
+    mergedItem.cashConvertersResearchData?.stats
+  ) {
+    const fromCc = resolveSuggestedRetailFromResearchStats(mergedItem.cashConvertersResearchData.stats);
+    if (fromCc != null) ourSalePrice = fromCc;
+  }
+  if (ourSalePrice == null || !Number.isFinite(ourSalePrice) || ourSalePrice <= 0) return;
+
+  const run = () => {
+    if (manualPerUnit > ourSalePrice) {
+      setSeniorMgmtModal({ item: mergedItem, proposedPerUnit: manualPerUnit });
+    } else {
+      const marginPct = ((ourSalePrice - manualPerUnit) / ourSalePrice) * 100;
+      const marginGbp = ourSalePrice - manualPerUnit;
+      setMarginResultModal({
+        item: mergedItem,
+        offerPerUnit: manualPerUnit,
+        ourSalePrice,
+        marginPct,
+        marginGbp,
+        confirmedBy: mergedItem.seniorMgmtApprovedBy || null,
+      });
+    }
+  };
+
+  if (typeof queueMicrotask === 'function') queueMicrotask(run);
+  else setTimeout(run, 0);
+}
+
+/**
  * Rows that carry CeX trade/sell context must keep CeX-sourced 1st/2nd/3rd offers in the table;
  * eBay / Cash Converters research must not replace them.
  */

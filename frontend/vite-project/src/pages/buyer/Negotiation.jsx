@@ -38,6 +38,7 @@ import {
   applyCashConvertersResearchToItem,
   applyCeXProductDataToItem,
   getDisplayOffers,
+  maybeShowResearchManualOfferSafetyModals,
 } from './utils/negotiationHelpers';
 import { EBAY_TOP_LEVEL_CATEGORY } from './constants';
 import { SPREADSHEET_TABLE_STYLES } from './spreadsheetTableStyles';
@@ -131,6 +132,13 @@ const Negotiation = ({ mode }) => {
   // ─── Research overlay (shared hook) ─────────────────────────────────────
   const applyEbay = useCallback((item, state) => applyEbayResearchToItem(item, state, useVoucherOffers), [useVoucherOffers]);
   const applyCC = useCallback((item, state) => applyCashConvertersResearchToItem(item, state, useVoucherOffers), [useVoucherOffers]);
+  const onAfterResearchPersist = useCallback(({ mergedItem }) => {
+    maybeShowResearchManualOfferSafetyModals({
+      mergedItem,
+      setSeniorMgmtModal,
+      setMarginResultModal,
+    });
+  }, []);
   const {
     researchItem, setResearchItem,
     cashConvertersResearchItem, setCashConvertersResearchItem,
@@ -145,6 +153,7 @@ const Negotiation = ({ mode }) => {
     resolveSalePrice: resolveOurSalePrice,
     readOnly: researchFormReadOnly,
     persistResearchOnComplete: mode === 'negotiate',
+    onAfterResearchPersist,
   });
 
   // ─── Derived values ────────────────────────────────────────────────────

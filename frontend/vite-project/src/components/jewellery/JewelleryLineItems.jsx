@@ -701,10 +701,15 @@ export default function JewelleryLineItems({
                     </td>
                     <td>
                       <input
-                        type="text"
+                        type="number"
                         inputMode="decimal"
+                        min="0"
+                        step="any"
                         value={line.weight}
-                        onChange={(e) => updateLine(line.id, { weight: e.target.value })}
+                        onChange={(e) => {
+                          const cleaned = String(e.target.value || '').replace(/[^0-9.]/g, '');
+                          updateLine(line.id, { weight: cleaned });
+                        }}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') {
                             e.preventDefault();

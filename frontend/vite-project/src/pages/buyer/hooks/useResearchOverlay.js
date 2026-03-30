@@ -14,6 +14,7 @@ import { buildItemSpecs, buildInitialSearchQuery } from '../utils/negotiationHel
  * @param {Function} opts.resolveSalePrice - Sale price resolver function for maybeShowSalePriceConfirm.
  * @param {boolean} [opts.readOnly=false] - Whether the overlay is read-only (no in-form edits).
  * @param {boolean} [opts.persistResearchOnComplete=true] - When false, OK/complete does not apply research back to `items` (sandbox / preview).
+ * @param {Function} [opts.onAfterResearchPersist=null] - Called after items are merged (negotiate only): `{ mergedItem, source }`.
  */
 export function useResearchOverlay({
   items,
@@ -23,6 +24,8 @@ export function useResearchOverlay({
   resolveSalePrice,
   readOnly = false,
   persistResearchOnComplete = true,
+  /** After items are updated from research (negotiate only). e.g. manual-offer safety modals. */
+  onAfterResearchPersist = null,
 }) {
   const [researchItem, setResearchItem] = useState(null);
   const [cashConvertersResearchItem, setCashConvertersResearchItem] = useState(null);
@@ -32,27 +35,31 @@ export function useResearchOverlay({
     if (updatedState?.cancel) { setResearchItem(null); return; }
     if (updatedState && researchItem && persistResearchOnComplete) {
       const currentItem = items.find(i => i.id === researchItem.id);
+      const mergedItem = currentItem ? applyEbayResearch(currentItem, updatedState) : null;
       setItems(prev => prev.map(i => {
         if (i.id !== researchItem.id) return i;
         return applyEbayResearch(i, updatedState);
       }));
       maybeShowSalePriceConfirm(updatedState, currentItem, researchItem, setSalePriceConfirmModal, resolveSalePrice, 'ebay');
+      if (mergedItem) onAfterResearchPersist?.({ mergedItem, source: 'ebay' });
     }
     setResearchItem(null);
-  }, [researchItem, items, persistResearchOnComplete, setItems, applyEbayResearch, resolveSalePrice]);
+  }, [researchItem, items, persistResearchOnComplete, setItems, applyEbayResearch, resolveSalePrice, onAfterResearchPersist]);
 
   const handleCashConvertersResearchComplete = useCallback((updatedState) => {
     if (updatedState?.cancel) { setCashConvertersResearchItem(null); return; }
     if (updatedState && cashConvertersResearchItem && persistResearchOnComplete) {
       const currentItem = items.find(i => i.id === cashConvertersResearchItem.id);
+      const mergedItem = currentItem ? applyCCResearch(currentItem, updatedState) : null;
       setItems(prev => prev.map(i => {
         if (i.id !== cashConvertersResearchItem.id) return i;
         return applyCCResearch(i, updatedState);
       }));
       maybeShowSalePriceConfirm(updatedState, currentItem, cashConvertersResearchItem, setSalePriceConfirmModal, resolveSalePrice, 'cashConverters');
+      if (mergedItem) onAfterResearchPersist?.({ mergedItem, source: 'cashConverters' });
     }
     setCashConvertersResearchItem(null);
-  }, [cashConvertersResearchItem, items, persistResearchOnComplete, setItems, applyCCResearch, resolveSalePrice]);
+  }, [cashConvertersResearchItem, items, persistResearchOnComplete, setItems, applyCCResearch, resolveSalePrice, onAfterResearchPersist]);
 
   return {
     researchItem,
