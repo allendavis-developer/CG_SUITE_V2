@@ -695,6 +695,12 @@ export default function JewelleryLineItems({
                         type="text"
                         value={line.itemName ?? line.categoryLabel ?? line.variantTitle ?? ''}
                         onChange={(e) => updateLine(line.id, { itemName: e.target.value })}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            e.currentTarget.blur();
+                          }
+                        }}
                         className="h-8 w-full rounded border border-gray-300 px-2 font-semibold text-gray-900 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-blue/30"
                         aria-label="Item name"
                       />

@@ -38,7 +38,7 @@ import {
   applyCashConvertersResearchToItem,
   applyCeXProductDataToItem,
   getDisplayOffers,
-  maybeShowResearchManualOfferSafetyModals,
+  resolveSuggestedRetailFromResearchStats,
 } from './utils/negotiationHelpers';
 import { EBAY_TOP_LEVEL_CATEGORY } from './constants';
 import { SPREADSHEET_TABLE_STYLES } from './spreadsheetTableStyles';
@@ -132,13 +132,27 @@ const Negotiation = ({ mode }) => {
   // ─── Research overlay (shared hook) ─────────────────────────────────────
   const applyEbay = useCallback((item, state) => applyEbayResearchToItem(item, state, useVoucherOffers), [useVoucherOffers]);
   const applyCC = useCallback((item, state) => applyCashConvertersResearchToItem(item, state, useVoucherOffers), [useVoucherOffers]);
-  const onAfterResearchPersist = useCallback(({ mergedItem }) => {
-    maybeShowResearchManualOfferSafetyModals({
-      mergedItem,
-      setSeniorMgmtModal,
-      setMarginResultModal,
-    });
-  }, []);
+  const onResearchPersisted = useCallback((mergedItem) => {
+    if (!mergedItem || mergedItem.selectedOfferId !== 'manual') return;
+    const manualPerUnit = parseManualOfferValue(mergedItem.manualOffer);
+    let rrp = resolveOurSalePrice(mergedItem);
+    if ((rrp == null || rrp <= 0) && mergedItem.cashConvertersResearchData?.stats) {
+      rrp = resolveSuggestedRetailFromResearchStats(mergedItem.cashConvertersResearchData.stats);
+    }
+    if (!Number.isFinite(manualPerUnit) || manualPerUnit <= 0 || !Number.isFinite(rrp) || rrp <= 0) return;
+    setTimeout(() => {
+      if (manualPerUnit > rrp) setSeniorMgmtModal({ item: mergedItem, proposedPerUnit: manualPerUnit });
+      else
+        setMarginResultModal({
+          item: mergedItem,
+          offerPerUnit: manualPerUnit,
+          ourSalePrice: rrp,
+          marginPct: ((rrp - manualPerUnit) / rrp) * 100,
+          marginGbp: rrp - manualPerUnit,
+          confirmedBy: mergedItem.seniorMgmtApprovedBy || null,
+        });
+    }, 0);
+  }, [parseManualOfferValue]);
   const {
     researchItem, setResearchItem,
     cashConvertersResearchItem, setCashConvertersResearchItem,
@@ -153,7 +167,7 @@ const Negotiation = ({ mode }) => {
     resolveSalePrice: resolveOurSalePrice,
     readOnly: researchFormReadOnly,
     persistResearchOnComplete: mode === 'negotiate',
-    onAfterResearchPersist,
+    onResearchPersisted,
   });
 
   // ─── Derived values ────────────────────────────────────────────────────

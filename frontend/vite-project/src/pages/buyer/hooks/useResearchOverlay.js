@@ -14,7 +14,7 @@ import { buildItemSpecs, buildInitialSearchQuery } from '../utils/negotiationHel
  * @param {Function} opts.resolveSalePrice - Sale price resolver function for maybeShowSalePriceConfirm.
  * @param {boolean} [opts.readOnly=false] - Whether the overlay is read-only (no in-form edits).
  * @param {boolean} [opts.persistResearchOnComplete=true] - When false, OK/complete does not apply research back to `items` (sandbox / preview).
- * @param {Function} [opts.onAfterResearchPersist=null] - Called after items are merged (negotiate only): `{ mergedItem, source }`.
+ * @param {Function} [opts.onResearchPersisted=null] - Optional: `(mergedItem) => void` after `setItems` merges research (e.g. Negotiation manual-offer modals).
  */
 export function useResearchOverlay({
   items,
@@ -24,8 +24,7 @@ export function useResearchOverlay({
   resolveSalePrice,
   readOnly = false,
   persistResearchOnComplete = true,
-  /** After items are updated from research (negotiate only). e.g. manual-offer safety modals. */
-  onAfterResearchPersist = null,
+  onResearchPersisted = null,
 }) {
   const [researchItem, setResearchItem] = useState(null);
   const [cashConvertersResearchItem, setCashConvertersResearchItem] = useState(null);
@@ -41,10 +40,10 @@ export function useResearchOverlay({
         return applyEbayResearch(i, updatedState);
       }));
       maybeShowSalePriceConfirm(updatedState, currentItem, researchItem, setSalePriceConfirmModal, resolveSalePrice, 'ebay');
-      if (mergedItem) onAfterResearchPersist?.({ mergedItem, source: 'ebay' });
+      if (mergedItem) onResearchPersisted?.(mergedItem);
     }
     setResearchItem(null);
-  }, [researchItem, items, persistResearchOnComplete, setItems, applyEbayResearch, resolveSalePrice, onAfterResearchPersist]);
+  }, [researchItem, items, persistResearchOnComplete, setItems, applyEbayResearch, resolveSalePrice, onResearchPersisted]);
 
   const handleCashConvertersResearchComplete = useCallback((updatedState) => {
     if (updatedState?.cancel) { setCashConvertersResearchItem(null); return; }
@@ -56,10 +55,10 @@ export function useResearchOverlay({
         return applyCCResearch(i, updatedState);
       }));
       maybeShowSalePriceConfirm(updatedState, currentItem, cashConvertersResearchItem, setSalePriceConfirmModal, resolveSalePrice, 'cashConverters');
-      if (mergedItem) onAfterResearchPersist?.({ mergedItem, source: 'cashConverters' });
+      if (mergedItem) onResearchPersisted?.(mergedItem);
     }
     setCashConvertersResearchItem(null);
-  }, [cashConvertersResearchItem, items, persistResearchOnComplete, setItems, applyCCResearch, resolveSalePrice, onAfterResearchPersist]);
+  }, [cashConvertersResearchItem, items, persistResearchOnComplete, setItems, applyCCResearch, resolveSalePrice, onResearchPersisted]);
 
   return {
     researchItem,
