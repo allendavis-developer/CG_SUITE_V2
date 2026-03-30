@@ -23,11 +23,15 @@ export function tierOfferGbpFromReference(referenceTotalGbp, marginPct) {
 
 function buildJewelleryReferencePayload(line, total) {
   const ref = line.referenceEntry;
+  const categoryLabel = line.categoryLabel || line.variantTitle || null;
+  const itemName = line.itemName || categoryLabel;
   return {
     jewellery_line: true,
     variant_id: line.variantId,
     product_name: line.productName,
     material_grade: line.materialGrade,
+    category_label: categoryLabel,
+    item_name: itemName,
     line_title: line.variantTitle,
     reference_catalog_id: ref?.catalogId ?? null,
     reference_display_name: ref?.displayName ?? null,
@@ -106,15 +110,17 @@ export function buildJewelleryNegotiationCartItem(line, useVoucherOffers) {
   }
   const derived = getJewelleryWorkspaceDerivedState(line, useVoucherOffers);
 
+  const categoryLabel = line.categoryLabel || line.variantTitle;
+  const itemName = line.itemName || categoryLabel;
   return {
     id: crypto.randomUUID?.() ?? `jew-neg-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    title: line.variantTitle,
+    title: itemName,
     subtitle: [line.referenceEntry?.displayName, `${line.weight}${line.weightUnit === 'each' ? ' ea' : line.weightUnit}`]
       .filter(Boolean)
       .join(' · '),
     quantity: 1,
     variantId: line.variantId,
-    variantName: line.variantTitle,
+    variantName: itemName,
     isJewelleryItem: true,
     referenceData: derived.referenceData,
     cashOffers: derived.cashOffers,

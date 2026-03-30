@@ -241,6 +241,7 @@ class RequestSerializer(serializers.ModelSerializer):
     items = RequestItemSerializer(many=True, read_only=True)
     current_status = serializers.SerializerMethodField()
     status_history = RequestStatusHistorySerializer(many=True, read_only=True)
+    jewellery_reference_scrape_json = serializers.SerializerMethodField()
     
     class Meta:
         model = Request
@@ -265,6 +266,23 @@ class RequestSerializer(serializers.ModelSerializer):
         latest_status = obj.status_history.first()
         # Always return a status - default to QUOTE if no status history exists
         return latest_status.status if latest_status else RequestStatus.QUOTE
+
+    def get_jewellery_reference_scrape_json(self, obj):
+        snap = getattr(obj, "current_jewellery_reference_snapshot", None)
+        if snap is None:
+            snap = (
+                obj.jewellery_reference_history.order_by("-created_at").first()
+            )
+        if not snap:
+            return None
+        sections = snap.sections_json
+        if not isinstance(sections, list) or len(sections) == 0:
+            return None
+        return {
+            "sections": sections,
+            "scrapedAt": snap.scraped_at.isoformat() if snap.scraped_at else None,
+            "sourceUrl": snap.source_url or None,
+        }
     
     def validate_intent(self, value):
         if not value:

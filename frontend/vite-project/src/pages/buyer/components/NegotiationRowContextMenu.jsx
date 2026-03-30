@@ -1,5 +1,5 @@
 import React from 'react';
-import { NEGOTIATION_ROW_CONTEXT, isNegotiationPriceSourceZone } from '../rowContextZones';
+import { isNegotiationPriceSourceZone } from '../rowContextZones';
 
 const DEFAULT_REMOVE_LABEL = 'Remove from negotiation';
 
@@ -12,7 +12,6 @@ export default function NegotiationRowContextMenu({
   zone,
   onClose,
   onRemove,
-  onSetManualOffer,
   /** No args — parent closes over `item` and `zone` from menu state. */
   onUseAsRrpOffersSource,
   removeLabel = DEFAULT_REMOVE_LABEL,
@@ -34,9 +33,8 @@ export default function NegotiationRowContextMenu({
     };
   }, [onClose]);
 
-  const showSetManual = zone === NEGOTIATION_ROW_CONTEXT.MANUAL_OFFER && onSetManualOffer;
   const showUseAsRrp = isNegotiationPriceSourceZone(zone) && onUseAsRrpOffersSource;
-  const showDividerBeforeRemove = showSetManual || showUseAsRrp;
+  const showDividerBeforeRemove = showUseAsRrp;
 
   return (
     <div
@@ -44,20 +42,6 @@ export default function NegotiationRowContextMenu({
       className="fixed z-50 min-w-[220px] py-1 border shadow-xl bg-white rounded-lg"
       style={{ left: x, top: y, borderColor: 'var(--ui-border)' }}
     >
-      {showSetManual && (
-        <button
-          type="button"
-          className="w-full px-4 py-2.5 text-left text-sm font-semibold hover:bg-brand-blue/5 transition-colors flex items-center gap-2"
-          style={{ color: 'var(--brand-blue)' }}
-          onClick={() => {
-            onSetManualOffer();
-            onClose();
-          }}
-        >
-          <span className="material-symbols-outlined text-[16px]">edit</span>
-          Set manual offer
-        </button>
-      )}
       {showUseAsRrp && (
         <button
           type="button"

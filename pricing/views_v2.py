@@ -8,6 +8,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from django.db.models import OuterRef, Subquery, Max, Prefetch
+from django.utils.dateparse import parse_datetime
 import os
 import logging
 import requests
@@ -32,6 +33,7 @@ from .models_v2 import (
     RepricingSessionStatus,
     PricingRule,
     MarketResearchSession,
+    RequestJewelleryReferenceSnapshot,
 )
 from . import research_storage
 
@@ -60,10 +62,6 @@ def _resolve_cex_sku_to_variant(item_payload):
         return
     cex_sku = item_payload.pop('cex_sku', None)
     if not cex_sku:
-        cr = item_payload.get('cex_reference_json')
-        if isinstance(cr, dict):
-            cex_sku = cr.get('cex_sku') or cr.get('id')
-    if not cex_sku and item_payload.get('raw_data'):
         raw = item_payload.get('raw_data') or {}
         cex_sku = raw.get('id')
         if not cex_sku:
@@ -86,6 +84,46 @@ def _decimal_or_none(value, field_name):
         return Decimal(str(value))
     except (InvalidOperation, TypeError):
         raise ValueError(f"Invalid format for {field_name}")
+
+
+def _sync_request_jewellery_reference_snapshot(existing_request, jewellery_reference_scrape):
+    """
+    Persist request-level jewellery reference history and set active snapshot.
+    Input shape is the frontend payload: { sections, scrapedAt, sourceUrl }.
+    """
+    if jewellery_reference_scrape is None:
+        return
+    if not isinstance(jewellery_reference_scrape, dict):
+        raise ValueError("jewellery_reference_scrape must be a JSON object")
+
+    sections = jewellery_reference_scrape.get("sections")
+    if not isinstance(sections, list):
+        raise ValueError("jewellery_reference_scrape.sections must be a list")
+
+    scraped_at = parse_datetime(str(jewellery_reference_scrape.get("scrapedAt") or "")) if jewellery_reference_scrape.get("scrapedAt") else None
+    source_url = str(jewellery_reference_scrape.get("sourceUrl") or "")
+
+    # Avoid duplicate history rows when autosave posts the same payload repeatedly.
+    snapshot = (
+        RequestJewelleryReferenceSnapshot.objects.filter(
+            request=existing_request,
+            source_name="Mastermelt",
+            source_url=source_url,
+            scraped_at=scraped_at,
+            sections_json=sections,
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    if snapshot is None:
+        snapshot = RequestJewelleryReferenceSnapshot.objects.create(
+            request=existing_request,
+            source_name="Mastermelt",
+            source_url=source_url,
+            scraped_at=scraped_at,
+            sections_json=sections,
+        )
+    existing_request.current_jewellery_reference_snapshot = snapshot
 
 
 def _round_offer_price(value):
@@ -414,7 +452,11 @@ def request_detail(request, request_id):
             "items__variant",
             _RESEARCH_SESSION_PREFETCH,
             "status_history",
-        ).select_related("customer"),
+            "jewellery_reference_history",
+        ).select_related(
+            "customer",
+            "current_jewellery_reference_snapshot",
+        ),
         request_id=request_id,
     )
     
@@ -841,13 +883,14 @@ def finish_request(request, request_id):
 
     jewellery_reference_scrape = request.data.get('jewellery_reference_scrape')
     if jewellery_reference_scrape is not None:
-        if not isinstance(jewellery_reference_scrape, dict):
+        try:
+            _sync_request_jewellery_reference_snapshot(existing_request, jewellery_reference_scrape)
+        except ValueError as exc:
             return Response(
-                {"error": "jewellery_reference_scrape must be a JSON object"},
+                {"error": str(exc)},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        existing_request.jewellery_reference_scrape_json = jewellery_reference_scrape
-        update_request_fields.append('jewellery_reference_scrape_json')
+        update_request_fields.append('current_jewellery_reference_snapshot')
 
     existing_request.save(update_fields=update_request_fields)
 

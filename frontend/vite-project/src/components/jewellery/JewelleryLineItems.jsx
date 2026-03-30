@@ -472,6 +472,8 @@ export default function JewelleryLineItems({
         request_item_id: null,
         variantId: v.variant_id,
         variantTitle: v.title,
+        categoryLabel: v.title,
+        itemName: v.title,
         productName: v.product_name,
         materialGrade: v.material_grade,
         referenceEntry: ref,
@@ -536,10 +538,12 @@ export default function JewelleryLineItems({
     if (!onAddJewelleryToNegotiation) return;
     const drafts = lines.filter((l) => !l.request_item_id);
     if (drafts.length === 0) {
-      showNotification?.(
-        'No new rows to add — lines already on the quote are skipped. Add a jewellery item or finish editing drafts first.',
-        'info'
-      );
+      try {
+        await onAddJewelleryToNegotiation([]);
+      } catch (err) {
+        console.error(err);
+        showNotification?.(err?.message || 'Could not complete jewellery workspace', 'error');
+      }
       return;
     }
     for (const line of drafts) {
@@ -639,11 +643,11 @@ export default function JewelleryLineItems({
           <table className="w-full table-fixed spreadsheet-table spreadsheet-table--static-header border-collapse text-left">
             <thead>
               <tr>
-                <th scope="col" className="min-w-[140px]">
-                  Item
+                <th scope="col" className="w-40">
+                  Category
                 </th>
                 <th scope="col" className="min-w-[120px]">
-                  Reference
+                  Item Name
                 </th>
                 <th scope="col" className="w-24">
                   Weight
@@ -685,14 +689,28 @@ export default function JewelleryLineItems({
                       });
                     }}
                   >
-                    <td className="break-words font-medium text-gray-900">{line.variantTitle}</td>
-                    <td className="break-words text-gray-600">{line.referenceEntry?.displayName ?? '—'}</td>
+                    <td className="break-words font-medium text-gray-900">{line.categoryLabel || line.variantTitle || '—'}</td>
+                    <td>
+                      <input
+                        type="text"
+                        value={line.itemName ?? line.categoryLabel ?? line.variantTitle ?? ''}
+                        onChange={(e) => updateLine(line.id, { itemName: e.target.value })}
+                        className="h-8 w-full rounded border border-gray-300 px-2 font-semibold text-gray-900 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-blue/30"
+                        aria-label="Item name"
+                      />
+                    </td>
                     <td>
                       <input
                         type="text"
                         inputMode="decimal"
                         value={line.weight}
                         onChange={(e) => updateLine(line.id, { weight: e.target.value })}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            e.currentTarget.blur();
+                          }
+                        }}
                         className="h-8 w-full min-w-[3.5rem] rounded border border-gray-300 px-2 font-semibold tabular-nums text-gray-900 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-blue/30"
                         aria-label="Weight or quantity"
                       />
@@ -832,7 +850,7 @@ export default function JewelleryLineItems({
                   boxShadow: '0 8px 20px -6px rgba(247, 185, 24, 0.35)',
                 }}
               >
-                Complete — add to negotiation
+                Complete
               </button>
               <p className="mt-2 text-center text-[11px] text-gray-600">
                 Only <span className="font-semibold text-gray-800">new</span> rows (not yet on the quote) are added.

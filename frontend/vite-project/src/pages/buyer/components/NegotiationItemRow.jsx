@@ -168,7 +168,7 @@ export default function NegotiationItemRow({
           {(item.cexBuyPrice != null || item.cexSellPrice != null) ? (item.subtitle || '') : (item.subtitle || item.category || 'No details')} {item.model && `| ${item.model}`}
         </div>
         {mode === 'negotiate' && (
-          <div className="text-[9px] mt-1 text-slate-400 italic">Click manual offer field or right-click to set</div>
+          <div className="text-[9px] mt-1 text-slate-400 italic">Click manual offer field to set</div>
         )}
       </td>
 
@@ -235,7 +235,6 @@ export default function NegotiationItemRow({
       {/* Manual Offer */}
       <td
         className={`relative ${mode === 'negotiate' ? 'cursor-pointer' : ''}`}
-        onContextMenu={mode === 'negotiate' && onRowContextMenu ? (e) => openRowContext(e, NEGOTIATION_ROW_CONTEXT.MANUAL_OFFER) : undefined}
         onClick={mode === 'negotiate' ? (e) => { e.stopPropagation(); onSetManualOffer(item); } : undefined}
         role={mode === 'negotiate' ? 'button' : undefined}
         tabIndex={mode === 'negotiate' ? 0 : undefined}
@@ -279,7 +278,7 @@ export default function NegotiationItemRow({
           </div>
         ) : (
           <div className="text-center text-slate-400 text-[11px]">
-            {mode === 'negotiate' ? <span className="italic">Click or right-click to set</span> : '—'}
+            {mode === 'negotiate' ? <span className="italic">Click to set</span> : '—'}
           </div>
         )}
       </td>

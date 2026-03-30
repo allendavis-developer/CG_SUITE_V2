@@ -1,8 +1,8 @@
 """
-Normalized persistence for eBay / Cash Converters market research.
+Normalized persistence for eBay / Cash Converters market research plus jewellery data.
 
-API responses still expose legacy-shaped `raw_data` and `cash_converters_data` dicts
-assembled from relational rows so the frontend can stay unchanged.
+API responses still expose `raw_data`/`cash_converters_data` dicts for frontend
+compatibility, but jewellery reference/valuation state is sourced from normalized tables.
 """
 
 from __future__ import annotations
@@ -12,12 +12,16 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from .models_v2 import (
+    AttributeValue,
+    JewelleryMeasurementSource,
     MarketResearchDrillLevel,
     MarketResearchListing,
     MarketResearchPlatform,
     MarketResearchSession,
     RepricingSessionItem,
     RequestItem,
+    RequestItemJewellery,
+    RequestItemJewelleryValuation,
 )
 
 STANDARD_LISTING_KEYS = frozenset(
@@ -90,6 +94,111 @@ def _merge_advanced_filter_state(prev: Any, new: Any) -> Any:
         return new
     prev_d = prev if isinstance(prev, dict) else {}
     return {**prev_d, **new}
+
+
+def _to_grams(weight_raw: Any, unit_raw: Any) -> Decimal | None:
+    weight = _dec(weight_raw)
+    if weight is None or weight <= 0:
+        return None
+    unit = str(unit_raw or "g").strip().lower()
+    if unit == "kg":
+        return weight * Decimal("1000")
+    if unit == "g":
+        return weight
+    return None
+
+
+def _build_jewellery_reference_from_normalized(item: RequestItem) -> dict | None:
+    row = getattr(item, "jewellery", None)
+    if row is None:
+        return None
+
+    selected = (
+        row.valuations.filter(is_selected=True).order_by("-created_at").first()
+        or row.valuations.order_by("-created_at").first()
+    )
+    selected_payload = (
+        selected.valuation_payload_json
+        if selected and isinstance(selected.valuation_payload_json, dict)
+        else {}
+    )
+    ref_snap = (
+        selected.source_reference_snapshot
+        if selected and selected.source_reference_snapshot_id
+        else getattr(item.request, "current_jewellery_reference_snapshot", None)
+    )
+    sections = ref_snap.sections_json if ref_snap and isinstance(ref_snap.sections_json, list) else []
+
+    out = {
+        "jewellery_line": True,
+        "material_grade": row.material_grade.value if row.material_grade_id else None,
+        "product_name": selected_payload.get("product_name"),
+        "line_title": selected_payload.get("line_title"),
+        "category_label": selected_payload.get("category_label") or selected_payload.get("line_title"),
+        "item_name": selected_payload.get("item_name")
+        or selected_payload.get("category_label")
+        or selected_payload.get("line_title"),
+        "reference_catalog_id": selected_payload.get("reference_catalog_id"),
+        "reference_display_name": selected_payload.get("reference_display_name"),
+        "reference_section_title": selected_payload.get("reference_section_title"),
+        "reference_price_source_kind": selected_payload.get("reference_price_source_kind"),
+        "weight": str(row.input_weight_value) if row.input_weight_value is not None else None,
+        "weight_unit": row.input_weight_unit or "g",
+        "computed_total_gbp": float(selected.computed_total_gbp) if selected else None,
+        "rate_per_gram": float(selected.rate_per_gram_gbp) if selected and selected.rate_per_gram_gbp is not None else None,
+        "unit_price": float(selected.unit_price_gbp) if selected and selected.unit_price_gbp is not None else None,
+        "reference_source": "normalized",
+    }
+    if sections:
+        out["reference_sections"] = sections
+    if ref_snap and ref_snap.source_url:
+        out["source_url"] = ref_snap.source_url
+    return out
+
+
+def _upsert_jewellery_from_reference_payload(item: RequestItem, ref: dict) -> None:
+    if ref.get("jewellery_line") is not True:
+        return
+
+    gross_grams = _to_grams(ref.get("weight"), ref.get("weight_unit"))
+    req_jew, _ = RequestItemJewellery.objects.update_or_create(
+        request_item=item,
+        defaults={
+            "measured_gross_weight_grams": gross_grams,
+            "input_weight_value": _dec(ref.get("weight")),
+            "input_weight_unit": str(ref.get("weight_unit") or "g").strip().lower(),
+            "measurement_source": JewelleryMeasurementSource.IMPORTED,
+        },
+    )
+
+    # best-effort material grade map from legacy payload
+    material_grade = ref.get("material_grade")
+    if material_grade:
+        av = AttributeValue.objects.filter(value=material_grade).first()
+        if av:
+            req_jew.material_grade = av
+            req_jew.save(update_fields=["material_grade", "updated_at"])
+
+    total = _dec(ref.get("computed_total_gbp"))
+    if total is None:
+        return
+
+    val, created = RequestItemJewelleryValuation.objects.get_or_create(
+        request_item_jewellery=req_jew,
+        valuation_source="LEGACY_IMPORT",
+        computed_total_gbp=total,
+        defaults={
+            "rate_per_gram_gbp": _dec(ref.get("rate_per_gram")),
+            "unit_price_gbp": _dec(ref.get("unit_price")),
+            "basis_weight_grams": gross_grams,
+            "valuation_payload_json": ref,
+            "is_selected": True,
+        },
+    )
+    if created:
+        RequestItemJewelleryValuation.objects.filter(
+            request_item_jewellery=req_jew
+        ).exclude(pk=val.pk).update(is_selected=False)
 
 
 def replace_request_item_research(
@@ -323,7 +432,7 @@ def _get_session(ri_or_rsi: RequestItem | RepricingSessionItem, platform: str):
 def compose_raw_data_for_request_item(item: RequestItem) -> dict | None:
     ebay = _get_session(item, MarketResearchPlatform.EBAY)
     ebay_blob = session_to_client_payload(ebay) if ebay else None
-    ref = item.cex_reference_json
+    ref = _build_jewellery_reference_from_normalized(item) or item.cex_reference_json
     meta = item.line_metadata_json or {}
     snap = item.cex_line_snapshot_json
 
@@ -395,7 +504,10 @@ def sync_merged_raw_into_request_item(item: RequestItem, raw: dict | None) -> No
     if ref is None:
         ref = raw.get("reference_data")
     if ref is not None:
-        item.cex_reference_json = ref
+        if isinstance(ref, dict) and ref.get("jewellery_line") is True:
+            _upsert_jewellery_from_reference_payload(item, ref)
+        else:
+            item.cex_reference_json = ref
 
     meta = dict(item.line_metadata_json or {})
     for k in ("display_title", "display_subtitle"):
@@ -441,10 +553,9 @@ def sync_merged_raw_into_request_item(item: RequestItem, raw: dict | None) -> No
 
     item.save(
         update_fields=[
-            "cex_reference_json",
             "cex_line_snapshot_json",
             "line_metadata_json",
-        ]
+        ] + (["cex_reference_json"] if not (isinstance(ref, dict) and ref.get("jewellery_line") is True) else [])
     )
 
 

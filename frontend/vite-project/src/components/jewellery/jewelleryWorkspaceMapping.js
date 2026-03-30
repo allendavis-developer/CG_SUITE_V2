@@ -31,6 +31,8 @@ export function negotiationJewelleryItemToWorkspaceLine(item) {
     request_item_id: item.request_item_id ?? null,
     variantId: ref.variant_id,
     variantTitle: ref.line_title || item.variantName || item.title,
+    categoryLabel: ref.category_label || ref.line_title || item.variantName || item.title,
+    itemName: ref.item_name || ref.category_label || ref.line_title || item.variantName || item.title,
     productName: ref.product_name,
     materialGrade: ref.material_grade,
     referenceEntry: {

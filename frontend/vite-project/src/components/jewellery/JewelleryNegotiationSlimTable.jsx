@@ -65,6 +65,7 @@ export default function JewelleryNegotiationSlimTable({
   onRowContextMenu,
   onSetManualOffer,
   onCustomerExpectationChange,
+  onJewelleryItemNameChange,
 }) {
   const isView = mode === 'view';
 
@@ -85,11 +86,11 @@ export default function JewelleryNegotiationSlimTable({
       <table className="w-full spreadsheet-table border-collapse text-left">
         <thead>
           <tr>
-            <th scope="col" className="min-w-[140px]">
-              Item
+            <th scope="col" className="w-40">
+              Category
             </th>
             <th scope="col" className="min-w-[120px]">
-              Reference
+              Item Name
             </th>
             <th scope="col" className="w-24">
               Weight
@@ -152,15 +153,30 @@ export default function JewelleryNegotiationSlimTable({
                 style={item.isRemoved ? { textDecoration: 'line-through' } : {}}
               >
                 <td className="break-words font-medium text-gray-900" onContextMenu={ctxRemoveOnly(item)}>
-                  <div>{item.variantName || item.title || '—'}</div>
+                  <div>{ref.category_label || ref.line_title || item.variantName || item.title || '—'}</div>
                   {mode === 'negotiate' && (
                     <div className="text-[9px] mt-1 text-slate-400 italic">
-                      Click manual offer field or right-click to set
+                      Click manual offer to set
                     </div>
                   )}
                 </td>
                 <td className="break-words text-gray-600" onContextMenu={ctxRemoveOnly(item)}>
-                  {ref.reference_display_name ?? '—'}
+                  {isView ? (
+                    ref.item_name || ref.category_label || ref.line_title || item.variantName || item.title || '—'
+                  ) : (
+                    <input
+                      className="h-8 w-full rounded border border-gray-300 bg-white px-2 text-xs font-semibold text-gray-900 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-blue/30"
+                      type="text"
+                      value={ref.item_name || ref.category_label || ref.line_title || item.variantName || item.title || ''}
+                      onChange={(e) => onJewelleryItemNameChange?.(item, e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          e.currentTarget.blur();
+                        }
+                      }}
+                    />
+                  )}
                 </td>
                 <td className="tabular-nums text-gray-900" onContextMenu={ctxRemoveOnly(item)}>
                   {ref.weight ?? '—'}

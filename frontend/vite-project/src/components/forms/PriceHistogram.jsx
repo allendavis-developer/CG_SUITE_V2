@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 
 const PriceHistogram = React.memo(function PriceHistogram({ listings, onBucketSelect, priceRange, onGoBack, drillLevel, readOnly }) {
   const [bucketCount, setBucketCount] = useState(10);
+  const [bucketSortOrder, setBucketSortOrder] = useState('low_to_high');
 
   const prices = useMemo(() => {
     if (!listings || listings.length === 0) return [];
@@ -40,6 +41,15 @@ const PriceHistogram = React.memo(function PriceHistogram({ listings, onBucketSe
     if (!priceRange) return prices.length;
     return prices.filter(p => p >= priceRange.min && p <= priceRange.max).length;
   }, [prices, priceRange]);
+
+  const renderedBuckets = useMemo(() => {
+    if (!buckets?.length) return [];
+    if (bucketSortOrder === 'high_to_low') {
+      return buckets.slice().reverse();
+    }
+    // Default and low_to_high both follow ascending price range.
+    return buckets;
+  }, [buckets, bucketSortOrder]);
 
   if (!listings || listings.length === 0) return null;
   if (prices.length === 0) return null;
@@ -84,30 +94,43 @@ const PriceHistogram = React.memo(function PriceHistogram({ listings, onBucketSe
             onChange={(e) => setBucketCount(parseInt(e.target.value))}
             className="w-full h-1.5 bg-brand-blue/20 rounded-lg appearance-none cursor-pointer accent-brand-blue"
           />
+          <label className="text-[10px] font-bold text-brand-blue uppercase mt-1">Sort buckets</label>
+          <select
+            value={bucketSortOrder}
+            onChange={(e) => setBucketSortOrder(e.target.value)}
+            className="w-full rounded-md border border-gray-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-brand-blue focus:border-brand-blue focus:outline-none"
+            disabled={readOnly && !listings?.length}
+            aria-label="Histogram bucket sort order"
+          >
+            <option value="low_to_high">Lowest to highest</option>
+            <option value="high_to_low">Highest to lowest</option>
+          </select>
         </div>
       </div>
       <div className="flex-1 flex flex-col p-4 overflow-hidden" style={{ gap: bucketCount <= 10 ? '6px' : bucketCount <= 15 ? '4px' : '2px' }}>
-        {buckets.slice().reverse().map((bucket, i) => {
-          const reverseIndex = buckets.length - 1 - i;
+        {renderedBuckets.map((bucket, i) => {
+          const bucketIndex = i;
           const widthPct = maxFreq > 0 ? (bucket.count / maxFreq) * 100 : 0;
           return (
             <div
-              key={reverseIndex}
+              key={bucketIndex}
               className={`flex flex-1 items-center gap-2 relative group transition-all duration-500 ${bucket.count > 0 ? 'cursor-pointer' : ''}`}
               onClick={() => bucket.count > 0 && onBucketSelect(bucket.rangeStart, bucket.rangeEnd)}
               style={{ transform: `scale(${bucket.count > 0 ? 1 : 0.95})`, opacity: bucket.count > 0 ? 1 : 0.3, minHeight: '8px' }}
             >
-              <div className="flex-1 flex items-center justify-end h-full">
-                {bucket.count > 0 && (
-                  <span className="text-[10px] font-black text-brand-blue mr-2 transition-all duration-300 group-hover:scale-125">{bucket.count}</span>
-                )}
-                <div
-                  className={`h-full transition-all duration-500 ${bucket.count > 0 ? 'bg-brand-orange group-hover:bg-brand-blue group-hover:shadow-lg shadow-sm' : 'bg-gray-50'}`}
-                  style={{ width: bucket.count > 0 ? `${Math.max(widthPct, 4)}%` : '2px', transformOrigin: 'right' }}
-                />
-              </div>
-              <div className="text-brand-blue font-bold text-[10px] whitespace-nowrap w-28 text-left pl-2">
+              <div className="text-brand-blue font-bold text-[10px] whitespace-nowrap w-28 text-right pr-2">
                 £{bucket.rangeStart.toFixed(2)} - £{bucket.rangeEnd.toFixed(2)}
+              </div>
+              <div className="flex-1 h-full flex items-center border-l border-gray-300 pl-2">
+                <div className="flex items-center justify-start h-full w-full">
+                  <div
+                    className={`h-full transition-all duration-500 ${bucket.count > 0 ? 'bg-brand-orange group-hover:bg-brand-blue group-hover:shadow-lg shadow-sm' : 'bg-gray-50'}`}
+                    style={{ width: bucket.count > 0 ? `${Math.max(widthPct, 4)}%` : '2px', transformOrigin: 'left' }}
+                  />
+                  {bucket.count > 0 && (
+                    <span className="text-[10px] font-black text-brand-blue ml-2 transition-all duration-300 group-hover:scale-125">{bucket.count}</span>
+                  )}
+                </div>
               </div>
               {bucket.count > 0 && (
                 <div className="absolute right-full mr-4 hidden group-hover:flex items-center z-10">

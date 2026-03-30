@@ -18,7 +18,7 @@ import NewCustomerDetailsModal from '@/components/modals/NewCustomerDetailsModal
 import SalePriceConfirmModal from '@/components/modals/SalePriceConfirmModal';
 import ResearchOverlayPanel from './components/ResearchOverlayPanel';
 import TinyModal from '@/components/ui/TinyModal';
-import { finishRequest, fetchRequestDetail, updateCustomer, saveQuoteDraft, deleteRequestItem, updateRequestItemOffer } from '@/services/api';
+import { finishRequest, fetchRequestDetail, updateCustomer, saveQuoteDraft, deleteRequestItem, updateRequestItemOffer, updateRequestItemRawData } from '@/services/api';
 import { normalizeExplicitSalePrice, formatOfferPrice } from '@/utils/helpers';
 import { useNotification } from '@/contexts/NotificationContext';
 import useAppStore from '@/store/useAppStore';
@@ -112,6 +112,12 @@ const Negotiation = ({ mode }) => {
   const prevNegotiationRequestIdRef = useRef(null);
 
   const useVoucherOffers = transactionType === 'store_credit';
+
+  const parseManualOfferValue = useCallback((rawValue) => {
+    if (rawValue == null || rawValue === '') return NaN;
+    const parsed = Number(String(rawValue).replace(/[£,]/g, '').trim());
+    return Number.isFinite(parsed) ? parsed : NaN;
+  }, []);
 
   const researchSandboxBookedView =
     mode === 'view' && viewRequestStatus === 'BOOKED_FOR_TESTING';
@@ -242,6 +248,7 @@ const Negotiation = ({ mode }) => {
       for (const line of lines) {
         if (!line.request_item_id) continue;
         const d = getJewelleryWorkspaceDerivedState(line, useVoucherOffers);
+        const itemName = line.itemName || line.categoryLabel || line.variantTitle || null;
         const payload = {
           selected_offer_id: d.selectedOfferId,
           manual_offer_used: d.selectedOfferId === 'manual',
@@ -255,6 +262,15 @@ const Negotiation = ({ mode }) => {
           voucher_offers_json: normalizeOffersForApi(d.voucherOffers),
         };
         updateRequestItemOffer(line.request_item_id, payload).catch(() => {});
+        updateRequestItemRawData(line.request_item_id, {
+          raw_data: {
+            referenceData: {
+              ...d.referenceData,
+              item_name: itemName,
+              category_label: line.categoryLabel || d.referenceData?.line_title || null,
+            },
+          },
+        }).catch(() => {});
       }
     },
     [normalizeOffersForApi, useVoucherOffers]
@@ -531,6 +547,40 @@ const Negotiation = ({ mode }) => {
     showNotification(`"${item.title || 'Item'}" removed from negotiation`, 'info');
   }, [showNotification, storeRequest, setRequest]);
 
+  const handleJewelleryItemNameChange = useCallback((item, value) => {
+    const nextName = value ?? '';
+    setItems((prev) =>
+      prev.map((row) => {
+        if (row.id !== item.id) return row;
+        const nextRef = {
+          ...(row.referenceData || {}),
+          item_name: nextName,
+        };
+        return {
+          ...row,
+          title: nextName || row.referenceData?.category_label || row.referenceData?.line_title || row.title,
+          variantName: nextName || row.referenceData?.category_label || row.referenceData?.line_title || row.variantName,
+          referenceData: nextRef,
+          rawData:
+            row.rawData != null && typeof row.rawData === 'object'
+              ? { ...row.rawData, referenceData: nextRef }
+              : { referenceData: nextRef },
+        };
+      })
+    );
+    if (item.request_item_id) {
+      const baseRef = item.referenceData || {};
+      updateRequestItemRawData(item.request_item_id, {
+        raw_data: {
+          referenceData: {
+            ...baseRef,
+            item_name: nextName,
+          },
+        },
+      }).catch(() => {});
+    }
+  }, []);
+
   const handleAddNegotiationItem = useCallback(async (cartItem, options = {}) => {
     if (!cartItem) return false;
     const { skipSuccessNotification = false } = options;
@@ -557,7 +607,32 @@ const Negotiation = ({ mode }) => {
         });
       }
       const withRequestId = { ...cartItem, request_item_id: reqItemId };
-      setItems((prev) => [...prev, normalizeCartItemForNegotiation(withRequestId)]);
+      const normalizedItem = normalizeCartItemForNegotiation(withRequestId);
+      setItems((prev) => [...prev, normalizedItem]);
+
+      // Keep manual-offer safety flow consistent for builder/workspace adds:
+      // trigger the same senior-management and margin dialogs used by row edits.
+      if (normalizedItem.selectedOfferId === 'manual') {
+        const manualPerUnit = parseManualOfferValue(normalizedItem.manualOffer);
+        const ourSalePrice = resolveOurSalePrice(normalizedItem);
+        if (Number.isFinite(manualPerUnit) && manualPerUnit > 0 && ourSalePrice && ourSalePrice > 0) {
+          if (manualPerUnit > ourSalePrice) {
+            setSeniorMgmtModal({ item: normalizedItem, proposedPerUnit: manualPerUnit });
+          } else {
+            const marginPct = ((ourSalePrice - manualPerUnit) / ourSalePrice) * 100;
+            const marginGbp = ourSalePrice - manualPerUnit;
+            setMarginResultModal({
+              item: normalizedItem,
+              offerPerUnit: manualPerUnit,
+              ourSalePrice,
+              marginPct,
+              marginGbp,
+              confirmedBy: normalizedItem.seniorMgmtApprovedBy || null,
+            });
+          }
+        }
+      }
+
       if (!skipSuccessNotification) {
         showNotification(`Added "${cartItem.title}" to negotiation`, 'success');
       }
@@ -567,11 +642,15 @@ const Negotiation = ({ mode }) => {
       showNotification(err?.message || 'Failed to add item', 'error');
       return false;
     }
-  }, [createOrAppendRequestItem, showNotification]);
+  }, [createOrAppendRequestItem, parseManualOfferValue, showNotification]);
 
   const handleAddJewelleryItemsFromWorkspace = useCallback(
     async (draftWorkspaceLines) => {
-      if (!Array.isArray(draftWorkspaceLines) || draftWorkspaceLines.length === 0) return;
+      if (!Array.isArray(draftWorkspaceLines) || draftWorkspaceLines.length === 0) {
+        useAppStore.getState().requestCloseHeaderWorkspace();
+        showNotification('Jewellery updates saved.', 'info');
+        return;
+      }
       for (const line of draftWorkspaceLines) {
         try {
           const cartItem = buildJewelleryNegotiationCartItem(line, useVoucherOffers);
@@ -743,6 +822,7 @@ const Negotiation = ({ mode }) => {
           setTotalExpectation(openQuoteRequest.overall_expectation_gbp?.toString() || '');
           setTargetOffer(openQuoteRequest.target_offer_gbp != null ? openQuoteRequest.target_offer_gbp.toString() : '');
           setItems((openQuoteRequest.items || []).map((apiItem) => mapApiItemToNegotiationItem(apiItem, txType, 'negotiate')));
+          setRequest(openQuoteRequest);
           const jr = openQuoteRequest.jewellery_reference_scrape_json;
           if (jr?.sections?.length) {
             setJewelleryReferenceScrape({
@@ -1074,6 +1154,7 @@ const Negotiation = ({ mode }) => {
                   }
                   onSetManualOffer={(it) => setItemOfferModal({ item: it })}
                   onCustomerExpectationChange={handleCustomerExpectationChange}
+                  onJewelleryItemNameChange={handleJewelleryItemNameChange}
                 />
               </div>
             ) : null}
@@ -1244,7 +1325,6 @@ const Negotiation = ({ mode }) => {
           zone={contextMenu.zone}
           onClose={() => setContextMenu(null)}
           onRemove={() => handleRemoveFromNegotiation(contextMenu.item)}
-          onSetManualOffer={() => setItemOfferModal({ item: contextMenu.item })}
           onUseAsRrpOffersSource={() =>
             handlePriceSourceAsRrpOffersSource(contextMenu.item, contextMenu.zone, {
               showNotification,

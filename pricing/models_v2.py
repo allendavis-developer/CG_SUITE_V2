@@ -3,7 +3,7 @@ models_v2
 """
 
 from django.db import models
-from django.db.models import Q
+from django.db.models import Q, F
 from django.core.validators import MinValueValidator
 from decimal import Decimal
 from django.utils import timezone
@@ -756,10 +756,13 @@ class Request(models.Model):
         help_text="Enriched customer data from NoSpos (rates, dates, etc.) for display in buyer UI"
     )
 
-    jewellery_reference_scrape_json = models.JSONField(
+    current_jewellery_reference_snapshot = models.ForeignKey(
+        "RequestJewelleryReferenceSnapshot",
+        on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        help_text="Cached Mastermelt-style reference sections from the jewellery workspace scrape",
+        related_name="active_for_requests",
+        help_text="Currently selected jewellery reference snapshot for this request",
     )
 
     def __str__(self):
@@ -908,6 +911,374 @@ class RequestItem(models.Model):
 
     class Meta:
         db_table = "buying_request_item"
+
+
+class JewelleryWeightInputUnit(models.TextChoices):
+    GRAMS = "g", "Grams"
+    KILOGRAMS = "kg", "Kilograms"
+    EACH = "each", "Each"
+
+
+class JewelleryMeasurementSource(models.TextChoices):
+    MANUAL = "MANUAL", "Manual"
+    SCALE = "SCALE", "Scale"
+    IMPORTED = "IMPORTED", "Imported"
+    ESTIMATED = "ESTIMATED", "Estimated"
+
+
+class JewelleryHallmarkStatus(models.TextChoices):
+    UNKNOWN = "UNKNOWN", "Unknown"
+    PRESENT = "PRESENT", "Present"
+    ABSENT = "ABSENT", "Absent"
+    UNREADABLE = "UNREADABLE", "Unreadable"
+
+
+class RequestItemJewellery(models.Model):
+    """
+    Jewellery-specific request-line snapshot.
+    Stores intake/negotiation measurements without overloading RequestItem JSON.
+    """
+    request_item = models.OneToOneField(
+        RequestItem,
+        on_delete=models.CASCADE,
+        related_name="jewellery",
+        db_column="request_item_id",
+        primary_key=True,
+    )
+    inventory_unit = models.ForeignKey(
+        "InventoryUnit",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="request_item_jewellery_rows",
+        help_text="Optional linked inventory unit once this request line is booked into stock",
+    )
+    material_grade = models.ForeignKey(
+        "AttributeValue",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="request_item_jewellery_rows",
+        db_column="material_grade_attribute_value_id",
+        help_text="Material/purity grade (expected to reference the jewellery material_grade attribute)",
+    )
+    measured_gross_weight_grams = models.DecimalField(
+        max_digits=10,
+        decimal_places=3,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0.001"))],
+        help_text="Canonical gross weight in grams used for valuation",
+    )
+    measured_net_weight_grams = models.DecimalField(
+        max_digits=10,
+        decimal_places=3,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0.000"))],
+        help_text="Optional net precious-metal weight in grams",
+    )
+    measured_stone_weight_grams = models.DecimalField(
+        max_digits=10,
+        decimal_places=3,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0.000"))],
+        help_text="Optional stone/non-metal deduction in grams",
+    )
+    input_weight_value = models.DecimalField(
+        max_digits=10,
+        decimal_places=3,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0.000"))],
+        help_text="Original entered weight value before normalization",
+    )
+    input_weight_unit = models.CharField(
+        max_length=10,
+        choices=JewelleryWeightInputUnit.choices,
+        default=JewelleryWeightInputUnit.GRAMS,
+        help_text="Original entry unit from UI/input form",
+    )
+    measurement_source = models.CharField(
+        max_length=20,
+        choices=JewelleryMeasurementSource.choices,
+        default=JewelleryMeasurementSource.MANUAL,
+        db_index=True,
+        help_text="How this jewellery measurement was captured",
+    )
+    measured_by_name = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="Staff member who captured this request-line measurement",
+    )
+    measured_at = models.DateTimeField(
+        default=timezone.now,
+        db_index=True,
+        help_text="When this request-line jewellery measurement was captured",
+    )
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "buying_request_item_jewellery"
+        indexes = [
+            models.Index(fields=["material_grade", "measured_gross_weight_grams"]),
+            models.Index(fields=["measured_at"]),
+            models.Index(fields=["measurement_source"]),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(measured_gross_weight_grams__isnull=True) | Q(measured_gross_weight_grams__gt=0),
+                name="req_item_jewellery_gross_weight_gt_zero",
+            ),
+            models.CheckConstraint(
+                condition=Q(measured_net_weight_grams__isnull=True) | Q(measured_net_weight_grams__gte=0),
+                name="req_item_jewellery_net_weight_gte_zero",
+            ),
+            models.CheckConstraint(
+                condition=Q(measured_stone_weight_grams__isnull=True) | Q(measured_stone_weight_grams__gte=0),
+                name="req_item_jewellery_stone_weight_gte_zero",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(measured_net_weight_grams__isnull=True)
+                    | Q(measured_gross_weight_grams__isnull=True)
+                    | Q(measured_net_weight_grams__lte=F("measured_gross_weight_grams"))
+                ),
+                name="req_item_jewellery_net_lte_gross",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(measured_stone_weight_grams__isnull=True)
+                    | Q(measured_gross_weight_grams__isnull=True)
+                    | Q(measured_stone_weight_grams__lte=F("measured_gross_weight_grams"))
+                ),
+                name="req_item_jewellery_stone_lte_gross",
+            ),
+        ]
+
+
+class RequestItemJewelleryValuation(models.Model):
+    """
+    Append-only valuation snapshots for a jewellery request line.
+    """
+    valuation_id = models.BigAutoField(primary_key=True)
+    request_item_jewellery = models.ForeignKey(
+        RequestItemJewellery,
+        on_delete=models.CASCADE,
+        related_name="valuations",
+        db_column="request_item_id",
+    )
+    valuation_source = models.CharField(
+        max_length=64,
+        db_index=True,
+        help_text="Valuation source identifier (e.g., Mastermelt/manual/internal)",
+    )
+    source_reference_snapshot = models.ForeignKey(
+        "RequestJewelleryReferenceSnapshot",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="valuations",
+        help_text="Optional request-level reference snapshot used for this valuation",
+    )
+    rate_per_gram_gbp = models.DecimalField(
+        max_digits=12,
+        decimal_places=4,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0.0000"))],
+    )
+    unit_price_gbp = models.DecimalField(
+        max_digits=12,
+        decimal_places=4,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0.0000"))],
+    )
+    basis_weight_grams = models.DecimalField(
+        max_digits=10,
+        decimal_places=3,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0.000"))],
+        help_text="Weight basis used in this valuation snapshot",
+    )
+    computed_total_gbp = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal("0.00"))],
+        help_text="Computed valuation total for this snapshot",
+    )
+    valuation_payload_json = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Raw valuation payload for reproducibility/audit",
+    )
+    is_selected = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="True when this valuation is currently selected for the request line",
+    )
+    selected_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = "buying_request_item_jewellery_valuation"
+        indexes = [
+            models.Index(fields=["request_item_jewellery", "-created_at"]),
+            models.Index(fields=["valuation_source", "-created_at"]),
+            models.Index(fields=["computed_total_gbp"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["request_item_jewellery"],
+                condition=Q(is_selected=True),
+                name="uniq_selected_jewellery_valuation_per_request_item",
+            ),
+            models.CheckConstraint(
+                condition=Q(computed_total_gbp__gte=0),
+                name="req_item_jewellery_valuation_total_gte_zero",
+            ),
+        ]
+
+
+class RequestJewelleryReferenceSnapshot(models.Model):
+    """
+    Historical jewellery reference scrape snapshots at request level.
+    Request.current_jewellery_reference_snapshot points to the active one.
+    """
+    snapshot_id = models.BigAutoField(primary_key=True)
+    request = models.ForeignKey(
+        Request,
+        on_delete=models.CASCADE,
+        related_name="jewellery_reference_history",
+    )
+    source_name = models.CharField(
+        max_length=100,
+        blank=True,
+        default="Mastermelt",
+        help_text="Human-readable source system name",
+    )
+    source_url = models.URLField(max_length=2000, blank=True, default="")
+    scraped_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    sections_json = models.JSONField(
+        help_text="Normalized jewellery reference sections payload",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    created_by_name = models.CharField(max_length=255, null=True, blank=True)
+
+    class Meta:
+        db_table = "buying_request_jewellery_reference_snapshot"
+        indexes = [
+            models.Index(fields=["request", "-created_at"]),
+            models.Index(fields=["request", "-scraped_at"]),
+        ]
+
+class InventoryUnitJewellery(models.Model):
+    """
+    Canonical jewellery measurements for a physical stock unit.
+    Query this table for inventory-by-weight/material operations.
+    """
+    inventory_unit = models.OneToOneField(
+        InventoryUnit,
+        on_delete=models.CASCADE,
+        related_name="jewellery",
+        db_column="inventory_item_id",
+        primary_key=True,
+    )
+    material_grade = models.ForeignKey(
+        "AttributeValue",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="inventory_jewellery_rows",
+        db_column="material_grade_attribute_value_id",
+        help_text="Material/purity grade used for stock reporting and filtering",
+    )
+    gross_weight_grams = models.DecimalField(
+        max_digits=10,
+        decimal_places=3,
+        validators=[MinValueValidator(Decimal("0.001"))],
+        db_index=True,
+        help_text="Canonical gross stock weight in grams",
+    )
+    net_weight_grams = models.DecimalField(
+        max_digits=10,
+        decimal_places=3,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0.000"))],
+        db_index=True,
+        help_text="Optional net precious-metal weight in grams",
+    )
+    stone_weight_grams = models.DecimalField(
+        max_digits=10,
+        decimal_places=3,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0.000"))],
+        help_text="Optional stone/non-metal deduction in grams",
+    )
+    hallmark_status = models.CharField(
+        max_length=20,
+        choices=JewelleryHallmarkStatus.choices,
+        default=JewelleryHallmarkStatus.UNKNOWN,
+        db_index=True,
+    )
+    measurement_source = models.CharField(
+        max_length=20,
+        choices=JewelleryMeasurementSource.choices,
+        default=JewelleryMeasurementSource.MANUAL,
+        db_index=True,
+        help_text="How this stock-unit jewellery measurement was captured",
+    )
+    source_request_item = models.ForeignKey(
+        RequestItemJewellery,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="inventory_units_created",
+        help_text="Optional provenance link back to the request-line jewellery snapshot",
+    )
+    measured_by_name = models.CharField(max_length=255, null=True, blank=True)
+    measured_at = models.DateTimeField(default=timezone.now, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "pricing_inventory_item_jewellery"
+        indexes = [
+            models.Index(fields=["material_grade", "gross_weight_grams"]),
+            models.Index(fields=["gross_weight_grams"]),
+            models.Index(fields=["net_weight_grams"]),
+            models.Index(fields=["hallmark_status"]),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(gross_weight_grams__gt=0),
+                name="inventory_jewellery_gross_weight_gt_zero",
+            ),
+            models.CheckConstraint(
+                condition=Q(net_weight_grams__isnull=True) | Q(net_weight_grams__gte=0),
+                name="inventory_jewellery_net_weight_gte_zero",
+            ),
+            models.CheckConstraint(
+                condition=Q(stone_weight_grams__isnull=True) | Q(stone_weight_grams__gte=0),
+                name="inventory_jewellery_stone_weight_gte_zero",
+            ),
+            models.CheckConstraint(
+                condition=Q(net_weight_grams__isnull=True) | Q(net_weight_grams__lte=F("gross_weight_grams")),
+                name="inventory_jewellery_net_lte_gross",
+            ),
+            models.CheckConstraint(
+                condition=Q(stone_weight_grams__isnull=True) | Q(stone_weight_grams__lte=F("gross_weight_grams")),
+                name="inventory_jewellery_stone_lte_gross",
+            ),
+        ]
 
 
 class RepricingSessionStatus(models.TextChoices):

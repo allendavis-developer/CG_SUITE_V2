@@ -108,6 +108,8 @@ export function mapRequestItemsToCartItems(items, transactionType) {
       const displayOffers = useVoucher ? voucher : cash;
       const variantId = item.variant_details?.variant_id ?? jewelleryRef.variant_id ?? null;
       const title =
+        jewelleryRef.item_name ||
+        jewelleryRef.category_label ||
         jewelleryRef.line_title ||
         item.variant_details?.title ||
         [jewelleryRef.product_name, jewelleryRef.material_grade].filter(Boolean).join(' — ') ||

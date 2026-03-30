@@ -26,6 +26,10 @@ from .models_v2 import (
     Location,
     RepricingSession,
     RepricingSessionItem,
+    RequestJewelleryReferenceSnapshot,
+    RequestItemJewellery,
+    RequestItemJewelleryValuation,
+    InventoryUnitJewellery,
 )
 
 
@@ -245,10 +249,10 @@ class RequestItemInline(admin.TabularInline):
 # 4. NOW YOUR REQUEST ADMIN WORKS
 @admin.register(Request)
 class RequestAdmin(admin.ModelAdmin):
-    list_display = ("request_id", "customer", "intent", "created_at")
+    list_display = ("request_id", "customer", "intent", "current_jewellery_reference_snapshot", "created_at")
     list_select_related = ("customer",)
     search_fields = ("request_id", "customer__name", "customer__phone_number")
-    autocomplete_fields = ("customer",)
+    autocomplete_fields = ("customer", "current_jewellery_reference_snapshot")
     inlines = [RequestItemInline]
     
 
@@ -436,6 +440,96 @@ class InventoryUnitAdmin(admin.ModelAdmin):
     autocomplete_fields = ("variant", "location")
 
     readonly_fields = ("tradein",)
+
+
+@admin.register(RequestJewelleryReferenceSnapshot)
+class RequestJewelleryReferenceSnapshotAdmin(admin.ModelAdmin):
+    list_display = (
+        "snapshot_id",
+        "request",
+        "source_name",
+        "scraped_at",
+        "created_at",
+    )
+    list_filter = ("source_name", "created_at", "scraped_at")
+    search_fields = (
+        "snapshot_id",
+        "request__request_id",
+        "request__customer__name",
+        "source_url",
+        "created_by_name",
+    )
+    autocomplete_fields = ("request",)
+    readonly_fields = ("created_at",)
+    ordering = ("-created_at",)
+
+
+@admin.register(RequestItemJewellery)
+class RequestItemJewelleryAdmin(admin.ModelAdmin):
+    list_display = (
+        "request_item",
+        "material_grade",
+        "measured_gross_weight_grams",
+        "measurement_source",
+        "measured_at",
+        "inventory_unit",
+    )
+    list_filter = ("measurement_source", "input_weight_unit", "measured_at")
+    search_fields = (
+        "request_item__request_item_id",
+        "request_item__request__request_id",
+        "request_item__request__customer__name",
+        "measured_by_name",
+        "inventory_unit__item_id",
+    )
+    autocomplete_fields = ("request_item", "inventory_unit", "material_grade")
+    readonly_fields = ("created_at", "updated_at")
+    ordering = ("-measured_at",)
+
+
+@admin.register(RequestItemJewelleryValuation)
+class RequestItemJewelleryValuationAdmin(admin.ModelAdmin):
+    list_display = (
+        "valuation_id",
+        "request_item_jewellery",
+        "valuation_source",
+        "computed_total_gbp",
+        "is_selected",
+        "created_at",
+    )
+    list_filter = ("valuation_source", "is_selected", "created_at")
+    search_fields = (
+        "valuation_id",
+        "request_item_jewellery__request_item__request_item_id",
+        "request_item_jewellery__request_item__request__request_id",
+        "request_item_jewellery__request_item__request__customer__name",
+    )
+    autocomplete_fields = ("request_item_jewellery", "source_reference_snapshot")
+    readonly_fields = ("created_at",)
+    ordering = ("-created_at",)
+
+
+@admin.register(InventoryUnitJewellery)
+class InventoryUnitJewelleryAdmin(admin.ModelAdmin):
+    list_display = (
+        "inventory_unit",
+        "material_grade",
+        "gross_weight_grams",
+        "net_weight_grams",
+        "hallmark_status",
+        "measurement_source",
+        "measured_at",
+    )
+    list_filter = ("hallmark_status", "measurement_source", "measured_at")
+    search_fields = (
+        "inventory_unit__item_id",
+        "inventory_unit__variant__cex_sku",
+        "inventory_unit__variant__title",
+        "measured_by_name",
+    )
+    autocomplete_fields = ("inventory_unit", "material_grade", "source_request_item")
+    readonly_fields = ("created_at", "updated_at")
+    ordering = ("-measured_at",)
 
 
 @admin.register(InventoryOwnershipEvent)
