@@ -15,8 +15,15 @@ from .models_v2 import (
     RequestIntent,
     RepricingSession,
     RepricingSessionItem,
+    RequestItemOfferType,
 )
 from . import research_storage
+from .offer_rows import (
+    compose_offer_json_from_rows,
+    get_selected_offer_code,
+    sync_request_item_offer_rows,
+    sync_request_item_offer_rows_from_payload,
+)
 
 
 class ProductCategorySerializer(serializers.ModelSerializer):
@@ -167,6 +174,10 @@ class RequestItemSerializer(serializers.ModelSerializer):
     variant_details = VariantSerializer(source='variant', read_only=True)
     raw_data = serializers.SerializerMethodField()
     cash_converters_data = serializers.SerializerMethodField()
+    selected_offer_id = serializers.SerializerMethodField()
+    senior_mgmt_approved_by = serializers.SerializerMethodField()
+    cash_offers_json = serializers.JSONField(required=False)
+    voucher_offers_json = serializers.JSONField(required=False)
 
     class Meta:
         model = RequestItem
@@ -208,13 +219,42 @@ class RequestItemSerializer(serializers.ModelSerializer):
         return research_storage.compose_cash_converters_for_request_item(obj)
 
     def create(self, validated_data):
+        cash_offers = validated_data.pop("cash_offers_json", None)
+        voucher_offers = validated_data.pop("voucher_offers_json", None)
         item = RequestItem.objects.create(**validated_data)
         research_storage.ingest_request_item_post_create(
             item,
             self.initial_data.get('raw_data'),
             self.initial_data.get('cash_converters_data'),
         )
+        if cash_offers is not None or voucher_offers is not None:
+            sync_request_item_offer_rows_from_payload(
+                item,
+                selected_offer_id=self.initial_data.get("selected_offer_id"),
+                cash_offers=cash_offers or [],
+                voucher_offers=voucher_offers or [],
+                manual_offer_gbp=item.manual_offer_gbp,
+            )
+        else:
+            sync_request_item_offer_rows(item)
         return item
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        cash_rows = compose_offer_json_from_rows(instance, RequestItemOfferType.CASH)
+        voucher_rows = compose_offer_json_from_rows(instance, RequestItemOfferType.VOUCHER)
+        if cash_rows:
+            data["cash_offers_json"] = cash_rows
+        if voucher_rows:
+            data["voucher_offers_json"] = voucher_rows
+        return data
+
+    def get_selected_offer_id(self, obj):
+        return get_selected_offer_code(obj)
+
+    def get_senior_mgmt_approved_by(self, obj):
+        user = getattr(obj, "senior_mgmt_approved_user", None)
+        return getattr(user, "username", None) if user else None
     
     def validate_customer_expectation_gbp(self, value):
         if value is None:

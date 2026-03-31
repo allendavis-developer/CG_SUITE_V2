@@ -8,25 +8,7 @@ import { fetchRepricingSessionDetail, updateRepricingSession } from "@/services/
 import { formatMoney, getResearchMedian } from "./utils/repricingDisplay";
 import { SPREADSHEET_TABLE_STYLES } from "./spreadsheetTableStyles";
 import { TableCheckbox } from "@/components/ui/components";
-
-function attachBarcodesFromSessionItems(cartItems, sessionItems) {
-  if (!Array.isArray(sessionItems) || sessionItems.length === 0) return cartItems;
-  const byItemId = {};
-  for (const si of sessionItems) {
-    const id = si.item_identifier;
-    if (!id || !si.stock_barcode) continue;
-    if (!byItemId[id]) byItemId[id] = [];
-    byItemId[id].push({
-      barserial: si.stock_barcode,
-      href: si.stock_url || '',
-      name: si.title || '',
-    });
-  }
-  return cartItems.map(item => {
-    const barcodes = byItemId[item.id];
-    return barcodes ? { ...item, nosposBarcodes: barcodes } : item;
-  });
-}
+import { attachBarcodesFromSessionItems } from "./utils/repricingSessionMapping";
 
 /** Listing title as shown on NosPos (from saved lookup / Quick Reprice metadata), not the reprice-list label. */
 function resolveNosposListingName(sessionData, lineItem) {
@@ -192,7 +174,7 @@ const RepricingSessionView = () => {
                     type="button"
                     onClick={async () => {
                       const rawItems = session.session_data.items;
-                      const items = attachBarcodesFromSessionItems(rawItems, session.items);
+                      const items = attachBarcodesFromSessionItems(rawItems, session.items, { mergeExisting: false });
                       try {
                         await updateRepricingSession(session.repricing_session_id, { status: 'IN_PROGRESS' });
                       } catch {}

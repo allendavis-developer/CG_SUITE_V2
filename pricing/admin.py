@@ -18,6 +18,7 @@ from .models_v2 import (
     InventoryUnit,
     Customer,
     RequestItem,
+    RequestItemOffer,
     RequestStatusHistory,
     Request,
     TradeIn,
@@ -246,6 +247,23 @@ class RequestItemInline(admin.TabularInline):
     def get_queryset(self, request):
         return super().get_queryset(request).select_related('variant')
 
+
+class RequestItemOfferInline(admin.TabularInline):
+    model = RequestItemOffer
+    extra = 0
+    fields = (
+        "offer_type",
+        "offer_code",
+        "title",
+        "offer_slot",
+        "price_gbp",
+        "margin_pct",
+        "is_highlighted",
+        "is_selected",
+        "sort_order",
+    )
+    readonly_fields = ("offer_type", "offer_code", "title", "offer_slot", "price_gbp", "margin_pct", "is_highlighted", "sort_order")
+
 # 4. NOW YOUR REQUEST ADMIN WORKS
 @admin.register(Request)
 class RequestAdmin(admin.ModelAdmin):
@@ -277,13 +295,11 @@ class RequestItemAdmin(admin.ModelAdmin):
         "request__customer__name",
         "request__customer__phone_number",
     )
-    autocomplete_fields = ("request", "variant")
+    autocomplete_fields = ("request", "variant", "senior_mgmt_approved_user")
     readonly_fields = (
         "get_ebay_research_summary",
         "get_cc_research_summary",
         "get_line_context_summary",
-        "cash_offers_json",
-        "voucher_offers_json",
         "customer_expectation_gbp",
         "negotiated_price_gbp",
         "get_cex_buy_cash",
@@ -310,11 +326,10 @@ class RequestItemAdmin(admin.ModelAdmin):
         ('Offers & Negotiation', {
             'fields': (
                 'customer_expectation_gbp',
-                'selected_offer_id',
                 'manual_offer_gbp',
+                'manual_offer_used',
+                'senior_mgmt_approved_user',
                 'negotiated_price_gbp',
-                'cash_offers_json',
-                'voucher_offers_json',
             )
         }),
         ('Market research (normalized)', {
@@ -327,6 +342,7 @@ class RequestItemAdmin(admin.ModelAdmin):
             'description': "eBay / Cash Converters research is stored relationally; CeX snapshots in JSON fields.",
         }),
     )
+    inlines = [RequestItemOfferInline]
 
     def get_ebay_research_summary(self, obj):
         s = obj.market_research_sessions.filter(platform="EBAY").first()
@@ -369,6 +385,28 @@ class RequestItemAdmin(admin.ModelAdmin):
     def get_cex_sell_price(self, obj):
         return obj.variant.current_price_gbp if obj.variant else None
     get_cex_sell_price.short_description = "CeX Sell Price"
+
+
+@admin.register(RequestItemOffer)
+class RequestItemOfferAdmin(admin.ModelAdmin):
+    list_display = (
+        "request_item_offer_id",
+        "request_item",
+        "offer_type",
+        "offer_code",
+        "price_gbp",
+        "is_selected",
+        "sort_order",
+    )
+    list_filter = ("offer_type", "is_selected")
+    search_fields = (
+        "request_item__request_item_id",
+        "request_item__request__request_id",
+        "request_item__request__customer__name",
+        "offer_code",
+        "title",
+    )
+    autocomplete_fields = ("request_item",)
 
 
 @admin.register(TradeIn)
@@ -457,9 +495,9 @@ class RequestJewelleryReferenceSnapshotAdmin(admin.ModelAdmin):
         "request__request_id",
         "request__customer__name",
         "source_url",
-        "created_by_name",
+        "created_by_user__username",
     )
-    autocomplete_fields = ("request",)
+    autocomplete_fields = ("request", "created_by_user")
     readonly_fields = ("created_at",)
     ordering = ("-created_at",)
 
@@ -479,10 +517,10 @@ class RequestItemJewelleryAdmin(admin.ModelAdmin):
         "request_item__request_item_id",
         "request_item__request__request_id",
         "request_item__request__customer__name",
-        "measured_by_name",
+        "measured_by_user__username",
         "inventory_unit__item_id",
     )
-    autocomplete_fields = ("request_item", "inventory_unit", "material_grade")
+    autocomplete_fields = ("request_item", "inventory_unit", "material_grade", "measured_by_user")
     readonly_fields = ("created_at", "updated_at")
     ordering = ("-measured_at",)
 
@@ -525,9 +563,9 @@ class InventoryUnitJewelleryAdmin(admin.ModelAdmin):
         "inventory_unit__item_id",
         "inventory_unit__variant__cex_sku",
         "inventory_unit__variant__title",
-        "measured_by_name",
+        "measured_by_user__username",
     )
-    autocomplete_fields = ("inventory_unit", "material_grade", "source_request_item")
+    autocomplete_fields = ("inventory_unit", "material_grade", "source_request_item", "measured_by_user")
     readonly_fields = ("created_at", "updated_at")
     ordering = ("-measured_at",)
 

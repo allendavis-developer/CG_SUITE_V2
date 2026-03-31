@@ -46,6 +46,7 @@ const JEWELLERY_PRODUCT_ORDER = [
   'Chains',
   'Pendant',
   'Bullion (gold)',
+  'Coin',
   'Bullion (other)',
 ];
 
@@ -59,6 +60,9 @@ const JEWELLERY_SCRAPE_MATERIAL_GRADES = new Set([
   'Silver',
   'Platinum',
   'Palladium',
+  'Full Sovereign',
+  'Half Sovereign',
+  'Krugerrand',
 ]);
 
 export async function fetchJewelleryCatalog() {
@@ -140,6 +144,27 @@ export const fetchProductModels = async (category) => {
     return data.map((p) => ({ model_id: p.product_id, name: p.name, product_id: p.product_id }));
   } catch (err) {
     console.error('Error fetching product models:', err);
+    return [];
+  }
+};
+
+export const fetchProductCategories = async () => {
+  try {
+    const data = await apiFetch('/product-categories/');
+    return Array.isArray(data) ? data : [];
+  } catch (err) {
+    console.error('Error fetching product categories:', err);
+    return [];
+  }
+};
+
+export const fetchProductVariants = async (productId) => {
+  if (!productId) return [];
+  try {
+    const data = await apiFetch(`/product-variants/?product_id=${productId}`);
+    return data?.variants || [];
+  } catch (err) {
+    console.error('Error fetching product variants:', err);
     return [];
   }
 };

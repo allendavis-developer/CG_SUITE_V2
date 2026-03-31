@@ -3,9 +3,18 @@ import { formatOfferPrice, roundOfferPrice, toVoucherOfferPrice } from '@/utils/
 /** 1st offer = 30% margin, then 20%, 10% — must match workspace column order. */
 export const JEWELLERY_TIER_MARGINS_PCT = [30, 20, 10];
 
+/** Matches DB/reference labels (Gold Coins rows + `Coin` product). */
+export function isJewelleryCoinLine(line) {
+  if (!line || typeof line !== 'object') return false;
+  const prod = String(line.productName ?? line.product_name ?? '').trim().toLowerCase();
+  if (prod === 'coin') return true;
+  const mg = String(line.materialGrade ?? line.material_grade ?? '').toLowerCase().trim();
+  return mg === 'full sovereign' || mg === 'half sovereign' || mg === 'krugerrand';
+}
+
 export function computeWorkspaceLineTotal(line) {
   if (line.sourceKind === 'UNIT') {
-    const n = parseFloat(line.weight) || 0;
+    const n = isJewelleryCoinLine(line) ? 1 : parseFloat(line.weight) || 0;
     return Math.round(n * (line.unitPrice || 0) * 100) / 100;
   }
   const w = parseFloat(line.weight) || 0;
@@ -25,6 +34,7 @@ function buildJewelleryReferencePayload(line, total) {
   const ref = line.referenceEntry;
   const categoryLabel = line.categoryLabel || line.variantTitle || null;
   const itemName = line.itemName || categoryLabel;
+  const coin = isJewelleryCoinLine(line);
   return {
     jewellery_line: true,
     variant_id: line.variantId,
@@ -37,10 +47,10 @@ function buildJewelleryReferencePayload(line, total) {
     reference_display_name: ref?.displayName ?? null,
     reference_section_title: ref?.sectionTitle ?? null,
     reference_price_source_kind: ref?.sourceKind ?? null,
-    rate_per_gram: ref?.ratePerGram ?? null,
+    rate_per_gram: coin ? null : ref?.ratePerGram ?? null,
     unit_price: ref?.unitPrice ?? null,
-    weight: line.weight,
-    weight_unit: line.weightUnit,
+    weight: coin ? '1' : line.weight,
+    weight_unit: coin ? 'each' : line.weightUnit,
     computed_total_gbp: total,
   };
 }
@@ -106,18 +116,19 @@ export function getJewelleryWorkspaceDerivedState(line, useVoucherOffers) {
 export function buildJewelleryNegotiationCartItem(line, useVoucherOffers) {
   const total = computeWorkspaceLineTotal(line);
   if (!Number.isFinite(total) || total <= 0) {
-    throw new Error('Each jewellery item needs a positive reference total (check weight).');
+    throw new Error('Each jewellery item needs a positive reference total.');
   }
   const derived = getJewelleryWorkspaceDerivedState(line, useVoucherOffers);
 
   const categoryLabel = line.categoryLabel || line.variantTitle;
   const itemName = line.itemName || categoryLabel;
+  const qtySubtitle = isJewelleryCoinLine(line)
+    ? '1 coin'
+    : `${line.weight}${line.weightUnit === 'each' ? ' ea' : line.weightUnit}`;
   return {
     id: crypto.randomUUID?.() ?? `jew-neg-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     title: itemName,
-    subtitle: [line.referenceEntry?.displayName, `${line.weight}${line.weightUnit === 'each' ? ' ea' : line.weightUnit}`]
-      .filter(Boolean)
-      .join(' · '),
+    subtitle: [line.referenceEntry?.displayName, qtySubtitle].filter(Boolean).join(' · '),
     quantity: 1,
     variantId: line.variantId,
     variantName: itemName,

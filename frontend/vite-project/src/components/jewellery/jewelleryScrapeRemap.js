@@ -4,6 +4,7 @@
  */
 
 import { roundOfferPrice, toVoucherOfferPrice, normalizeExplicitSalePrice } from '@/utils/helpers';
+import { isJewelleryCoinLine } from './jewelleryNegotiationCart';
 
 /** Same order as workspace: 1st = 30% margin, 2nd = 20%, 3rd = 10%. */
 const TIER_MARGINS_PCT = [30, 20, 10];
@@ -26,20 +27,27 @@ function ratePerGramFromPrice(sourceKind, priceNumeric) {
   return null;
 }
 
+function isGoldCoinsSection(sectionTitle) {
+  const t = String(sectionTitle || '').toLowerCase().trim();
+  return t === 'gold coins' || t.includes('gold coin');
+}
+
 export function buildJewelleryScrapeCatalog(sections) {
   const out = [];
   (sections || []).forEach((sec) => {
     (sec?.rows || []).forEach((r, i) => {
-      const sourceKind = normalizeSourceUnit(r.unit);
+      let sourceKind = normalizeSourceUnit(r.unit);
       const priceNumeric = parsePriceNumber(r.priceGbp);
+      const coinRow = isGoldCoinsSection(sec.title) && priceNumeric > 0;
+      if (coinRow) sourceKind = 'UNIT';
       const catalogId = `${sec.title}::${r.label}::${i}`;
       out.push({
         catalogId,
         sectionTitle: sec.title,
         displayName: `${sec.title} — ${r.label}`,
         sourceKind,
-        ratePerGram: ratePerGramFromPrice(sourceKind, priceNumeric),
-        unitPrice: sourceKind === 'UNIT' ? priceNumeric : null,
+        ratePerGram: coinRow ? null : ratePerGramFromPrice(sourceKind, priceNumeric),
+        unitPrice: coinRow ? priceNumeric : sourceKind === 'UNIT' ? priceNumeric : null,
       });
     });
   });
@@ -66,6 +74,13 @@ function catalogSliceForMaterialGrade(catalog, materialGrade) {
   if (exact === 'silver') return bySection('silver');
   if (exact === 'platinum') return bySection('platinum');
   if (exact === 'palladium') return bySection('palladium');
+  if (
+    exact === 'full sovereign' ||
+    exact === 'half sovereign' ||
+    exact === 'krugerrand'
+  ) {
+    return bySection('gold coins');
+  }
   if (/\d+ct\s*gold/i.test(raw)) return bySection('gold');
 
   return catalog;
@@ -117,6 +132,7 @@ export function remapJewelleryWorkspaceLines(lines, sections) {
   return lines.map((line) => {
     const ref = resolveWorkspaceReferenceEntry(line, catalog);
     if (!ref) return line;
+    const coin = isJewelleryCoinLine(line);
     const nextWeightUnit =
       ref.sourceKind === 'UNIT'
         ? 'each'
@@ -131,7 +147,8 @@ export function remapJewelleryWorkspaceLines(lines, sections) {
       sourceKind: ref.sourceKind,
       ratePerGram: ref.ratePerGram,
       unitPrice: ref.unitPrice,
-      weightUnit: nextWeightUnit,
+      weightUnit: coin ? 'each' : nextWeightUnit,
+      weight: coin ? '1' : line.weight,
     };
   });
 }
@@ -172,8 +189,9 @@ export function applyJewelleryScrapeToNegotiationItem(item, sections, useVoucher
     bestReferenceEntry(catalog, rd.material_grade);
   if (!refEntry) return item;
 
-  const weight = rd.weight;
-  const wu = rd.weight_unit === 'each' ? 'each' : rd.weight_unit || 'g';
+  const isCoin = isJewelleryCoinLine({ productName: rd.product_name, materialGrade: rd.material_grade });
+  const weight = isCoin ? '1' : rd.weight;
+  const wu = isCoin ? 'each' : rd.weight_unit === 'each' ? 'each' : rd.weight_unit || 'g';
   const total = negotiationTotalFromRefEntry(refEntry, weight, wu);
 
   const cashOffers = TIER_MARGINS_PCT.map((p, idx) => ({
@@ -188,10 +206,14 @@ export function applyJewelleryScrapeToNegotiationItem(item, sections, useVoucher
   }));
   const offers = useVoucherOffers ? voucherOffers : cashOffers;
 
-  const displayWu = wu === 'each' ? 'ea' : wu;
+  const displayWu = isCoin ? 'coin' : wu === 'each' ? 'ea' : wu;
   const subtitle = [
     refEntry.displayName,
-    weight != null && weight !== '' ? `${weight}${displayWu}` : null,
+    isCoin
+      ? '1 coin'
+      : weight != null && weight !== ''
+        ? `${weight}${displayWu}`
+        : null,
   ]
     .filter(Boolean)
     .join(' · ');
@@ -202,8 +224,10 @@ export function applyJewelleryScrapeToNegotiationItem(item, sections, useVoucher
     reference_display_name: refEntry.displayName,
     reference_section_title: refEntry.sectionTitle,
     reference_price_source_kind: refEntry.sourceKind,
-    rate_per_gram: refEntry.ratePerGram,
+    rate_per_gram: isCoin ? null : refEntry.ratePerGram,
     unit_price: refEntry.unitPrice,
+    weight: isCoin ? '1' : rd.weight,
+    weight_unit: isCoin ? 'each' : rd.weight_unit,
     computed_total_gbp: total,
   };
 

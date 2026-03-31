@@ -60,38 +60,12 @@ const LaunchpadPage = () => {
   const [error, setError] = useState(null);
 
   const handleOpenBuyer = () => {
-    useAppStore.setState((s) => ({
-      mode: 'buyer',
-      cartItems: [],
-      customerData: { id: null, name: 'No Customer Selected', cancelRate: 0, transactionType: 'sale' },
-      intent: null,
-      request: null,
-      selectedCategory: null,
-      availableModels: [],
-      selectedModel: null,
-      selectedCartItemId: null,
-      cexProductData: null,
-      cexLoading: false,
-      isQuickRepriceOpen: false,
-      isCustomerModalOpen: true,
-      resetKey: s.resetKey + 1,
-    }));
+    useAppStore.getState().resetBuyerWorkspace({ openCustomerModal: true });
     navigate('/buyer');
   };
 
   const handleOpenRepricing = () => {
-    useAppStore.setState((s) => ({
-      mode: 'repricing',
-      repricingSessionId: null,
-      repricingCartItems: [],
-      selectedCategory: null,
-      selectedModel: null,
-      selectedCartItemId: null,
-      cexProductData: null,
-      cexLoading: false,
-      isQuickRepriceOpen: false,
-      repricingWorkspaceNonce: s.repricingWorkspaceNonce + 1,
-    }));
+    useAppStore.getState().resetRepricingWorkspace();
     navigate('/repricing');
   };
 

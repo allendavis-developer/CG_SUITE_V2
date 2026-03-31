@@ -4,7 +4,12 @@ import NegotiationRowContextMenu from '@/pages/buyer/components/NegotiationRowCo
 import { NEGOTIATION_ROW_CONTEXT } from '@/pages/buyer/rowContextZones';
 import { SPREADSHEET_TABLE_STYLES } from '@/pages/buyer/spreadsheetTableStyles';
 import { formatOfferPrice, roundOfferPrice } from '@/utils/helpers';
-import { JEWELLERY_TIER_MARGINS_PCT, tierOfferGbpFromReference } from '@/components/jewellery/jewelleryNegotiationCart';
+import {
+  JEWELLERY_TIER_MARGINS_PCT,
+  tierOfferGbpFromReference,
+  computeWorkspaceLineTotal,
+  isJewelleryCoinLine,
+} from '@/components/jewellery/jewelleryNegotiationCart';
 import { fetchJewelleryCatalog } from '@/services/api';
 const PICKER_PAGE_SIZE = 20;
 
@@ -252,20 +257,28 @@ function ratePerGramFromPrice(sourceKind, priceNumeric) {
   return null;
 }
 
+/** Mastermelt "Gold Coins" block: list price is per coin, not per gram. */
+function isGoldCoinsSection(sectionTitle) {
+  const t = String(sectionTitle || '').toLowerCase().trim();
+  return t === 'gold coins' || t.includes('gold coin');
+}
+
 function buildCatalog(sections) {
   const out = [];
   (sections || []).forEach((sec) => {
     (sec?.rows || []).forEach((r, i) => {
-      const sourceKind = normalizeSourceUnit(r.unit);
+      let sourceKind = normalizeSourceUnit(r.unit);
       const priceNumeric = parsePriceNumber(r.priceGbp);
+      const coinRow = isGoldCoinsSection(sec.title) && priceNumeric > 0;
+      if (coinRow) sourceKind = 'UNIT';
       const catalogId = `${sec.title}::${r.label}::${i}`;
       out.push({
         catalogId,
         sectionTitle: sec.title,
         displayName: `${sec.title} — ${r.label}`,
         sourceKind,
-        ratePerGram: ratePerGramFromPrice(sourceKind, priceNumeric),
-        unitPrice: sourceKind === 'UNIT' ? priceNumeric : null,
+        ratePerGram: coinRow ? null : ratePerGramFromPrice(sourceKind, priceNumeric),
+        unitPrice: coinRow ? priceNumeric : sourceKind === 'UNIT' ? priceNumeric : null,
       });
     });
   });
@@ -278,16 +291,42 @@ function defaultWeightUnit(sourceKind) {
   return 'g';
 }
 
-function computeLineTotal(line) {
+/** Reference scrap: unit suffix in-cell (/g, ea, or /unit for coins). */
+function ScrapReferenceCell({ line }) {
   if (line.sourceKind === 'UNIT') {
-    const n = parseFloat(line.weight) || 0;
-    return Math.round(n * (line.unitPrice || 0) * 100) / 100;
+    const u = line.unitPrice;
+    if (u != null && Number.isFinite(u) && u > 0) {
+      const unitSuffix = isJewelleryCoinLine(line) ? '/unit' : 'ea';
+      return (
+        <td className="font-semibold tabular-nums text-gray-900">
+          £{formatOfferPrice(u)}
+          <span className="ml-0.5 text-[10px] font-medium text-gray-500">{unitSuffix}</span>
+        </td>
+      );
+    }
+    return (
+      <td className="tabular-nums text-gray-400" aria-label="Scrap reference">
+        —
+      </td>
+    );
   }
-  const w = parseFloat(line.weight) || 0;
-  const rate = line.ratePerGram;
-  if (rate == null || !Number.isFinite(rate)) return 0;
-  const grams = line.weightUnit === 'kg' ? w * 1000 : w;
-  return Math.round(grams * rate * 100) / 100;
+  const r = line.ratePerGram;
+  if (r != null && Number.isFinite(r) && r > 0) {
+    return (
+      <td
+        className="font-semibold tabular-nums text-gray-900"
+        title="Reference price per gram (totals and tiers use weight × this rate)"
+      >
+        £{formatOfferPrice(r)}
+        <span className="ml-0.5 text-[10px] font-medium text-gray-500">/g</span>
+      </td>
+    );
+  }
+  return (
+    <td className="tabular-nums text-gray-400" aria-label="Scrap per gram">
+      —
+    </td>
+  );
 }
 
 function sectionNorm(s) {
@@ -311,6 +350,14 @@ function catalogSliceForMaterialGrade(catalog, materialGrade) {
   if (exact === 'silver') return bySection('silver');
   if (exact === 'platinum') return bySection('platinum');
   if (exact === 'palladium') return bySection('palladium');
+  /** Gold Coins section rows (labels match attribute values + scrape `label` column). */
+  if (
+    exact === 'full sovereign' ||
+    exact === 'half sovereign' ||
+    exact === 'krugerrand'
+  ) {
+    return bySection('gold coins');
+  }
   if (/\d+ct\s*gold/i.test(raw)) return bySection('gold');
 
   return catalog;
@@ -494,7 +541,16 @@ export default function JewelleryLineItems({
   };
 
   const updateLine = (id, patch) => {
-    setLines((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
+    setLines((prev) =>
+      prev.map((l) => {
+        if (l.id !== id) return l;
+        if (isJewelleryCoinLine(l) && (patch.weight !== undefined || patch.weightUnit !== undefined)) {
+          const { weight: _w, weightUnit: _u, ...rest } = patch;
+          return Object.keys(rest).length ? { ...l, ...rest } : l;
+        }
+        return { ...l, ...patch };
+      })
+    );
   };
 
   const handleSelectJewelleryTier = useCallback((lineId, marginPct) => {
@@ -519,7 +575,7 @@ export default function JewelleryLineItems({
     }
     setLines((prev) =>
       prev.map((line) => {
-        const total = computeLineTotal(line);
+        const total = computeWorkspaceLineTotal(line);
         if (!(total > 0)) return line;
         const offer = tierOfferGbpFromReference(total, n);
         return {
@@ -547,9 +603,9 @@ export default function JewelleryLineItems({
       return;
     }
     for (const line of drafts) {
-      const t = computeLineTotal(line);
+      const t = computeWorkspaceLineTotal(line);
       if (!(t > 0)) {
-        showNotification?.('Each new jewellery row needs a positive reference total (check weight).', 'error');
+        showNotification?.('Each new jewellery row needs a positive reference total.', 'error');
         return;
       }
     }
@@ -573,7 +629,7 @@ export default function JewelleryLineItems({
     let refSum = 0;
     let selectedRows = 0;
     for (const line of lines) {
-      const ref = computeLineTotal(line);
+      const ref = computeWorkspaceLineTotal(line);
       if (!(ref > 0)) continue;
       const pct = line.selectedOfferTierPct;
       const manualRaw = String(line.manualOfferInput ?? '').trim();
@@ -656,7 +712,7 @@ export default function JewelleryLineItems({
                   Unit
                 </th>
                 <th scope="col" className="w-28">
-                  Total
+                  Scrap
                 </th>
                 <th scope="col" className="w-24 spreadsheet-th-offer-tier">
                   1st
@@ -670,11 +726,15 @@ export default function JewelleryLineItems({
                 <th scope="col" className="min-w-[5.5rem] w-[6.5rem]">
                   Manual £
                 </th>
+                <th scope="col" className="w-28">
+                  Total
+                </th>
               </tr>
             </thead>
             <tbody className="text-xs">
               {lines.map((line) => {
-                const total = computeLineTotal(line);
+                const total = computeWorkspaceLineTotal(line);
+                const isCoinLine = isJewelleryCoinLine(line);
                 const isUnit = line.sourceKind === 'UNIT';
                 const manualSelected = String(line.manualOfferInput ?? '').trim() !== '';
                 return (
@@ -706,28 +766,39 @@ export default function JewelleryLineItems({
                       />
                     </td>
                     <td>
-                      <input
-                        type="number"
-                        inputMode="decimal"
-                        min="0"
-                        step="any"
-                        value={line.weight}
-                        onChange={(e) => {
-                          const cleaned = String(e.target.value || '').replace(/[^0-9.]/g, '');
-                          updateLine(line.id, { weight: cleaned });
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            e.currentTarget.blur();
-                          }
-                        }}
-                        className="h-8 w-full min-w-[3.5rem] rounded border border-gray-300 px-2 font-semibold tabular-nums text-gray-900 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-blue/30"
-                        aria-label="Weight or quantity"
-                      />
+                      {isCoinLine ? (
+                        <span
+                          className="flex h-8 items-center px-2 font-semibold tabular-nums text-gray-600"
+                          title="Coin lines use one piece at the reference table price"
+                        >
+                          1 unit
+                        </span>
+                      ) : (
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          min="0"
+                          step="any"
+                          value={line.weight}
+                          onChange={(e) => {
+                            const cleaned = String(e.target.value || '').replace(/[^0-9.]/g, '');
+                            updateLine(line.id, { weight: cleaned });
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              e.currentTarget.blur();
+                            }
+                          }}
+                          className="h-8 w-full min-w-[3.5rem] rounded border border-gray-300 px-2 font-semibold tabular-nums text-gray-900 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-blue/30"
+                          aria-label="Weight or quantity"
+                        />
+                      )}
                     </td>
                     <td>
-                      {isUnit ? (
+                      {isCoinLine ? (
+                        <span className="text-gray-500">coin</span>
+                      ) : isUnit ? (
                         <span className="text-gray-500">each</span>
                       ) : (
                         <select
@@ -741,7 +812,7 @@ export default function JewelleryLineItems({
                         </select>
                       )}
                     </td>
-                    <td className="font-semibold tabular-nums text-gray-900">£{formatOfferPrice(total)}</td>
+                    <ScrapReferenceCell line={line} />
                     {JEWELLERY_OFFER_TIER_MARGINS_PCT.map((pct) => (
                       <JewelleryTierOfferCell
                         key={pct}
@@ -777,6 +848,7 @@ export default function JewelleryLineItems({
                         aria-label="Manual offer GBP"
                       />
                     </td>
+                    <td className="font-semibold tabular-nums text-gray-900">£{formatOfferPrice(total)}</td>
                   </tr>
                 );
               })}

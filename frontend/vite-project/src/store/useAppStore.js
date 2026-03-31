@@ -130,12 +130,47 @@ const useAppStore = create(
           headerWorkspaceMode: 'builder',
         });
       },
+      resetBuyerWorkspace: ({ openCustomerModal = false } = {}) =>
+        set((s) => ({
+          mode: 'buyer',
+          cartItems: [],
+          customerData: { ...DEFAULT_CUSTOMER },
+          intent: null,
+          request: null,
+          selectedCategory: null,
+          availableModels: [],
+          selectedModel: null,
+          selectedCartItemId: null,
+          cexProductData: null,
+          cexLoading: false,
+          isQuickRepriceOpen: false,
+          isCustomerModalOpen: Boolean(openCustomerModal),
+          resetKey: s.resetKey + 1,
+          headerWorkspaceOpen: false,
+          headerWorkspaceMode: 'builder',
+        })),
+      resetRepricingWorkspace: () =>
+        set((s) => ({
+          mode: 'repricing',
+          repricingSessionId: null,
+          repricingCartItems: [],
+          selectedCategory: null,
+          selectedModel: null,
+          selectedCartItemId: null,
+          cexProductData: null,
+          cexLoading: false,
+          isQuickRepriceOpen: false,
+          repricingWorkspaceNonce: s.repricingWorkspaceNonce + 1,
+          headerWorkspaceOpen: false,
+          headerWorkspaceMode: 'builder',
+        })),
       setHeaderWorkspaceOpen: (open) => set({ headerWorkspaceOpen: Boolean(open) }),
       setHeaderWorkspaceMode: (mode) =>
         set({ headerWorkspaceMode: typeof mode === 'string' && mode ? mode : 'builder' }),
       requestCloseHeaderWorkspace: () =>
         set((s) => ({ closeHeaderWorkspaceTick: s.closeHeaderWorkspaceTick + 1 })),
       setRepricingSessionId: (id) => set({ repricingSessionId: id }),
+      clearRepricingSessionDraft: () => set({ repricingSessionId: null, repricingCartItems: [] }),
 
       // ─── eBay / Cash Converters offer % of sale (API keys ebay_offer_margin_*; three tiers) ──
       ebayOfferMargins: null,

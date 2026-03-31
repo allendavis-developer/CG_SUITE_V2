@@ -359,6 +359,20 @@ export function calculateTotalOfferPrice(items, useVoucherOffers) {
   return items.reduce((sum, item) => sum + getItemOfferTotal(item, useVoucherOffers), 0);
 }
 
+/** Sum of selected/manual offers for jewellery lines only (for negotiation sidebar breakdown). */
+export function calculateJewelleryOfferTotal(items, useVoucherOffers) {
+  return items
+    .filter((i) => !i.isRemoved && i.isJewelleryItem === true)
+    .reduce((sum, item) => sum + getItemOfferTotal(item, useVoucherOffers), 0);
+}
+
+/** Sum for non-jewellery lines (catalogue / CeX / eBay etc.). */
+export function calculateNonJewelleryOfferTotal(items, useVoucherOffers) {
+  return items
+    .filter((i) => !i.isRemoved && i.isJewelleryItem !== true)
+    .reduce((sum, item) => sum + getItemOfferTotal(item, useVoucherOffers), 0);
+}
+
 // ─── Payload builders ──────────────────────────────────────────────────────
 
 export function buildFinishPayload(
@@ -704,16 +718,10 @@ export function applyEbayResearchToItem(item, updatedState, useVoucherOffers) {
       newSelectedOfferId = 'manual';
       newManualOffer = updatedState.manualOffer || item.manualOffer;
     } else if (typeof updatedState.selectedOfferIndex === 'number') {
-      if (cexBacked) {
-        const clickedPrice = updatedState.buyOffers?.[updatedState.selectedOfferIndex]?.price;
-        if (clickedPrice != null) {
-          const effectivePrice = useVoucherOffers ? toVoucherOfferPrice(clickedPrice) : clickedPrice;
-          newManualOffer = Number(effectivePrice).toFixed(2);
-          newSelectedOfferId = 'manual';
-        }
-      } else {
-        const selectedOffer = displayOffers[updatedState.selectedOfferIndex];
-        if (selectedOffer) newSelectedOfferId = selectedOffer.id;
+      const selectedOffer = displayOffers[updatedState.selectedOfferIndex];
+      if (selectedOffer) {
+        newSelectedOfferId = selectedOffer.id;
+        newManualOffer = '';
       }
     }
   } else {
@@ -747,11 +755,11 @@ export function applyCashConvertersResearchToItem(item, updatedState, useVoucher
       newManualOffer = updatedState.manualOffer || item.manualOffer;
       newSelectedOfferId = 'manual';
     } else if (typeof updatedState.selectedOfferIndex === 'number') {
-      const clickedPrice = updatedState.buyOffers?.[updatedState.selectedOfferIndex]?.price;
-      if (clickedPrice != null) {
-        const effectivePrice = useVoucherOffers ? toVoucherOfferPrice(clickedPrice) : clickedPrice;
-        newManualOffer = Number(effectivePrice).toFixed(2);
-        newSelectedOfferId = 'manual';
+      const currentDisplayOffers = useVoucherOffers ? (item.voucherOffers || []) : (item.cashOffers || []);
+      const selectedOffer = currentDisplayOffers[updatedState.selectedOfferIndex];
+      if (selectedOffer) {
+        newSelectedOfferId = selectedOffer.id;
+        newManualOffer = '';
       }
     }
   } else if (updatedState.manualOffer) {

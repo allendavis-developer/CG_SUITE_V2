@@ -1,4 +1,4 @@
-import { JEWELLERY_TIER_MARGINS_PCT } from '@/components/jewellery/jewelleryNegotiationCart';
+import { JEWELLERY_TIER_MARGINS_PCT, isJewelleryCoinLine } from '@/components/jewellery/jewelleryNegotiationCart';
 
 /**
  * Map negotiation quote items (jewellery) ↔ workspace line shape used in the header panel.
@@ -26,6 +26,8 @@ export function negotiationJewelleryItemToWorkspaceLine(item) {
   const manualOfferInput =
     isManual && mo !== '' ? mo.replace(/[£,]/g, '').trim() : '';
 
+  const coin = isJewelleryCoinLine({ productName: ref.product_name, materialGrade: ref.material_grade });
+
   return {
     id: item.id,
     request_item_id: item.request_item_id ?? null,
@@ -46,8 +48,8 @@ export function negotiationJewelleryItemToWorkspaceLine(item) {
     sourceKind: ref.reference_price_source_kind,
     ratePerGram: ref.rate_per_gram != null ? Number(ref.rate_per_gram) : null,
     unitPrice: ref.unit_price != null ? Number(ref.unit_price) : null,
-    weight: ref.weight != null ? String(ref.weight) : '1',
-    weightUnit: ref.weight_unit || 'g',
+    weight: coin ? '1' : ref.weight != null ? String(ref.weight) : '1',
+    weightUnit: coin ? 'each' : ref.weight_unit || 'g',
     selectedOfferTierPct,
     manualOfferInput,
   };

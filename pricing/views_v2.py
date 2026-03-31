@@ -36,6 +36,12 @@ from .models_v2 import (
     RequestJewelleryReferenceSnapshot,
 )
 from . import research_storage
+from .offer_rows import get_selected_offer_code, sync_request_item_offer_rows_from_payload
+from .services.offer_engine import (
+    generate_offer_set as build_offer_set,
+    round_offer_price,
+    round_sale_price,
+)
 
 from .serializers import ( RequestSerializer, RequestItemSerializer, CustomerSerializer,
 ProductCategorySerializer, ProductSerializer, CustomerSerializer, VariantMarketStatsSerializer,
@@ -86,6 +92,37 @@ def _decimal_or_none(value, field_name):
         raise ValueError(f"Invalid format for {field_name}")
 
 
+def _create_repricing_session_item_from_payload(session, item_data, idx):
+    barcode = (item_data.get('barcode') or '').strip()
+    if not barcode:
+        raise ValueError(f"items_data[{idx}].barcode is required")
+
+    try:
+        quantity = max(1, int(item_data.get('quantity') or 1))
+    except (TypeError, ValueError):
+        raise ValueError(f"Invalid quantity for items_data[{idx}]")
+
+    line = RepricingSessionItem.objects.create(
+        repricing_session=session,
+        item_identifier=str(item_data.get('item_identifier') or item_data.get('itemId') or '').strip(),
+        title=(item_data.get('title') or '').strip(),
+        quantity=quantity,
+        barcode=barcode,
+        stock_barcode=(item_data.get('stock_barcode') or '').strip(),
+        stock_url=(item_data.get('stock_url') or '').strip(),
+        old_retail_price=_decimal_or_none(item_data.get('old_retail_price'), 'old_retail_price'),
+        new_retail_price=_decimal_or_none(item_data.get('new_retail_price'), 'new_retail_price'),
+        cex_sell_at_repricing=_decimal_or_none(item_data.get('cex_sell_at_repricing'), 'cex_sell_at_repricing'),
+        our_sale_price_at_repricing=_decimal_or_none(item_data.get('our_sale_price_at_repricing'), 'our_sale_price_at_repricing'),
+    )
+    research_storage.ingest_repricing_line_post_create(
+        line,
+        item_data.get('raw_data'),
+        item_data.get('cash_converters_data'),
+    )
+    return line
+
+
 def _sync_request_jewellery_reference_snapshot(existing_request, jewellery_reference_scrape):
     """
     Persist request-level jewellery reference history and set active snapshot.
@@ -128,26 +165,12 @@ def _sync_request_jewellery_reference_snapshot(existing_request, jewellery_refer
 
 def _round_offer_price(value):
     """Nearest £5 if above £50, else nearest £2 (matches frontend `roundOfferPrice`)."""
-    amount = Decimal(str(value or 0))
-    if amount > Decimal("50"):
-        return float(
-            ((amount / Decimal("5")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)) * Decimal("5")
-        )
-    return float(
-        ((amount / Decimal("2")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)) * Decimal("2")
-    )
+    return round_offer_price(value)
 
 
 def _round_sale_price(value):
     """Nearest £5 if above £50, else nearest £2 (matches frontend `roundSalePrice`)."""
-    amount = Decimal(str(value or 0))
-    if amount > Decimal("50"):
-        return float(
-            ((amount / Decimal("5")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)) * Decimal("5")
-        )
-    return float(
-        ((amount / Decimal("2")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)) * Decimal("2")
-    )
+    return round_sale_price(value)
 
 
 @api_view(['GET'])
@@ -543,42 +566,11 @@ def repricing_sessions_view(request):
         )
 
         for idx, item_data in enumerate(items_data):
-            barcode = (item_data.get('barcode') or '').strip()
-            if not barcode:
-                transaction.set_rollback(True)
-                return Response(
-                    {"error": f"items_data[{idx}].barcode is required"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
             try:
-                line = RepricingSessionItem.objects.create(
-                    repricing_session=session,
-                    item_identifier=str(item_data.get('item_identifier') or item_data.get('itemId') or '').strip(),
-                    title=(item_data.get('title') or '').strip(),
-                    quantity=max(1, int(item_data.get('quantity') or 1)),
-                    barcode=barcode,
-                    stock_barcode=(item_data.get('stock_barcode') or '').strip(),
-                    stock_url=(item_data.get('stock_url') or '').strip(),
-                    old_retail_price=_decimal_or_none(item_data.get('old_retail_price'), 'old_retail_price'),
-                    new_retail_price=_decimal_or_none(item_data.get('new_retail_price'), 'new_retail_price'),
-                    cex_sell_at_repricing=_decimal_or_none(item_data.get('cex_sell_at_repricing'), 'cex_sell_at_repricing'),
-                    our_sale_price_at_repricing=_decimal_or_none(item_data.get('our_sale_price_at_repricing'), 'our_sale_price_at_repricing'),
-                )
-                research_storage.ingest_repricing_line_post_create(
-                    line,
-                    item_data.get('raw_data'),
-                    item_data.get('cash_converters_data'),
-                )
+                _create_repricing_session_item_from_payload(session, item_data, idx)
             except ValueError as exc:
                 transaction.set_rollback(True)
                 return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-            except (TypeError, ValueError):
-                transaction.set_rollback(True)
-                return Response(
-                    {"error": f"Invalid quantity for items_data[{idx}]"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
 
     serializer = RepricingSessionSerializer(session)
     return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -598,6 +590,8 @@ def repricing_session_detail(request, repricing_session_id):
     # PATCH: auto-save session state
     items_data = request.data.get('items_data') or []
     update_fields = []
+    cash_offers_payload = None
+    voucher_offers_payload = None
 
     if 'session_data' in request.data:
         session.session_data = request.data['session_data']
@@ -628,32 +622,9 @@ def repricing_session_detail(request, repricing_session_id):
     if isinstance(items_data, list) and len(items_data) > 0:
         with transaction.atomic():
             for idx, item_data in enumerate(items_data):
-                barcode = (item_data.get('barcode') or '').strip()
-                if not barcode:
-                    return Response(
-                        {"error": f"items_data[{idx}].barcode is required"},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
                 try:
-                    line = RepricingSessionItem.objects.create(
-                        repricing_session=session,
-                        item_identifier=str(item_data.get('item_identifier') or item_data.get('itemId') or '').strip(),
-                        title=(item_data.get('title') or '').strip(),
-                        quantity=max(1, int(item_data.get('quantity') or 1)),
-                        barcode=barcode,
-                        stock_barcode=(item_data.get('stock_barcode') or '').strip(),
-                        stock_url=(item_data.get('stock_url') or '').strip(),
-                        old_retail_price=_decimal_or_none(item_data.get('old_retail_price'), 'old_retail_price'),
-                        new_retail_price=_decimal_or_none(item_data.get('new_retail_price'), 'new_retail_price'),
-                        cex_sell_at_repricing=_decimal_or_none(item_data.get('cex_sell_at_repricing'), 'cex_sell_at_repricing'),
-                        our_sale_price_at_repricing=_decimal_or_none(item_data.get('our_sale_price_at_repricing'), 'our_sale_price_at_repricing'),
-                    )
-                    research_storage.ingest_repricing_line_post_create(
-                        line,
-                        item_data.get('raw_data'),
-                        item_data.get('cash_converters_data'),
-                    )
-                except (ValueError, TypeError) as exc:
+                    _create_repricing_session_item_from_payload(session, item_data, idx)
+                except ValueError as exc:
                     return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
     if update_fields:
@@ -708,9 +679,11 @@ def update_request_item(request, request_item_id):
         )
 
     update_fields = []
+    cash_offers_payload = None
+    voucher_offers_payload = None
+    selected_offer_id_payload = None
     if 'selected_offer_id' in request.data:
-        existing_item.selected_offer_id = request.data['selected_offer_id'] or None
-        update_fields.append('selected_offer_id')
+        selected_offer_id_payload = request.data['selected_offer_id'] or None
     if 'manual_offer_used' in request.data:
         existing_item.manual_offer_used = bool(request.data['manual_offer_used'])
         update_fields.append('manual_offer_used')
@@ -726,11 +699,9 @@ def update_request_item(request, request_item_id):
         except (InvalidOperation, ValueError):
             pass
     if 'cash_offers_json' in request.data:
-        existing_item.cash_offers_json = request.data['cash_offers_json'] or []
-        update_fields.append('cash_offers_json')
+        cash_offers_payload = request.data['cash_offers_json'] or []
     if 'voucher_offers_json' in request.data:
-        existing_item.voucher_offers_json = request.data['voucher_offers_json'] or []
-        update_fields.append('voucher_offers_json')
+        voucher_offers_payload = request.data['voucher_offers_json'] or []
     if 'quantity' in request.data:
         try:
             existing_item.quantity = max(1, int(request.data['quantity']))
@@ -740,6 +711,23 @@ def update_request_item(request, request_item_id):
 
     if update_fields:
         existing_item.save(update_fields=update_fields)
+    if (
+        selected_offer_id_payload is not None
+        or 'manual_offer_gbp' in update_fields
+        or cash_offers_payload is not None
+        or voucher_offers_payload is not None
+    ):
+        sync_request_item_offer_rows_from_payload(
+            existing_item,
+            selected_offer_id=(
+                selected_offer_id_payload
+                if selected_offer_id_payload is not None
+                else get_selected_offer_code(existing_item)
+            ),
+            cash_offers=cash_offers_payload if cash_offers_payload is not None else [],
+            voucher_offers=voucher_offers_payload if voucher_offers_payload is not None else [],
+            manual_offer_gbp=existing_item.manual_offer_gbp,
+        )
 
     from .serializers import RequestItemSerializer
     serializer = RequestItemSerializer(existing_item)
@@ -913,6 +901,9 @@ def finish_request(request, request_id):
 
         # Update fields for RequestItem
         update_fields = []
+        cash_offers_payload = None
+        voucher_offers_payload = None
+        selected_offer_id_payload = None
 
         # Save historical CEX prices: prefer values from payload (e.g. "Add from CeX" items with no variant),
         # otherwise use variant prices when available
@@ -941,8 +932,7 @@ def finish_request(request, request_id):
             request_item.quantity = item_data['quantity']
             update_fields.append('quantity')
         if 'selected_offer_id' in item_data:
-            request_item.selected_offer_id = item_data['selected_offer_id']
-            update_fields.append('selected_offer_id')
+            selected_offer_id_payload = item_data['selected_offer_id']
         if 'manual_offer_gbp' in item_data:
             try:
                 dec = Decimal(str(item_data['manual_offer_gbp'])) if item_data['manual_offer_gbp'] is not None else None
@@ -1002,12 +992,10 @@ def finish_request(request, request_id):
             )
 
         if 'cash_offers_json' in item_data:
-            request_item.cash_offers_json = item_data['cash_offers_json']
-            update_fields.append('cash_offers_json')
+            cash_offers_payload = item_data['cash_offers_json'] or []
         
         if 'voucher_offers_json' in item_data:
-            request_item.voucher_offers_json = item_data['voucher_offers_json']
-            update_fields.append('voucher_offers_json')
+            voucher_offers_payload = item_data['voucher_offers_json'] or []
         
         if 'our_sale_price_at_negotiation' in item_data:
             try:
@@ -1030,12 +1018,25 @@ def finish_request(request, request_id):
         if 'manual_offer_used' in item_data:
             request_item.manual_offer_used = bool(item_data['manual_offer_used'])
             update_fields.append('manual_offer_used')
-        if 'senior_mgmt_approved_by' in item_data:
-            request_item.senior_mgmt_approved_by = (item_data['senior_mgmt_approved_by'] or '').strip() or None
-            update_fields.append('senior_mgmt_approved_by')
-        
         if update_fields:
             request_item.save(update_fields=update_fields)
+        if (
+            selected_offer_id_payload is not None
+            or 'manual_offer_gbp' in update_fields
+            or cash_offers_payload is not None
+            or voucher_offers_payload is not None
+        ):
+            sync_request_item_offer_rows_from_payload(
+                request_item,
+                selected_offer_id=(
+                    selected_offer_id_payload
+                    if selected_offer_id_payload is not None
+                    else get_selected_offer_code(request_item)
+                ),
+                cash_offers=cash_offers_payload if cash_offers_payload is not None else [],
+                voucher_offers=voucher_offers_payload if voucher_offers_payload is not None else [],
+                manual_offer_gbp=request_item.manual_offer_gbp,
+            )
 
     # When save_only/request_not_completed: save all data but stay in QUOTE (for tab close / draft)
     save_only = request.data.get('save_only') or request.data.get('request_not_completed')
@@ -1186,67 +1187,23 @@ def variant_prices(request):
         else None
     )
 
-    # --- Calculation Helpers ---
-    def calculate_margin_percentage(offer_price, sale_price):
-        if sale_price <= 0: return 0
-        margin_amount = sale_price - offer_price
-        return round((margin_amount / sale_price) * 100, 1)
-
-    def generate_offer_set(cex_reference_buy_price, prefix):
-        """
-        Generates First, Second, and Third offers based on a CeX reference price.
-        - Third: Match CeX trade-in price exactly (no rounding — always equals CeX)
-        - First: If first_offer_pct is set, use (cex_reference_buy_price * pct/100);
-                 otherwise use the same absolute margin as CeX (our_sale_price - cex_abs_margin)
-        - Second: If second_offer_pct is set, use (cex_reference_buy_price * pct/100);
-                  if that collides with First after rounding, fall back to midpoint.
-                  Default (no pct): midpoint of First and Third, rounded to nearest whole number.
-        """
-        offer_3 = cex_reference_buy_price
-
-        if first_offer_pct is not None:
-            offer_1 = max(cex_reference_buy_price * (first_offer_pct / 100.0), 0)
-        else:
-            cex_abs_margin = cex_sale_price - cex_reference_buy_price
-            offer_1 = max(our_sale_price - cex_abs_margin, 0)
-
-        rounded_offer_1 = _round_offer_price(offer_1)
-        rounded_offer_3 = float(offer_3)
-
-        if second_offer_pct is not None:
-            rounded_offer_2 = _round_offer_price(
-                max(cex_reference_buy_price * (second_offer_pct / 100.0), 0)
-            )
-            if rounded_offer_2 == rounded_offer_1:
-                rounded_offer_2 = round((rounded_offer_1 + rounded_offer_3) / 2)
-        else:
-            rounded_offer_2 = round((rounded_offer_1 + rounded_offer_3) / 2)
-
-        return [
-            {
-                "id": f"{prefix}_1",
-                "title": "First Offer",
-                "price": rounded_offer_1,
-                "margin": calculate_margin_percentage(rounded_offer_1, our_sale_price)
-            },
-            {
-                "id": f"{prefix}_2",
-                "title": "Second Offer",
-                "price": rounded_offer_2,
-                "margin": calculate_margin_percentage(rounded_offer_2, our_sale_price)
-            },
-            {
-                "id": f"{prefix}_3",
-                "title": "Third Offer",
-                "price": rounded_offer_3,
-                "margin": calculate_margin_percentage(rounded_offer_3, our_sale_price),
-                "isHighlighted": True
-            }
-        ]
-
-    # Generate both sets
-    cash_offers = generate_offer_set(cex_tradein_cash, "cash")
-    voucher_offers = generate_offer_set(cex_tradein_voucher, "voucher")
+    # Generate both sets via shared offer engine to keep endpoint behavior in sync.
+    cash_offers = build_offer_set(
+        cex_reference_buy_price=cex_tradein_cash,
+        prefix="cash",
+        cex_sale_price=cex_sale_price,
+        our_sale_price=our_sale_price,
+        first_offer_pct=first_offer_pct,
+        second_offer_pct=second_offer_pct,
+    )
+    voucher_offers = build_offer_set(
+        cex_reference_buy_price=cex_tradein_voucher,
+        prefix="voucher",
+        cex_sale_price=cex_sale_price,
+        our_sale_price=our_sale_price,
+        first_offer_pct=first_offer_pct,
+        second_offer_pct=second_offer_pct,
+    )
 
     reference_data = {
         "cex_sale_price": cex_sale_price,
@@ -1319,37 +1276,22 @@ def cex_product_prices(request):
         first_offer_pct = None
         second_offer_pct = None
 
-    def calculate_margin_percentage(offer_price, sale_price):
-        if sale_price <= 0:
-            return 0
-        margin_amount = sale_price - offer_price
-        return round((margin_amount / sale_price) * 100, 1)
-
-    def generate_offer_set(cex_reference_buy_price, prefix):
-        offer_3 = cex_reference_buy_price
-        if first_offer_pct is not None:
-            offer_1 = max(cex_reference_buy_price * (first_offer_pct / 100.0), 0)
-        else:
-            cex_abs_margin = cex_sale_price - cex_reference_buy_price
-            offer_1 = max(our_sale_price - cex_abs_margin, 0)
-        rounded_offer_1 = _round_offer_price(offer_1)
-        rounded_offer_3 = float(offer_3)
-        if second_offer_pct is not None:
-            rounded_offer_2 = _round_offer_price(
-                max(cex_reference_buy_price * (second_offer_pct / 100.0), 0)
-            )
-            if rounded_offer_2 == rounded_offer_1:
-                rounded_offer_2 = round((rounded_offer_1 + rounded_offer_3) / 2)
-        else:
-            rounded_offer_2 = round((rounded_offer_1 + rounded_offer_3) / 2)
-        return [
-            {"id": f"{prefix}_1", "title": "First Offer", "price": rounded_offer_1, "margin": calculate_margin_percentage(rounded_offer_1, our_sale_price)},
-            {"id": f"{prefix}_2", "title": "Second Offer", "price": rounded_offer_2, "margin": calculate_margin_percentage(rounded_offer_2, our_sale_price)},
-            {"id": f"{prefix}_3", "title": "Third Offer", "price": rounded_offer_3, "margin": calculate_margin_percentage(rounded_offer_3, our_sale_price), "isHighlighted": True},
-        ]
-
-    cash_offers = generate_offer_set(cex_tradein_cash, "cash")
-    voucher_offers = generate_offer_set(cex_tradein_voucher, "voucher")
+    cash_offers = build_offer_set(
+        cex_reference_buy_price=cex_tradein_cash,
+        prefix="cash",
+        cex_sale_price=cex_sale_price,
+        our_sale_price=our_sale_price,
+        first_offer_pct=first_offer_pct,
+        second_offer_pct=second_offer_pct,
+    )
+    voucher_offers = build_offer_set(
+        cex_reference_buy_price=cex_tradein_voucher,
+        prefix="voucher",
+        cex_sale_price=cex_sale_price,
+        our_sale_price=our_sale_price,
+        first_offer_pct=first_offer_pct,
+        second_offer_pct=second_offer_pct,
+    )
 
     reference_data = {
         "cex_sale_price": cex_sale_price,

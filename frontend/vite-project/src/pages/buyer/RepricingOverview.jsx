@@ -4,40 +4,9 @@ import AppHeader from "@/components/AppHeader";
 import { useNotification } from "@/contexts/NotificationContext";
 import { fetchRepricingSessionsOverview, fetchRepricingSessionDetail, updateRepricingSession } from "@/services/api";
 import useAppStore from "@/store/useAppStore";
+import { attachBarcodesFromSessionItems, deduplicateBarcodes } from "./utils/repricingSessionMapping";
 
 const STATUS_FILTERS = ['ALL', 'IN_PROGRESS', 'COMPLETED'];
-
-function deduplicateBarcodes(barcodes) {
-  if (!Array.isArray(barcodes)) return [];
-  const seen = new Set();
-  return barcodes.filter(b => {
-    const key = b.barserial || b.barcode || '';
-    if (!key || seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-function attachBarcodesFromSessionItems(cartItems, sessionItems) {
-  if (!Array.isArray(sessionItems) || sessionItems.length === 0) return cartItems;
-  const byItemId = {};
-  for (const si of sessionItems) {
-    const id = si.item_identifier;
-    if (!id || !si.stock_barcode) continue;
-    if (!byItemId[id]) byItemId[id] = [];
-    byItemId[id].push({
-      barserial: si.stock_barcode,
-      href: si.stock_url || '',
-      name: si.title || '',
-    });
-  }
-  return cartItems.map(item => {
-    const sessionBarcodes = byItemId[item.id] || [];
-    const existing = item.nosposBarcodes || [];
-    const merged = [...existing, ...sessionBarcodes];
-    return { ...item, nosposBarcodes: deduplicateBarcodes(merged) };
-  });
-}
 
 const RepricingOverview = () => {
   const navigate = useNavigate();
@@ -159,18 +128,7 @@ const RepricingOverview = () => {
   };
 
   const handleNewRepricing = () => {
-    useAppStore.setState({
-      mode: 'repricing',
-      repricingSessionId: null,
-      repricingCartItems: [],
-      selectedCategory: null,
-      selectedModel: null,
-      selectedCartItemId: null,
-      cexProductData: null,
-      cexLoading: false,
-      isQuickRepriceOpen: false,
-    });
-    useAppStore.getState().bumpRepricingWorkspace();
+    useAppStore.getState().resetRepricingWorkspace();
     navigate('/repricing');
   };
 

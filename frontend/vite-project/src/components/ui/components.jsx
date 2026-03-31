@@ -4,6 +4,12 @@ import { createPortal } from 'react-dom';
 import TomSelect from 'tom-select';
 import 'tom-select/dist/css/tom-select.default.css';
 import { TRANSACTION_OPTIONS, TRANSACTION_META } from '@/utils/transactionConstants';
+import { fetchProductCategories } from '@/services/api';
+import {
+  collectLeafCategories,
+  filterCategoryTree,
+  getCategoryPath,
+} from '@/utils/categoryTree';
 
 // ==================== CORE UI COMPONENTS ====================
 
@@ -375,46 +381,12 @@ export const Sidebar = ({ onCategorySelect, onAddFromCeX, isCeXLoading, onQuickR
   }, [selectedCategoryId]);
 
   useEffect(() => {
-    // Use mock data for now - replace with actual API call
-  
-    fetch('/api/product-categories/')
-      .then((res) => res.json())
-      .then((data) => setCategories(data))
-      .catch((err) => console.error('Error fetching categories:', err));
+    fetchProductCategories().then((data) => setCategories(data));
   }, []);
-
-  // Recursively filter categories: include if name matches OR any descendant matches
-  const filterCategoryTree = (cats, f) => {
-    if (!f) return cats;
-    const lower = f.toLowerCase();
-    return cats.reduce((acc, cat) => {
-      const filteredChildren = cat.children?.length ? filterCategoryTree(cat.children, f) : [];
-      const matchesSelf = cat.name.toLowerCase().includes(lower);
-      const matchesDescendant = filteredChildren.length > 0;
-      if (matchesSelf || matchesDescendant) {
-        acc.push({
-          ...cat,
-          children: matchesSelf ? (cat.children || []) : filteredChildren
-        });
-      }
-      return acc;
-    }, []);
-  };
 
   const filteredCategories = filterCategoryTree(categories, filterText.trim());
   const isFiltering = !!filterText.trim();
-
-  // Collect leaf categories (no children) from tree, with their breadcrumb path
-  const collectLeaves = (cats, path = []) => {
-    return cats.flatMap((cat) => {
-      const newPath = [...path, cat.name];
-      const hasChildren = cat.children && cat.children.length > 0;
-      if (hasChildren) return collectLeaves(cat.children, newPath);
-      return [{ category: cat, path: newPath }];
-    });
-  };
-
-  const leafMatches = isFiltering ? collectLeaves(filteredCategories) : [];
+  const leafMatches = isFiltering ? collectLeafCategories(filteredCategories) : [];
 
   // Auto-select when exactly one leaf matches (debounced)
   useEffect(() => {
@@ -427,20 +399,6 @@ export const Sidebar = ({ onCategorySelect, onAddFromCeX, isCeXLoading, onQuickR
     }, 400);
     return () => clearTimeout(t);
   }, [filterText.trim(), leafMatches.length]); // eslint-disable-line react-hooks/exhaustive-deps -- intentional: only re-run when match count changes
-
-  // Get breadcrumb path for a category
-  const getCategoryPath = (categoryId, categories, path = []) => {
-    for (const cat of categories) {
-      if (cat.category_id === categoryId) {
-        return [...path, cat.name];
-      }
-      if (cat.children && cat.children.length > 0) {
-        const found = getCategoryPath(categoryId, cat.children, [...path, cat.name]);
-        if (found) return found;
-      }
-    }
-    return null;
-  };
 
   const handleCategorySelect = async (category) => {
     setSelectedCategory(category.category_id);

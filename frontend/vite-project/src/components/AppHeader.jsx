@@ -8,8 +8,14 @@ import CexMarketPricingStrip from '@/pages/buyer/components/CexMarketPricingStri
 import EbayResearchForm from '@/components/forms/EbayResearchForm';
 import CexProductView from '@/pages/buyer/components/CexProductView';
 import { useProductAttributes } from '@/pages/buyer/hooks/useProductAttributes';
-import { fetchProductModels, fetchVariantPrices } from '@/services/api';
+import {
+  fetchProductCategories,
+  fetchProductModels,
+  fetchProductVariants,
+  fetchVariantPrices,
+} from '@/services/api';
 import { formatOfferPrice, roundSalePrice } from '@/utils/helpers';
+import { filterCategoryTree, getCategoryPath } from '@/utils/categoryTree';
 import {
   referenceDataWithNormalizedCexOffers,
   ourSalePriceFieldFromVariantResponse,
@@ -143,13 +149,9 @@ const AppHeader = ({
   useEffect(() => {
     if (!showBuyerControls) return;
     let isMounted = true;
-    fetch('/api/product-categories/')
-      .then((res) => res.json())
+    fetchProductCategories()
       .then((data) => {
-        if (isMounted) setCategories(Array.isArray(data) ? data : []);
-      })
-      .catch(() => {
-        if (isMounted) setCategories([]);
+        if (isMounted) setCategories(data);
       });
     return () => {
       isMounted = false;
@@ -164,18 +166,6 @@ const AppHeader = ({
     () => categories.find((cat) => cat.name === selectedTopLevelName) || null,
     [categories, selectedTopLevelName]
   );
-
-  const getCategoryPath = (categoryId, nodes, path = []) => {
-    for (const cat of nodes || []) {
-      const nextPath = [...path, cat.name];
-      if (String(cat.category_id) === String(categoryId)) return nextPath;
-      if (cat.children?.length) {
-        const found = getCategoryPath(categoryId, cat.children, nextPath);
-        if (found) return found;
-      }
-    }
-    return null;
-  };
 
   const collectParentIdsToNode = (categoryId, nodes, parents = []) => {
     for (const cat of nodes || []) {
@@ -278,14 +268,10 @@ const AppHeader = ({
       return;
     }
     let cancelled = false;
-    fetch(`/api/product-variants/?product_id=${selectedModel.product_id}`)
-      .then((res) => res.json())
-      .then((data) => {
+    fetchProductVariants(selectedModel.product_id)
+      .then((variantsData) => {
         if (cancelled) return;
-        setVariants(data?.variants || []);
-      })
-      .catch(() => {
-        if (!cancelled) setVariants([]);
+        setVariants(variantsData);
       });
     return () => {
       cancelled = true;
@@ -333,25 +319,6 @@ const AppHeader = ({
       }),
     [categories]
   );
-
-  const filterCategoryTree = (nodes, query) => {
-    const trimmed = String(query || '').trim();
-    if (!trimmed) return nodes || [];
-    const needle = trimmed.toLowerCase();
-    return (nodes || []).reduce((acc, node) => {
-      const filteredChildren = node.children?.length
-        ? filterCategoryTree(node.children, query)
-        : [];
-      const matchesSelf = String(node.name || '').toLowerCase().includes(needle);
-      if (matchesSelf || filteredChildren.length > 0) {
-        acc.push({
-          ...node,
-          children: matchesSelf ? (node.children || []) : filteredChildren,
-        });
-      }
-      return acc;
-    }, []);
-  };
 
   const visibleActiveTopLevelCategory = useMemo(() => {
     if (!activeTopLevelCategory) return null;

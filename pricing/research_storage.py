@@ -201,19 +201,28 @@ def _upsert_jewellery_from_reference_payload(item: RequestItem, ref: dict) -> No
         ).exclude(pk=val.pk).update(is_selected=False)
 
 
-def replace_request_item_research(
-    request_item: RequestItem,
+def _replace_market_research(
+    *,
     platform: str,
     payload: dict | None,
+    request_item: RequestItem | None = None,
+    repricing_item: RepricingSessionItem | None = None,
 ) -> None:
+    if request_item is None and repricing_item is None:
+        return
+    if request_item is not None:
+        session_filter = {"request_item": request_item, "platform": platform}
+        owner_fields = {"request_item": request_item, "repricing_session_item": None}
+    else:
+        session_filter = {"repricing_session_item": repricing_item, "platform": platform}
+        owner_fields = {"request_item": None, "repricing_session_item": repricing_item}
+
     prev_adv = (
-        MarketResearchSession.objects.filter(
-            request_item=request_item, platform=platform
-        )
+        MarketResearchSession.objects.filter(**session_filter)
         .values_list("advanced_filter_state", flat=True)
         .first()
     )
-    MarketResearchSession.objects.filter(request_item=request_item, platform=platform).delete()
+    MarketResearchSession.objects.filter(**session_filter).delete()
     if not payload or not isinstance(payload, dict):
         return
     if not _is_market_research_dict(payload):
@@ -225,8 +234,7 @@ def replace_request_item_research(
     if sel is not None or filt_opts is not None:
         filter_state = {"selectedFilters": sel, "filterOptions": filt_opts}
     session = MarketResearchSession.objects.create(
-        request_item=request_item,
-        repricing_session_item=None,
+        **owner_fields,
         platform=platform,
         search_term=str(payload.get("searchTerm") or "")[:500],
         listing_page_url=str(payload.get("listingPageUrl") or "")[:2000],
@@ -275,77 +283,28 @@ def replace_request_item_research(
         )
 
 
+def replace_request_item_research(
+    request_item: RequestItem,
+    platform: str,
+    payload: dict | None,
+) -> None:
+    _replace_market_research(
+        request_item=request_item,
+        platform=platform,
+        payload=payload,
+    )
+
+
 def replace_repricing_item_research(
     repricing_item: RepricingSessionItem,
     platform: str,
     payload: dict | None,
 ) -> None:
-    prev_adv = (
-        MarketResearchSession.objects.filter(
-            repricing_session_item=repricing_item, platform=platform
-        )
-        .values_list("advanced_filter_state", flat=True)
-        .first()
-    )
-    MarketResearchSession.objects.filter(
-        repricing_session_item=repricing_item, platform=platform
-    ).delete()
-    if not payload or not isinstance(payload, dict):
-        return
-    if not _is_market_research_dict(payload):
-        return
-    stats = payload.get("stats") or {}
-    sel = payload.get("selectedFilters")
-    filt_opts = payload.get("filterOptions")
-    filter_state = None
-    if sel is not None or filt_opts is not None:
-        filter_state = {"selectedFilters": sel, "filterOptions": filt_opts}
-    session = MarketResearchSession.objects.create(
-        request_item=None,
-        repricing_session_item=repricing_item,
+    _replace_market_research(
+        repricing_item=repricing_item,
         platform=platform,
-        search_term=str(payload.get("searchTerm") or "")[:500],
-        listing_page_url=str(payload.get("listingPageUrl") or "")[:2000],
-        show_histogram=bool(payload.get("showHistogram")),
-        manual_offer_text=str(payload.get("manualOffer") or "")[:64],
-        selected_offer_index=_parse_selected_offer_index(payload.get("selectedOfferIndex")),
-        stat_average_gbp=_dec(stats.get("average")),
-        stat_median_gbp=_dec(stats.get("median")),
-        stat_suggested_sale_gbp=_dec(stats.get("suggestedPrice")),
-        advanced_filter_state=_merge_advanced_filter_state(
-            prev_adv, payload.get("advancedFilterState")
-        ),
-        filter_state_json=filter_state,
-        buy_offers_json=payload.get("buyOffers"),
+        payload=payload,
     )
-    for idx, level in enumerate(payload.get("drillHistory") or []):
-        if not isinstance(level, dict):
-            continue
-        da, db = _dec(level.get("min")), _dec(level.get("max"))
-        if da is None or db is None:
-            continue
-        MarketResearchDrillLevel.objects.create(
-            session=session, level_index=idx, min_gbp=da, max_gbp=db
-        )
-    for order, row in enumerate(payload.get("listings") or []):
-        if not isinstance(row, dict):
-            continue
-        extra = _strip_known_keys(row, STANDARD_LISTING_KEYS)
-        MarketResearchListing.objects.create(
-            session=session,
-            sort_order=order,
-            client_row_id=str(row.get("_id") or "")[:128],
-            external_item_id=str(row.get("itemId") or "")[:64],
-            title=str(row.get("title") or ""),
-            price_gbp=_dec(row.get("price")),
-            listing_url=str(row.get("url") or "")[:2000],
-            image_url=str(row.get("image") or "")[:2000] if row.get("image") else "",
-            excluded=bool(row.get("excluded")),
-            sold_text=str(row.get("sold") or "")[:256],
-            shop_name=str(row.get("shop") or "")[:256],
-            seller_info=str(row.get("sellerInfo") or "")[:2000],
-            extra=extra,
-        )
 
 
 def session_to_client_payload(session: MarketResearchSession) -> dict:

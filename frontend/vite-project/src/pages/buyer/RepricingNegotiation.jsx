@@ -12,10 +12,11 @@ import { getCartKey, loadRepricingProgress, saveRepricingProgress, clearRepricin
 import { getEditableSalePriceState, resolveRepricingSalePrice } from "./utils/repricingDisplay";
 import useAppStore from '@/store/useAppStore';
 import { normalizeExplicitSalePrice, formatOfferPrice, roundSalePrice } from '@/utils/helpers';
-import { applyCeXProductDataToItem, buildInitialSearchQuery, withDefaultRrpOffersSource } from './utils/negotiationHelpers';
+import { withDefaultRrpOffersSource } from './utils/negotiationHelpers';
 import { EBAY_TOP_LEVEL_CATEGORY } from './constants';
 import { SPREADSHEET_CEX_TH_STYLES, RRP_SOURCE_CELL_STYLES } from './spreadsheetTableStyles';
 import { useResearchOverlay } from './hooks/useResearchOverlay';
+import { useRefreshCexRowData } from './hooks/useRefreshCexRowData';
 import NegotiationRowContextMenu from './components/NegotiationRowContextMenu';
 import { NEGOTIATION_ROW_CONTEXT, RRP_SOURCE_CELL_CLASS } from './rowContextZones';
 import { handlePriceSourceAsRrpOffersSource } from './utils/priceSourceAsRrpOffers';
@@ -272,7 +273,7 @@ const RepricingNegotiation = () => {
           await updateRepricingSession(dbSessionId, updateData);
         } catch {}
         if (savePayload.barcode_count > 0) clearRepricingProgress(activeCartKey);
-        useAppStore.setState({ repricingSessionId: null, repricingCartItems: [] });
+        useAppStore.getState().clearRepricingSessionDraft();
       } else if (savePayload.barcode_count > 0) {
         await saveRepricingSession(savePayload);
         clearRepricingProgress(activeCartKey);
@@ -684,16 +685,13 @@ const RepricingNegotiation = () => {
     showNotification(`${newItems.length} item${newItems.length !== 1 ? 's' : ''} added to reprice list`, 'success');
   }, [addItemsWithBarcodePrepopulation, showNotification]);
 
-  const handleRefreshCeXData = useCallback(async (item) => {
-    const searchQuery = buildInitialSearchQuery(item);
-    const cexData = await handleAddFromCeX({ showNotification, ...(searchQuery ? { searchQuery } : {}) });
-    if (!cexData) return;
-    setItems((prev) => prev.map((row) => (
-      row.id === item.id ? applyCeXProductDataToItem(row, cexData, false) : row
-    )));
-    // Row-level CeX refresh should not leave header workspace product state behind.
-    clearCexProduct();
-  }, [handleAddFromCeX, showNotification, clearCexProduct]);
+  const handleRefreshCeXData = useRefreshCexRowData({
+    handleAddFromCeX,
+    clearCexProduct,
+    setItems,
+    showNotification,
+    useVoucherOffers: false,
+  });
 
   const handleProceed = async () => {
     const zeroSalePriceItems = [];
@@ -772,19 +770,7 @@ const RepricingNegotiation = () => {
 
   const handleConfirmNewRepricing = useCallback(() => {
     setShowNewRepricingConfirm(false);
-    // Mirrors the previous AppHeader "New repricing" behavior.
-    useAppStore.setState((s) => ({
-      mode: 'repricing',
-      repricingSessionId: null,
-      repricingCartItems: [],
-      selectedCategory: null,
-      selectedModel: null,
-      selectedCartItemId: null,
-      cexProductData: null,
-      cexLoading: false,
-      isQuickRepriceOpen: false,
-      repricingWorkspaceNonce: s.repricingWorkspaceNonce + 1,
-    }));
+    useAppStore.getState().resetRepricingWorkspace();
     navigate('/repricing');
   }, [navigate]);
 

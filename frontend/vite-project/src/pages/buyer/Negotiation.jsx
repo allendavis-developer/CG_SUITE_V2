@@ -24,19 +24,20 @@ import { normalizeExplicitSalePrice, formatOfferPrice } from '@/utils/helpers';
 import { useNotification } from '@/contexts/NotificationContext';
 import useAppStore from '@/store/useAppStore';
 import { useResearchOverlay, makeSalePriceBlurHandler } from './hooks/useResearchOverlay';
+import { useRefreshCexRowData } from './hooks/useRefreshCexRowData';
 import { mapRequestToCustomerData } from '@/utils/requestToCartMapping';
 import { mapTransactionTypeToIntent } from '@/utils/transactionConstants';
 import {
-  buildInitialSearchQuery,
   resolveOurSalePrice,
   calculateTotalOfferPrice,
+  calculateJewelleryOfferTotal,
+  calculateNonJewelleryOfferTotal,
   buildFinishPayload,
   isQuoteDraftPayloadSaveable,
   mapApiItemToNegotiationItem,
   normalizeCartItemForNegotiation,
   applyEbayResearchToItem,
   applyCashConvertersResearchToItem,
-  applyCeXProductDataToItem,
   getDisplayOffers,
   resolveSuggestedRetailFromResearchStats,
 } from './utils/negotiationHelpers';
@@ -174,6 +175,14 @@ const Negotiation = ({ mode }) => {
 
   const parsedTarget = parseFloat(targetOffer) || 0;
   const totalOfferPrice = calculateTotalOfferPrice(items, useVoucherOffers);
+  const jewelleryOfferTotal = useMemo(
+    () => calculateJewelleryOfferTotal(items, useVoucherOffers),
+    [items, useVoucherOffers]
+  );
+  const otherItemsOfferTotal = useMemo(
+    () => calculateNonJewelleryOfferTotal(items, useVoucherOffers),
+    [items, useVoucherOffers]
+  );
   const mainNegotiationItems = useMemo(
     () => items.filter((i) => !i.isJewelleryItem),
     [items]
@@ -499,23 +508,7 @@ const Negotiation = ({ mode }) => {
 
   const handleConfirmNewBuy = useCallback(() => {
     setShowNewBuyConfirm(false);
-    // Mirrors the previous AppHeader "New buy" behavior: wipe state synchronously.
-    useAppStore.setState((s) => ({
-      mode: 'buyer',
-      cartItems: [],
-      customerData: { id: null, name: 'No Customer Selected', cancelRate: 0, transactionType: 'sale' },
-      intent: null,
-      request: null,
-      selectedCategory: null,
-      availableModels: [],
-      selectedModel: null,
-      selectedCartItemId: null,
-      cexProductData: null,
-      cexLoading: false,
-      isQuickRepriceOpen: false,
-      isCustomerModalOpen: true,
-      resetKey: s.resetKey + 1,
-    }));
+    useAppStore.getState().resetBuyerWorkspace({ openCustomerModal: true });
     navigate('/buyer');
   }, [navigate]);
 
@@ -759,16 +752,13 @@ const Negotiation = ({ mode }) => {
     await handleAddNegotiationItem(customItem);
   }, [handleAddNegotiationItem, useVoucherOffers]);
 
-  const handleRefreshCeXData = useCallback(async (item) => {
-    const searchQuery = buildInitialSearchQuery(item);
-    const cexData = await handleAddFromCeX({ showNotification, ...(searchQuery ? { searchQuery } : {}) });
-    if (!cexData) return;
-    setItems((prev) => prev.map((row) => (
-      row.id === item.id ? applyCeXProductDataToItem(row, cexData, useVoucherOffers) : row
-    )));
-    // Row-level CeX refresh should not leave header workspace product state behind.
-    clearCexProduct();
-  }, [handleAddFromCeX, showNotification, useVoucherOffers, clearCexProduct]);
+  const handleRefreshCeXData = useRefreshCexRowData({
+    handleAddFromCeX,
+    clearCexProduct,
+    setItems,
+    showNotification,
+    useVoucherOffers,
+  });
 
   // ─── Effects: initialization ───────────────────────────────────────────
 
@@ -1292,17 +1282,35 @@ const Negotiation = ({ mode }) => {
           </div>
 
           <div className="p-6 bg-white border-t space-y-4" style={{ borderColor: 'rgba(20, 69, 132, 0.2)' }}>
-            <div className="flex justify-between items-end">
-                <div className="flex flex-col">
-                <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'var(--brand-blue)' }}>Grand Total</span>
-                  <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
-                    Based on selected offers
-                  </span>
-                </div>
-              <div className="text-right text-3xl font-black tracking-tighter leading-none" style={{ color: 'var(--brand-blue)' }}>
-                <span>£{totalOfferPrice.toFixed(2)}</span>
-                </div>
+            <div className="space-y-2.5">
+              <div className="flex justify-between items-baseline gap-3">
+                <span className="text-[10px] font-black uppercase tracking-widest shrink-0" style={{ color: 'var(--brand-blue)' }}>
+                  Jewellery
+                </span>
+                <span className="text-lg font-black tabular-nums tracking-tight text-right" style={{ color: 'var(--brand-blue)' }}>
+                  £{jewelleryOfferTotal.toFixed(2)}
+                </span>
               </div>
+              <div className="flex justify-between items-baseline gap-3">
+                <span className="text-[10px] font-black uppercase tracking-widest shrink-0" style={{ color: 'var(--brand-blue)' }}>
+                  Other items
+                </span>
+                <span className="text-lg font-black tabular-nums tracking-tight text-right" style={{ color: 'var(--brand-blue)' }}>
+                  £{otherItemsOfferTotal.toFixed(2)}
+                </span>
+              </div>
+            </div>
+            <div className="pt-2 border-t flex justify-between items-end gap-3" style={{ borderColor: 'rgba(20, 69, 132, 0.15)' }}>
+              <div className="flex flex-col min-w-0">
+                <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'var(--brand-blue)' }}>Grand Total</span>
+                <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                  Based on selected offers
+                </span>
+              </div>
+              <div className="text-right text-3xl font-black tracking-tighter leading-none shrink-0" style={{ color: 'var(--brand-blue)' }}>
+                <span>£{totalOfferPrice.toFixed(2)}</span>
+              </div>
+            </div>
 
             {hasTarget && (
               <div className={`rounded-lg px-3 py-2 flex items-center justify-between ${targetMatched ? 'bg-emerald-50 border border-emerald-200' : 'bg-red-50 border border-red-200'}`}>

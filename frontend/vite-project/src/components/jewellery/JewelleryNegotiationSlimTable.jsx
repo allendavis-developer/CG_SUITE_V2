@@ -6,6 +6,7 @@ import {
 } from '@/pages/buyer/utils/negotiationHelpers';
 import { NEGOTIATION_ROW_CONTEXT } from '@/pages/buyer/rowContextZones';
 import { formatOfferPrice } from '@/utils/helpers';
+import { isJewelleryCoinLine } from '@/components/jewellery/jewelleryNegotiationCart';
 
 function SlimOfferCell({
   offer,
@@ -99,7 +100,7 @@ export default function JewelleryNegotiationSlimTable({
               Unit
             </th>
             <th scope="col" className="w-28">
-              Total
+              Scrap
             </th>
             <th scope="col" className="w-24 spreadsheet-th-offer-tier">
               1st
@@ -112,6 +113,9 @@ export default function JewelleryNegotiationSlimTable({
             </th>
             <th scope="col" className="w-36">
               Manual
+            </th>
+            <th scope="col" className="w-28">
+              Total
             </th>
             <th scope="col" className="w-32">
               Customer Expectation
@@ -135,6 +139,16 @@ export default function JewelleryNegotiationSlimTable({
                   : null;
             const unitLabel =
               ref.weight_unit === 'each' ? 'each' : ref.weight_unit || '—';
+            const isCoinRow = isJewelleryCoinLine({
+              productName: ref.product_name,
+              materialGrade: ref.material_grade,
+            });
+            const refSrc = ref.reference_price_source_kind;
+            const scrapRate = ref.rate_per_gram != null ? Number(ref.rate_per_gram) : null;
+            const scrapUnit =
+              ref.unit_price != null ? Number(ref.unit_price) : null;
+            const isUnitPricedRow =
+              refSrc === 'UNIT' || ref.weight_unit === 'each';
 
             const manualValue = item.manualOffer
               ? parseFloat(String(item.manualOffer).replace(/[£,]/g, ''))
@@ -179,13 +193,39 @@ export default function JewelleryNegotiationSlimTable({
                   )}
                 </td>
                 <td className="tabular-nums text-gray-900" onContextMenu={ctxRemoveOnly(item)}>
-                  {ref.weight ?? '—'}
+                  {isCoinRow ? '1 unit' : (ref.weight ?? '—')}
                 </td>
                 <td className="text-gray-600" onContextMenu={ctxRemoveOnly(item)}>
-                  {unitLabel}
+                  {isCoinRow ? 'coin' : unitLabel}
                 </td>
-                <td className="font-semibold tabular-nums text-gray-900" onContextMenu={ctxRemoveOnly(item)}>
-                  {totalGbp != null && totalGbp > 0 ? `£${formatOfferPrice(totalGbp)}` : '—'}
+                <td
+                  className="font-semibold tabular-nums text-gray-900"
+                  onContextMenu={ctxRemoveOnly(item)}
+                  title={
+                    isUnitPricedRow
+                      ? 'Reference price per item'
+                      : 'Reference price per gram'
+                  }
+                >
+                  {isUnitPricedRow ? (
+                    scrapUnit != null && Number.isFinite(scrapUnit) && scrapUnit > 0 ? (
+                      <>
+                        £{formatOfferPrice(scrapUnit)}
+                        <span className="ml-0.5 text-[10px] font-medium text-gray-500">
+                          {isCoinRow ? '/unit' : 'ea'}
+                        </span>
+                      </>
+                    ) : (
+                      '—'
+                    )
+                  ) : scrapRate != null && Number.isFinite(scrapRate) && scrapRate > 0 ? (
+                    <>
+                      £{formatOfferPrice(scrapRate)}
+                      <span className="ml-0.5 text-[10px] font-medium text-gray-500">/g</span>
+                    </>
+                  ) : (
+                    '—'
+                  )}
                 </td>
                 <SlimOfferCell
                   offer={offer1}
@@ -306,6 +346,9 @@ export default function JewelleryNegotiationSlimTable({
                     </div>
                   )}
                 </td>
+                <td className="font-semibold tabular-nums text-gray-900" onContextMenu={ctxRemoveOnly(item)}>
+                  {totalGbp != null && totalGbp > 0 ? `£${formatOfferPrice(totalGbp)}` : '—'}
+                </td>
                 <td className="p-0" onContextMenu={ctxRemoveOnly(item)}>
                   <input
                     className="w-full h-full border-0 text-xs font-semibold text-center px-3 py-2 focus:outline-none focus:ring-0"
@@ -331,7 +374,7 @@ export default function JewelleryNegotiationSlimTable({
             );
           })}
           <tr className="h-10 opacity-50">
-            <td colSpan="10" />
+            <td colSpan="11" />
           </tr>
         </tbody>
       </table>

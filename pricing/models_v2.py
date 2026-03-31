@@ -7,6 +7,7 @@ from django.db.models import Q, F
 from django.core.validators import MinValueValidator
 from decimal import Decimal
 from django.utils import timezone
+from django.conf import settings
 
 
 class ProductCategory(models.Model):
@@ -819,12 +820,6 @@ class RequestItem(models.Model):
         default=1,
         help_text="Quantity of this item in the request"
     )
-    selected_offer_id = models.CharField(
-        max_length=50,
-        null=True,
-        blank=True,
-        help_text="ID of the offer selected for this item (e.g., 'manual', 'cash_1', 'voucher_2')"
-    )
     manual_offer_gbp = models.DecimalField(
         max_digits=10,
         decimal_places=2,
@@ -848,18 +843,6 @@ class RequestItem(models.Model):
         blank=True,
         validators=[MinValueValidator(Decimal('0.00'))],
         help_text="Final negotiated price for this item after selection"
-    )
-
-    cash_offers_json = models.JSONField(
-        null=True,
-        blank=True,
-        help_text="Snapshot of cash offers presented during negotiation"
-    )
-
-    voucher_offers_json = models.JSONField(
-        null=True,
-        blank=True,
-        help_text="Snapshot of voucher offers presented during negotiation"
     )
 
     notes = models.TextField(blank=True)
@@ -902,15 +885,85 @@ class RequestItem(models.Model):
         default=False,
         help_text="True if a manual offer was set using the manual offer tool"
     )
-    senior_mgmt_approved_by = models.CharField(
-        max_length=255,
+    senior_mgmt_approved_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        help_text="Name of senior management who approved when offer exceeded sale price"
+        related_name="request_item_senior_approvals",
     )
 
     class Meta:
         db_table = "buying_request_item"
+
+
+class RequestItemOfferType(models.TextChoices):
+    CASH = "CASH", "Cash"
+    VOUCHER = "VOUCHER", "Voucher"
+    MANUAL = "MANUAL", "Manual"
+
+
+class RequestItemOffer(models.Model):
+    """
+    Normalized offer rows for request-item negotiation.
+    JSON snapshots remain for compatibility; this table supports FK-safe selection/reporting.
+    """
+
+    request_item_offer_id = models.BigAutoField(primary_key=True)
+    request_item = models.ForeignKey(
+        RequestItem,
+        on_delete=models.CASCADE,
+        related_name="offer_rows",
+    )
+    offer_type = models.CharField(
+        max_length=16,
+        choices=RequestItemOfferType.choices,
+        db_index=True,
+    )
+    offer_code = models.CharField(
+        max_length=50,
+        help_text="Stable offer identifier (e.g. cash_1, voucher_2, manual)",
+    )
+    title = models.CharField(max_length=128, blank=True)
+    offer_slot = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        help_text="Optional offer tier/position (1,2,3)",
+    )
+    price_gbp = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal("0.00"))],
+    )
+    margin_pct = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
+    is_highlighted = models.BooleanField(default=False)
+    is_selected = models.BooleanField(default=False, db_index=True)
+    sort_order = models.PositiveSmallIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "buying_request_item_offer"
+        indexes = [
+            models.Index(fields=["request_item", "offer_type", "sort_order"]),
+            models.Index(fields=["request_item", "offer_code"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["request_item", "offer_code"],
+                name="uniq_request_item_offer_code",
+            ),
+            models.UniqueConstraint(
+                fields=["request_item"],
+                condition=Q(is_selected=True),
+                name="uniq_selected_offer_per_request_item",
+            ),
+        ]
 
 
 class JewelleryWeightInputUnit(models.TextChoices):
@@ -1007,11 +1060,12 @@ class RequestItemJewellery(models.Model):
         db_index=True,
         help_text="How this jewellery measurement was captured",
     )
-    measured_by_name = models.CharField(
-        max_length=255,
+    measured_by_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        help_text="Staff member who captured this request-line measurement",
+        related_name="request_item_jewellery_measurements",
     )
     measured_at = models.DateTimeField(
         default=timezone.now,
@@ -1169,7 +1223,13 @@ class RequestJewelleryReferenceSnapshot(models.Model):
         help_text="Normalized jewellery reference sections payload",
     )
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
-    created_by_name = models.CharField(max_length=255, null=True, blank=True)
+    created_by_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="jewellery_reference_snapshots",
+    )
 
     class Meta:
         db_table = "buying_request_jewellery_reference_snapshot"
@@ -1244,7 +1304,13 @@ class InventoryUnitJewellery(models.Model):
         related_name="inventory_units_created",
         help_text="Optional provenance link back to the request-line jewellery snapshot",
     )
-    measured_by_name = models.CharField(max_length=255, null=True, blank=True)
+    measured_by_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="inventory_jewellery_measurements",
+    )
     measured_at = models.DateTimeField(default=timezone.now, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
