@@ -4,6 +4,7 @@ import {
   fetchProductModels,
   fetchVariantPrices,
   fetchCeXProductPrices,
+  fetchAllCategoriesFlat,
   createRequest,
   addRequestItem,
   updateRequestItemOffer,
@@ -11,6 +12,7 @@ import {
   deleteRequestItem,
   fetchRequestDetail,
   fetchEbayOfferMargins,
+  fetchCustomerOfferRules,
 } from '@/services/api';
 import { getDataFromListingPage } from '@/services/extensionClient';
 import { mapTransactionTypeToIntent } from '@/utils/transactionConstants';
@@ -18,6 +20,8 @@ import { normalizeExplicitSalePrice, roundSalePrice, toVoucherOfferPrice, format
 import { mapRequestItemsToCartItems, mapRequestToCustomerData } from '@/utils/requestToCartMapping';
 import { withDefaultRrpOffersSource } from '@/pages/buyer/utils/negotiationHelpers';
 import { validateBuyerCartItemOffers } from '@/utils/cartOfferValidation';
+import { revokeManualOfferAuthorisationIfSwitchingAway } from '@/utils/customerOfferRules';
+import { matchCexCategoryNameToDb } from '@/utils/cexCategoryMatch';
 
 const DEFAULT_CUSTOMER = {
   id: null,
@@ -172,7 +176,20 @@ const useAppStore = create(
       setRepricingSessionId: (id) => set({ repricingSessionId: id }),
       clearRepricingSessionDraft: () => set({ repricingSessionId: null, repricingCartItems: [] }),
 
-      // ─── eBay / Cash Converters offer % of sale (API keys ebay_offer_margin_*; three tiers) ──
+      // ─── Customer offer rules (loaded once on app start) ──────────────────────────────────────
+      customerOfferRulesData: null,
+      loadCustomerOfferRulesData: async () => {
+        try {
+          const data = await fetchCustomerOfferRules();
+          set({ customerOfferRulesData: data });
+          return data;
+        } catch (err) {
+          console.warn('[CG Suite] Failed to load customer offer rules:', err);
+          return null;
+        }
+      },
+
+      // ─── eBay / Cash Converters offer % of sale (API keys ebay_offer_margin_*; four tiers) ──
       ebayOfferMargins: null,
       _ebayMarginsByCategory: {},
       loadEbayOfferMargins: async (categoryId) => {
@@ -182,6 +199,7 @@ const useAppStore = create(
             data.ebay_offer_margin_1_pct,
             data.ebay_offer_margin_2_pct,
             data.ebay_offer_margin_3_pct,
+            data.ebay_offer_margin_4_pct,
           ];
           if (categoryId) {
             set((s) => ({
@@ -345,8 +363,19 @@ const useAppStore = create(
           }
         }
 
+        let merged = { ...updatedOfferData };
+        if (
+          updatedOfferData.selectedOfferId !== undefined &&
+          updatedOfferData.selectedOfferId !== 'manual'
+        ) {
+          merged = {
+            ...merged,
+            ...revokeManualOfferAuthorisationIfSwitchingAway(item, updatedOfferData.selectedOfferId),
+          };
+        }
+
         set((state) => ({
-          [key]: state[key].map((i) => (i.id === cartItemId ? { ...i, ...updatedOfferData } : i)),
+          [key]: state[key].map((i) => (i.id === cartItemId ? { ...i, ...merged } : i)),
         }));
       },
 
@@ -559,17 +588,46 @@ const useAppStore = create(
           const data = await getDataFromListingPage('CeX', trimmedQuery);
           if (data?.success && Array.isArray(data.results) && data.results.length > 0) {
             const product = data.results[0];
+            // Resolve category first so we can pass the DB id to the pricing API
+            let categoryObject = product?.category
+              ? { name: product.category, path: [product.category] }
+              : null;
+            try {
+              const flat = await fetchAllCategoriesFlat();
+              const matched = matchCexCategoryNameToDb(product?.category, flat);
+              if (matched) categoryObject = matched;
+            } catch (_) {
+              // best effort: keep category text-only object
+            }
+
             const payload = {
               sellPrice: product.sellPrice ?? product.price,
               tradeInCash: product.tradeInCash ?? 0,
               tradeInVoucher: product.tradeInVoucher ?? 0,
               title: product.title,
               category: product.category,
+              categoryId: categoryObject?.id ?? null,
               image: product.image,
               id: product.id,
             };
             const priceData = await fetchCeXProductPrices(payload);
-            const merged = { ...product, ...priceData, listingPageUrl: data.listingPageUrl };
+            const merged = { ...product, ...priceData, categoryObject, listingPageUrl: data.listingPageUrl };
+            if (typeof console !== 'undefined') {
+              const ref = merged?.referenceData || {};
+              console.log('[CG Suite][CategoryRule]', {
+                context: 'cex-product-loaded-from-extension',
+                categoryName: merged?.categoryObject?.name ?? merged?.category ?? null,
+                categoryId: merged?.categoryObject?.id ?? null,
+                categoryPath: merged?.categoryObject?.path ?? (merged?.category ? [merged.category] : null),
+                rule: {
+                  source: 'cex-reference-rule',
+                  firstOfferPctOfCex: ref.first_offer_pct_of_cex ?? ref.firstOfferPctOfCex ?? null,
+                  secondOfferPctOfCex: ref.second_offer_pct_of_cex ?? ref.secondOfferPctOfCex ?? null,
+                  thirdOfferPctOfCex: ref.third_offer_pct_of_cex ?? ref.thirdOfferPctOfCex ?? null,
+                  cexBasedSalePrice: ref.cex_based_sale_price ?? null,
+                },
+              });
+            }
             set({ cexProductData: merged });
             showNotification?.('CeX product loaded', 'success');
             return merged;

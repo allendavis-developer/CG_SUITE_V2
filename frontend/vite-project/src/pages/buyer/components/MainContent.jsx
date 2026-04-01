@@ -22,6 +22,7 @@ import {
   slimCexNegotiationOfferRows,
 } from '@/utils/cexOfferMapping';
 import { validateBuyerCartItemOffers } from '@/utils/cartOfferValidation';
+import { titleForEbayCcOfferIndex } from '@/components/forms/researchStats';
 import useAppStore, { useCartItems, useSelectedCartItem, useIsRepricing, useUseVoucherOffers } from '@/store/useAppStore';
 import { useNotification } from '@/contexts/NotificationContext';
 
@@ -332,7 +333,11 @@ const MainContent = ({ mode = 'buyer' }) => {
       const basicFilterValues = data.selectedFilters?.basic || [];
       const allFilters = [...basicFilterValues, ...apiFilterValues].filter(Boolean);
       const filterSubtitle = allFilters.length > 0 ? allFilters.join(' / ') : (data.searchTerm || 'No filters applied');
-      const cashOffers = (data.buyOffers || []).map((o, idx) => ({ id: `ebay-cash-${idx}`, title: ['1st Offer', '2nd Offer', '3rd Offer'][idx] || 'Offer', price: roundOfferPrice(o.price) }));
+      const cashOffers = (data.buyOffers || []).map((o, idx) => ({
+        id: `ebay-cash_${idx + 1}`,
+        title: titleForEbayCcOfferIndex(idx),
+        price: roundOfferPrice(o.price),
+      }));
       const voucherOffers = cashOffers.map((o) => ({ id: `ebay-voucher-${o.id}`, title: o.title, price: toVoucherOfferPrice(o.price) }));
       const displayOffers = useVoucherOffers ? voucherOffers : cashOffers;
 
@@ -399,7 +404,11 @@ const MainContent = ({ mode = 'buyer' }) => {
       const basicFilterValues = data.selectedFilters?.basic || [];
       const allFilters = [...basicFilterValues, ...apiFilterValues].filter(Boolean);
       const filterSubtitle = allFilters.length > 0 ? allFilters.join(' / ') : (data.searchTerm || 'No filters applied');
-      const cashOffers = data.buyOffers.map((o, idx) => ({ id: `cc-cash-${Date.now()}-${idx}`, title: ['1st Offer', '2nd Offer', '3rd Offer'][idx] || 'Offer', price: Number(o.price) }));
+      const cashOffers = data.buyOffers.map((o, idx) => ({
+        id: `cc-cash_${idx + 1}`,
+        title: titleForEbayCcOfferIndex(idx),
+        price: Number(o.price),
+      }));
       const voucherOffers = cashOffers.map((o) => ({ id: `cc-voucher-${o.id}`, title: o.title, price: Number((o.price * 1.10).toFixed(2)) }));
 
       const customCartItem = {
@@ -448,8 +457,8 @@ const MainContent = ({ mode = 'buyer' }) => {
     if (!selectedCartItem?.isCustomEbayItem) return;
 
     const cashOffers = (newBuyOffers || []).map((o, idx) => ({
-      id: `ebay-cash-${idx}`,
-      title: ['1st Offer', '2nd Offer', '3rd Offer'][idx] || 'Offer',
+      id: `ebay-cash_${idx + 1}`,
+      title: titleForEbayCcOfferIndex(idx),
       price: roundOfferPrice(o.price),
     }));
     const voucherOffers = cashOffers.map((o) => ({

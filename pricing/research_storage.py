@@ -401,7 +401,7 @@ def compose_raw_data_for_request_item(item: RequestItem) -> dict | None:
             out["referenceData"] = ref
         if ebay_blob:
             out["ebayResearchData"] = ebay_blob
-        for k in ("display_title", "display_subtitle", "rrpOffersSource"):
+        for k in ("display_title", "display_subtitle", "rrpOffersSource", "authorisedOfferSlots"):
             if meta.get(k) is not None:
                 out[k] = meta[k]
         return out if out else None
@@ -410,7 +410,7 @@ def compose_raw_data_for_request_item(item: RequestItem) -> dict | None:
         out = dict(ebay_blob)
         if ref is not None:
             out["referenceData"] = ref
-        for k in ("display_title", "display_subtitle", "rrpOffersSource"):
+        for k in ("display_title", "display_subtitle", "rrpOffersSource", "authorisedOfferSlots"):
             if meta.get(k) is not None:
                 out[k] = meta[k]
         return out if (out.get("listings") or ref or meta) else None
@@ -479,6 +479,13 @@ def sync_merged_raw_into_request_item(item: RequestItem, raw: dict | None) -> No
             meta.pop("rrpOffersSource", None)
         else:
             meta["rrpOffersSource"] = v
+    if "authorisedOfferSlots" in raw:
+        slots = raw.get("authorisedOfferSlots")
+        if isinstance(slots, list):
+            cleaned = [str(s).strip() for s in slots if str(s).strip()]
+            meta["authorisedOfferSlots"] = cleaned
+        elif slots is None:
+            meta.pop("authorisedOfferSlots", None)
     item.line_metadata_json = meta if meta else None
 
     ebay_src = None

@@ -6,50 +6,79 @@ import {
 } from '@/pages/buyer/utils/negotiationHelpers';
 import { NEGOTIATION_ROW_CONTEXT } from '@/pages/buyer/rowContextZones';
 import { formatOfferPrice } from '@/utils/helpers';
-import { isJewelleryCoinLine } from '@/components/jewellery/jewelleryNegotiationCart';
+import {
+  isJewelleryCoinLine,
+  isJewelleryCoinSilverOzLine,
+} from '@/components/jewellery/jewelleryNegotiationCart';
+import { isBlockedForItem, offerIdToSlot } from '@/utils/customerOfferRules';
 
 function SlimOfferCell({
   offer,
+  item,
   quantity,
   mode,
   isSelected,
   onSelect,
   ourSalePrice,
   onContextMenu,
+  blockedOfferSlots,
+  onBlockedOfferClick,
 }) {
   const margin = ourSalePrice && offer ? ((ourSalePrice - offer.price) / ourSalePrice) * 100 : null;
   const isView = mode === 'view';
+  const slot = offer ? offerIdToSlot(offer.id) : null;
+  const isBlocked = isBlockedForItem(slot, blockedOfferSlots, item);
+  const authorisedSlots = Array.isArray(item?.authorisedOfferSlots) ? item.authorisedOfferSlots : [];
+  const isAuthorisedSelected = Boolean(isSelected && slot && authorisedSlots.includes(slot) && item?.seniorMgmtApprovedBy);
+
+  const handleClick = () => {
+    if (!offer || isView) return;
+    if (isBlocked) onBlockedOfferClick?.(slot, offer);
+    else onSelect(offer.id);
+  };
+
+  if (!offer) {
+    return <td className="align-top text-[13px] text-gray-300" onContextMenu={onContextMenu}>—</td>;
+  }
+
   return (
     <td
-      className={`align-top text-[13px] leading-snug text-gray-900 ${isView ? '' : 'cursor-pointer'}`}
+      className={`align-top text-[13px] leading-snug relative ${isView ? '' : 'cursor-pointer'}`}
       style={
-        isSelected
+        isSelected && !isBlocked
           ? {
               background: 'rgba(34, 197, 94, 0.15)',
               fontWeight: 700,
               color: '#166534',
             }
-          : { fontWeight: 600 }
+          : isBlocked
+            ? { background: 'rgba(239,68,68,0.06)', color: '#9ca3af', fontWeight: 600 }
+            : { fontWeight: 600, color: '#111827' }
       }
-      onClick={() => {
-        if (offer && !isView) onSelect(offer.id);
-      }}
-      onContextMenu={onContextMenu}
+      onClick={handleClick}
+      onContextMenu={isBlocked ? undefined : onContextMenu}
+      title={isBlocked ? 'Blocked — requires senior management authorisation' : undefined}
     >
-      {offer ? (
-        <div>
-          <div>£{formatOfferPrice((offer.price ?? 0) * quantity)}</div>
-          {margin != null && (
-            <div
-              className={`text-[9px] font-medium ${isSelected ? 'text-green-800' : 'text-brand-blue'}`}
-            >
-              {margin >= 0 ? '+' : ''}
-              {margin.toFixed(1)}% margin
-            </div>
-          )}
+      <div className={isBlocked ? 'opacity-60' : ''}>
+        <div>£{formatOfferPrice((offer.price ?? 0) * quantity)}</div>
+        {margin != null && (
+          <div
+            className={`text-[9px] font-medium ${isBlocked ? 'text-gray-400' : isSelected ? 'text-green-800' : 'text-brand-blue'}`}
+          >
+            {margin >= 0 ? '+' : ''}
+            {margin.toFixed(1)}% margin
+          </div>
+        )}
+        {isAuthorisedSelected && (
+          <div className={`text-[9px] mt-1 font-semibold ${isBlocked ? 'text-gray-400' : 'text-red-700'}`}>
+            Approved by: {item.seniorMgmtApprovedBy}
+          </div>
+        )}
+      </div>
+      {isBlocked && !isView && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <span className="material-symbols-outlined text-red-400 text-[18px] opacity-70">lock</span>
         </div>
-      ) : (
-        '—'
       )}
     </td>
   );
@@ -67,6 +96,8 @@ export default function JewelleryNegotiationSlimTable({
   onSetManualOffer,
   onCustomerExpectationChange,
   onJewelleryItemNameChange,
+  blockedOfferSlots = null,
+  onBlockedOfferClick = null,
 }) {
   const isView = mode === 'view';
 
@@ -111,6 +142,9 @@ export default function JewelleryNegotiationSlimTable({
             <th scope="col" className="w-24 spreadsheet-th-offer-tier">
               3rd
             </th>
+            <th scope="col" className="w-24 spreadsheet-th-offer-tier">
+              4th
+            </th>
             <th scope="col" className="w-36">
               Manual
             </th>
@@ -130,6 +164,7 @@ export default function JewelleryNegotiationSlimTable({
             const offer1 = displayOffers[0];
             const offer2 = displayOffers[1];
             const offer3 = displayOffers[2];
+            const offer4 = displayOffers[3];
             const ourSalePrice = resolveOurSalePrice(item);
             const totalGbp =
               ref.computed_total_gbp != null
@@ -140,6 +175,10 @@ export default function JewelleryNegotiationSlimTable({
             const unitLabel =
               ref.weight_unit === 'each' ? 'each' : ref.weight_unit || '—';
             const isCoinRow = isJewelleryCoinLine({
+              productName: ref.product_name,
+              materialGrade: ref.material_grade,
+            });
+            const isSilverOzCoin = isJewelleryCoinSilverOzLine({
               productName: ref.product_name,
               materialGrade: ref.material_grade,
             });
@@ -196,7 +235,7 @@ export default function JewelleryNegotiationSlimTable({
                   {isCoinRow ? '1 unit' : (ref.weight ?? '—')}
                 </td>
                 <td className="text-gray-600" onContextMenu={ctxRemoveOnly(item)}>
-                  {isCoinRow ? 'coin' : unitLabel}
+                  {isCoinRow ? (isSilverOzCoin ? 't oz' : 'coin') : unitLabel}
                 </td>
                 <td
                   className="font-semibold tabular-nums text-gray-900"
@@ -212,7 +251,7 @@ export default function JewelleryNegotiationSlimTable({
                       <>
                         £{formatOfferPrice(scrapUnit)}
                         <span className="ml-0.5 text-[10px] font-medium text-gray-500">
-                          {isCoinRow ? '/unit' : 'ea'}
+                          {isSilverOzCoin ? '/oz' : isCoinRow ? '/unit' : 'ea'}
                         </span>
                       </>
                     ) : (
@@ -229,30 +268,51 @@ export default function JewelleryNegotiationSlimTable({
                 </td>
                 <SlimOfferCell
                   offer={offer1}
+                  item={item}
                   quantity={quantity}
                   mode={mode}
                   ourSalePrice={ourSalePrice}
                   isSelected={item.selectedOfferId === offer1?.id}
                   onSelect={(id) => onSelectOffer(item.id, id)}
                   onContextMenu={ctxRemoveOnly(item)}
+                  blockedOfferSlots={blockedOfferSlots}
+                  onBlockedOfferClick={(slot, offer) => onBlockedOfferClick?.(slot, offer, item)}
                 />
                 <SlimOfferCell
                   offer={offer2}
+                  item={item}
                   quantity={quantity}
                   mode={mode}
                   ourSalePrice={ourSalePrice}
                   isSelected={item.selectedOfferId === offer2?.id}
                   onSelect={(id) => onSelectOffer(item.id, id)}
                   onContextMenu={ctxRemoveOnly(item)}
+                  blockedOfferSlots={blockedOfferSlots}
+                  onBlockedOfferClick={(slot, offer) => onBlockedOfferClick?.(slot, offer, item)}
                 />
                 <SlimOfferCell
                   offer={offer3}
+                  item={item}
                   quantity={quantity}
                   mode={mode}
                   ourSalePrice={ourSalePrice}
                   isSelected={item.selectedOfferId === offer3?.id}
                   onSelect={(id) => onSelectOffer(item.id, id)}
                   onContextMenu={ctxRemoveOnly(item)}
+                  blockedOfferSlots={blockedOfferSlots}
+                  onBlockedOfferClick={(slot, offer) => onBlockedOfferClick?.(slot, offer, item)}
+                />
+                <SlimOfferCell
+                  offer={offer4}
+                  item={item}
+                  quantity={quantity}
+                  mode={mode}
+                  ourSalePrice={ourSalePrice}
+                  isSelected={item.selectedOfferId === offer4?.id}
+                  onSelect={(id) => onSelectOffer(item.id, id)}
+                  onContextMenu={ctxRemoveOnly(item)}
+                  blockedOfferSlots={blockedOfferSlots}
+                  onBlockedOfferClick={(slot, offer) => onBlockedOfferClick?.(slot, offer, item)}
                 />
                 <td
                   className={`relative ${mode === 'negotiate' ? 'cursor-pointer' : ''}`}
@@ -265,7 +325,11 @@ export default function JewelleryNegotiationSlimTable({
                     mode === 'negotiate' && onSetManualOffer
                       ? (e) => {
                           e.stopPropagation();
-                          onSetManualOffer(item);
+                          if (isBlockedForItem('manual', blockedOfferSlots, item)) {
+                            onBlockedOfferClick?.('manual', null, item);
+                          } else {
+                            onSetManualOffer(item);
+                          }
                         }
                       : undefined
                   }
@@ -276,11 +340,17 @@ export default function JewelleryNegotiationSlimTable({
                       ? (e) => {
                           if (e.key === 'Enter' || e.key === ' ') {
                             e.preventDefault();
-                            onSetManualOffer(item);
+                            if (isBlockedForItem('manual', blockedOfferSlots, item)) {
+                              onBlockedOfferClick?.('manual', null, item);
+                            } else {
+                              onSetManualOffer(item);
+                            }
                           }
                         }
                       : undefined
                   }
+                  title={isBlockedForItem('manual', blockedOfferSlots, item) && mode === 'negotiate' ? 'Blocked — requires senior management authorisation' : undefined}
+                  style={isBlockedForItem('manual', blockedOfferSlots, item) && mode === 'negotiate' ? { background: 'rgba(239,68,68,0.06)' } : {}}
                 >
                   {item.manualOffer && item.selectedOfferId === 'manual' ? (
                     <div
@@ -342,7 +412,18 @@ export default function JewelleryNegotiationSlimTable({
                     </div>
                   ) : (
                     <div className="text-center text-slate-400 text-[11px]">
-                      {mode === 'negotiate' ? <span className="italic">Click or right-click to set</span> : '—'}
+                      {mode === 'negotiate' ? (
+                        isBlockedForItem('manual', blockedOfferSlots, item) ? (
+                          <span className="flex items-center justify-center gap-1 text-red-300">
+                            <span className="material-symbols-outlined text-[14px]">lock</span>
+                            <span className="italic text-[10px]">Auth required</span>
+                          </span>
+                        ) : (
+                          <span className="italic">Click or right-click to set</span>
+                        )
+                      ) : (
+                        '—'
+                      )}
                     </div>
                   )}
                 </td>
@@ -374,7 +455,7 @@ export default function JewelleryNegotiationSlimTable({
             );
           })}
           <tr className="h-10 opacity-50">
-            <td colSpan="11" />
+            <td colSpan="12" />
           </tr>
         </tbody>
       </table>

@@ -12,20 +12,22 @@ import CustomerTransactionHeader from './components/CustomerTransactionHeader';
 import CustomerIntakeModal from '@/components/modals/CustomerIntakeModal.jsx';
 import NegotiationItemRow from './components/NegotiationItemRow';
 import JewelleryReferencePricesTable from '@/components/jewellery/JewelleryReferencePricesTable';
-import { TargetOfferModal, ItemOfferModal, SeniorMgmtModal, MarginResultModal } from './components/NegotiationModals';
+import { TargetOfferModal, ItemOfferModal, SeniorMgmtModal, MarginResultModal, BlockedOfferAuthModal } from './components/NegotiationModals';
 import NegotiationRowContextMenu from './components/NegotiationRowContextMenu';
 import { handlePriceSourceAsRrpOffersSource } from './utils/priceSourceAsRrpOffers';
 import NewCustomerDetailsModal from '@/components/modals/NewCustomerDetailsModal';
 import SalePriceConfirmModal from '@/components/modals/SalePriceConfirmModal';
 import ResearchOverlayPanel from './components/ResearchOverlayPanel';
 import TinyModal from '@/components/ui/TinyModal';
-import { finishRequest, fetchRequestDetail, updateCustomer, saveQuoteDraft, deleteRequestItem, updateRequestItemOffer, updateRequestItemRawData } from '@/services/api';
+import { finishRequest, fetchRequestDetail, updateCustomer, saveQuoteDraft, deleteRequestItem, updateRequestItemOffer, updateRequestItemRawData, fetchCustomerOfferRules } from '@/services/api';
 import { normalizeExplicitSalePrice, formatOfferPrice } from '@/utils/helpers';
+import { titleForEbayCcOfferIndex } from '@/components/forms/researchStats';
 import { useNotification } from '@/contexts/NotificationContext';
 import useAppStore from '@/store/useAppStore';
 import { useResearchOverlay, makeSalePriceBlurHandler } from './hooks/useResearchOverlay';
 import { useRefreshCexRowData } from './hooks/useRefreshCexRowData';
 import { mapRequestToCustomerData } from '@/utils/requestToCartMapping';
+import { getBlockedOfferSlots, revokeManualOfferAuthorisationIfSwitchingAway } from '@/utils/customerOfferRules';
 import { mapTransactionTypeToIntent } from '@/utils/transactionConstants';
 import {
   resolveOurSalePrice,
@@ -40,6 +42,7 @@ import {
   applyCashConvertersResearchToItem,
   getDisplayOffers,
   resolveSuggestedRetailFromResearchStats,
+  logCategoryRuleDecision,
 } from './utils/negotiationHelpers';
 import { EBAY_TOP_LEVEL_CATEGORY } from './constants';
 import { SPREADSHEET_TABLE_STYLES } from './spreadsheetTableStyles';
@@ -102,6 +105,8 @@ const Negotiation = ({ mode }) => {
   const [itemOfferModal, setItemOfferModal] = useState(null);
   const [seniorMgmtModal, setSeniorMgmtModal] = useState(null);
   const [marginResultModal, setMarginResultModal] = useState(null);
+  const [blockedOfferModal, setBlockedOfferModal] = useState(null); // { slot, offer, item?, onAuthoriseAction? }
+  const [customerOfferRulesData, setCustomerOfferRulesData] = useState(null);
   const [isCustomerModalOpen, setCustomerModalOpen] = useState(false);
   /** BOOKED_FOR_TESTING | COMPLETE | QUOTE | null — used for research sandbox in view mode. */
   const [viewRequestStatus, setViewRequestStatus] = useState(null);
@@ -116,6 +121,11 @@ const Negotiation = ({ mode }) => {
   const prevNegotiationRequestIdRef = useRef(null);
 
   const useVoucherOffers = transactionType === 'store_credit';
+
+  const blockedOfferSlots = useMemo(() => {
+    if (!customerOfferRulesData) return new Set();
+    return getBlockedOfferSlots(customerData, customerOfferRulesData.rules, customerOfferRulesData.settings);
+  }, [customerData, customerOfferRulesData]);
 
   const parseManualOfferValue = useCallback((rawValue) => {
     if (rawValue == null || rawValue === '') return NaN;
@@ -160,6 +170,7 @@ const Negotiation = ({ mode }) => {
     salePriceConfirmModal, setSalePriceConfirmModal,
     handleResearchComplete,
     handleCashConvertersResearchComplete,
+    handleResearchItemCategoryResolved,
   } = useResearchOverlay({
     items,
     setItems,
@@ -191,6 +202,13 @@ const Negotiation = ({ mode }) => {
     () => items.filter((i) => i.isJewelleryItem === true),
     [items]
   );
+
+  // Load customer offer rules once on mount
+  useEffect(() => {
+    fetchCustomerOfferRules()
+      .then((data) => setCustomerOfferRulesData(data))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (mode !== 'negotiate') {
@@ -258,7 +276,7 @@ const Negotiation = ({ mode }) => {
           if (!item.isJewelleryItem || !item.request_item_id) return item;
           const line = lines.find((l) => l.id === item.id);
           if (!line) return item;
-          const d = getJewelleryWorkspaceDerivedState(line, useVoucherOffers);
+          const d = getJewelleryWorkspaceDerivedState(line, useVoucherOffers, customerOfferRulesData?.settings);
           const ourSale =
             d.ourSalePrice != null && d.ourSalePrice > 0 ? d.ourSalePrice : item.ourSalePrice;
           return {
@@ -281,7 +299,7 @@ const Negotiation = ({ mode }) => {
 
       for (const line of lines) {
         if (!line.request_item_id) continue;
-        const d = getJewelleryWorkspaceDerivedState(line, useVoucherOffers);
+        const d = getJewelleryWorkspaceDerivedState(line, useVoucherOffers, customerOfferRulesData?.settings);
         const itemName = line.itemName || line.categoryLabel || line.variantTitle || null;
         const payload = {
           selected_offer_id: d.selectedOfferId,
@@ -290,6 +308,7 @@ const Negotiation = ({ mode }) => {
             d.selectedOfferId === 'manual' && d.manualOffer
               ? normalizeExplicitSalePrice(parseFloat(String(d.manualOffer).replace(/[£,]/g, '')))
               : null,
+          senior_mgmt_approved_by: line.selectedOfferTierAuthBy || line.manualOfferAuthBy || null,
           our_sale_price_at_negotiation:
             d.ourSalePrice != null && d.ourSalePrice > 0 ? d.ourSalePrice : null,
           cash_offers_json: normalizeOffersForApi(d.cashOffers),
@@ -303,11 +322,12 @@ const Negotiation = ({ mode }) => {
               item_name: itemName,
               category_label: line.categoryLabel || d.referenceData?.line_title || null,
             },
+            authorisedOfferSlots: Array.isArray(line.authorisedOfferSlots) ? line.authorisedOfferSlots : [],
           },
         }).catch(() => {});
       }
     },
-    [normalizeOffersForApi, useVoucherOffers]
+    [customerOfferRulesData?.settings, normalizeOffersForApi, useVoucherOffers]
   );
 
   const handleJewelleryWorkspaceLinesChange = useCallback(
@@ -519,8 +539,90 @@ const Negotiation = ({ mode }) => {
   }, []);
 
   const handleSelectOffer = useCallback((itemId, offerId) => {
-    setItems(prev => prev.map(i => i.id === itemId ? { ...i, selectedOfferId: offerId } : i));
+    setItems((prev) =>
+      prev.map((i) => {
+        if (i.id !== itemId) return i;
+        return {
+          ...i,
+          selectedOfferId: offerId,
+          ...revokeManualOfferAuthorisationIfSwitchingAway(i, offerId),
+        };
+      })
+    );
   }, []);
+
+  const markItemSlotAuthorised = useCallback((itemId, slot, approverName) => {
+    if (!itemId || !slot) return;
+    setItems((prev) =>
+      prev.map((it) => {
+        if (it.id !== itemId) return it;
+        const authorisedOfferSlots = Array.isArray(it.authorisedOfferSlots) ? [...it.authorisedOfferSlots] : [];
+        if (!authorisedOfferSlots.includes(slot)) authorisedOfferSlots.push(slot);
+        return {
+          ...it,
+          authorisedOfferSlots,
+          ...(approverName ? { seniorMgmtApprovedBy: approverName } : {}),
+        };
+      })
+    );
+  }, []);
+
+  const handleBlockedOfferClick = useCallback((slot, offer, item) => {
+    setBlockedOfferModal({ slot, offer, item });
+  }, []);
+
+  const handleResearchBlockedOfferClick = useCallback((payload, contextItem) => {
+    if (!payload?.slot || !contextItem) return;
+    if (typeof payload.afterAuthorise === 'function') {
+      setBlockedOfferModal({
+        slot: payload.slot,
+        offer: payload.offer || null,
+        item: contextItem,
+        onAuthoriseAction: (approverName) => {
+          if (payload.slot === 'manual') {
+            markItemSlotAuthorised(contextItem.id, 'manual', approverName);
+          }
+          payload.afterAuthorise();
+        },
+      });
+      return;
+    }
+    setBlockedOfferModal({
+      slot: payload.slot,
+      offer: payload.offer || null,
+      item: contextItem,
+      onAuthoriseAction: (approverName) => {
+        if (payload.slot === 'manual') {
+          markItemSlotAuthorised(contextItem.id, 'manual', approverName);
+          setItemOfferModal({ item: contextItem, seniorMgmtOverride: approverName });
+          return;
+        }
+        if (typeof payload.selectedOfferIndex !== 'number') return;
+        setItems((prev) =>
+          prev.map((it) => {
+            if (it.id !== contextItem.id) return it;
+            const offerRows = getDisplayOffers(it, useVoucherOffers);
+            const selected = offerRows?.[payload.selectedOfferIndex];
+            if (!selected) return it;
+            const revokePatch = revokeManualOfferAuthorisationIfSwitchingAway(it, selected.id);
+            const baseSlots = Array.isArray(revokePatch.authorisedOfferSlots)
+              ? [...revokePatch.authorisedOfferSlots]
+              : Array.isArray(it.authorisedOfferSlots)
+                ? [...it.authorisedOfferSlots]
+                : [];
+            if (!baseSlots.includes(payload.slot)) baseSlots.push(payload.slot);
+            return {
+              ...it,
+              ...revokePatch,
+              selectedOfferId: selected.id,
+              authorisedOfferSlots: baseSlots,
+              seniorMgmtApprovedBy: approverName,
+            };
+          })
+        );
+      },
+    });
+  }, [markItemSlotAuthorised, useVoucherOffers]);
 
   const handleCustomerExpectationChange = useCallback((itemId, value) => {
     setItems(prev => prev.map(i => i.id === itemId ? { ...i, customerExpectation: value } : i));
@@ -625,7 +727,16 @@ const Negotiation = ({ mode }) => {
         });
       }
       const withRequestId = { ...cartItem, request_item_id: reqItemId };
-      const normalizedItem = normalizeCartItemForNegotiation(withRequestId);
+      const normalizedItem = normalizeCartItemForNegotiation(withRequestId, useVoucherOffers);
+      logCategoryRuleDecision({
+        context: 'builder-or-workspace-item-added',
+        item: normalizedItem,
+        categoryObject: normalizedItem.categoryObject,
+        rule: {
+          source: normalizedItem.isCustomCeXItem ? 'cex-reference-rule' : 'builder-precomputed-rule',
+          referenceDataPresent: Boolean(normalizedItem.referenceData),
+        },
+      });
       setItems((prev) => [...prev, normalizedItem]);
 
       // Keep manual-offer safety flow consistent for builder/workspace adds:
@@ -660,7 +771,40 @@ const Negotiation = ({ mode }) => {
       showNotification(err?.message || 'Failed to add item', 'error');
       return false;
     }
-  }, [createOrAppendRequestItem, parseManualOfferValue, showNotification]);
+  }, [createOrAppendRequestItem, parseManualOfferValue, showNotification, useVoucherOffers]);
+
+  const handleWorkspaceBlockedOfferAttempt = useCallback((payload) => {
+    if (!payload?.slot) return;
+    const { slot, offer = null, item = null } = payload;
+    const workspaceModeAtAttempt = headerWorkspaceMode;
+    setBlockedOfferModal({
+      slot,
+      offer,
+      item,
+      onAuthoriseAction: async (approverName) => {
+        if (!item) return;
+        const authorisedOfferSlots = Array.from(
+          new Set([...(Array.isArray(item.authorisedOfferSlots) ? item.authorisedOfferSlots : []), slot])
+        );
+        const nextItem = {
+          ...item,
+          authorisedOfferSlots,
+          seniorMgmtApprovedBy: approverName,
+        };
+        const ok = await handleAddNegotiationItem(nextItem);
+        if (ok && (workspaceModeAtAttempt === 'builder' || workspaceModeAtAttempt === 'cex')) {
+          useAppStore.getState().requestCloseHeaderWorkspace();
+        }
+      },
+      onCancelAction: () => {
+        if (workspaceModeAtAttempt === 'builder') {
+          const s = useAppStore.getState();
+          s.setHeaderWorkspaceMode?.('builder');
+          s.setHeaderWorkspaceOpen?.(true);
+        }
+      },
+    });
+  }, [handleAddNegotiationItem, headerWorkspaceMode]);
 
   const handleAddJewelleryItemsFromWorkspace = useCallback(
     async (draftWorkspaceLines) => {
@@ -671,7 +815,7 @@ const Negotiation = ({ mode }) => {
       }
       for (const line of draftWorkspaceLines) {
         try {
-          const cartItem = buildJewelleryNegotiationCartItem(line, useVoucherOffers);
+          const cartItem = buildJewelleryNegotiationCartItem(line, useVoucherOffers, customerOfferRulesData?.settings);
           const ok = await handleAddNegotiationItem(cartItem, { skipSuccessNotification: true });
           if (!ok) return;
         } catch (err) {
@@ -687,7 +831,7 @@ const Negotiation = ({ mode }) => {
         'success'
       );
     },
-    [handleAddNegotiationItem, useVoucherOffers, showNotification]
+    [customerOfferRulesData?.settings, handleAddNegotiationItem, useVoucherOffers, showNotification]
   );
 
   const handleRemoveJewelleryWorkspaceRow = useCallback(
@@ -707,8 +851,8 @@ const Negotiation = ({ mode }) => {
   const handleEbayResearchCompleteFromHeader = useCallback(async (data) => {
     if (!data) return;
     const cashOffers = (data.buyOffers || []).map((o, idx) => ({
-      id: `ebay-cash-${Date.now()}-${idx}`,
-      title: ['1st Offer', '2nd Offer', '3rd Offer'][idx] || 'Offer',
+      id: `ebay-cash_${idx + 1}`,
+      title: titleForEbayCcOfferIndex(idx),
       price: Number(formatOfferPrice(o.price)),
     }));
     const voucherOffers = cashOffers.map((o) => ({
@@ -913,7 +1057,12 @@ const Negotiation = ({ mode }) => {
         if (!prevOffers || !newOffers) return item;
         const prevIndex = prevOffers.findIndex(o => o.id === item.selectedOfferId);
         if (prevIndex < 0 || !newOffers[prevIndex]) return item;
-      return { ...item, selectedOfferId: newOffers[prevIndex].id };
+        const nextId = newOffers[prevIndex].id;
+        return {
+          ...item,
+          selectedOfferId: nextId,
+          ...revokeManualOfferAuthorisationIfSwitchingAway(item, nextId),
+        };
     }));
     prevTransactionTypeRef.current = transactionType;
   }, [transactionType, mode]);
@@ -952,10 +1101,17 @@ const Negotiation = ({ mode }) => {
     setJewelleryWorkspaceLines((prev) => remapJewelleryWorkspaceLines(prev, scrape.sections));
     setItems((prev) =>
       prev.map((i) =>
-        i.isJewelleryItem ? applyJewelleryScrapeToNegotiationItem(i, scrape.sections, useVoucherOffers) : i
+        i.isJewelleryItem
+          ? applyJewelleryScrapeToNegotiationItem(
+              i,
+              scrape.sections,
+              useVoucherOffers,
+              customerOfferRulesData?.settings
+            )
+          : i
       )
     );
-  }, [useVoucherOffers]);
+  }, [customerOfferRulesData?.settings, useVoucherOffers]);
 
   draftPayloadRef.current = draftPayload;
 
@@ -1056,6 +1212,8 @@ const Negotiation = ({ mode }) => {
           customerData,
           existingItems: items,
           showNotification,
+          blockedOfferSlots,
+          onWorkspaceBlockedOfferAttempt: handleWorkspaceBlockedOfferAttempt,
           jewelleryWorkspaceLines,
           setJewelleryWorkspaceLines: handleJewelleryWorkspaceLinesChange,
           onRemoveJewelleryWorkspaceRow: handleRemoveJewelleryWorkspaceRow,
@@ -1192,6 +1350,8 @@ const Negotiation = ({ mode }) => {
                   onSetManualOffer={(it) => setItemOfferModal({ item: it })}
                   onCustomerExpectationChange={handleCustomerExpectationChange}
                   onJewelleryItemNameChange={handleJewelleryItemNameChange}
+                  blockedOfferSlots={blockedOfferSlots}
+                  onBlockedOfferClick={(slot, offer, bItem) => handleBlockedOfferClick(slot, offer, bItem)}
                 />
               </div>
             ) : null}
@@ -1211,6 +1371,7 @@ const Negotiation = ({ mode }) => {
                     <th className="w-24 spreadsheet-th-offer-tier">1st</th>
                     <th className="w-24 spreadsheet-th-offer-tier">2nd</th>
                     <th className="w-24 spreadsheet-th-offer-tier">3rd</th>
+                    <th className="w-24 spreadsheet-th-offer-tier">4th</th>
                     <th className="w-36">Manual</th>
                     <th className="w-32">Customer Expectation</th>
                     <th className="w-24">Our RRP</th>
@@ -1239,13 +1400,15 @@ const Negotiation = ({ mode }) => {
                       onRefreshCeXData={handleRefreshCeXData}
                       onReopenResearch={setResearchItem}
                       onReopenCashConvertersResearch={setCashConvertersResearchItem}
+                      blockedOfferSlots={blockedOfferSlots}
+                      onBlockedOfferClick={(slot, offer) => handleBlockedOfferClick(slot, offer, item)}
                     />
                   ))}
                   <tr className="h-10 opacity-50">
-                    <td colSpan="13"></td>
+                    <td colSpan="14"></td>
                   </tr>
                   <tr className="h-10 opacity-50">
-                    <td colSpan="13"></td>
+                    <td colSpan="14"></td>
                   </tr>
                 </tbody>
               </table>
@@ -1368,6 +1531,9 @@ const Negotiation = ({ mode }) => {
           ephemeralSessionNotice={researchEphemeralNotice}
           showManualOffer={true}
           useVoucherOffers={useVoucherOffers}
+          blockedOfferSlots={blockedOfferSlots}
+          onBlockedOfferClick={handleResearchBlockedOfferClick}
+          onCategoryResolved={handleResearchItemCategoryResolved}
         />
       </main>
 
@@ -1399,7 +1565,7 @@ const Negotiation = ({ mode }) => {
           items={items}
           targetOffer={targetOffer}
           useVoucherOffers={useVoucherOffers}
-          onApply={(it, perUnit) => applyManualOffer(it, perUnit)}
+          onApply={(it, perUnit) => applyManualOffer(it, perUnit, itemOfferModal.seniorMgmtOverride ?? null)}
             onClose={() => setItemOfferModal(null)}
           showNotification={showNotification}
         />
@@ -1423,6 +1589,57 @@ const Negotiation = ({ mode }) => {
           marginGbp={marginResultModal.marginGbp}
           confirmedBy={marginResultModal.confirmedBy}
             onClose={() => setMarginResultModal(null)}
+        />
+      )}
+
+      {blockedOfferModal && (
+        <BlockedOfferAuthModal
+          slot={blockedOfferModal.slot}
+          offer={blockedOfferModal.offer}
+          item={blockedOfferModal.item}
+          customerData={customerData}
+          customerOfferRulesData={customerOfferRulesData}
+          onAuthorise={(approverName) => {
+            const { slot, offer, item: bItem, onAuthoriseAction } = blockedOfferModal;
+            if (typeof onAuthoriseAction === 'function') {
+              Promise.resolve(onAuthoriseAction(approverName)).finally(() => {
+                setBlockedOfferModal(null);
+              });
+              return;
+            }
+            if (slot === 'manual') {
+              // open the normal manual offer modal so user can enter amount
+              if (bItem?.id) markItemSlotAuthorised(bItem.id, 'manual', approverName);
+              setItemOfferModal({ item: bItem, seniorMgmtOverride: approverName });
+            } else if (offer && bItem) {
+              setItems((prev) =>
+                prev.map((it) => {
+                  if (it.id !== bItem.id) return it;
+                  const revokePatch = revokeManualOfferAuthorisationIfSwitchingAway(it, offer.id);
+                  const baseSlots = Array.isArray(revokePatch.authorisedOfferSlots)
+                    ? [...revokePatch.authorisedOfferSlots]
+                    : Array.isArray(it.authorisedOfferSlots)
+                      ? [...it.authorisedOfferSlots]
+                      : [];
+                  if (!baseSlots.includes(slot)) baseSlots.push(slot);
+                  return {
+                    ...it,
+                    ...revokePatch,
+                    selectedOfferId: offer.id,
+                    seniorMgmtApprovedBy: approverName,
+                    authorisedOfferSlots: baseSlots,
+                  };
+                })
+              );
+            }
+            setBlockedOfferModal(null);
+          }}
+          onClose={() => {
+            if (typeof blockedOfferModal?.onCancelAction === 'function') {
+              blockedOfferModal.onCancelAction();
+            }
+            setBlockedOfferModal(null);
+          }}
         />
       )}
 

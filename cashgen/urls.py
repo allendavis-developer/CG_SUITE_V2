@@ -36,6 +36,9 @@ urlpatterns = [
     path('api/pricing-rules/', v2.pricing_rules_view, name='pricing_rules'),
     path('api/pricing-rules/<int:rule_id>/', v2.pricing_rule_detail, name='pricing_rule_detail'),
     path('api/ebay-offer-margins/', v2.ebay_offer_margins, name='ebay_offer_margins'),
+    path('api/customer-rule-settings/', v2.customer_rule_settings_view, name='customer_rule_settings'),
+    path('api/customer-offer-rules/', v2.customer_offer_rules_view, name='customer_offer_rules'),
+    path('api/customer-offer-rules/<str:customer_type>/', v2.customer_offer_rule_detail, name='customer_offer_rule_detail'),
     path('api/address-lookup/<str:postcode>/', v2.address_lookup, name='address_lookup'),
     re_path(r'^(?:.*)/?$', v2.react_app, name='react_app_catchall'),
 

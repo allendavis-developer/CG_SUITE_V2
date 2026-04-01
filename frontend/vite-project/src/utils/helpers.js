@@ -41,15 +41,22 @@ export const normalizeExplicitSalePrice = (value) => {
 };
 
 /**
- * CeX negotiation tiers from `variant_prices` / `cex_product_prices`: 1st and 2nd use the offer £ grid;
- * 3rd must match CeX cash/voucher trade-in exactly (pence only), not £2/£5 rounding.
- * @param {{ id?: string, price?: unknown }} offer
- * @param {number} tierIndex - 0-based; third tier = 2
+ * CeX negotiation tiers from `variant_prices` / `cex_product_prices`:
+ * - 1st / 2nd: offer £ grid (£2 / £5)
+ * - 3rd: pence only (matches rule % trade-in; backend may already round before send)
+ * - 4th (Match CeX): raw CeX cash/voucher reference — pence only, never £2/£5 grid
+ * @param {{ id?: string, price?: unknown, isMatchCex?: boolean }} offer
+ * @param {number} tierIndex - 0-based; Match CeX = 3
  */
 export function priceForCexNegotiationTier(offer, tierIndex) {
   const amount = Number(offer?.price);
   if (!Number.isFinite(amount)) return 0;
   const id = offer?.id != null ? String(offer.id) : '';
+  const isMatchCexTier =
+    offer?.isMatchCex === true ||
+    tierIndex === 3 ||
+    /(^|_)4$/.test(id);
+  if (isMatchCexTier) return normalizeExplicitSalePrice(amount);
   const isThirdTier =
     tierIndex === 2 ||
     /(^|_)3$/.test(id);

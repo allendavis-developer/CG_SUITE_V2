@@ -2,11 +2,19 @@ import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { Button, Icon, CustomDropdown } from '../ui/components';
 import ResearchOthersModal from '../modals/ResearchOthersModal';
 import { toVoucherOfferPrice } from '@/utils/helpers';
-import { calculateResearchStats, parseResearchPrice } from './researchStats';
+import {
+  calculateResearchStats,
+  parseResearchPrice,
+  EBAY_CC_RESEARCH_LABELS_CASH,
+  EBAY_CC_RESEARCH_LABELS_VOUCHER,
+} from './researchStats';
 import { otherResearchSummariesSignature } from './researchOtherChannelsSummary';
 import { DualRangeSlider, DualDateRangeSlider, formatSoldDateMs } from './sliders';
 import ListingCard from './ListingCard';
 import PriceHistogram from './PriceHistogram';
+import useAppStore from '@/store/useAppStore';
+import { getBlockedOfferSlots, manualSlotCommitRequiresAuthorisation } from '@/utils/customerOfferRules';
+import { CUSTOMER_TYPE_LABELS, getCustomerType } from '@/utils/customerOfferRules';
 
 /** Resolve badge % for eBay / Cash Converters offers (new: pctOfSale; legacy saved: margin 0–1). */
 function displayPctOfSaleForOffer(offer, suggestedPrice) {
@@ -165,6 +173,10 @@ export default function ResearchFormShell({
   onIncludeEbayBroadMatchChange = null,
   /** When false, looser-match UI and styling never apply (e.g. Cash Converters). */
   isEbayResearchSource = false,
+  blockedOfferSlots = null,
+  onBlockedOfferClick = null,
+  /** Negotiation / reprice line item — used to decide if manual offer commits need senior auth. */
+  lineItemContext = null,
 }) {
   const sanitizeManualOfferInput = useCallback((rawValue) => {
     const value = String(rawValue ?? '');
@@ -177,6 +189,40 @@ export default function ResearchFormShell({
 
   const currentPriceRange = drillHistory.length > 0 ? drillHistory[drillHistory.length - 1] : null;
   const prominentAddClass = 'shadow-lg shadow-brand-orange/30';
+
+  // ─── Customer offer rules (from global store) ─────────────────────────────
+  const customerData = useAppStore((s) => s.customerData);
+  const customerOfferRulesData = useAppStore((s) => s.customerOfferRulesData);
+  const researchBlockedSlots = useMemo(() => {
+    if (blockedOfferSlots instanceof Set) return blockedOfferSlots;
+    if (!customerOfferRulesData) return new Set();
+    return getBlockedOfferSlots(customerData, customerOfferRulesData.rules, customerOfferRulesData.settings);
+  }, [blockedOfferSlots, customerData, customerOfferRulesData]);
+  const researchBlockedIndices = useMemo(() => {
+    const s = new Set();
+    [0, 1, 2].forEach((i) => {
+      if (researchBlockedSlots.has(`offer${i + 1}`)) s.add(i);
+    });
+    return s;
+  }, [researchBlockedSlots]);
+
+  const requestManualOfferAuthorisationIfNeeded = useCallback((parsedAmount, commitFn) => {
+    if (!manualSlotCommitRequiresAuthorisation(researchBlockedSlots, lineItemContext)) {
+      commitFn();
+      return;
+    }
+    if (typeof onBlockedOfferClick !== 'function') {
+      commitFn();
+      return;
+    }
+    onBlockedOfferClick({
+      slot: 'manual',
+      offer: { id: 'manual', title: 'Manual offer', price: parsedAmount },
+      afterAuthorise: commitFn,
+    });
+  }, [researchBlockedSlots, lineItemContext, onBlockedOfferClick]);
+
+  const [blockedAuthModal, setBlockedAuthModal] = useState(null); // { idx, price }
 
   // ─── Existing state ───────────────────────────────────────────────────────
   const [selectedOfferIndex, setSelectedOfferIndex] = useState(null);
@@ -243,13 +289,16 @@ export default function ResearchFormShell({
     const raw = String(manualOfferDialog.value || '').replace(/[£,]/g, '').trim();
     const parsed = parseFloat(raw);
     if (Number.isNaN(parsed) || parsed <= 0) { closeManualOfferDialog(); return; }
-    if (onAddToCartWithOffer) {
-      onAddToCartWithOffer({ type: 'manual', amount: parsed, baseIndex: manualOfferDialog.baseIndex });
-    } else if (onCompleteWithSelection) {
-      onCompleteWithSelection('manual', parsed.toFixed(2));
-    }
-    closeManualOfferDialog();
-  }, [manualOfferDialog, onAddToCartWithOffer, onCompleteWithSelection, closeManualOfferDialog]);
+    const commit = () => {
+      if (onAddToCartWithOffer) {
+        onAddToCartWithOffer({ type: 'manual', amount: parsed, baseIndex: manualOfferDialog.baseIndex });
+      } else if (onCompleteWithSelection) {
+        onCompleteWithSelection('manual', parsed.toFixed(2));
+      }
+      closeManualOfferDialog();
+    };
+    requestManualOfferAuthorisationIfNeeded(parsed, commit);
+  }, [manualOfferDialog, onAddToCartWithOffer, onCompleteWithSelection, closeManualOfferDialog, requestManualOfferAuthorisationIfNeeded]);
 
   useEffect(() => {
     if (!manualOfferDialog) return;
@@ -658,7 +707,9 @@ export default function ResearchFormShell({
         const cleanManual = String(manualOffer ?? '').replace(/[£,]/g, '').trim();
         const parsed = parseFloat(cleanManual);
         if (Number.isFinite(parsed) && parsed > 0) {
-          onAddToCartWithOffer({ type: 'manual', amount: parsed });
+          requestManualOfferAuthorisationIfNeeded(parsed, () => {
+            onAddToCartWithOffer({ type: 'manual', amount: parsed });
+          });
         }
         return;
       }
@@ -672,35 +723,53 @@ export default function ResearchFormShell({
     if (selectedOfferIndex === 'manual') {
       const cleanManual = String(manualOffer ?? '').replace(/[£,]/g, '').trim();
       const parsed = parseFloat(cleanManual);
+      const finish = () => {
+        if (Number.isFinite(parsed) && parsed > 0) {
+          onManualOfferChange?.(manualOffer);
+        }
+        if (onCompleteWithSelection) onCompleteWithSelection('manual');
+        else onComplete?.();
+      };
       if (Number.isFinite(parsed) && parsed > 0) {
-        onManualOfferChange?.(manualOffer);
+        requestManualOfferAuthorisationIfNeeded(parsed, finish);
+      } else {
+        finish();
       }
-      if (onCompleteWithSelection) onCompleteWithSelection('manual');
-      else onComplete?.();
       return;
     }
 
     setSelectedOfferIndex('manual');
-  }, [showManualOffer, readOnly, selectedOfferIndex, manualOffer, onManualOfferChange, onCompleteWithSelection, onComplete, onAddToCartWithOffer]);
+  }, [showManualOffer, readOnly, selectedOfferIndex, manualOffer, onManualOfferChange, onCompleteWithSelection, onComplete, onAddToCartWithOffer, requestManualOfferAuthorisationIfNeeded]);
 
   const handleComplete = useCallback(() => {
     if (readOnly) {
       onComplete?.();
       return;
     }
+    const finish = () => {
+      if (showManualOffer && selectedOfferIndex === 'manual') {
+        const cleanManual = String(manualOffer ?? '').replace(/[£,]/g, '').trim();
+        const parsed = parseFloat(cleanManual);
+        if (Number.isFinite(parsed) && parsed > 0) {
+          onManualOfferChange?.(manualOffer);
+        }
+      }
+      if (onCompleteWithSelection) {
+        onCompleteWithSelection(selectedOfferIndex);
+      } else {
+        onComplete?.();
+      }
+    };
     if (showManualOffer && selectedOfferIndex === 'manual') {
       const cleanManual = String(manualOffer ?? '').replace(/[£,]/g, '').trim();
       const parsed = parseFloat(cleanManual);
       if (Number.isFinite(parsed) && parsed > 0) {
-        onManualOfferChange?.(manualOffer);
+        requestManualOfferAuthorisationIfNeeded(parsed, finish);
+        return;
       }
     }
-    if (onCompleteWithSelection) {
-      onCompleteWithSelection(selectedOfferIndex);
-    } else {
-      onComplete?.();
-    }
-  }, [readOnly, showManualOffer, selectedOfferIndex, manualOffer, onManualOfferChange, onComplete, onCompleteWithSelection]);
+    finish();
+  }, [readOnly, showManualOffer, selectedOfferIndex, manualOffer, onManualOfferChange, onComplete, onCompleteWithSelection, requestManualOfferAuthorisationIfNeeded]);
 
   const manualOfferPctOfSale = useMemo(() => {
     if (!activeStats?.suggestedPrice || !manualOffer) return null;
@@ -804,9 +873,10 @@ export default function ResearchFormShell({
     setExcludeContextMenu(null);
   }, [displayedListings, onToggleExclude, onClearAllExclusions]);
 
+  const useAddWithOfferFlow = Boolean(onAddToCartWithOffer && !readOnly);
+
   // ─── Buy offers display ───────────────────────────────────────────────────
   const BuyOffersDisplay = useMemo(() => {
-    const useAddWithOfferFlow = Boolean(onAddToCartWithOffer && !readOnly);
     const showInlineCartManual =
       Boolean(onManualOfferChange && !showManualOffer && useAddWithOfferFlow && showInlineOfferAction && !hidePrimaryAddAction);
     const showManualOfferCard =
@@ -816,8 +886,8 @@ export default function ResearchFormShell({
     if (!hideOfferCards && !buyOffers.length && !showManualOffer && !showInlineCartManual) return null;
 
     const offerLabels = useVoucherOffers
-      ? ["1st Voucher Offer", "2nd Voucher Offer", "3rd Voucher Offer"]
-      : ["1st Cash Offer", "2nd Cash Offer", "3rd Cash Offer"];
+      ? EBAY_CC_RESEARCH_LABELS_VOUCHER
+      : EBAY_CC_RESEARCH_LABELS_CASH;
     const showRightClickManual = !hideOfferCards && (
       (enableRightClickManualOffer && useAddWithOfferFlow) ||
       (showManualOffer && Boolean(onCompleteWithSelection) && !readOnly)
@@ -846,31 +916,59 @@ export default function ResearchFormShell({
               </>
             );
 
+            const isBlocked = researchBlockedIndices.has(idx);
+            const slot = `offer${idx + 1}`;
+
             return (
               <React.Fragment key={idx}>
                 {idx > 0 && <div className="w-px h-8 bg-gray-200" />}
                 {offersAreInteractive ? (
                   <div
-                    onContextMenu={showRightClickManual ? (e) => {
+                    onContextMenu={(!isBlocked && showRightClickManual) ? (e) => {
                       const basePrice = Number(price);
                       openManualOfferDialog(e, idx, Number.isFinite(basePrice) && basePrice > 0 ? basePrice.toFixed(2) : '');
                     } : undefined}
+                    className="relative"
                   >
                     <button
                       type="button"
-                      className={`flex flex-col text-left cursor-pointer transition-all focus:outline-none rounded-lg border px-2.5 py-1.5 shadow-sm ${
-                        isSelected
-                          ? 'ring-2 ring-brand-blue bg-brand-blue/10 border-brand-blue/30'
-                          : 'group bg-brand-blue/5 border-brand-blue/20 hover:bg-green-50 hover:border-green-200 active:scale-[0.99]'
+                      className={`flex flex-col text-left transition-all focus:outline-none rounded-lg border px-2.5 py-1.5 shadow-sm ${
+                        isBlocked
+                          ? 'cursor-not-allowed bg-red-50/70 border-red-200/70 opacity-70'
+                          : isSelected
+                          ? 'ring-2 ring-brand-blue bg-brand-blue/10 border-brand-blue/30 cursor-pointer'
+                          : 'group bg-brand-blue/5 border-brand-blue/20 hover:bg-green-50 hover:border-green-200 active:scale-[0.99] cursor-pointer'
                       }`}
                       onClick={
-                        useAddWithOfferFlow
+                        isBlocked
+                          ? () => {
+                              if (onBlockedOfferClick) {
+                                onBlockedOfferClick({
+                                  slot,
+                                  offer: {
+                                    id: offer?.id ?? null,
+                                    title: offerLabels[idx] || `Offer ${idx + 1}`,
+                                    price: Number(price),
+                                  },
+                                  selectedOfferIndex: idx,
+                                });
+                              } else {
+                                setBlockedAuthModal({ idx, price });
+                              }
+                            }
+                          : useAddWithOfferFlow
                           ? () => onAddToCartWithOffer(idx)
                           : (showManualOffer && !readOnly ? () => handleOfferClick(price, idx) : undefined)
                       }
-                      title={useAddWithOfferFlow ? 'Add item with this offer' : 'Select this offer'}
+                      title={isBlocked ? 'Blocked — requires senior management authorisation' : useAddWithOfferFlow ? 'Add item with this offer' : 'Select this offer'}
                     >
                       {inner}
+                      {isBlocked && (
+                        <span className="text-[9px] font-bold text-red-500 flex items-center gap-0.5 mt-0.5">
+                          <span className="material-symbols-outlined text-[11px]">lock</span>
+                          Auth required
+                        </span>
+                      )}
                     </button>
                   </div>
                 ) : (
@@ -914,11 +1012,12 @@ export default function ResearchFormShell({
                     onKeyDown={(e) => {
                       if (e.key !== 'Enter') return;
                       e.preventDefault();
+                      const parsed = parseFloat(String(manualOffer ?? '').replace(/[£,]/g, ''));
+                      if (!Number.isFinite(parsed) || parsed <= 0) return;
                       if (showInlineCartManual) {
-                        const parsed = parseFloat(String(manualOffer ?? '').replace(/[£,]/g, ''));
-                        if (Number.isFinite(parsed) && parsed > 0) {
+                        requestManualOfferAuthorisationIfNeeded(parsed, () => {
                           onAddToCartWithOffer({ type: 'manual', amount: parsed });
-                        }
+                        });
                       } else {
                         handleComplete();
                       }
@@ -959,7 +1058,7 @@ export default function ResearchFormShell({
         </div>
       </React.Fragment>
     );
-  }, [buyOffers, showManualOffer, selectedOfferIndex, manualOffer, manualOfferPctOfSale, onManualOfferChange, readOnly, handleOfferClick, handleManualOfferCardClick, handleManualOfferChange, onAddToCartWithOffer, formatStat, enableRightClickManualOffer, openManualOfferDialog, hideOfferCards, addActionLabel, disableAddAction, useVoucherOffers, activeStats?.suggestedPrice, showInlineOfferAction, prominentAddClass, hidePrimaryAddAction, handleComplete]);
+  }, [buyOffers, showManualOffer, selectedOfferIndex, manualOffer, manualOfferPctOfSale, onManualOfferChange, readOnly, handleOfferClick, handleManualOfferCardClick, handleManualOfferChange, onAddToCartWithOffer, formatStat, enableRightClickManualOffer, openManualOfferDialog, hideOfferCards, addActionLabel, disableAddAction, useVoucherOffers, activeStats?.suggestedPrice, showInlineOfferAction, prominentAddClass, hidePrimaryAddAction, handleComplete, onBlockedOfferClick, researchBlockedIndices, useAddWithOfferFlow, requestManualOfferAuthorisationIfNeeded]);
 
   // ─── Action buttons (shared between banners) ──────────────────────────────
   const othersPanelOpen = Boolean(
@@ -1834,6 +1933,68 @@ export default function ResearchFormShell({
         : "flex h-full w-full flex-col overflow-hidden bg-white")
     : "flex h-full w-full flex-col overflow-hidden bg-white";
 
+  // ─── Blocked offer auth inline modal ─────────────────────────────────────
+  const [blockedAuthName, setBlockedAuthName] = React.useState('');
+  const blockedAuthModalEl = blockedAuthModal && (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setBlockedAuthModal(null)} />
+      <div className="relative bg-white w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden">
+        <header className="bg-brand-blue px-6 py-4 flex items-center gap-3 text-white">
+          <span className="material-symbols-outlined text-brand-orange">lock</span>
+          <h3 className="font-black text-base">Senior Management Authorisation</h3>
+        </header>
+        <div className="px-6 py-5">
+          <div className="rounded-lg p-3 mb-4 bg-amber-50 border border-amber-200">
+            <p className="text-xs font-bold text-amber-800 mb-1">Offer restricted for this customer</p>
+            <p className="text-[11px] text-amber-700">
+              The <strong>{['1st', '2nd', '3rd', '4th'][blockedAuthModal.idx] ?? blockedAuthModal.idx + 1} offer</strong>{' '}
+              requires
+              senior management authorisation for this customer type.
+            </p>
+          </div>
+          <p className="text-xs text-slate-600 mb-3">Enter the approver&apos;s name to proceed.</p>
+          <label className="block text-[10px] font-black uppercase tracking-wider mb-1.5 text-brand-blue">Authorised by*</label>
+          <input
+            autoFocus
+            type="text"
+            className="w-full px-3 py-2.5 border rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 mb-4"
+            style={{ borderColor: 'rgba(20,69,132,0.3)', color: 'var(--brand-blue)' }}
+            placeholder="Senior manager's name"
+            value={blockedAuthName}
+            onChange={(e) => setBlockedAuthName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && blockedAuthName.trim()) {
+                if (useAddWithOfferFlow && onAddToCartWithOffer) onAddToCartWithOffer(blockedAuthModal.idx);
+                else if (showManualOffer) handleOfferClick(blockedAuthModal.price, blockedAuthModal.idx);
+                setBlockedAuthModal(null);
+                setBlockedAuthName('');
+              }
+            }}
+          />
+          <div className="flex gap-2">
+            <button
+              className="flex-1 py-2.5 rounded-lg border text-sm font-semibold hover:bg-slate-50 transition-colors"
+              style={{ borderColor: 'var(--ui-border)', color: 'var(--text-muted)' }}
+              onClick={() => { setBlockedAuthModal(null); setBlockedAuthName(''); }}
+            >Cancel</button>
+            <button
+              disabled={!blockedAuthName.trim()}
+              className="flex-1 py-2.5 rounded-lg text-sm font-bold transition-colors disabled:opacity-40"
+              style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
+              onClick={() => {
+                if (!blockedAuthName.trim()) return;
+                if (useAddWithOfferFlow && onAddToCartWithOffer) onAddToCartWithOffer(blockedAuthModal.idx);
+                else if (showManualOffer) handleOfferClick(blockedAuthModal.price, blockedAuthModal.idx);
+                setBlockedAuthModal(null);
+                setBlockedAuthName('');
+              }}
+            >Proceed</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   return mode === "modal" ? (
     <div className={wrapperClasses}>
       <div className={containerClasses}>
@@ -1841,6 +2002,7 @@ export default function ResearchFormShell({
         {advancedFilterPanelEl}
         {manualOfferDialogEl}
         {excludeContextMenuEl}
+        {blockedAuthModalEl}
       </div>
     </div>
   ) : (
@@ -1849,6 +2011,7 @@ export default function ResearchFormShell({
       {advancedFilterPanelEl}
       {manualOfferDialogEl}
       {excludeContextMenuEl}
+      {blockedAuthModalEl}
     </div>
   );
 }

@@ -12,7 +12,7 @@ import { getCartKey, loadRepricingProgress, saveRepricingProgress, clearRepricin
 import { getEditableSalePriceState, resolveRepricingSalePrice } from "./utils/repricingDisplay";
 import useAppStore from '@/store/useAppStore';
 import { normalizeExplicitSalePrice, formatOfferPrice, roundSalePrice } from '@/utils/helpers';
-import { withDefaultRrpOffersSource } from './utils/negotiationHelpers';
+import { withDefaultRrpOffersSource, logCategoryRuleDecision } from './utils/negotiationHelpers';
 import { EBAY_TOP_LEVEL_CATEGORY } from './constants';
 import { SPREADSHEET_CEX_TH_STYLES, RRP_SOURCE_CELL_STYLES } from './spreadsheetTableStyles';
 import { useResearchOverlay } from './hooks/useResearchOverlay';
@@ -120,14 +120,23 @@ const RepricingNegotiation = () => {
   const [showNewRepricingConfirm, setShowNewRepricingConfirm] = useState(false);
 
   // Research overlay (shared hook)
-  const applyEbayRepriceResearch = useCallback((item, state) => ({ ...item, ebayResearchData: state }), []);
-  const applyCCRepriceResearch = useCallback((item, state) => ({ ...item, cashConvertersResearchData: state }), []);
+  const applyEbayRepriceResearch = useCallback((item, state) => ({
+    ...item,
+    ebayResearchData: state,
+    ...(state?.resolvedCategory ? { categoryObject: state.resolvedCategory } : {}),
+  }), []);
+  const applyCCRepriceResearch = useCallback((item, state) => ({
+    ...item,
+    cashConvertersResearchData: state,
+    ...(state?.resolvedCategory ? { categoryObject: state.resolvedCategory } : {}),
+  }), []);
   const {
     researchItem, setResearchItem,
     cashConvertersResearchItem, setCashConvertersResearchItem,
     salePriceConfirmModal, setSalePriceConfirmModal,
     handleResearchComplete,
     handleCashConvertersResearchComplete,
+    handleResearchItemCategoryResolved,
   } = useResearchOverlay({
     items, setItems,
     applyEbayResearch: applyEbayRepriceResearch,
@@ -600,6 +609,15 @@ const RepricingNegotiation = () => {
       cashConvertersResearchData: cartItem.cashConvertersResearchData || null,
       isRemoved: false,
     };
+    logCategoryRuleDecision({
+      context: 'repricing-item-added',
+      item,
+      categoryObject: item.categoryObject,
+      rule: {
+        source: item.isCustomCeXItem ? 'cex-reference-rule' : 'builder-precomputed-rule',
+        referenceDataPresent: Boolean(item.referenceData),
+      },
+    });
     addItemsWithBarcodePrepopulation([item]);
     showNotification(`Added "${item.title || 'Item'}" to reprice list`, 'success');
   }, [addItemsWithBarcodePrepopulation, showNotification]);
@@ -1364,6 +1382,7 @@ const RepricingNegotiation = () => {
           onResearchComplete={handleResearchComplete}
           onCashConvertersResearchComplete={handleCashConvertersResearchComplete}
           hideOfferCards={true}
+          onCategoryResolved={handleResearchItemCategoryResolved}
         />
       </main>
 

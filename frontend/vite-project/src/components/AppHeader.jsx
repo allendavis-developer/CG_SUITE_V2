@@ -457,8 +457,8 @@ const AppHeader = ({
     return () => clearTimeout(t);
   }, [isFilteringCategories, filteredLeafMatches, selectedCategoryId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleAddNegotiationItem = async (offerArg) => {
-    if (!showNegotiationItemBuilder || !selectedModel || !variant || !buyerControls?.onAddNegotiationItem) return;
+  const buildWorkspaceNegotiationItem = useCallback((offerArg) => {
+    if (!showNegotiationItemBuilder || !selectedModel || !variant) return null;
     const selectedVariant = variants.find((v) => v.cex_sku === variant);
     const cashOffers = slimCexNegotiationOfferRows(referenceData?.cash_offers);
     const voucherOffers = slimCexNegotiationOfferRows(referenceData?.voucher_offers);
@@ -474,7 +474,7 @@ const AppHeader = ({
       selectedVariant?.title
       || Object.values(attributeValues).filter((v) => v).join(' / ')
       || null;
-    await buyerControls.onAddNegotiationItem({
+    return {
       id: crypto.randomUUID?.() ?? `neg-item-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       title: selectedModel.name,
       subtitle: variantLine || 'Standard',
@@ -500,7 +500,14 @@ const AppHeader = ({
       manualOffer,
       request_item_id: null,
       referenceData,
-    });
+    };
+  }, [showNegotiationItemBuilder, selectedModel, variant, variants, referenceData, useVoucherOffers, offers, buyerControls?.selectedCategory, attributeValues, ourSalePrice]);
+
+  const handleAddNegotiationItem = async (offerArg) => {
+    if (!buyerControls?.onAddNegotiationItem) return;
+    const payload = buildWorkspaceNegotiationItem(offerArg);
+    if (!payload) return;
+    await buyerControls.onAddNegotiationItem(payload);
     resetHeaderWorkspaceChrome();
   };
 
@@ -883,6 +890,47 @@ const AppHeader = ({
                             setCexProductData={buyerControls?.setCexProductData}
                             onItemAddedToCart={() => {}}
                             showNotification={buyerControls?.showNotification}
+                            blockedOfferSlots={buyerControls?.blockedOfferSlots}
+                            onBlockedOfferClick={(slot, offer, blockedSelectionArg) => {
+                              const selectedArg = blockedSelectionArg === undefined ? offer?.id : blockedSelectionArg;
+                              const selectedVariant = null;
+                              const payload = {
+                                id: crypto.randomUUID?.() ?? `neg-cex-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                                title: buyerControls.cexProductData?.title || 'CeX Product',
+                                subtitle: buyerControls.cexProductData?.category || '',
+                                quantity: 1,
+                                category: buyerControls.cexProductData?.category || 'CeX',
+                                categoryObject:
+                                  buyerControls.cexProductData?.categoryObject
+                                  || (buyerControls.cexProductData?.category
+                                    ? { name: buyerControls.cexProductData.category, path: [buyerControls.cexProductData.category] }
+                                    : { name: 'CeX', path: ['CeX'] }),
+                                isCustomCeXItem: true,
+                                variantId: null,
+                                cexSku: buyerControls.cexProductData?.id ?? null,
+                                cexUrl: buyerControls.cexProductData?.id ? `https://uk.webuy.com/product-detail?id=${buyerControls.cexProductData.id}` : null,
+                                referenceData: buyerControls.cexProductData?.referenceData || null,
+                                offers: useVoucherOffers
+                                  ? slimCexNegotiationOfferRows(buyerControls.cexProductData?.voucher_offers || [])
+                                  : slimCexNegotiationOfferRows(buyerControls.cexProductData?.cash_offers || []),
+                                cashOffers: slimCexNegotiationOfferRows(buyerControls.cexProductData?.cash_offers || []),
+                                voucherOffers: slimCexNegotiationOfferRows(buyerControls.cexProductData?.voucher_offers || []),
+                                selectedOfferId: typeof selectedArg === 'string' ? selectedArg : (selectedArg?.type === 'manual' ? 'manual' : null),
+                                manualOffer: selectedArg?.type === 'manual' ? formatOfferPrice(Number(selectedArg.amount || 0)) : null,
+                                ourSalePrice:
+                                  buyerControls.cexProductData?.referenceData?.cex_based_sale_price != null
+                                    ? roundSalePrice(Number(buyerControls.cexProductData.referenceData.cex_based_sale_price))
+                                    : null,
+                                request_item_id: null,
+                                cexOutOfStock: buyerControls.cexProductData?.isOutOfStock ?? false,
+                                cexSellPrice: buyerControls.cexProductData?.referenceData?.cex_sale_price ? Number(buyerControls.cexProductData.referenceData.cex_sale_price) : null,
+                                cexBuyPrice: buyerControls.cexProductData?.referenceData?.cex_tradein_cash ? Number(buyerControls.cexProductData.referenceData.cex_tradein_cash) : null,
+                                cexVoucherPrice: buyerControls.cexProductData?.referenceData?.cex_tradein_voucher ? Number(buyerControls.cexProductData.referenceData.cex_tradein_voucher) : null,
+                                cexProductData: buyerControls.cexProductData,
+                                _selectedVariant: selectedVariant,
+                              };
+                              buyerControls?.onWorkspaceBlockedOfferAttempt?.({ slot, offer, item: payload });
+                            }}
                           />
                         ) : buyerControls?.isCeXLoading ? (
                           <div className="h-full flex items-center justify-center text-gray-500 text-sm">
@@ -974,6 +1022,18 @@ const AppHeader = ({
                               referenceData={referenceData}
                               offerType={useVoucherOffers ? 'voucher' : 'cash'}
                               onAddToCart={handleAddNegotiationItem}
+                              blockedOfferSlots={buyerControls?.blockedOfferSlots}
+                              onBlockedOfferClick={(slot, offer, blockedSelectionArg) => {
+                                const blockedItem = buildWorkspaceNegotiationItem(
+                                  blockedSelectionArg === undefined ? offer?.id : blockedSelectionArg
+                                );
+                                if (!blockedItem) return;
+                                buyerControls?.onWorkspaceBlockedOfferAttempt?.({
+                                  slot,
+                                  offer,
+                                  item: blockedItem,
+                                });
+                              }}
                             />
                           )
                         )}

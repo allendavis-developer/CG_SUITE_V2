@@ -1,12 +1,14 @@
 /**
- * CeX first / second / third offers: % of CeX trade-in (cash or voucher reference)
- * when pricing rules set first/second offer %; otherwise same absolute margin vs our
- * sale as CeX, then midpoint. Mirrors `pricing.views_v2.variant_prices` / `cex_product_prices`.
+ * CeX first / second / third offers: each configured tier is a % of the CeX cash/voucher
+ * trade-in reference when the pricing rule sets that tier; otherwise same absolute margin
+ * vs our sale as CeX (1st) or midpoint (2nd). The 3rd tier is only included when explicitly
+ * configured — no fallback to 100%. The last tier is always the raw CeX trade-in (Match CeX).
+ * Mirrors variant_prices / cex_product_prices backend behaviour.
  */
 
 import { roundOfferPrice } from '@/utils/helpers';
 
-const TIER_LABELS = ['1st offer', '2nd offer', '3rd offer'];
+const TIER_LABELS = ['1st offer', '2nd offer', '3rd offer', '4th offer'];
 
 function marginPctVsOurSale(offerPrice, ourSalePrice) {
   const sale = Number(ourSalePrice);
@@ -22,6 +24,7 @@ function marginPctVsOurSale(offerPrice, ourSalePrice) {
  *   ourSalePrice: number|null|undefined,
  *   firstOfferPctOfCex: number|null|undefined,
  *   secondOfferPctOfCex: number|null|undefined,
+ *   thirdOfferPctOfCex: number|null|undefined,
  * }} p
  */
 export function computeCexThreeTiersForReference(p) {
@@ -30,7 +33,19 @@ export function computeCexThreeTiersForReference(p) {
 
   const cexSale = Number(p.cexSalePrice);
   const ourSale = Number(p.ourSalePrice);
-  const offer3 = ref;
+
+  // Match CeX = always the raw trade-in reference
+  const offer4 = ref;
+
+  // 3rd offer is only included when explicitly set in the rule — no 100% fallback
+  const hasThird = p.thirdOfferPctOfCex != null && Number.isFinite(Number(p.thirdOfferPctOfCex));
+  let rounded3 = null;
+  let tier3Basis = null;
+  if (hasThird) {
+    const p3 = Number(p.thirdOfferPctOfCex);
+    rounded3 = roundOfferPrice(Math.max(ref * (p3 / 100), 0));
+    tier3Basis = `${trimPct(p3)}% of CeX trade-in`;
+  }
 
   let offer1raw;
   /** @type {string} */
@@ -49,7 +64,9 @@ export function computeCexThreeTiersForReference(p) {
   }
 
   const rounded1 = roundOfferPrice(offer1raw);
-  const rounded3 = offer3;
+
+  // Midpoint anchors to 3rd offer when present, else to Match CeX
+  const midpointAnchor = hasThird ? rounded3 : offer4;
 
   let rounded2;
   /** @type {string} */
@@ -60,28 +77,34 @@ export function computeCexThreeTiersForReference(p) {
     const p2 = Number(p.secondOfferPctOfCex);
     rounded2 = roundOfferPrice(Math.max(ref * (p2 / 100), 0));
     if (rounded2 === rounded1) {
-      rounded2 = Math.round((rounded1 + rounded3) / 2);
+      rounded2 = Math.round((rounded1 + midpointAnchor) / 2);
       tier2Basis = 'Midpoint (after rounding collision)';
     } else {
       tier2Basis = `${trimPct(p2)}% of CeX trade-in`;
       tier2FromRule = true;
     }
   } else {
-    rounded2 = Math.round((rounded1 + rounded3) / 2);
-    tier2Basis = 'Midpoint of 1st & 3rd';
+    rounded2 = Math.round((rounded1 + midpointAnchor) / 2);
+    tier2Basis = hasThird ? 'Midpoint of 1st & 3rd' : 'Midpoint of 1st & Match CeX';
   }
 
-  const prices = [rounded1, rounded2, rounded3];
+  const prices = hasThird
+    ? [rounded1, rounded2, rounded3, offer4]
+    : [rounded1, rounded2, offer4];
+  const tierBases = hasThird
+    ? [tier1Basis, tier2Basis, tier3Basis, 'CeX trade-in reference']
+    : [tier1Basis, tier2Basis, 'CeX trade-in reference'];
   const pctOfCex = prices.map((px, idx) => pctOfCexForTier(ref, px, idx, {
     tier1FromRule,
     tier2FromRule,
     firstPct: p.firstOfferPctOfCex,
     secondPct: p.secondOfferPctOfCex,
+    hasThird,
   }));
 
   return {
     prices,
-    tierBases: [tier1Basis, tier2Basis, 'Matches CeX trade-in'],
+    tierBases,
     marginVsOurSale: prices.map((px) => marginPctVsOurSale(px, ourSale)),
     pctOfCex,
   };
@@ -95,7 +118,9 @@ export function computeCexThreeTiersForReference(p) {
  */
 function pctOfCexForTier(ref, px, idx, ruleMeta) {
   if (!Number.isFinite(ref) || ref <= 0 || !Number.isFinite(px)) return null;
-  if (idx === 2) return 100;
+  // Last tier is always Match CeX (100%); its index is 3 when 3rd offer present, else 2
+  const matchCexIdx = ruleMeta.hasThird ? 3 : 2;
+  if (idx === matchCexIdx) return 100;
   if (idx === 0 && ruleMeta.tier1FromRule && ruleMeta.firstPct != null && Number.isFinite(Number(ruleMeta.firstPct))) {
     return Math.round(Number(ruleMeta.firstPct) * 100) / 100;
   }
@@ -140,6 +165,7 @@ export function resolveCexPricingInputs(item) {
 
   const firstPct = pickNum(ref.first_offer_pct_of_cex) ?? pickNum(ref.firstOfferPctOfCex);
   const secondPct = pickNum(ref.second_offer_pct_of_cex) ?? pickNum(ref.secondOfferPctOfCex);
+  const thirdPct = pickNum(ref.third_offer_pct_of_cex) ?? pickNum(ref.thirdOfferPctOfCex);
 
   return {
     tradeinCash,
@@ -148,6 +174,7 @@ export function resolveCexPricingInputs(item) {
     ourSale,
     firstOfferPctOfCex: firstPct,
     secondOfferPctOfCex: secondPct,
+    thirdOfferPctOfCex: thirdPct,
   };
 }
 
@@ -168,6 +195,7 @@ export function buildComputedCexOfferRows(item) {
           ourSalePrice: ctx.ourSale,
           firstOfferPctOfCex: ctx.firstOfferPctOfCex,
           secondOfferPctOfCex: ctx.secondOfferPctOfCex,
+          thirdOfferPctOfCex: ctx.thirdOfferPctOfCex,
         })
       : null;
 
@@ -179,13 +207,15 @@ export function buildComputedCexOfferRows(item) {
           ourSalePrice: ctx.ourSale,
           firstOfferPctOfCex: ctx.firstOfferPctOfCex,
           secondOfferPctOfCex: ctx.secondOfferPctOfCex,
+          thirdOfferPctOfCex: ctx.thirdOfferPctOfCex,
         })
       : null;
 
   if (!cashSet && !voucherSet) return [];
 
+  const numTiers = Math.max(cashSet?.prices?.length ?? 0, voucherSet?.prices?.length ?? 0);
   const rows = [];
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < numTiers; i++) {
     const cPx = cashSet?.prices[i];
     const vPx = voucherSet?.prices[i];
     const basis = cashSet?.tierBases[i] ?? voucherSet?.tierBases[i] ?? '';
@@ -229,7 +259,7 @@ export function zipPersistedCexOfferRows(cashOffers, voucherOffers, tradeInRefs 
   const refCash = tradeInRefs.tradeinCash;
   const refVouch = tradeInRefs.tradeinVoucher;
 
-  const n = Math.min(3, Math.max(cash.length, vouch.length));
+  const n = Math.min(4, Math.max(cash.length, vouch.length));
   const rows = [];
   for (let i = 0; i < n; i++) {
     const c = cash[i];

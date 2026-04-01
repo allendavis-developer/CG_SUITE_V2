@@ -206,6 +206,7 @@ export const fetchCeXProductPrices = async (cexData) => {
         tradein_voucher: cexData.tradeInVoucher,
         title: cexData.title,
         category: cexData.category,
+        category_id: cexData.categoryId ?? null,
         image: cexData.image,
         image_url: cexData.image,
         sku: cexData.id,
@@ -354,6 +355,15 @@ export const updatePricingRule = (id, data) => apiFetch(`/pricing-rules/${id}/`,
 export const deletePricingRule = (id) => apiFetch(`/pricing-rules/${id}/`, { method: 'DELETE' });
 export const fetchEbayOfferMargins = (categoryId) =>
   apiFetch(`/ebay-offer-margins/${categoryId ? `?category_id=${categoryId}` : ''}`);
+
+// ─── Customer Offer Rules ───────────────────────────────────────────────────────
+
+export const fetchCustomerOfferRules = () => apiFetch('/customer-offer-rules/');
+export const updateCustomerOfferRule = (customerType, data) =>
+  apiFetch(`/customer-offer-rules/${customerType}/`, { method: 'PUT', body: data });
+export const fetchCustomerRuleSettings = () => apiFetch('/customer-rule-settings/');
+export const updateCustomerRuleSettings = (data) =>
+  apiFetch('/customer-rule-settings/', { method: 'PUT', body: data });
 
 // ─── Categories ────────────────────────────────────────────────────────────────
 

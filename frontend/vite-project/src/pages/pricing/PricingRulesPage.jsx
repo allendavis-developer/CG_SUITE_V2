@@ -6,16 +6,28 @@ import {
   updatePricingRule,
   deletePricingRule,
   fetchAllCategoriesFlat,
+  fetchCustomerOfferRules,
+  updateCustomerOfferRule,
+  updateCustomerRuleSettings,
 } from '@/services/api';
 import { useNotification } from '@/contexts/NotificationContext';
 import useAppStore from '@/store/useAppStore';
+import { CUSTOMER_TYPE_LABELS } from '@/utils/customerOfferRules';
+import { SPREADSHEET_TABLE_STYLES } from '@/pages/buyer/spreadsheetTableStyles';
+
+const inputFocus =
+  'focus:outline-none focus:ring-1 focus:ring-[var(--brand-blue)] focus:border-[var(--brand-blue)]';
+const btnPrimary =
+  'px-4 py-2 text-xs font-bold uppercase tracking-wide bg-[var(--brand-blue)] text-white border border-[var(--brand-blue)] hover:bg-[var(--brand-blue-hover)] disabled:opacity-50';
+const btnSecondary =
+  'px-4 py-2 text-xs font-bold uppercase tracking-wide border border-[var(--ui-border)] text-[var(--text-muted)] hover:bg-[var(--brand-blue-alpha-05)]';
 
 function fmtMultiplier(v) {
   return v != null ? `${(v * 100).toFixed(1)}%` : '—';
 }
 
 function fmtPct(v) {
-  return v != null ? `${Number(v).toFixed(1)}%` : <span className="text-gray-400 italic">default</span>;
+  return v != null ? `${Number(v).toFixed(1)}%` : <span className="italic text-[var(--text-muted)]">default</span>;
 }
 
 function scopeLabel(rule) {
@@ -54,6 +66,11 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
       ? String(rule.second_offer_pct_of_cex)
       : ''
   );
+  const [thirdOfferPct, setThirdOfferPct] = useState(
+    isEditing && rule.third_offer_pct_of_cex != null
+      ? String(rule.third_offer_pct_of_cex)
+      : ''
+  );
   const [ebayMargin1, setEbayMargin1] = useState(
     isEditing && rule.ebay_offer_margin_1_pct != null
       ? String(rule.ebay_offer_margin_1_pct)
@@ -69,6 +86,11 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
       ? String(rule.ebay_offer_margin_3_pct)
       : ''
   );
+  const [ebayMargin4, setEbayMargin4] = useState(
+    isEditing && rule.ebay_offer_margin_4_pct != null
+      ? String(rule.ebay_offer_margin_4_pct)
+      : ''
+  );
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
@@ -82,13 +104,40 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
       return;
     }
 
+    const cexFields = [
+      { label: '1st offer %', val: firstOfferPct },
+      { label: '2nd offer %', val: secondOfferPct },
+      { label: '3rd offer %', val: thirdOfferPct },
+    ];
+    for (const f of cexFields) {
+      if (f.val === '' || isNaN(parseFloat(f.val))) {
+        showNotification(`${f.label} is required`, 'error');
+        return;
+      }
+    }
+
+    const ebayFields = [
+      { label: 'eBay/CC 1st %', val: ebayMargin1 },
+      { label: 'eBay/CC 2nd %', val: ebayMargin2 },
+      { label: 'eBay/CC 3rd %', val: ebayMargin3 },
+      { label: 'eBay/CC 4th %', val: ebayMargin4 },
+    ];
+    for (const f of ebayFields) {
+      if (f.val === '' || isNaN(parseFloat(f.val))) {
+        showNotification(`${f.label} is required`, 'error');
+        return;
+      }
+    }
+
     const payload = {
       sell_price_multiplier: (multiplierVal / 100).toFixed(4),
-      first_offer_pct_of_cex: firstOfferPct !== '' ? parseFloat(firstOfferPct) : null,
-      second_offer_pct_of_cex: secondOfferPct !== '' ? parseFloat(secondOfferPct) : null,
-      ebay_offer_margin_1_pct: ebayMargin1 !== '' ? parseFloat(ebayMargin1) : null,
-      ebay_offer_margin_2_pct: ebayMargin2 !== '' ? parseFloat(ebayMargin2) : null,
-      ebay_offer_margin_3_pct: ebayMargin3 !== '' ? parseFloat(ebayMargin3) : null,
+      first_offer_pct_of_cex: parseFloat(firstOfferPct),
+      second_offer_pct_of_cex: parseFloat(secondOfferPct),
+      third_offer_pct_of_cex: parseFloat(thirdOfferPct),
+      ebay_offer_margin_1_pct: parseFloat(ebayMargin1),
+      ebay_offer_margin_2_pct: parseFloat(ebayMargin2),
+      ebay_offer_margin_3_pct: parseFloat(ebayMargin3),
+      ebay_offer_margin_4_pct: parseFloat(ebayMargin4),
       is_global_default: scopeKind === 'global',
     };
     if (scopeKind === 'category') payload.category_id = Number(categoryId);
@@ -101,9 +150,11 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
           sell_price_multiplier: payload.sell_price_multiplier,
           first_offer_pct_of_cex: payload.first_offer_pct_of_cex,
           second_offer_pct_of_cex: payload.second_offer_pct_of_cex,
+          third_offer_pct_of_cex: payload.third_offer_pct_of_cex,
           ebay_offer_margin_1_pct: payload.ebay_offer_margin_1_pct,
           ebay_offer_margin_2_pct: payload.ebay_offer_margin_2_pct,
           ebay_offer_margin_3_pct: payload.ebay_offer_margin_3_pct,
+          ebay_offer_margin_4_pct: payload.ebay_offer_margin_4_pct,
         });
       } else {
         saved = await createPricingRule(payload);
@@ -119,45 +170,43 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col">
-        {/* Header */}
-        <header className="bg-brand-blue px-8 py-5 flex items-center justify-between text-white">
-          <div className="flex items-center gap-3">
-            <span className="material-symbols-outlined text-brand-orange">tune</span>
-            <h2 className="text-lg font-black">
-              {isEditing ? 'Edit Pricing Rule' : 'Add Pricing Rule'}
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative flex w-full max-w-lg flex-col overflow-hidden border border-[var(--ui-border)] bg-white shadow-lg">
+        <header
+          className="flex items-center justify-between px-6 py-3 text-white"
+          style={{ background: 'var(--brand-blue)' }}
+        >
+          <h2 className="text-xs font-bold uppercase tracking-wider">
+            {isEditing ? 'Edit pricing rule' : 'Add pricing rule'}
             </h2>
-          </div>
-          <button onClick={onClose} className="text-white/60 hover:text-white transition-colors">
-            <span className="material-symbols-outlined">close</span>
+          <button type="button" onClick={onClose} className="text-white/70 hover:text-white" aria-label="Close">
+            <span className="material-symbols-outlined text-[20px]">close</span>
           </button>
         </header>
 
-        {/* Body */}
-        <div className="px-8 py-6 flex flex-col gap-5 overflow-y-auto">
+        <div className="flex max-h-[min(85vh,640px)] flex-col gap-4 overflow-y-auto px-6 py-5">
 
           {/* Scope — only shown when creating */}
           {!isEditing && (
             <div>
-              <label className="block text-[10px] font-black uppercase tracking-wider text-gray-500 mb-2">
+              <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
                 Scope
               </label>
               <div className="grid grid-cols-2 gap-2">
                 {[
-                  { v: 'global', label: 'Global Default', icon: 'public' },
-                  { v: 'category', label: 'Category', icon: 'folder' },
-                ].map(({ v, label, icon }) => (
+                  { v: 'global', label: 'Global default' },
+                  { v: 'category', label: 'Category' },
+                ].map(({ v, label }) => (
                   <button
                     key={v}
+                    type="button"
                     onClick={() => setScopeKind(v)}
-                    className={`flex flex-col items-center gap-1.5 py-3 rounded-xl border-2 transition-all text-xs font-bold ${
+                    className={`border py-2.5 text-xs font-semibold transition-colors ${
                       scopeKind === v
-                        ? 'border-brand-blue bg-brand-blue/5 text-brand-blue'
-                        : 'border-gray-200 text-gray-500 hover:border-brand-blue/30'
+                        ? 'border-[var(--brand-blue)] bg-[var(--brand-blue-alpha-05)] text-[var(--brand-blue)]'
+                        : 'border-[var(--ui-border)] text-[var(--text-muted)] hover:border-[var(--brand-blue-alpha-30)]'
                     }`}
                   >
-                    <span className="material-symbols-outlined text-lg">{icon}</span>
                     {label}
                   </button>
                 ))}
@@ -168,13 +217,13 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
           {/* Category picker — shown when creating a category rule */}
           {!isEditing && scopeKind === 'category' && (
             <div>
-              <label className="block text-[10px] font-black uppercase tracking-wider text-gray-500 mb-1.5">
+              <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
                 Category
               </label>
               <select
                 value={categoryId}
                 onChange={(e) => setCategoryId(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-orange"
+                className={`w-full border border-[var(--ui-border)] bg-white px-3 py-2 text-sm ${inputFocus}`}
               >
                 <option value="">— Select category —</option>
                 {categories.map((c) => (
@@ -188,8 +237,8 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
 
           {/* Sale price % */}
           <div>
-            <label className="block text-[10px] font-black uppercase tracking-wider text-gray-500 mb-1.5">
-              Sale Price (% of CeX sell price)
+            <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+              Sale price (% of CeX sell)
             </label>
             <div className="relative">
               <input
@@ -199,80 +248,57 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
                 step="0.1"
                 value={sellPct}
                 onChange={(e) => setSellPct(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-brand-orange"
+                className={`w-full border border-[var(--ui-border)] px-3 py-2 pr-10 text-sm ${inputFocus}`}
                 placeholder="e.g. 85"
               />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold">%</span>
-            </div>
-            <p className="text-[10px] text-gray-400 mt-1">
-              Our sale price = CeX sell price × this %. E.g. 85 → sell at 85% of CeX price.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-            {/* First offer % */}
-            <div>
-              <label className="block text-[10px] font-black uppercase tracking-wider text-gray-500 mb-1.5">
-                First Offer (% of CeX trade-in price){' '}
-                <span className="normal-case font-normal text-gray-400">— optional</span>
-              </label>
-              <div className="relative">
-                <input
-                  type="number"
-                  min="0"
-                  max="200"
-                  step="0.1"
-                  value={firstOfferPct}
-                  onChange={(e) => setFirstOfferPct(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-brand-orange"
-                  placeholder="e.g. 90 (leave blank for default)"
-                />
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold">%</span>
-              </div>
-              <p className="text-[10px] text-gray-400 mt-1">
-                First offer = CeX cash price × this %. Leave blank to use the same absolute margin as CeX.
-              </p>
-            </div>
-
-            {/* Second offer % */}
-            <div>
-              <label className="block text-[10px] font-black uppercase tracking-wider text-gray-500 mb-1.5">
-                Second Offer (% of CeX cash price){' '}
-                <span className="normal-case font-normal text-gray-400">— optional</span>
-              </label>
-              <div className="relative">
-                <input
-                  type="number"
-                  min="0"
-                  max="200"
-                  step="0.1"
-                  value={secondOfferPct}
-                  onChange={(e) => setSecondOfferPct(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-brand-orange"
-                  placeholder="e.g. 95 (leave blank for midpoint)"
-                />
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold">%</span>
-              </div>
-              <p className="text-[10px] text-gray-400 mt-1">
-                Second offer = CeX cash price × this %. Leave blank to keep using the midpoint between First and Third.
-              </p>
+              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[var(--text-muted)]">
+                %
+              </span>
             </div>
           </div>
 
-          {/* eBay / Cash Converters offers as % of suggested sale */}
-          <div className="border-t border-gray-200 pt-5">
-            <label className="block text-[10px] font-black uppercase tracking-wider text-gray-500 mb-3">
-              eBay / Cash Converters — % of sale price
-              <span className="normal-case font-normal text-gray-400 ml-1">— optional, defaults: 40 / 50 / 60</span>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            {[
+              { label: '1st offer % of CeX cash', value: firstOfferPct, setter: setFirstOfferPct, placeholder: 'e.g. 80' },
+              { label: '2nd offer % of CeX cash', value: secondOfferPct, setter: setSecondOfferPct, placeholder: 'e.g. 85' },
+              { label: '3rd offer % of CeX cash', value: thirdOfferPct, setter: setThirdOfferPct, placeholder: 'e.g. 90' },
+            ].map(({ label, value, setter, placeholder }) => (
+              <div key={label}>
+                <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                  {label}
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    min="0"
+                    max="200"
+                    step="0.1"
+                    value={value}
+                    onChange={(e) => setter(e.target.value)}
+                    className={`w-full border border-[var(--ui-border)] px-3 py-2 pr-8 text-sm ${inputFocus}`}
+                    placeholder={placeholder}
+                  />
+                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[var(--text-muted)]">
+                    %
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="border-t border-[var(--ui-border)] pt-4">
+            <label className="mb-2 block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+              eBay / Cash Converters — % of suggested sale
             </label>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               {[
-                { label: '1st Offer', value: ebayMargin1, setter: setEbayMargin1, placeholder: '40', color: 'emerald' },
-                { label: '2nd Offer', value: ebayMargin2, setter: setEbayMargin2, placeholder: '50', color: 'amber' },
-                { label: '3rd Offer', value: ebayMargin3, setter: setEbayMargin3, placeholder: '60', color: 'orange' },
-              ].map(({ label, value, setter, placeholder, color }) => (
+                { label: '1st', value: ebayMargin1, setter: setEbayMargin1, placeholder: 'e.g. 40' },
+                { label: '2nd', value: ebayMargin2, setter: setEbayMargin2, placeholder: 'e.g. 50' },
+                { label: '3rd', value: ebayMargin3, setter: setEbayMargin3, placeholder: 'e.g. 60' },
+                { label: '4th', value: ebayMargin4, setter: setEbayMargin4, placeholder: 'e.g. 70' },
+              ].map(({ label, value, setter, placeholder }) => (
                 <div key={label}>
-                  <label className="block text-[10px] font-semibold text-gray-500 mb-1">{label}</label>
+                  <label className="mb-1 block text-[10px] font-semibold text-[var(--text-muted)]">{label}</label>
                   <div className="relative">
                     <input
                       type="number"
@@ -281,36 +307,25 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
                       step="1"
                       value={value}
                       onChange={(e) => setter(e.target.value)}
-                      className={`w-full border border-gray-300 rounded-lg px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-${color}-500`}
+                      className={`w-full border border-[var(--ui-border)] px-3 py-2 pr-10 text-sm ${inputFocus}`}
                       placeholder={placeholder}
                     />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold">%</span>
+                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[var(--text-muted)]">
+                      %
+                    </span>
                   </div>
                 </div>
               ))}
             </div>
-            <p className="text-[10px] text-gray-400 mt-2">
-              Each value is a % of the suggested sale (e.g. 40 → pay 40% of that price). The three numbers are applied
-              lowest → highest: 1st cash offer = smallest %, 3rd = largest (opening low, then escalate). Applies to
-              eBay and Cash Converters research. Leave blank for defaults (40 / 50 / 60).
-            </p>
           </div>
         </div>
 
-        {/* Footer */}
-        <footer className="px-8 py-5 border-t bg-gray-50 flex justify-end gap-3">
-          <button
-            onClick={onClose}
-            className="px-5 py-2.5 text-sm font-bold text-gray-600 border border-gray-300 rounded-xl hover:bg-gray-100 transition-colors"
-          >
+        <footer className="flex justify-end gap-2 border-t border-[var(--ui-border)] bg-[var(--ui-bg)] px-6 py-3">
+          <button type="button" onClick={onClose} className={btnSecondary}>
             Cancel
           </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="px-6 py-2.5 text-sm font-black bg-brand-orange text-brand-blue rounded-xl hover:bg-brand-orange-hover transition-colors shadow-md shadow-brand-orange/30 disabled:opacity-50"
-          >
-            {saving ? 'Saving…' : isEditing ? 'Save Changes' : 'Create Rule'}
+          <button type="button" onClick={handleSave} disabled={saving} className={btnPrimary}>
+            {saving ? 'Saving…' : isEditing ? 'Save' : 'Create'}
           </button>
         </footer>
       </div>
@@ -320,12 +335,12 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
 
 // ─── Rule Row ─────────────────────────────────────────────────────────────────
 
-function fmtEbayOfferPctTriplet(m1, m2, m3) {
-  if (m1 == null && m2 == null && m3 == null) {
-    return <span className="text-gray-400 italic">40 / 50 / 60</span>;
+function fmtEbayOfferPctQuad(m1, m2, m3, m4) {
+  if (m1 == null && m2 == null && m3 == null && m4 == null) {
+    return <span className="italic text-[var(--text-muted)]">40 / 50 / 60 / 70</span>;
   }
-  const f = (v, d) => v != null ? `${Number(v).toFixed(0)}` : d;
-  return `${f(m1, '40')} / ${f(m2, '50')} / ${f(m3, '60')}`;
+  const f = (v, d) => (v != null ? `${Number(v).toFixed(0)}` : d);
+  return `${f(m1, '40')} / ${f(m2, '50')} / ${f(m3, '60')} / ${f(m4, '70')}`;
 }
 
 function RuleRow({ rule, onEdit, onDelete }) {
@@ -343,34 +358,38 @@ function RuleRow({ rule, onEdit, onDelete }) {
   };
 
   return (
-    <tr className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-      <td className="py-3 px-4 text-sm font-semibold text-gray-900">{scopeLabel(rule)}</td>
-      <td className="py-3 px-4 text-sm font-mono font-semibold text-brand-blue">
+    <tr>
+      <td className="text-sm font-medium text-[var(--text-main)]">{scopeLabel(rule)}</td>
+      <td className="font-mono text-sm font-semibold tabular-nums" style={{ color: 'var(--brand-blue)' }}>
         {fmtMultiplier(rule.sell_price_multiplier)}
       </td>
-      <td className="py-3 px-4 text-sm font-mono font-semibold text-purple-700">
-        {fmtPct(rule.first_offer_pct_of_cex)}
+      <td className="font-mono text-sm tabular-nums text-[var(--text-main)]">{fmtPct(rule.first_offer_pct_of_cex)}</td>
+      <td className="font-mono text-sm tabular-nums text-[var(--text-main)]">{fmtPct(rule.second_offer_pct_of_cex)}</td>
+      <td className="font-mono text-sm tabular-nums text-[var(--text-main)]">{fmtPct(rule.third_offer_pct_of_cex)}</td>
+      <td className="font-mono text-sm tabular-nums text-[var(--text-main)]">
+        {fmtEbayOfferPctQuad(
+          rule.ebay_offer_margin_1_pct,
+          rule.ebay_offer_margin_2_pct,
+          rule.ebay_offer_margin_3_pct,
+          rule.ebay_offer_margin_4_pct
+        )}
       </td>
-      <td className="py-3 px-4 text-sm font-mono font-semibold text-indigo-700">
-        {fmtPct(rule.second_offer_pct_of_cex)}
-      </td>
-      <td className="py-3 px-4 text-sm font-mono font-semibold text-emerald-700">
-        {fmtEbayOfferPctTriplet(rule.ebay_offer_margin_1_pct, rule.ebay_offer_margin_2_pct, rule.ebay_offer_margin_3_pct)}
-      </td>
-      <td className="py-3 px-4">
-        <div className="flex items-center gap-2 justify-end">
+      <td className="text-right">
+        <div className="flex items-center justify-end gap-1">
           {confirming ? (
             <>
-              <span className="text-xs text-red-600 font-semibold mr-1">Delete?</span>
+              <span className="mr-1 text-xs font-semibold text-[var(--text-muted)]">Delete?</span>
               <button
+                type="button"
                 onClick={handleDelete}
-                className="px-3 py-1 text-xs font-bold bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+                className="border border-[var(--ui-border)] px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-[var(--text-main)] hover:bg-[var(--brand-blue-alpha-05)]"
               >
                 Yes
               </button>
               <button
+                type="button"
                 onClick={() => setConfirming(false)}
-                className="px-3 py-1 text-xs font-bold text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors"
+                className="border border-[var(--ui-border)] px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-[var(--text-muted)] hover:bg-[var(--ui-bg)]"
               >
                 No
               </button>
@@ -378,18 +397,20 @@ function RuleRow({ rule, onEdit, onDelete }) {
           ) : (
             <>
               <button
+                type="button"
                 onClick={() => onEdit(rule)}
-                title="Edit rule"
-                className="flex size-8 items-center justify-center rounded-lg text-gray-500 hover:bg-brand-blue/5 hover:text-brand-blue transition-colors"
+                title="Edit"
+                className="flex size-8 items-center justify-center text-[var(--text-muted)] hover:bg-[var(--brand-blue-alpha-08)] hover:text-[var(--brand-blue)]"
               >
-                <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>edit</span>
+                <span className="material-symbols-outlined text-[18px]">edit</span>
               </button>
               <button
+                type="button"
                 onClick={() => setConfirming(true)}
-                title="Delete rule"
-                className="flex size-8 items-center justify-center rounded-lg text-gray-500 hover:bg-red-50 hover:text-red-600 transition-colors"
+                title="Delete"
+                className="flex size-8 items-center justify-center text-[var(--text-muted)] hover:bg-[var(--brand-blue-alpha-08)] hover:text-[var(--brand-blue)]"
               >
-                <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>delete</span>
+                <span className="material-symbols-outlined text-[18px]">delete</span>
               </button>
             </>
           )}
@@ -401,15 +422,12 @@ function RuleRow({ rule, onEdit, onDelete }) {
 
 // ─── Rules Section ────────────────────────────────────────────────────────────
 
-function RulesSection({ title, icon, rules, onEdit, onDelete, emptyText }) {
+function RulesSection({ title, rules, onEdit, onDelete, emptyText }) {
   if (rules.length === 0) {
     return (
       <div className="mb-8">
-        <h3 className="flex items-center gap-2 text-sm font-black uppercase tracking-wider text-gray-500 mb-3">
-          <span className="material-symbols-outlined text-base">{icon}</span>
-          {title}
-        </h3>
-        <div className="border border-dashed border-gray-300 rounded-xl py-6 text-center text-sm text-gray-400">
+        <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-brand-blue">{title}</h3>
+        <div className="border border-dashed border-[var(--ui-border)] bg-white py-8 text-center text-sm text-[var(--text-muted)]">
           {emptyText}
         </div>
       </div>
@@ -418,26 +436,24 @@ function RulesSection({ title, icon, rules, onEdit, onDelete, emptyText }) {
 
   return (
     <div className="mb-8">
-      <h3 className="flex items-center gap-2 text-sm font-black uppercase tracking-wider text-gray-500 mb-3">
-        <span className="material-symbols-outlined text-base">{icon}</span>
-        {title}
-        <span className="ml-1 bg-gray-200 text-gray-600 text-[10px] font-black px-1.5 py-0.5 rounded-full">
-          {rules.length}
-        </span>
+      <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-brand-blue">
+        {title}{' '}
+        <span className="font-mono font-semibold normal-case text-[var(--text-muted)]">({rules.length})</span>
       </h3>
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
-        <table className="w-full">
+      <div className="overflow-x-auto border border-[var(--ui-border)] bg-white">
+        <table className="spreadsheet-table spreadsheet-table--static-header w-full border-collapse text-left">
           <thead>
-            <tr className="bg-gray-50 border-b border-gray-200">
-              <th className="text-left py-2.5 px-4 text-[10px] font-black uppercase tracking-wider text-gray-500">Scope</th>
-              <th className="text-left py-2.5 px-4 text-[10px] font-black uppercase tracking-wider text-gray-500">Sale Price %</th>
-              <th className="text-left py-2.5 px-4 text-[10px] font-black uppercase tracking-wider text-gray-500">First Offer %</th>
-              <th className="text-left py-2.5 px-4 text-[10px] font-black uppercase tracking-wider text-gray-500">Second Offer %</th>
-              <th className="text-left py-2.5 px-4 text-[10px] font-black uppercase tracking-wider text-gray-500">eBay / CC % of sale</th>
-              <th className="py-2.5 px-4" />
+            <tr>
+              <th>Scope</th>
+              <th>Sale %</th>
+              <th>1st %</th>
+              <th>2nd %</th>
+              <th>3rd %</th>
+              <th className="whitespace-nowrap">eBay / CC %</th>
+              <th className="w-24 text-right" />
             </tr>
           </thead>
-          <tbody>
+          <tbody className="text-xs">
             {rules.map((rule) => (
               <RuleRow key={rule.id} rule={rule} onEdit={onEdit} onDelete={onDelete} />
             ))}
@@ -458,6 +474,19 @@ export default function PricingRulesPage() {
   const [modalRule, setModalRule] = useState(null);
   const [showModal, setShowModal] = useState(false);
 
+  // Customer offer rules state
+  const [customerRules, setCustomerRules] = useState(null);
+  const [customerSettings, setCustomerSettings] = useState(null);
+  const [savingCustomerRule, setSavingCustomerRule] = useState(null);
+  const [savingCustomerThresholds, setSavingCustomerThresholds] = useState(false);
+  const [savingJewelleryRules, setSavingJewelleryRules] = useState(false);
+  const [lowCrInput, setLowCrInput] = useState('');
+  const [midCrInput, setMidCrInput] = useState('');
+  const [jewelleryMargin1Input, setJewelleryMargin1Input] = useState('');
+  const [jewelleryMargin2Input, setJewelleryMargin2Input] = useState('');
+  const [jewelleryMargin3Input, setJewelleryMargin3Input] = useState('');
+  const [jewelleryMargin4Input, setJewelleryMargin4Input] = useState('');
+
   const loadRules = useCallback(async () => {
     try {
       const data = await fetchPricingRules();
@@ -467,12 +496,29 @@ export default function PricingRulesPage() {
     }
   }, [showNotification]);
 
+  const loadCustomerRules = useCallback(async () => {
+    try {
+      const data = await fetchCustomerOfferRules();
+      setCustomerRules(data.rules);
+      setCustomerSettings(data.settings);
+      setLowCrInput(String(data.settings.low_cr_max_pct));
+      setMidCrInput(String(data.settings.mid_cr_max_pct));
+      setJewelleryMargin1Input(String(data.settings.jewellery_offer_margin_1_pct ?? 30));
+      setJewelleryMargin2Input(String(data.settings.jewellery_offer_margin_2_pct ?? 20));
+      setJewelleryMargin3Input(String(data.settings.jewellery_offer_margin_3_pct ?? 10));
+      setJewelleryMargin4Input(String(data.settings.jewellery_offer_margin_4_pct ?? 5));
+    } catch (err) {
+      showNotification('Failed to load customer offer rules', 'error');
+    }
+  }, [showNotification]);
+
   useEffect(() => {
     Promise.all([
       loadRules(),
+      loadCustomerRules(),
       fetchAllCategoriesFlat().then(setCategories).catch(() => []),
     ]).finally(() => setLoading(false));
-  }, [loadRules]);
+  }, [loadRules, loadCustomerRules]);
 
   const handleEdit = (rule) => {
     setModalRule(rule);
@@ -511,85 +557,352 @@ export default function PricingRulesPage() {
     useAppStore.getState().loadEbayOfferMargins();
   };
 
+  const handleToggleCustomerOfferRule = async (customerType, field, currentValue) => {
+    const key = `${customerType}-${field}`;
+    setSavingCustomerRule(key);
+    try {
+      const updated = await updateCustomerOfferRule(customerType, { [field]: !currentValue });
+      setCustomerRules((prev) => ({ ...prev, [customerType]: updated }));
+    } catch (err) {
+      showNotification(err.message || 'Failed to update rule', 'error');
+    } finally {
+      setSavingCustomerRule(null);
+    }
+  };
+
+  const handleSaveCustomerThresholds = async () => {
+    const low = parseFloat(lowCrInput);
+    const mid = parseFloat(midCrInput);
+    if (isNaN(low) || isNaN(mid) || low <= 0 || mid <= 0) {
+      showNotification('Cancel rate thresholds must be positive numbers', 'error');
+      return;
+    }
+    if (low >= mid) {
+      showNotification('Low CR max must be less than Mid CR max', 'error');
+      return;
+    }
+    setSavingCustomerThresholds(true);
+    try {
+      const updated = await updateCustomerRuleSettings({
+        low_cr_max_pct: low,
+        mid_cr_max_pct: mid,
+      });
+      setCustomerSettings(updated);
+      showNotification('Customer thresholds saved', 'success');
+    } catch (err) {
+      showNotification(err.message || 'Failed to save customer thresholds', 'error');
+    } finally {
+      setSavingCustomerThresholds(false);
+    }
+  };
+
+  const handleSaveJewelleryRules = async () => {
+    const m1 = parseFloat(jewelleryMargin1Input);
+    const m2 = parseFloat(jewelleryMargin2Input);
+    const m3 = parseFloat(jewelleryMargin3Input);
+    const m4 = parseFloat(jewelleryMargin4Input);
+    if ([m1, m2, m3, m4].some((m) => Number.isNaN(m) || m < 0 || m > 100)) {
+      showNotification('Jewellery margins must be numbers between 0 and 100', 'error');
+      return;
+    }
+    if (!(m1 > m2 && m2 > m3 && m3 > m4)) {
+      showNotification('Jewellery margins must be descending: 1st > 2nd > 3rd > 4th', 'error');
+      return;
+    }
+    setSavingJewelleryRules(true);
+    try {
+      const updated = await updateCustomerRuleSettings({
+        jewellery_offer_margin_1_pct: m1,
+        jewellery_offer_margin_2_pct: m2,
+        jewellery_offer_margin_3_pct: m3,
+        jewellery_offer_margin_4_pct: m4,
+      });
+      setCustomerSettings(updated);
+      showNotification('Jewellery rules saved', 'success');
+    } catch (err) {
+      showNotification(err.message || 'Failed to save jewellery rules', 'error');
+    } finally {
+      setSavingJewelleryRules(false);
+    }
+  };
+
   const globalRules = rules.filter((r) => r.is_global_default);
   const categoryRules = rules.filter((r) => !r.is_global_default && r.category);
 
   return (
-    <div className="bg-gray-50 min-h-screen flex flex-col text-sm">
+    <div className="flex min-h-screen flex-col bg-[var(--ui-bg)] text-sm text-[var(--text-main)]">
       <link
         href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
         rel="stylesheet"
       />
+      <style>{SPREADSHEET_TABLE_STYLES}</style>
 
       <AppHeader />
 
-      <main className="flex-1 max-w-4xl mx-auto w-full px-6 py-8">
-        {/* Page heading */}
-        <div className="flex items-start justify-between mb-8">
+      <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-6">
+        <div className="mb-6 flex flex-wrap items-start justify-between gap-4 border-b border-[var(--ui-border)] pb-5">
           <div>
-            <h1 className="text-2xl font-black text-brand-blue mb-1">Pricing Rules</h1>
-            <p className="text-sm text-gray-500 max-w-lg">
-              Control how our sale price and early offers are calculated relative to CeX prices.
-              Rules are matched by scope (category → global). Changes take effect immediately — just refresh the buying page.
-            </p>
+            <h1 className="text-sm font-bold uppercase tracking-wider text-brand-blue">Pricing rules</h1>
           </div>
           <button
+            type="button"
             onClick={handleAdd}
-            className="flex items-center gap-2 px-5 py-2.5 bg-brand-orange text-brand-blue text-sm font-black rounded-xl hover:bg-brand-orange-hover transition-colors shadow-md shadow-brand-orange/30 shrink-0 ml-4"
+            className="inline-flex shrink-0 items-center gap-1.5 border border-[var(--brand-blue)] bg-white px-4 py-2 text-xs font-bold uppercase tracking-wide text-[var(--brand-blue)] hover:bg-[var(--brand-blue-alpha-05)]"
           >
-            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>add</span>
-            Add Rule
+            <span className="material-symbols-outlined text-[18px]">add</span>
+            Add rule
           </button>
         </div>
 
-        {/* How it works */}
-        <div className="bg-brand-blue rounded-xl p-5 mb-8 text-white">
-          <div className="flex items-center gap-2 mb-3">
-            <span className="material-symbols-outlined text-brand-orange">info</span>
-            <span className="text-sm font-black">How pricing rules work</span>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs text-white/80">
-            <div>
-              <p className="font-bold text-white mb-1">Sale Price %</p>
-              <p>Our sale price = CeX sell price × this percentage. A category rule overrides the global default.</p>
-            </div>
-            <div>
-              <p className="font-bold text-white mb-1">CeX Offer %</p>
-              <p>First/Second Offer = CeX trade-in price × this %. If blank, First uses same absolute margin as CeX; Second is midpoint; Third matches CeX trade-in.</p>
-            </div>
-            <div>
-              <p className="font-bold text-white mb-1">eBay / Cash Converters % of sale</p>
-              <p>
-                Three % of suggested sale; they are sorted low → high so the 1st offer is always the lowest cash % and
-                the 3rd the highest. Defaults: 40 / 50 / 60. Changes take effect immediately.
-              </p>
-            </div>
-          </div>
-        </div>
-
         {loading ? (
-          <div className="flex items-center justify-center py-16 text-gray-400">
-            <span className="material-symbols-outlined animate-spin mr-2">progress_activity</span>
-            Loading rules…
+          <div className="flex items-center justify-center py-16 text-[var(--text-muted)]">
+            <span className="material-symbols-outlined mr-2 animate-spin">progress_activity</span>
+            Loading…
           </div>
         ) : (
           <>
             <RulesSection
-              title="Global Default"
-              icon="public"
+              title="Global default"
               rules={globalRules}
               onEdit={handleEdit}
               onDelete={handleDelete}
-              emptyText="No global default rule. Add one to set a baseline for all categories."
+              emptyText="No global default. Add one as the baseline for all categories."
             />
             <RulesSection
-              title="Category Rules"
-              icon="folder"
+              title="Category rules"
               rules={categoryRules}
               onEdit={handleEdit}
               onDelete={handleDelete}
-              emptyText="No category rules. Add one to override the global default for a specific category."
+              emptyText="No category rules. Add one to override global for a category."
             />
+
+            <div className="mt-10 border-t border-[var(--ui-border)] pt-8">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-brand-blue">Jewellery rules</h2>
+              <div className="mt-5 border border-[var(--ui-border)] bg-white p-4">
+                <h3 className="mb-3 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                  Jewellery margin settings
+                </h3>
+                <div className="grid grid-cols-1 items-end gap-4 md:grid-cols-[1fr_auto]">
+                  <div>
+                    <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+                      Jewellery margins %
+                    </label>
+                    <div className="grid grid-cols-4 gap-2">
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        value={jewelleryMargin1Input}
+                        onChange={(e) => setJewelleryMargin1Input(e.target.value)}
+                        className={`w-full border border-[var(--ui-border)] px-2 py-2 text-xs ${inputFocus}`}
+                        placeholder="30"
+                        title="1st offer margin %"
+                      />
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        value={jewelleryMargin2Input}
+                        onChange={(e) => setJewelleryMargin2Input(e.target.value)}
+                        className={`w-full border border-[var(--ui-border)] px-2 py-2 text-xs ${inputFocus}`}
+                        placeholder="20"
+                        title="2nd offer margin %"
+                      />
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        value={jewelleryMargin3Input}
+                        onChange={(e) => setJewelleryMargin3Input(e.target.value)}
+                        className={`w-full border border-[var(--ui-border)] px-2 py-2 text-xs ${inputFocus}`}
+                        placeholder="10"
+                        title="3rd offer margin %"
+                      />
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        value={jewelleryMargin4Input}
+                        onChange={(e) => setJewelleryMargin4Input(e.target.value)}
+                        className={`w-full border border-[var(--ui-border)] px-2 py-2 text-xs ${inputFocus}`}
+                        placeholder="5"
+                        title="4th offer margin %"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <button
+                      type="button"
+                      onClick={handleSaveJewelleryRules}
+                      disabled={savingJewelleryRules}
+                      className={`${btnPrimary} flex items-center justify-center gap-2`}
+                    >
+                      {savingJewelleryRules ? (
+                        <span className="material-symbols-outlined animate-spin text-[16px]">progress_activity</span>
+                      ) : null}
+                      Save jewellery rules
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-8 border-t border-[var(--ui-border)] pt-8">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-brand-blue">Customer offer rules</h2>
+              <div className="mt-5 border border-[var(--ui-border)] bg-white p-4">
+                <h3 className="mb-3 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                  Customer threshold settings
+                </h3>
+                <div className="grid grid-cols-1 items-end gap-4 md:grid-cols-3">
+                  <div>
+                    <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+                      Low — max %
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        min="1"
+                        max="99"
+                        step="1"
+                        value={lowCrInput}
+                        onChange={(e) => setLowCrInput(e.target.value)}
+                        className={`w-full border border-[var(--ui-border)] px-3 py-2 pr-8 text-sm ${inputFocus}`}
+                        placeholder="20"
+                      />
+                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[var(--text-muted)]">
+                        %
+                      </span>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+                      Mid — max %
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        min="1"
+                        max="100"
+                        step="1"
+                        value={midCrInput}
+                        onChange={(e) => setMidCrInput(e.target.value)}
+                        className={`w-full border border-[var(--ui-border)] px-3 py-2 pr-8 text-sm ${inputFocus}`}
+                        placeholder="40"
+                      />
+                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[var(--text-muted)]">
+                        %
+                      </span>
+                    </div>
+                  </div>
+                  <div>
+                    <button
+                      type="button"
+                      onClick={handleSaveCustomerThresholds}
+                      disabled={savingCustomerThresholds}
+                      className={`w-full ${btnPrimary} flex items-center justify-center gap-2`}
+                    >
+                      {savingCustomerThresholds ? (
+                        <span className="material-symbols-outlined animate-spin text-[16px]">progress_activity</span>
+                      ) : null}
+                      Save customer thresholds
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {customerRules ? (
+                <div className="mt-6 overflow-x-auto border border-[var(--ui-border)] bg-white">
+                  <table className="spreadsheet-table spreadsheet-table--static-header w-full min-w-[720px] border-collapse text-left">
+                    <thead>
+                      <tr>
+                        <th className="min-w-[140px]">Customer tier</th>
+                        <th className="min-w-[200px]">Definition</th>
+                        <th>1st</th>
+                        <th>2nd</th>
+                        <th>3rd</th>
+                        <th>4th</th>
+                        <th>Manual</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-xs">
+                      {[
+                        {
+                          type: 'new_customer',
+                          desc: 'No history (scraping N/A)',
+                        },
+                        {
+                          type: 'low_cr',
+                          desc: `Cancel rate ≤ ${customerSettings?.low_cr_max_pct ?? 20}%`,
+                        },
+                        {
+                          type: 'mid_cr',
+                          desc: `${customerSettings?.low_cr_max_pct ?? 20}% < rate ≤ ${customerSettings?.mid_cr_max_pct ?? 40}%`,
+                        },
+                        {
+                          type: 'high_cr',
+                          desc: `Cancel rate > ${customerSettings?.mid_cr_max_pct ?? 40}%`,
+                        },
+                      ].map(({ type, desc }) => {
+                        const rule = customerRules[type];
+                        if (!rule) return null;
+                        const slotKeys = [
+                          'allow_offer_1',
+                          'allow_offer_2',
+                          'allow_offer_3',
+                          'allow_offer_4',
+                          'allow_manual',
+                        ];
+                        return (
+                          <tr key={type}>
+                            <td className="font-semibold text-[var(--text-main)]">{CUSTOMER_TYPE_LABELS[type]}</td>
+                            <td className="text-[var(--text-muted)]">{desc}</td>
+                            {slotKeys.map((key) => {
+                              const isAllowed = rule[key];
+                              const saving = savingCustomerRule === `${type}-${key}`;
+                              return (
+                                <td key={key} className="text-center">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleCustomerOfferRule(type, key, isAllowed)}
+                                    disabled={saving}
+                                    title={
+                                      isAllowed ? 'Allowed without auth — click to require auth' : 'Requires auth — click to allow'
+                                    }
+                                    className={`inline-flex min-w-[5.5rem] items-center justify-center gap-1 border px-2 py-1 text-[10px] font-bold uppercase tracking-wide transition-colors disabled:opacity-50 ${
+                                      isAllowed
+                                        ? 'border-[var(--brand-blue)] bg-[var(--brand-blue)] text-white'
+                                        : 'border-[var(--ui-border)] bg-[var(--ui-bg)] text-[var(--text-muted)] hover:border-[var(--brand-blue-alpha-30)]'
+                                    }`}
+                                  >
+                                    {saving ? (
+                                      <span className="material-symbols-outlined animate-spin text-[12px]">progress_activity</span>
+                                    ) : (
+                                      <span className="material-symbols-outlined text-[12px]">
+                                        {isAllowed ? 'lock_open' : 'lock'}
+                                      </span>
+                                    )}
+                                    {isAllowed ? 'On' : 'Auth'}
+                                  </button>
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="mt-4 flex items-center gap-2 text-sm text-[var(--text-muted)]">
+                  <span className="material-symbols-outlined animate-spin">progress_activity</span>
+                  Loading customer rules…
+                </div>
+              )}
+            </div>
           </>
         )}
       </main>

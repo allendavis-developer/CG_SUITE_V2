@@ -2,32 +2,67 @@ import React from 'react';
 import { normalizeExplicitSalePrice, roundSalePrice } from '@/utils/helpers';
 import { resolveOurSalePrice, getDisplayOffers } from '../utils/negotiationHelpers';
 import { NEGOTIATION_ROW_CONTEXT, RRP_SOURCE_CELL_CLASS } from '../rowContextZones';
+import { isBlockedForItem, offerIdToSlot, manualSlotCommitRequiresAuthorisation } from '@/utils/customerOfferRules';
 
-// ─── Reusable offer cell (1st / 2nd / 3rd) ────────────────────────────────
+// ─── Reusable offer cell (1st / 2nd / 3rd / 4th) ─────────────────────────────
 
-function OfferCell({ offer, item, quantity, mode, isSelected, onSelect, ourSalePrice, onContextMenu }) {
+function OfferCell({ offer, item, quantity, mode, isSelected, onSelect, ourSalePrice, onContextMenu, blockedOfferSlots, onBlockedOfferClick }) {
   const margin = ourSalePrice && offer ? ((ourSalePrice - offer.price) / ourSalePrice) * 100 : null;
+  const slot = offer ? offerIdToSlot(offer.id) : null;
+  const isBlocked = isBlockedForItem(slot, blockedOfferSlots, item);
+  const authorisedSlots = Array.isArray(item?.authorisedOfferSlots) ? item.authorisedOfferSlots : [];
+  const isAuthorisedSelected = Boolean(isSelected && slot && authorisedSlots.includes(slot) && item?.seniorMgmtApprovedBy);
+
+  const handleClick = () => {
+    if (!offer || mode === 'view') return;
+    if (isBlocked) {
+      onBlockedOfferClick?.(slot, offer, item);
+    } else {
+      onSelect(offer.id);
+    }
+  };
+
+  if (!offer) {
+    return <td className="align-top text-[13px] text-gray-300" onContextMenu={onContextMenu}>—</td>;
+  }
 
   return (
     <td
-      className={`align-top font-semibold text-[13px] leading-snug ${mode === 'view' ? '' : 'cursor-pointer'}`}
-      style={isSelected ? { background: 'rgba(34, 197, 94, 0.15)', fontWeight: 'bold', color: '#166534' } : {}}
-      onClick={() => { if (offer && mode !== 'view') onSelect(offer.id); }}
-      onContextMenu={onContextMenu}
+      className={`align-top font-semibold text-[13px] leading-snug relative ${mode === 'view' ? '' : 'cursor-pointer'}`}
+      style={
+        isSelected && !isBlocked
+          ? { background: 'rgba(34, 197, 94, 0.15)', fontWeight: 'bold', color: '#166534' }
+          : isBlocked
+          ? { background: 'rgba(239,68,68,0.06)', color: '#9ca3af' }
+          : {}
+      }
+      onClick={handleClick}
+      onContextMenu={isBlocked ? undefined : onContextMenu}
+      title={isBlocked ? 'Blocked — requires senior management authorisation' : undefined}
     >
-      {offer ? (
-        <div>
-          <div>£{(offer.price * quantity).toFixed(2)}</div>
-          {margin !== null && (
-            <div className="text-[9px] font-medium" style={{ color: margin >= 0 ? 'var(--brand-blue)' : '#dc2626' }}>
-              {margin >= 0 ? '+' : ''}{margin.toFixed(1)}% margin
-            </div>
-          )}
-          {quantity > 1 && (
-            <div className="text-[9px]" style={{ color: 'var(--text-muted)' }}>(£{offer.price.toFixed(2)} × {quantity})</div>
-          )}
+      <div className={isBlocked ? 'opacity-60' : ''}>
+        <div>£{(offer.price * quantity).toFixed(2)}</div>
+        {margin !== null && (
+          <div className="text-[9px] font-medium" style={{ color: isBlocked ? '#9ca3af' : margin >= 0 ? 'var(--brand-blue)' : '#dc2626' }}>
+            {margin >= 0 ? '+' : ''}{margin.toFixed(1)}% margin
+          </div>
+        )}
+        {quantity > 1 && (
+          <div className="text-[9px]" style={{ color: isBlocked ? '#9ca3af' : 'var(--text-muted)' }}>
+            (£{offer.price.toFixed(2)} × {quantity})
+          </div>
+        )}
+        {isAuthorisedSelected && (
+          <div className="text-[9px] mt-1 font-semibold" style={{ color: isBlocked ? '#9ca3af' : '#b91c1c' }}>
+            Approved by: {item.seniorMgmtApprovedBy}
+          </div>
+        )}
+      </div>
+      {isBlocked && mode !== 'view' && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <span className="material-symbols-outlined text-red-400 text-[18px] opacity-70">lock</span>
         </div>
-      ) : '-'}
+      )}
     </td>
   );
 }
@@ -71,12 +106,17 @@ export default function NegotiationItemRow({
   onRefreshCeXData,
   onReopenResearch,
   onReopenCashConvertersResearch,
+  /** Set<string> of blocked offer slot keys, e.g. new Set(['offer1','offer2','manual']) */
+  blockedOfferSlots = null,
+  /** Called when user clicks a blocked offer: (slot, offer) => void */
+  onBlockedOfferClick = null,
 }) {
   const quantity = item.quantity || 1;
   const displayOffers = getDisplayOffers(item, useVoucherOffers);
   const offer1 = displayOffers?.[0];
   const offer2 = displayOffers?.[1];
   const offer3 = displayOffers?.[2];
+  const offer4 = displayOffers?.[3];
   const isViewMode = mode === 'view';
   const researchButtonsDisabled = isViewMode && !allowResearchSandboxInView;
   const ebayData = item.ebayResearchData;
@@ -88,6 +128,7 @@ export default function NegotiationItemRow({
   const manualValue = item.manualOffer ? parseFloat(item.manualOffer.replace(/[£,]/g, '')) : null;
   const manualMargin = manualValue && ourSalePrice ? ((ourSalePrice - manualValue) / ourSalePrice) * 100 : null;
   const manualExceedsSale = ourSalePrice && manualValue && manualValue > ourSalePrice;
+  const manualOpenNeedsAuth = mode === 'negotiate' && manualSlotCommitRequiresAuthorisation(blockedOfferSlots, item);
 
   // Our sale price editing
   const perUnitOurPriceRaw =
@@ -224,21 +265,45 @@ export default function NegotiationItemRow({
       <PriceCell value={item.cexVoucherPrice} quantity={quantity} className="font-medium text-red-700" onContextMenu={ctxRemoveOnly} />
       <PriceCell value={item.cexBuyPrice} quantity={quantity} className="font-medium text-red-700" onContextMenu={ctxRemoveOnly} />
 
-      {/* 1st / 2nd / 3rd Offer */}
+      {/* 1st / 2nd / 3rd / 4th Offer */}
       <OfferCell offer={offer1} item={item} quantity={quantity} mode={mode} ourSalePrice={ourSalePrice}
-        isSelected={item.selectedOfferId === offer1?.id} onSelect={(id) => onSelectOffer(item.id, id)} onContextMenu={ctxRemoveOnly} />
+        isSelected={item.selectedOfferId === offer1?.id} onSelect={(id) => onSelectOffer(item.id, id)} onContextMenu={ctxRemoveOnly}
+        blockedOfferSlots={blockedOfferSlots} onBlockedOfferClick={onBlockedOfferClick} />
       <OfferCell offer={offer2} item={item} quantity={quantity} mode={mode} ourSalePrice={ourSalePrice}
-        isSelected={item.selectedOfferId === offer2?.id} onSelect={(id) => onSelectOffer(item.id, id)} onContextMenu={ctxRemoveOnly} />
+        isSelected={item.selectedOfferId === offer2?.id} onSelect={(id) => onSelectOffer(item.id, id)} onContextMenu={ctxRemoveOnly}
+        blockedOfferSlots={blockedOfferSlots} onBlockedOfferClick={onBlockedOfferClick} />
       <OfferCell offer={offer3} item={item} quantity={quantity} mode={mode} ourSalePrice={ourSalePrice}
-        isSelected={item.selectedOfferId === offer3?.id} onSelect={(id) => onSelectOffer(item.id, id)} onContextMenu={ctxRemoveOnly} />
+        isSelected={item.selectedOfferId === offer3?.id} onSelect={(id) => onSelectOffer(item.id, id)} onContextMenu={ctxRemoveOnly}
+        blockedOfferSlots={blockedOfferSlots} onBlockedOfferClick={onBlockedOfferClick} />
+      <OfferCell offer={offer4} item={item} quantity={quantity} mode={mode} ourSalePrice={ourSalePrice}
+        isSelected={item.selectedOfferId === offer4?.id} onSelect={(id) => onSelectOffer(item.id, id)} onContextMenu={ctxRemoveOnly}
+        blockedOfferSlots={blockedOfferSlots} onBlockedOfferClick={onBlockedOfferClick} />
 
       {/* Manual Offer */}
       <td
         className={`relative ${mode === 'negotiate' ? 'cursor-pointer' : ''}`}
-        onClick={mode === 'negotiate' ? (e) => { e.stopPropagation(); onSetManualOffer(item); } : undefined}
+        onClick={mode === 'negotiate' ? (e) => {
+          e.stopPropagation();
+          if (manualOpenNeedsAuth) {
+            onBlockedOfferClick?.('manual', null, item);
+          } else {
+            onSetManualOffer(item);
+          }
+        } : undefined}
         role={mode === 'negotiate' ? 'button' : undefined}
         tabIndex={mode === 'negotiate' ? 0 : undefined}
-        onKeyDown={mode === 'negotiate' ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSetManualOffer(item); } } : undefined}
+        onKeyDown={mode === 'negotiate' ? (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            if (manualOpenNeedsAuth) {
+              onBlockedOfferClick?.('manual', null, item);
+            } else {
+              onSetManualOffer(item);
+            }
+          }
+        } : undefined}
+        title={manualOpenNeedsAuth ? 'Blocked — requires senior management authorisation' : undefined}
+        style={manualOpenNeedsAuth ? { background: 'rgba(239,68,68,0.06)' } : {}}
       >
         {item.manualOffer && item.selectedOfferId === 'manual' ? (
           <div
@@ -277,8 +342,17 @@ export default function NegotiationItemRow({
             )}
           </div>
         ) : (
-          <div className="text-center text-slate-400 text-[11px]">
-            {mode === 'negotiate' ? <span className="italic">Click to set</span> : '—'}
+          <div className="text-center text-slate-400 text-[11px] relative">
+            {mode === 'negotiate' ? (
+              manualOpenNeedsAuth ? (
+                <span className="flex items-center justify-center gap-1 text-red-300">
+                  <span className="material-symbols-outlined text-[14px]">lock</span>
+                  <span className="italic text-[10px]">Auth required</span>
+                </span>
+              ) : (
+                <span className="italic">Click to set</span>
+              )
+            ) : '—'}
           </div>
         )}
       </td>

@@ -1,4 +1,8 @@
-import { JEWELLERY_TIER_MARGINS_PCT, isJewelleryCoinLine } from '@/components/jewellery/jewelleryNegotiationCart';
+import {
+  JEWELLERY_TIER_MARGINS_PCT,
+  isJewelleryCoinLine,
+  resolveJewelleryTierMarginsPct,
+} from '@/components/jewellery/jewelleryNegotiationCart';
 
 /**
  * Map negotiation quote items (jewellery) ↔ workspace line shape used in the header panel.
@@ -12,19 +16,32 @@ export function negotiationJewelleryItemToWorkspaceLine(item) {
   const isManual = sid === 'manual';
 
   let selectedOfferTierPct = null;
+  const tierMargins = resolveJewelleryTierMarginsPct(ref?.jewellery_offer_margins_pct);
   if (!isManual && sid) {
     const s = String(sid);
     const cashId = s.startsWith('jew-v-') ? s.slice('jew-v-'.length) : s;
-    const m = cashId.match(/^jew-cash-(\d+)$/);
-    if (m) {
-      const n = Number(m[1]);
-      if (JEWELLERY_TIER_MARGINS_PCT.includes(n)) selectedOfferTierPct = n;
+    const tierIdx = cashId.match(/^jew-cash_([1-4])$/);
+    if (tierIdx) {
+      const i = Number(tierIdx[1]) - 1;
+      const pct = tierMargins[i];
+      if (pct != null) selectedOfferTierPct = pct;
+    } else {
+      const m = cashId.match(/^jew-cash-(\d+)$/);
+      if (m) {
+        const n = Number(m[1]);
+        if (tierMargins.includes(n) || JEWELLERY_TIER_MARGINS_PCT.includes(n)) selectedOfferTierPct = n;
+      }
     }
   }
 
   const mo = item.manualOffer != null ? String(item.manualOffer).trim() : '';
   const manualOfferInput =
     isManual && mo !== '' ? mo.replace(/[£,]/g, '').trim() : '';
+  const manualOfferAuthBy = isManual && item.seniorMgmtApprovedBy ? item.seniorMgmtApprovedBy : null;
+  const persistedAuthorisedSlots = Array.isArray(item?.rawData?.authorisedOfferSlots)
+    ? item.rawData.authorisedOfferSlots
+    : [];
+  const runtimeAuthorisedSlots = Array.isArray(item?.authorisedOfferSlots) ? item.authorisedOfferSlots : [];
 
   const coin = isJewelleryCoinLine({ productName: ref.product_name, materialGrade: ref.material_grade });
 
@@ -51,7 +68,10 @@ export function negotiationJewelleryItemToWorkspaceLine(item) {
     weight: coin ? '1' : ref.weight != null ? String(ref.weight) : '1',
     weightUnit: coin ? 'each' : ref.weight_unit || 'g',
     selectedOfferTierPct,
+    selectedOfferTierAuthBy: !isManual && item.seniorMgmtApprovedBy ? item.seniorMgmtApprovedBy : null,
     manualOfferInput,
+    manualOfferAuthBy,
+    authorisedOfferSlots: Array.from(new Set([...persistedAuthorisedSlots, ...runtimeAuthorisedSlots])),
   };
 }
 

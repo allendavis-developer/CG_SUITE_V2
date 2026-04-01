@@ -27,11 +27,15 @@ export function referenceDataWithNormalizedCexOffers(data) {
 
 /** Cart / negotiation line: `{ id, title, price }` with tier rules (safe if reference rows are already normalized). */
 export function slimCexNegotiationOfferRows(offers) {
-  return (offers || []).map((o, idx) => ({
-    id: o.id,
-    title: o.title,
-    price: priceForCexNegotiationTier(o, idx),
-  }));
+  return (offers || []).map((o, idx) => {
+    const row = {
+      id: o.id,
+      title: o.title,
+      price: priceForCexNegotiationTier(o, idx),
+    };
+    if (o.isMatchCex === true) row.isMatchCex = true;
+    return row;
+  });
 }
 
 /** Controlled input string for “our sale” from variant price API. */

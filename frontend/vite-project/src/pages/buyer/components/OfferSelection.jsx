@@ -21,6 +21,8 @@ const OfferSelection = ({
   onSelectedOfferChange = null,
   syncKey = null,
   showAddActionCard = true,
+  blockedOfferSlots = null,
+  onBlockedOfferClick = null,
 }) => {
   const formatPriceInput = (value) => {
     const parsed = Number(value);
@@ -102,6 +104,12 @@ const OfferSelection = ({
   const showAddAction = showAddToCart && showAddActionCard;
 
   const handleOfferClick = (offerId) => {
+    const slot = offerId ? `offer${String(offerId).match(/_(\d)$/)?.[1] || ''}` : null;
+    if (slot && blockedOfferSlots?.has(slot)) {
+      const blockedOffer = offers.find((o) => o.id === offerId) || null;
+      onBlockedOfferClick?.(slot, blockedOffer, offerId);
+      return;
+    }
     setSelectedOfferId(offerId);
     onAddToCart?.(offerId);
   };
@@ -129,6 +137,15 @@ const OfferSelection = ({
       closeContextMenu();
       return;
     }
+    if (blockedOfferSlots?.has('manual')) {
+      onBlockedOfferClick?.('manual', null, {
+        type: 'manual',
+        amount: parsed,
+        baseOfferId: offers[contextMenu.baseIndex]?.id ?? null,
+      });
+      closeContextMenu();
+      return;
+    }
     onAddToCart({
       type: 'manual',
       amount: parsed,
@@ -148,7 +165,16 @@ const OfferSelection = ({
     }
   };
 
-  const gridCols = showAddAction ? 'grid-cols-4' : 'grid-cols-3';
+  const offersOnlyGridCols =
+    editMode || !showAddAction
+      ? 'grid-cols-3'
+      : offers.length >= 4
+        ? 'grid-cols-2 sm:grid-cols-4'
+        : offers.length === 3
+          ? 'grid-cols-3'
+          : offers.length === 2
+            ? 'grid-cols-2'
+            : 'grid-cols-1 max-w-sm mx-auto sm:mx-0';
 
   return (
     <div>
@@ -156,7 +182,8 @@ const OfferSelection = ({
         {headerText}
       </h3>
 
-      <div className={`grid gap-4 ${gridCols}`}>
+      <div className="space-y-4">
+      <div className={`grid gap-4 ${offersOnlyGridCols}`}>
         {offers.map((offer, index) => {
           const displayPrice = editMode
             ? parseFloat(localPrices[offer.id] ?? offer.price)
@@ -165,6 +192,9 @@ const OfferSelection = ({
             ? calculateMargin(displayPrice, ourSalePrice)
             : null;
           const isHighlighted = offer.id === selectedOfferId;
+          const slotMatch = String(offer.id || '').match(/_(\d)$/);
+          const slot = slotMatch ? `offer${slotMatch[1]}` : null;
+          const isBlocked = slot && blockedOfferSlots?.has(slot);
 
           if (editMode) {
             return (
@@ -233,6 +263,8 @@ const OfferSelection = ({
             <div
               key={offer.id}
               onContextMenu={showAddToCart ? (e) => openContextMenu(e, index) : undefined}
+              className={isBlocked ? 'relative' : undefined}
+              title={isBlocked ? 'Blocked — requires senior management authorisation' : undefined}
             >
               <OfferCard
                 title={offer.title}
@@ -241,16 +273,26 @@ const OfferSelection = ({
                 isHighlighted={isHighlighted}
                 onClick={onAddToCart ? () => handleOfferClick(offer.id) : null}
               />
+              {isBlocked ? <div className="absolute inset-0 rounded-xl bg-red-50/55 pointer-events-none" /> : null}
+              {isBlocked ? (
+                <div className="pointer-events-none -mt-6 mb-2 flex items-center justify-center">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-600">
+                    <span className="material-symbols-outlined text-[12px]">lock</span>
+                    Auth required
+                  </span>
+                </div>
+              ) : null}
             </div>
           );
         })}
+      </div>
         {showAddAction && (
           <div
             role="button"
             tabIndex={0}
             onClick={() => onAddToCart(null)}
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onAddToCart(null); } }}
-            className="p-6 rounded-xl bg-brand-orange cursor-pointer text-center relative overflow-hidden border-2 border-brand-orange transition-all duration-200 ease-out hover:bg-brand-orange-hover hover:border-brand-orange shadow-md shadow-brand-orange/10 active:scale-[0.98]"
+            className="w-full min-w-0 p-6 rounded-xl bg-brand-orange cursor-pointer text-center relative overflow-hidden border-2 border-brand-orange transition-all duration-200 ease-out hover:bg-brand-orange-hover hover:border-brand-orange shadow-md shadow-brand-orange/10 active:scale-[0.98]"
           >
             <h4 className="text-[10px] font-black uppercase text-brand-blue mb-4 tracking-wider">
               Action

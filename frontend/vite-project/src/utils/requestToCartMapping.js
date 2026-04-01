@@ -4,6 +4,7 @@
  */
 
 import { normalizeExplicitSalePrice, roundOfferPrice, roundSalePrice, toVoucherOfferPrice, formatOfferPrice } from '@/utils/helpers';
+import { titleForEbayCcOfferIndex } from '@/components/forms/researchStats';
 import { NEGOTIATION_ROW_CONTEXT } from '@/pages/buyer/rowContextZones';
 
 /** DB → cart: default source highlight when `raw_data` has no `rrpOffersSource` (see `withDefaultRrpOffersSource`). */
@@ -129,12 +130,14 @@ export function mapRequestItemsToCartItems(items, transactionType) {
         id: item.request_item_id,
         request_item_id: item.request_item_id,
         rawData,
+        authorisedOfferSlots: Array.isArray(rawData?.authorisedOfferSlots) ? rawData.authorisedOfferSlots : [],
         title,
         subtitle,
         quantity: item.quantity,
         selectedOfferId: item.selected_offer_id,
         manualOffer: item.manual_offer_gbp != null ? formatOfferPrice(item.manual_offer_gbp) : '',
         manualOfferUsed: item.manual_offer_used ?? item.selected_offer_id === 'manual',
+        seniorMgmtApprovedBy: item.senior_mgmt_approved_by || null,
         customerExpectation: item.customer_expectation_gbp?.toString() || '',
         ebayResearchData: null,
         cashConvertersResearchData: null,
@@ -214,8 +217,8 @@ export function mapRequestItemsToCartItems(items, transactionType) {
       Array.isArray(ebayResearchBlob?.buyOffers)
     ) {
       savedCashOffers = ebayResearchBlob.buyOffers.map((offer, idx) => ({
-        id: `ebay-cash-${idx}`,
-        title: ["1st Offer", "2nd Offer", "3rd Offer"][idx] || "Offer",
+        id: `ebay-cash_${idx + 1}`,
+        title: titleForEbayCcOfferIndex(idx),
         price: roundOfferPrice(offer.price),
       }));
     }
@@ -234,8 +237,8 @@ export function mapRequestItemsToCartItems(items, transactionType) {
 
     const displayOffers = useVoucher ? savedVoucherOffers : savedCashOffers;
 
-    const savedDisplayTitle = ebayResearchBlob?.display_title;
-    const savedDisplaySubtitle = ebayResearchBlob?.display_subtitle;
+    const savedDisplayTitle = rawData?.display_title ?? ebayResearchBlob?.display_title;
+    const savedDisplaySubtitle = rawData?.display_subtitle ?? ebayResearchBlob?.display_subtitle;
     const hasSavedDisplay =
       savedDisplayTitle != null && savedDisplayTitle !== '';
 
@@ -322,12 +325,14 @@ export function mapRequestItemsToCartItems(items, transactionType) {
       id: item.request_item_id,
       request_item_id: item.request_item_id,
       rawData,
+      authorisedOfferSlots: Array.isArray(rawData?.authorisedOfferSlots) ? rawData.authorisedOfferSlots : [],
       title,
       subtitle,
       quantity: item.quantity,
       selectedOfferId: item.selected_offer_id,
       manualOffer: item.manual_offer_gbp != null ? formatOfferPrice(item.manual_offer_gbp) : '',
       manualOfferUsed: item.manual_offer_used ?? item.selected_offer_id === 'manual',
+      seniorMgmtApprovedBy: item.senior_mgmt_approved_by || null,
       customerExpectation: item.customer_expectation_gbp?.toString() || '',
       ebayResearchData: hasPersistedExtensionEbayResearch ? ebayResearchBlob : null,
       cashConvertersResearchData,

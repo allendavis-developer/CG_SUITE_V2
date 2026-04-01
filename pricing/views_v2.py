@@ -34,6 +34,8 @@ from .models_v2 import (
     PricingRule,
     MarketResearchSession,
     RequestJewelleryReferenceSnapshot,
+    CustomerRuleSettings,
+    CustomerOfferRule,
 )
 from . import research_storage
 from .offer_rows import get_selected_offer_code, sync_request_item_offer_rows_from_payload
@@ -708,6 +710,16 @@ def update_request_item(request, request_item_id):
             update_fields.append('quantity')
         except (ValueError, TypeError):
             pass
+    if 'senior_mgmt_approved_by' in request.data:
+        meta = dict(existing_item.line_metadata_json or {})
+        raw_name = request.data.get('senior_mgmt_approved_by')
+        name = str(raw_name).strip() if raw_name is not None else ''
+        if name:
+            meta['senior_mgmt_approved_by'] = name
+        else:
+            meta.pop('senior_mgmt_approved_by', None)
+        existing_item.line_metadata_json = meta if meta else None
+        update_fields.append('line_metadata_json')
 
     if update_fields:
         existing_item.save(update_fields=update_fields)
@@ -1018,6 +1030,16 @@ def finish_request(request, request_id):
         if 'manual_offer_used' in item_data:
             request_item.manual_offer_used = bool(item_data['manual_offer_used'])
             update_fields.append('manual_offer_used')
+        if 'senior_mgmt_approved_by' in item_data:
+            meta = dict(request_item.line_metadata_json or {})
+            raw_name = item_data.get('senior_mgmt_approved_by')
+            name = str(raw_name).strip() if raw_name is not None else ''
+            if name:
+                meta['senior_mgmt_approved_by'] = name
+            else:
+                meta.pop('senior_mgmt_approved_by', None)
+            request_item.line_metadata_json = meta if meta else None
+            update_fields.append('line_metadata_json')
         if update_fields:
             request_item.save(update_fields=update_fields)
         if (
@@ -1174,7 +1196,7 @@ def variant_prices(request):
         percentage_used = 85.0
         our_sale_price = _round_sale_price(cex_sale_price * 0.85)
 
-    # Resolve first_offer_pct from the applicable pricing rule
+    # Resolve first/second/third offer pct from the applicable pricing rule
     applicable_rule = variant.get_applicable_rule()
     first_offer_pct = (
         float(applicable_rule.first_offer_pct_of_cex)
@@ -1186,6 +1208,11 @@ def variant_prices(request):
         if applicable_rule and applicable_rule.second_offer_pct_of_cex is not None
         else None
     )
+    third_offer_pct = (
+        float(applicable_rule.third_offer_pct_of_cex)
+        if applicable_rule and applicable_rule.third_offer_pct_of_cex is not None
+        else None
+    )
 
     # Generate both sets via shared offer engine to keep endpoint behavior in sync.
     cash_offers = build_offer_set(
@@ -1195,6 +1222,7 @@ def variant_prices(request):
         our_sale_price=our_sale_price,
         first_offer_pct=first_offer_pct,
         second_offer_pct=second_offer_pct,
+        third_offer_pct=third_offer_pct,
     )
     voucher_offers = build_offer_set(
         cex_reference_buy_price=cex_tradein_voucher,
@@ -1203,6 +1231,7 @@ def variant_prices(request):
         our_sale_price=our_sale_price,
         first_offer_pct=first_offer_pct,
         second_offer_pct=second_offer_pct,
+        third_offer_pct=third_offer_pct,
     )
 
     reference_data = {
@@ -1214,6 +1243,7 @@ def variant_prices(request):
         "cex_out_of_stock": cex_out_of_stock,
         "first_offer_pct_of_cex": first_offer_pct,
         "second_offer_pct_of_cex": second_offer_pct,
+        "third_offer_pct_of_cex": third_offer_pct,
     }
     if image_urls:
         reference_data["cex_image_urls"] = {
@@ -1254,20 +1284,42 @@ def cex_product_prices(request):
     cex_tradein_cash = float(tradein_cash or 0)
     cex_tradein_voucher = float(tradein_voucher or 0)
 
-    # Look up global default rule for sell price multiplier and first offer pct
-    global_rule = PricingRule.objects.filter(is_global_default=True).first()
+    # Resolve the best pricing rule: category (walked up the hierarchy) → global default
+    rule = None
+    category_id = data.get('category_id')
+    if category_id:
+        try:
+            from pricing.models_v2 import ProductCategory
+            category = ProductCategory.objects.get(pk=category_id)
+            for cat in category.iter_ancestors(include_self=True):
+                rule = PricingRule.objects.filter(category=cat).first()
+                if rule:
+                    logger.info("[CG Suite] cex_product_prices: matched category rule via category_id=%s → cat=%s rule=%s", category_id, cat.name, rule)
+                    break
+        except Exception as exc:
+            logger.warning("[CG Suite] cex_product_prices: could not resolve category_id=%s: %s", category_id, exc)
 
-    if global_rule:
-        percentage_used = round(float(global_rule.sell_price_multiplier) * 100, 2)
-        our_sale_price = _round_sale_price(cex_sale_price * float(global_rule.sell_price_multiplier))
+    if rule is None:
+        rule = PricingRule.objects.filter(is_global_default=True).first()
+        if rule:
+            logger.info("[CG Suite] cex_product_prices: using global default rule (category_id=%s)", category_id)
+
+    if rule:
+        percentage_used = round(float(rule.sell_price_multiplier) * 100, 2)
+        our_sale_price = _round_sale_price(cex_sale_price * float(rule.sell_price_multiplier))
         first_offer_pct = (
-            float(global_rule.first_offer_pct_of_cex)
-            if global_rule.first_offer_pct_of_cex is not None
+            float(rule.first_offer_pct_of_cex)
+            if rule.first_offer_pct_of_cex is not None
             else None
         )
         second_offer_pct = (
-            float(global_rule.second_offer_pct_of_cex)
-            if global_rule.second_offer_pct_of_cex is not None
+            float(rule.second_offer_pct_of_cex)
+            if rule.second_offer_pct_of_cex is not None
+            else None
+        )
+        third_offer_pct = (
+            float(rule.third_offer_pct_of_cex)
+            if rule.third_offer_pct_of_cex is not None
             else None
         )
     else:
@@ -1275,6 +1327,7 @@ def cex_product_prices(request):
         our_sale_price = _round_sale_price(cex_sale_price * 0.85)
         first_offer_pct = None
         second_offer_pct = None
+        third_offer_pct = None
 
     cash_offers = build_offer_set(
         cex_reference_buy_price=cex_tradein_cash,
@@ -1283,6 +1336,7 @@ def cex_product_prices(request):
         our_sale_price=our_sale_price,
         first_offer_pct=first_offer_pct,
         second_offer_pct=second_offer_pct,
+        third_offer_pct=third_offer_pct,
     )
     voucher_offers = build_offer_set(
         cex_reference_buy_price=cex_tradein_voucher,
@@ -1291,6 +1345,7 @@ def cex_product_prices(request):
         our_sale_price=our_sale_price,
         first_offer_pct=first_offer_pct,
         second_offer_pct=second_offer_pct,
+        third_offer_pct=third_offer_pct,
     )
 
     reference_data = {
@@ -1301,6 +1356,7 @@ def cex_product_prices(request):
         "percentage_used": percentage_used,
         "first_offer_pct_of_cex": first_offer_pct,
         "second_offer_pct_of_cex": second_offer_pct,
+        "third_offer_pct_of_cex": third_offer_pct,
     }
     image_url = data.get('image_url') or data.get('image')
     if image_url:
@@ -1337,6 +1393,10 @@ def _serialize_pricing_rule(rule):
             float(rule.second_offer_pct_of_cex)
             if rule.second_offer_pct_of_cex is not None else None
         ),
+        "third_offer_pct_of_cex": (
+            float(rule.third_offer_pct_of_cex)
+            if rule.third_offer_pct_of_cex is not None else None
+        ),
         "ebay_offer_margin_1_pct": (
             float(rule.ebay_offer_margin_1_pct)
             if rule.ebay_offer_margin_1_pct is not None else None
@@ -1348,6 +1408,10 @@ def _serialize_pricing_rule(rule):
         "ebay_offer_margin_3_pct": (
             float(rule.ebay_offer_margin_3_pct)
             if rule.ebay_offer_margin_3_pct is not None else None
+        ),
+        "ebay_offer_margin_4_pct": (
+            float(rule.ebay_offer_margin_4_pct)
+            if rule.ebay_offer_margin_4_pct is not None else None
         ),
     }
 
@@ -1391,8 +1455,20 @@ def pricing_rules_view(request):
         except InvalidOperation:
             return Response({"error": "second_offer_pct_of_cex must be a number"}, status=400)
 
+    third_offer_pct = data.get('third_offer_pct_of_cex')
+    if third_offer_pct is not None:
+        try:
+            third_offer_pct = Decimal(str(third_offer_pct))
+        except InvalidOperation:
+            return Response({"error": "third_offer_pct_of_cex must be a number"}, status=400)
+
     ebay_margins = {}
-    for field in ('ebay_offer_margin_1_pct', 'ebay_offer_margin_2_pct', 'ebay_offer_margin_3_pct'):
+    for field in (
+        'ebay_offer_margin_1_pct',
+        'ebay_offer_margin_2_pct',
+        'ebay_offer_margin_3_pct',
+        'ebay_offer_margin_4_pct',
+    ):
         val = data.get(field)
         if val is not None:
             try:
@@ -1406,6 +1482,7 @@ def pricing_rules_view(request):
         'sell_price_multiplier': multiplier,
         'first_offer_pct_of_cex': first_offer_pct,
         'second_offer_pct_of_cex': second_offer_pct,
+        'third_offer_pct_of_cex': third_offer_pct,
         'is_global_default': is_global_default,
         **ebay_margins,
     }
@@ -1474,7 +1551,22 @@ def pricing_rule_detail(request, rule_id):
             except InvalidOperation:
                 return Response({"error": "second_offer_pct_of_cex must be a number"}, status=400)
 
-    for field in ('ebay_offer_margin_1_pct', 'ebay_offer_margin_2_pct', 'ebay_offer_margin_3_pct'):
+    if 'third_offer_pct_of_cex' in data:
+        val = data['third_offer_pct_of_cex']
+        if val is None or val == '':
+            rule.third_offer_pct_of_cex = None
+        else:
+            try:
+                rule.third_offer_pct_of_cex = Decimal(str(val))
+            except InvalidOperation:
+                return Response({"error": "third_offer_pct_of_cex must be a number"}, status=400)
+
+    for field in (
+        'ebay_offer_margin_1_pct',
+        'ebay_offer_margin_2_pct',
+        'ebay_offer_margin_3_pct',
+        'ebay_offer_margin_4_pct',
+    ):
         if field in data:
             val = data[field]
             if val is None or val == '':
@@ -1495,15 +1587,15 @@ def pricing_rule_detail(request, rule_id):
 
 @api_view(['GET'])
 def ebay_offer_margins(request):
-    """Return effective eBay/Cash Converters offer % of sale price (three tiers).
+    """Return effective eBay/Cash Converters offer % of suggested sale (four tiers).
 
-    Field names remain ebay_offer_margin_*_pct for API compatibility; values are
-    whole-number percentages of suggested sale (e.g. 40 => offer = sell × 0.40).
+    Values are percentages of suggested sale (e.g. 40 => offer = sell × 0.40).
+    Fourth tier defaults to 100 (match suggested sale) when unset.
 
     Query param: ?category_id=<int>  (optional)
-    Walks up the category tree, then global default, then [40, 50, 60].
+    Walks up the category tree, then global default, then [40, 50, 60, 100].
     """
-    defaults = [40, 50, 60]
+    defaults = [40, 50, 60, 100]
     category_id = request.GET.get('category_id')
 
     def _extract_margins(rule):
@@ -1512,12 +1604,14 @@ def ebay_offer_margins(request):
         m1 = rule.ebay_offer_margin_1_pct
         m2 = rule.ebay_offer_margin_2_pct
         m3 = rule.ebay_offer_margin_3_pct
-        if m1 is None and m2 is None and m3 is None:
+        m4 = rule.ebay_offer_margin_4_pct
+        if m1 is None and m2 is None and m3 is None and m4 is None:
             return None
         return [
             float(m1) if m1 is not None else defaults[0],
             float(m2) if m2 is not None else defaults[1],
             float(m3) if m3 is not None else defaults[2],
+            float(m4) if m4 is not None else defaults[3],
         ]
 
     margins = None
@@ -1541,7 +1635,120 @@ def ebay_offer_margins(request):
         "ebay_offer_margin_1_pct": margins[0],
         "ebay_offer_margin_2_pct": margins[1],
         "ebay_offer_margin_3_pct": margins[2],
+        "ebay_offer_margin_4_pct": margins[3],
     })
+
+
+# ─── Customer Offer Rules ──────────────────────────────────────────────────────
+
+def _serialize_customer_rule_settings(settings):
+    return {
+        "low_cr_max_pct": float(settings.low_cr_max_pct),
+        "mid_cr_max_pct": float(settings.mid_cr_max_pct),
+        "jewellery_offer_margin_1_pct": float(settings.jewellery_offer_margin_1_pct),
+        "jewellery_offer_margin_2_pct": float(settings.jewellery_offer_margin_2_pct),
+        "jewellery_offer_margin_3_pct": float(settings.jewellery_offer_margin_3_pct),
+        "jewellery_offer_margin_4_pct": float(settings.jewellery_offer_margin_4_pct),
+    }
+
+
+def _serialize_customer_offer_rule(rule):
+    return {
+        "customer_type": rule.customer_type,
+        "allow_offer_1": rule.allow_offer_1,
+        "allow_offer_2": rule.allow_offer_2,
+        "allow_offer_3": rule.allow_offer_3,
+        "allow_offer_4": rule.allow_offer_4,
+        "allow_manual": rule.allow_manual,
+    }
+
+
+@api_view(['GET', 'PUT'])
+def customer_rule_settings_view(request):
+    """Get or update the global cancel-rate tier thresholds (singleton)."""
+    settings = CustomerRuleSettings.get_singleton()
+
+    if request.method == 'GET':
+        return Response(_serialize_customer_rule_settings(settings))
+
+    data = request.data
+    for field in (
+        'low_cr_max_pct',
+        'mid_cr_max_pct',
+        'jewellery_offer_margin_1_pct',
+        'jewellery_offer_margin_2_pct',
+        'jewellery_offer_margin_3_pct',
+        'jewellery_offer_margin_4_pct',
+    ):
+        if field in data:
+            try:
+                setattr(settings, field, Decimal(str(data[field])))
+            except InvalidOperation:
+                return Response({"error": f"{field} must be a number"}, status=400)
+
+    if Decimal(str(settings.low_cr_max_pct)) >= Decimal(str(settings.mid_cr_max_pct)):
+        return Response({"error": "low_cr_max_pct must be less than mid_cr_max_pct"}, status=400)
+
+    jewellery_margins = [
+        Decimal(str(settings.jewellery_offer_margin_1_pct)),
+        Decimal(str(settings.jewellery_offer_margin_2_pct)),
+        Decimal(str(settings.jewellery_offer_margin_3_pct)),
+        Decimal(str(settings.jewellery_offer_margin_4_pct)),
+    ]
+    if any(m < 0 or m > 100 for m in jewellery_margins):
+        return Response(
+            {"error": "jewellery margins must be between 0 and 100"},
+            status=400,
+        )
+    if not (
+        jewellery_margins[0] > jewellery_margins[1]
+        and jewellery_margins[1] > jewellery_margins[2]
+        and jewellery_margins[2] > jewellery_margins[3]
+    ):
+        return Response(
+            {"error": "jewellery margins must be strictly descending (offer1 > offer2 > offer3 > offer4)"},
+            status=400,
+        )
+
+    settings.save()
+    return Response(_serialize_customer_rule_settings(settings))
+
+
+@api_view(['GET'])
+def customer_offer_rules_view(request):
+    """Return all 4 customer offer rules (creating defaults if they don't exist)."""
+    DEFAULTS = {
+        'new_customer': {'allow_offer_1': False, 'allow_offer_2': False, 'allow_offer_3': True, 'allow_offer_4': True, 'allow_manual': False},
+        'low_cr':       {'allow_offer_1': True,  'allow_offer_2': True,  'allow_offer_3': True, 'allow_offer_4': True, 'allow_manual': True},
+        'mid_cr':       {'allow_offer_1': True,  'allow_offer_2': True,  'allow_offer_3': True, 'allow_offer_4': True, 'allow_manual': True},
+        'high_cr':      {'allow_offer_1': True,  'allow_offer_2': True,  'allow_offer_3': True, 'allow_offer_4': True, 'allow_manual': True},
+    }
+    rules = {}
+    for ct, defaults in DEFAULTS.items():
+        obj, _ = CustomerOfferRule.objects.get_or_create(customer_type=ct, defaults=defaults)
+        rules[ct] = obj
+
+    settings = CustomerRuleSettings.get_singleton()
+    return Response({
+        "settings": _serialize_customer_rule_settings(settings),
+        "rules": {ct: _serialize_customer_offer_rule(obj) for ct, obj in rules.items()},
+    })
+
+
+@api_view(['PUT'])
+def customer_offer_rule_detail(request, customer_type):
+    """Update a single customer offer rule by type."""
+    valid_types = {'new_customer', 'low_cr', 'mid_cr', 'high_cr'}
+    if customer_type not in valid_types:
+        return Response({"error": "Invalid customer_type"}, status=400)
+
+    rule, _ = CustomerOfferRule.objects.get_or_create(customer_type=customer_type)
+    data = request.data
+    for field in ('allow_offer_1', 'allow_offer_2', 'allow_offer_3', 'allow_offer_4', 'allow_manual'):
+        if field in data:
+            setattr(rule, field, bool(data[field]))
+    rule.save()
+    return Response(_serialize_customer_offer_rule(rule))
 
 
 # react app

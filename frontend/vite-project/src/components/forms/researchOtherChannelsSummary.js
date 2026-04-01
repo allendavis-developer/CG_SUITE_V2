@@ -9,19 +9,19 @@
  */
 
 import { toVoucherOfferPrice } from '@/utils/helpers';
-import { calculateBuyOffers } from './researchStats';
+import { calculateBuyOffers, EBAY_CC_RESEARCH_LABELS_CASH, EBAY_CC_RESEARCH_LABELS_VOUCHER } from './researchStats';
 import { resolveCexPricingInputs, zipPersistedCexOfferRows } from './cexOfferComputation';
 
 /**
  * eBay / Cash Converters research maps buy-offer tiers onto `item.cashOffers` & `item.voucherOffers`
- * (ids like `ebay-cash-0`, `cc-cash-…`). Those are not CeX trade-in tiers — do not show them under CeX in Others.
+ * (ids like `ebay-cash_1`, legacy `ebay-cash-0`, `cc-cash_1`). Not CeX trade-in tiers — do not show under CeX in Others.
  */
 function itemTopLevelOffersAreEbayOrCashConvertersTiers(item) {
   if (!item || typeof item !== 'object') return false;
   if (item.isCustomEbayItem === true || item.isCustomCashConvertersItem === true) return true;
   const sample = item.cashOffers?.[0] ?? item.voucherOffers?.[0];
   const id = sample?.id != null ? String(sample.id) : '';
-  return /^ebay-(cash|voucher)-|^cc-(cash|voucher)-/.test(id);
+  return /^ebay-(cash|voucher)[_-]|^cc-(cash|voucher)[_-]/.test(id);
 }
 
 function fmtMoney(n) {
@@ -38,12 +38,9 @@ function fmtPctOfCex(n) {
   return (Math.round(v * 10) / 10).toString();
 }
 
-const CASH_OFFER_LABELS = ['1st Cash Offer', '2nd Cash Offer', '3rd Cash Offer'];
-const VOUCHER_OFFER_LABELS = ['1st Voucher Offer', '2nd Voucher Offer', '3rd Voucher Offer'];
-
 /**
  * @param {number|null|undefined} suggestedPrice
- * @param {[number, number, number] | null | undefined} ebayOfferMargins
+ * @param {[number, number, number, number] | null | undefined} ebayOfferMargins
  * @param {{ price: number, pctOfSale: number }[] | null | undefined} savedBuyOffers
  * @param {boolean} [useVoucherOffers]
  */
@@ -57,7 +54,7 @@ function offerRowsFromSuggestedSale(
 ) {
   let offers = [];
   if (Array.isArray(savedBuyOffers) && savedBuyOffers.length > 0) {
-    offers = savedBuyOffers.slice(0, 3);
+    offers = savedBuyOffers.slice(0, 4);
   } else {
     if (noSyntheticFallback) return [];
     const sp = suggestedPrice != null ? Number(suggestedPrice) : NaN;
@@ -66,7 +63,7 @@ function offerRowsFromSuggestedSale(
     }
   }
   if (!offers.length) return [];
-  const labels = useVoucherOffers ? VOUCHER_OFFER_LABELS : CASH_OFFER_LABELS;
+  const labels = useVoucherOffers ? EBAY_CC_RESEARCH_LABELS_VOUCHER : EBAY_CC_RESEARCH_LABELS_CASH;
   return offers.map((o, i) => {
     const raw = Number(o.price);
     const display = useVoucherOffers && Number.isFinite(raw) ? toVoucherOfferPrice(raw) : raw;

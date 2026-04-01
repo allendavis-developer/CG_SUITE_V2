@@ -158,7 +158,10 @@
         const titleEl = doc.querySelector('.product-detail h1, h1.heading-s-semibold, h1');
         const title = (titleEl && (titleEl.textContent || '').trim()) || 'CeX Product';
 
-        const categoryEl = doc.querySelector('.product-category');
+        // Primary selector observed in live CeX product pages:
+        // <span class="product-category grey-700-color mb-xs">Android Phones</span>
+        const categoryEl = doc.querySelector('span.product-category.grey-700-color.mb-xs')
+          || doc.querySelector('.product-category');
         let category = (categoryEl && (categoryEl.textContent || '').trim()) || '';
         if (!category) {
           const m = window.location.href.match(/categoryName=([^&]+)/);

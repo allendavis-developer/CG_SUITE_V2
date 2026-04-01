@@ -1,6 +1,7 @@
 import React from 'react';
 import TinyModal from '@/components/ui/TinyModal';
 import { resolveOurSalePrice, getDisplayOffers, calculateItemTargetContribution } from '../utils/negotiationHelpers';
+import { CUSTOMER_TYPE_LABELS, getCustomerType } from '@/utils/customerOfferRules';
 
 // ─── Target Offer Modal ────────────────────────────────────────────────────
 
@@ -286,6 +287,90 @@ export function MarginResultModal({ item, offerPerUnit, ourSalePrice, marginPct,
       >
         OK
       </button>
+    </TinyModal>
+  );
+}
+
+// ─── Blocked Offer Authorisation Modal ──────────────────────────────────────
+
+const SLOT_LABELS = {
+  offer1: '1st Offer',
+  offer2: '2nd Offer',
+  offer3: '3rd Offer',
+  offer4: '4th Offer',
+  manual: 'Manual Offer Entry',
+};
+
+export function BlockedOfferAuthModal({ slot, offer, item, customerData, customerOfferRulesData, onAuthorise, onClose }) {
+  const [name, setName] = React.useState('');
+
+  const slotLabel = SLOT_LABELS[slot] || slot;
+  const customerType = customerOfferRulesData
+    ? getCustomerType(customerData, customerOfferRulesData.settings)
+    : null;
+  const customerLabel = customerType ? CUSTOMER_TYPE_LABELS[customerType] : null;
+
+  return (
+    <TinyModal
+      title="Senior Management Authorisation Required"
+      onClose={onClose}
+      closeOnBackdrop={false}
+      showCloseButton={false}
+    >
+      <div className="rounded-lg p-3 mb-4 bg-amber-50 border border-amber-200">
+        <div className="flex items-start gap-2">
+          <span className="material-symbols-outlined text-amber-600 shrink-0 mt-0.5">lock</span>
+          <div>
+            <p className="text-xs font-bold text-amber-800 mb-1">Offer restricted for this customer</p>
+            <p className="text-[11px] text-amber-700">
+              <strong>{slotLabel}</strong> requires authorisation from senior management
+              {customerLabel && <> for <strong>{customerLabel}</strong> customers</>}.
+            </p>
+            {offer && (
+              <p className="text-[11px] text-amber-700 mt-1">
+                Offer value: <strong>£{Number(offer.price).toFixed(2)}</strong>
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+      <p className="text-xs text-slate-600 mb-4">
+        Has this been authorised by senior management? Enter the approver&apos;s name below to proceed.
+      </p>
+      <label className="block text-[10px] font-black uppercase tracking-wider mb-1.5" style={{ color: 'var(--brand-blue)' }}>
+        Authorised by (name)*
+      </label>
+      <input
+        autoFocus
+        className="w-full px-3 py-2.5 border rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 mb-4"
+        style={{ borderColor: 'rgba(20,69,132,0.3)', color: 'var(--brand-blue)' }}
+        type="text"
+        placeholder="Senior manager's name"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && name.trim()) {
+            onAuthorise(name.trim());
+          }
+        }}
+      />
+      <div className="flex gap-2">
+        <button
+          className="flex-1 py-2.5 rounded-lg border text-sm font-semibold transition-colors hover:bg-slate-50"
+          style={{ borderColor: 'var(--ui-border)', color: 'var(--text-muted)' }}
+          onClick={onClose}
+        >
+          Cancel
+        </button>
+        <button
+          disabled={!name.trim()}
+          className="flex-1 py-2.5 rounded-lg text-sm font-bold transition-colors disabled:opacity-40"
+          style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
+          onClick={() => { if (name.trim()) onAuthorise(name.trim()); }}
+        >
+          Proceed
+        </button>
+      </div>
     </TinyModal>
   );
 }

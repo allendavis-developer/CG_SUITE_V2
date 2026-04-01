@@ -1,8 +1,9 @@
 import { normalizeExplicitSalePrice, roundOfferPrice, roundSalePrice, toVoucherOfferPrice, formatOfferPrice } from '@/utils/helpers';
 import { slimCexNegotiationOfferRows } from '@/utils/cexOfferMapping';
 import { mapRequestItemsToCartItems } from '@/utils/requestToCartMapping';
-import { calculateBuyOffers } from '@/components/forms/researchStats';
+import { calculateBuyOffers, titleForEbayCcOfferIndex } from '@/components/forms/researchStats';
 import { NEGOTIATION_ROW_CONTEXT } from '../rowContextZones';
+import { rebuildJewelleryOffersForNegotiationItem } from '@/components/jewellery/jewelleryNegotiationCart';
 
 // ─── Pure helper functions for Negotiation page ─────────────────────────────
 
@@ -49,6 +50,37 @@ export function buildCeXProductResearchInitialQuery(cex) {
   if (!cex) return undefined;
   const base = String(cex.title || cex.modelName || '').trim();
   return base || undefined;
+}
+
+function buildRuleSnapshotFromReferenceData(referenceData) {
+  if (!referenceData || typeof referenceData !== 'object') return null;
+  return {
+    firstOfferPctOfCex: referenceData.first_offer_pct_of_cex ?? referenceData.firstOfferPctOfCex ?? null,
+    secondOfferPctOfCex: referenceData.second_offer_pct_of_cex ?? referenceData.secondOfferPctOfCex ?? null,
+    thirdOfferPctOfCex: referenceData.third_offer_pct_of_cex ?? referenceData.thirdOfferPctOfCex ?? null,
+    cexBasedSalePrice: referenceData.cex_based_sale_price ?? null,
+  };
+}
+
+export function logCategoryRuleDecision({
+  context,
+  item,
+  categoryObject = null,
+  categoryName = null,
+  rule = null,
+  notes = null,
+}) {
+  if (typeof console === 'undefined') return;
+  console.log('[CG Suite][CategoryRule]', {
+    context,
+    itemId: item?.id ?? null,
+    title: item?.title ?? null,
+    categoryName: categoryName ?? categoryObject?.name ?? item?.category ?? null,
+    categoryId: categoryObject?.id ?? null,
+    categoryPath: categoryObject?.path ?? null,
+    rule,
+    notes,
+  });
 }
 
 export function resolveOurSalePrice(item) {
@@ -267,9 +299,9 @@ export function applyRrpAndOffersFromPriceSource(item, zone, useVoucherOffers) {
       if (!buyOffers.length) {
         buyOffers = calculateBuyOffers(rrp, null);
       }
-      const cashOffers = buyOffers.slice(0, 3).map((o, idx) => ({
-        id: `ebay-rrp-${item.id}-${idx}`,
-        title: ['1st Offer', '2nd Offer', '3rd Offer'][idx] || 'Offer',
+      const cashOffers = buyOffers.slice(0, 4).map((o, idx) => ({
+        id: `ebay-rrp_${idx + 1}`,
+        title: titleForEbayCcOfferIndex(idx),
         price: roundOfferPrice(Number(o.price)),
       }));
       const voucherOffers = cashOffers.map((o) => ({
@@ -300,9 +332,9 @@ export function applyRrpAndOffersFromPriceSource(item, zone, useVoucherOffers) {
       if (!buyOffers.length) {
         buyOffers = calculateBuyOffers(rrp, null);
       }
-      const cashOffers = buyOffers.slice(0, 3).map((o, idx) => ({
-        id: `cc-rrp-${item.id}-${idx}`,
-        title: ['1st Offer', '2nd Offer', '3rd Offer'][idx] || 'Offer',
+      const cashOffers = buyOffers.slice(0, 4).map((o, idx) => ({
+        id: `cc-rrp_${idx + 1}`,
+        title: titleForEbayCcOfferIndex(idx),
         price: roundOfferPrice(Number(o.price)),
       }));
       const voucherOffers = cashOffers.map((o) => ({
@@ -445,6 +477,9 @@ export function buildFinishPayload(
       if (item.rrpOffersSource != null && item.rrpOffersSource !== '') {
         rawData.rrpOffersSource = item.rrpOffersSource;
       }
+      if (Array.isArray(item.authorisedOfferSlots) && item.authorisedOfferSlots.length > 0) {
+        rawData.authorisedOfferSlots = item.authorisedOfferSlots;
+      }
 
       const cexBuyCash = item.cexBuyPrice != null ? Number(item.cexBuyPrice) : null;
       const cexBuyVoucher = item.cexVoucherPrice != null ? Number(item.cexVoucherPrice) : null;
@@ -511,6 +546,7 @@ export function mapApiItemToNegotiationItem(item, transactionType, mode) {
       manualOffer: item.manual_offer_gbp?.toString() || '',
       manualOfferUsed: item.manual_offer_used ?? (item.selected_offer_id === 'manual'),
       seniorMgmtApprovedBy: item.senior_mgmt_approved_by || null,
+      authorisedOfferSlots: Array.isArray(item?.raw_data?.authorisedOfferSlots) ? item.raw_data.authorisedOfferSlots : [],
       customerExpectation: item.customer_expectation_gbp?.toString() || '',
       ebayResearchData: null,
       cashConvertersResearchData: null,
@@ -525,10 +561,17 @@ export function mapApiItemToNegotiationItem(item, transactionType, mode) {
     || cartItem.rawData?.ebayResearchData
     || (cartItem.rawData?.stats && cartItem.rawData?.selectedFilters ? cartItem.rawData : null);
 
-  let next = normalizeCartItemForNegotiation({
-    ...cartItem,
-    seniorMgmtApprovedBy: item.senior_mgmt_approved_by || null,
-  });
+  const useVoucherFromTx = transactionType === 'store_credit';
+  let next = normalizeCartItemForNegotiation(
+    {
+      ...cartItem,
+      seniorMgmtApprovedBy: item.senior_mgmt_approved_by || null,
+      authorisedOfferSlots: Array.isArray(item?.raw_data?.authorisedOfferSlots)
+        ? item.raw_data.authorisedOfferSlots
+        : cartItem.authorisedOfferSlots,
+    },
+    useVoucherFromTx
+  );
 
   const resolveOurSaleFromApi = () => {
     const rawSaved =
@@ -627,12 +670,14 @@ export function mapApiItemToNegotiationItem(item, transactionType, mode) {
 }
 
 /** Normalize a cart item from the buyer store into the shape the negotiation page expects. */
-export function normalizeCartItemForNegotiation(item) {
+export function normalizeCartItemForNegotiation(item, useVoucherOffers = false) {
   const resolvedSelectedOfferId = (item.selectedOfferId != null && item.selectedOfferId !== '')
     ? item.selectedOfferId
     : null;
   if (item.isJewelleryItem === true) {
-    return withDefaultRrpOffersSource({ ...item, selectedOfferId: resolvedSelectedOfferId });
+    const withId = { ...item, selectedOfferId: resolvedSelectedOfferId };
+    const rebuilt = rebuildJewelleryOffersForNegotiationItem(withId, useVoucherOffers);
+    return withDefaultRrpOffersSource(rebuilt);
   }
   const isEbayPayload = !!(item.ebayResearchData?.stats && item.ebayResearchData?.selectedFilters);
   const cexName = item.variant_details?.title
@@ -682,8 +727,8 @@ export function applyEbayResearchToItem(item, updatedState, useVoucherOffers) {
   if (updatedState.buyOffers && updatedState.buyOffers.length > 0) {
     if (isEbayOnlyItem) {
       newCashOffers = updatedState.buyOffers.map((o, idx) => ({
-        id: `ebay-cash-${Date.now()}-${idx}`,
-        title: ["1st Offer", "2nd Offer", "3rd Offer"][idx] || "Offer",
+        id: `ebay-cash_${idx + 1}`,
+        title: titleForEbayCcOfferIndex(idx),
         price: roundOfferPrice(o.price),
       }));
       newVoucherOffers = newCashOffers.map(offer => ({
@@ -696,8 +741,8 @@ export function applyEbayResearchToItem(item, updatedState, useVoucherOffers) {
         (item.cashOffers?.length > 0) || (item.voucherOffers?.length > 0) || (item.offers?.length > 0);
       if (!hasExistingOffers) {
         newCashOffers = updatedState.buyOffers.map((o, idx) => ({
-          id: `ebay-cash-${Date.now()}-${idx}`,
-          title: ["1st Offer", "2nd Offer", "3rd Offer"][idx] || "Offer",
+          id: `ebay-cash_${idx + 1}`,
+          title: titleForEbayCcOfferIndex(idx),
           price: roundOfferPrice(o.price),
         }));
         newVoucherOffers = newCashOffers.map(offer => ({
@@ -731,7 +776,7 @@ export function applyEbayResearchToItem(item, updatedState, useVoucherOffers) {
     if (prevIdx >= 0 && displayOffers[prevIdx]) newSelectedOfferId = displayOffers[prevIdx].id;
   }
 
-  return {
+  const nextItem = {
     ...item,
     ebayResearchData: updatedState,
     cashOffers: newCashOffers,
@@ -739,7 +784,20 @@ export function applyEbayResearchToItem(item, updatedState, useVoucherOffers) {
     offers: displayOffers,
     manualOffer: newManualOffer,
     selectedOfferId: newSelectedOfferId,
+    // If the user picked a category during this research session, persist it onto the item
+    // so subsequent research panels don't ask again.
+    ...(updatedState.resolvedCategory ? { categoryObject: updatedState.resolvedCategory } : {}),
   };
+  logCategoryRuleDecision({
+    context: 'ebay-research-complete',
+    item: nextItem,
+    categoryObject: nextItem.categoryObject,
+    rule: {
+      source: 'ebay-offer-margins',
+      margins: Array.isArray(updatedState?.buyOffers) ? 'buyOffers-computed' : null,
+    },
+  });
+  return nextItem;
 }
 
 /**
@@ -774,8 +832,8 @@ export function applyCashConvertersResearchToItem(item, updatedState, useVoucher
   let newVoucherOffers = item.voucherOffers || [];
   if (!isCeXBackedNegotiationItem(item) && !hasExistingOffers && updatedState.buyOffers?.length > 0) {
     newCashOffers = updatedState.buyOffers.map((o, idx) => ({
-      id: `cc-cash-${Date.now()}-${idx}`,
-      title: ["1st Offer", "2nd Offer", "3rd Offer"][idx] || "Offer",
+      id: `cc-cash_${idx + 1}`,
+      title: titleForEbayCcOfferIndex(idx),
       price: Number(o.price),
     }));
     newVoucherOffers = newCashOffers.map(offer => ({
@@ -786,7 +844,7 @@ export function applyCashConvertersResearchToItem(item, updatedState, useVoucher
   }
   const displayOffers = useVoucherOffers ? newVoucherOffers : newCashOffers;
 
-  return {
+  const nextItem = {
     ...item,
     cashConvertersResearchData: updatedState,
     cashOffers: newCashOffers,
@@ -794,7 +852,20 @@ export function applyCashConvertersResearchToItem(item, updatedState, useVoucher
     offers: displayOffers,
     manualOffer: newManualOffer,
     selectedOfferId: newSelectedOfferId,
+    // If the user picked a category during this research session, persist it onto the item
+    // so subsequent research panels don't ask again.
+    ...(updatedState.resolvedCategory ? { categoryObject: updatedState.resolvedCategory } : {}),
   };
+  logCategoryRuleDecision({
+    context: 'cashconverters-research-complete',
+    item: nextItem,
+    categoryObject: nextItem.categoryObject,
+    rule: {
+      source: 'category-based-margins',
+      margins: Array.isArray(updatedState?.buyOffers) ? 'buyOffers-computed' : null,
+    },
+  });
+  return nextItem;
 }
 
 /**
@@ -843,7 +914,28 @@ export function applyCeXProductDataToItem(item, cexProductData, useVoucherOffers
     ...(item.cashConvertersResearchData ? { cashConvertersResearchData: item.cashConvertersResearchData } : {}),
   };
 
-  return {
+  // Use the fully resolved categoryObject from cexProductData when available (it already has a DB id).
+  // Fall back to building a text-only object only if cexProductData has no resolved object.
+  const newCategory = cexProductData.category || item.category;
+  const prevCategoryName = String(item.category || item.categoryObject?.name || '').trim().toLowerCase();
+  const nextCategoryName = String(newCategory || '').trim().toLowerCase();
+  const categoryChanged = Boolean(nextCategoryName) && prevCategoryName !== nextCategoryName;
+
+  // Prefer the DB-resolved object from the incoming cexProductData (which has the correct id
+  // after handleAddFromCeX runs matchCexCategoryNameToDb). Only fall back to the existing item
+  // categoryObject when the category hasn't changed and it already has a DB id.
+  const newCategoryObject =
+    cexProductData.categoryObject?.id != null
+      ? cexProductData.categoryObject
+      : cexProductData.categoryObject || (categoryChanged
+          ? { name: newCategory, path: [newCategory] }
+          : item.categoryObject?.id != null
+            ? item.categoryObject
+            : newCategory
+              ? { name: newCategory, path: [newCategory] }
+              : item.categoryObject);
+
+  const nextItem = {
     ...item,
     cashOffers,
     voucherOffers,
@@ -860,5 +952,19 @@ export function applyCeXProductDataToItem(item, cexProductData, useVoucherOffers
     referenceData: mergedReferenceData,
     rawData: mergedRawData,
     rrpOffersSource: NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL,
+    category: newCategory || item.category,
+    categoryObject: newCategoryObject,
   };
+  logCategoryRuleDecision({
+    context: categoryChanged ? 'cex-pencil-refresh-category-changed' : 'cex-data-applied',
+    item: nextItem,
+    categoryObject: nextItem.categoryObject,
+    categoryName: newCategory || null,
+    rule: {
+      source: 'cex-reference-rule',
+      ...buildRuleSnapshotFromReferenceData(mergedReferenceData),
+    },
+    notes: categoryChanged ? 'Cleared stale category id because CeX category changed.' : null,
+  });
+  return nextItem;
 }

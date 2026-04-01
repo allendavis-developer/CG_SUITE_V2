@@ -229,6 +229,18 @@ class PricingRule(models.Model):
         )
     )
 
+    third_offer_pct_of_cex = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text=(
+            "% of the CeX trade-in price offered as the Third Offer. "
+            "E.g. 100 means offer_3 = cex_tradein * 1.00 (matches CeX). "
+            "Leave blank to default to 100% (match CeX trade-in exactly)."
+        )
+    )
+
     ebay_offer_margin_1_pct = models.DecimalField(
         max_digits=5,
         decimal_places=2,
@@ -259,6 +271,17 @@ class PricingRule(models.Model):
         help_text=(
             "Third offer as % of suggested sale price. "
             "E.g. 60 means offer = suggestedPrice × 0.60. Default 60."
+        )
+    )
+
+    ebay_offer_margin_4_pct = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text=(
+            "Fourth offer as % of suggested sale price (top tier; typically match sale). "
+            "E.g. 100 means offer = suggestedPrice × 1.00. Default 100 when blank."
         )
     )
 
@@ -1690,3 +1713,125 @@ class InventoryOwnershipEvent(models.Model):
 
     class Meta:
         db_table = "inventory_ownership_event"
+
+
+# ─── Customer Offer Rules ──────────────────────────────────────────────────────
+
+class CustomerRuleSettings(models.Model):
+    """
+    Global settings for cancel-rate tier thresholds.
+    Intended as a singleton — only one row should ever exist (id=1).
+    """
+
+    low_cr_max_pct = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        default=Decimal('20.00'),
+        help_text=(
+            "Upper bound (inclusive) for the 'Low Cancel Rate' tier. "
+            "Customers with cancel rate ≤ this value are classified as Low CR."
+        )
+    )
+
+    mid_cr_max_pct = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        default=Decimal('40.00'),
+        help_text=(
+            "Upper bound (inclusive) for the 'Mid Cancel Rate' tier. "
+            "Customers with cancel rate between Low CR max and this value are Mid CR; "
+            "above this value is High CR."
+        )
+    )
+
+    jewellery_offer_margin_1_pct = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal('30.00'),
+        help_text="Jewellery 1st offer margin % vs reference total."
+    )
+    jewellery_offer_margin_2_pct = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal('20.00'),
+        help_text="Jewellery 2nd offer margin % vs reference total."
+    )
+    jewellery_offer_margin_3_pct = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal('10.00'),
+        help_text="Jewellery 3rd offer margin % vs reference total."
+    )
+    jewellery_offer_margin_4_pct = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal('5.00'),
+        help_text="Jewellery 4th offer margin % vs reference total."
+    )
+
+    class Meta:
+        db_table = 'buying_customer_rule_settings'
+        verbose_name = 'Customer Rule Settings'
+
+    def __str__(self):
+        return (
+            f"CR Thresholds: Low ≤{self.low_cr_max_pct}%, Mid ≤{self.mid_cr_max_pct}%, "
+            f"High >{self.mid_cr_max_pct}% | Jewellery margins: "
+            f"{self.jewellery_offer_margin_1_pct}/{self.jewellery_offer_margin_2_pct}/"
+            f"{self.jewellery_offer_margin_3_pct}/{self.jewellery_offer_margin_4_pct}"
+        )
+
+    @classmethod
+    def get_singleton(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+
+class CustomerOfferRule(models.Model):
+    """
+    Defines which offer slots are allowed without senior-management authorisation
+    for a given customer type (new customer, low/mid/high cancel rate).
+    """
+
+    CUSTOMER_TYPE_CHOICES = [
+        ('new_customer', 'New Customer'),
+        ('low_cr', 'Low Cancel Rate'),
+        ('mid_cr', 'Mid Cancel Rate'),
+        ('high_cr', 'High Cancel Rate'),
+    ]
+
+    customer_type = models.CharField(
+        max_length=20,
+        choices=CUSTOMER_TYPE_CHOICES,
+        unique=True,
+        help_text="The customer classification this rule applies to."
+    )
+
+    allow_offer_1 = models.BooleanField(
+        default=True,
+        help_text="Whether the 1st Offer slot can be selected without authorisation."
+    )
+    allow_offer_2 = models.BooleanField(
+        default=True,
+        help_text="Whether the 2nd Offer slot can be selected without authorisation."
+    )
+    allow_offer_3 = models.BooleanField(
+        default=True,
+        help_text="Whether the 3rd Offer slot can be selected without authorisation."
+    )
+    allow_offer_4 = models.BooleanField(
+        default=True,
+        help_text="Whether the 4th Offer slot can be selected without authorisation."
+    )
+    allow_manual = models.BooleanField(
+        default=True,
+        help_text="Whether a manual offer entry is allowed without authorisation."
+    )
+
+    class Meta:
+        db_table = 'buying_customer_offer_rule'
+        verbose_name = 'Customer Offer Rule'
+        verbose_name_plural = 'Customer Offer Rules'
+
+    def __str__(self):
+        return f"Offer rule for {self.get_customer_type_display()}"

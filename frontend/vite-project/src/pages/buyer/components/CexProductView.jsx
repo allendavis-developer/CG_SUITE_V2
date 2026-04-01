@@ -30,9 +30,14 @@ export default function CexProductView({
   onItemAddedToCart,
   showNotification,
   onUpdateCartItemResearch,
+  blockedOfferSlots = null,
+  onBlockedOfferClick = null,
 }) {
   const [isCeXEbayModalOpen, setCeXEbayModalOpen] = useState(false);
   const [isCeXCashConvertersModalOpen, setCeXCashConvertersModalOpen] = useState(false);
+  const resolvedItemCategory =
+    item?.categoryObject ||
+    (item?.category ? { name: item.category, path: [item.category] } : { name: 'CeX', path: ['CeX'] });
 
   // ── Viewing saved cart item ──
   if (item) {
@@ -109,7 +114,7 @@ export default function CexProductView({
 
           {isCeXEbayModalOpen && (
             <EbayResearchForm
-              mode="modal" category={{ name: 'CeX', path: ['CeX'] }} savedState={item.ebayResearchData}
+              mode="modal" category={resolvedItemCategory} savedState={item.ebayResearchData}
               initialHistogramState={false} showManualOffer={false} referenceData={refData}
               ourSalePrice={resolvedOurSalePrice} initialSearchQuery={buildInitialSearchQuery(item) ?? item.title ?? item.model}
               marketComparisonContext={buildItemMarketContext()}
@@ -125,7 +130,7 @@ export default function CexProductView({
           )}
           {isCeXCashConvertersModalOpen && (
             <CashConvertersResearchForm
-              mode="modal" category={{ name: 'CeX', path: ['CeX'] }} savedState={item.cashConvertersResearchData}
+              mode="modal" category={resolvedItemCategory} savedState={item.cashConvertersResearchData}
               initialHistogramState={false} referenceData={refData} ourSalePrice={resolvedOurSalePrice}
               initialSearchQuery={buildInitialSearchQuery(item) ?? item.title ?? item.model} marketComparisonContext={buildItemMarketContext()}
               useVoucherOffers={useVoucherOffers}
@@ -172,7 +177,8 @@ export default function CexProductView({
       subtitle: data.category || '',
       variantName: researchQuery || undefined,
       quantity: 1,
-      category: 'CeX', categoryObject: { name: 'CeX', path: ['CeX'] },
+      category: data.category || 'CeX',
+      categoryObject: data.categoryObject || (data.category ? { name: data.category, path: [data.category] } : { name: 'CeX', path: ['CeX'] }),
       offers, cashOffers, voucherOffers, isCustomCeXItem: true, variantId: null, request_item_id: null,
       referenceData: refData,
       ourSalePrice: cexBasedRounded,
@@ -274,7 +280,15 @@ export default function CexProductView({
             </button>
           )
         ) : offers.length > 0 && (
-          <OfferSelection variant="cex" offers={offers} referenceData={refWithOurSale} offerType={useVoucherOffers ? 'voucher' : 'cash'} onAddToCart={handleAdd} />
+          <OfferSelection
+            variant="cex"
+            offers={offers}
+            referenceData={refWithOurSale}
+            offerType={useVoucherOffers ? 'voucher' : 'cash'}
+            onAddToCart={handleAdd}
+            blockedOfferSlots={blockedOfferSlots}
+            onBlockedOfferClick={onBlockedOfferClick}
+          />
         )}
       </div>
     </section>

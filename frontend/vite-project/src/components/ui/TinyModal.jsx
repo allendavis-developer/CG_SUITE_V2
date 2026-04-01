@@ -16,15 +16,23 @@ const TinyModal = ({
     className={`fixed inset-0 ${zClass} flex justify-center ${
       bodyScroll ? 'items-center overflow-hidden' : 'items-start overflow-y-auto py-8'
     }`}
+    onMouseDown={(e) => e.stopPropagation()}
+    onClick={(e) => e.stopPropagation()}
   >
     <div
       className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-      onClick={closeOnBackdrop ? onClose : undefined}
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (closeOnBackdrop) onClose?.();
+      }}
     />
     <div
       className={`relative mx-4 flex w-full max-w-sm flex-col rounded-2xl bg-white p-6 shadow-2xl ${
         bodyScroll ? 'max-h-[min(92vh,720px)] overflow-hidden' : 'my-2 shrink-0'
       } ${panelClassName}`}
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
     >
       <div className="mb-4 flex shrink-0 items-center justify-between">
         <h3 className="text-sm font-black uppercase tracking-wider" style={{ color: 'var(--brand-blue)' }}>{title}</h3>

@@ -151,6 +151,7 @@ function RepricingWorkspaceRoute() {
 export default function App() {
   useEffect(() => {
     useAppStore.getState().loadEbayOfferMargins();
+    useAppStore.getState().loadCustomerOfferRulesData();
   }, []);
   return (
     <BrowserRouter>

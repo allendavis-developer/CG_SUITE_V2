@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { maybeShowSalePriceConfirm } from '../utils/researchCompletionHelpers';
-import { buildItemSpecs, buildInitialSearchQuery } from '../utils/negotiationHelpers';
+import { buildItemSpecs, buildInitialSearchQuery, logCategoryRuleDecision } from '../utils/negotiationHelpers';
 
 /**
  * Shared state and handlers for the eBay / Cash Converters research overlay panel
@@ -29,6 +29,27 @@ export function useResearchOverlay({
   const [researchItem, setResearchItem] = useState(null);
   const [cashConvertersResearchItem, setCashConvertersResearchItem] = useState(null);
   const [salePriceConfirmModal, setSalePriceConfirmModal] = useState(null);
+
+  /**
+   * Called immediately when either research form resolves a category (before search starts).
+   * Stamps the category onto the item so sibling research forms skip the picker.
+   */
+  const handleResearchItemCategoryResolved = useCallback((itemId, category) => {
+    if (!itemId || !category?.id) return;
+    setItems((prev) => prev.map((i) => {
+      if (i.id !== itemId) return i;
+      // Only update if the item doesn't already have a category id
+      if (i.categoryObject?.id) return i;
+      const nextItem = { ...i, categoryObject: category };
+      logCategoryRuleDecision({
+        context: 'research-category-resolved',
+        item: nextItem,
+        categoryObject: category,
+        rule: { source: 'pending-category-margin-load' },
+      });
+      return nextItem;
+    }));
+  }, [setItems]);
 
   const handleResearchComplete = useCallback((updatedState) => {
     if (updatedState?.cancel) { setResearchItem(null); return; }
@@ -69,6 +90,7 @@ export function useResearchOverlay({
     setSalePriceConfirmModal,
     handleResearchComplete,
     handleCashConvertersResearchComplete,
+    handleResearchItemCategoryResolved,
   };
 }
 

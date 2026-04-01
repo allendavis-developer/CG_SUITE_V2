@@ -6,6 +6,226 @@ import { calculateStats, calculateBuyOffers } from './researchStats';
 import { buildOtherResearchChannelsSummaries } from './researchOtherChannelsSummary';
 import { Icon } from '../ui/components';
 import useAppStore, { useEbayOfferMargins } from '@/store/useAppStore';
+import { fetchProductCategories, fetchAllCategoriesFlat } from '@/services/api';
+import { matchCexCategoryNameToDb } from '@/utils/cexCategoryMatch';
+
+// ─── Category Picker (hierarchical, JewelleryPickerList-style) ───────────────
+
+function CategoryPickerList({ items, isLoading, onSelect, query, setQuery, statsHeading, entitySingular, entityPlural }) {
+  const searchRef = useRef(null);
+
+  useEffect(() => { if (!isLoading && items.length > 0) searchRef.current?.focus({ preventScroll: true }); }, [isLoading, items.length]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter((c) => c.name.toLowerCase().includes(q));
+  }, [items, query]);
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 py-12 text-gray-500">
+        <span className="material-symbols-outlined animate-spin text-3xl text-brand-blue">sync</span>
+        <p className="text-sm">Loading categories…</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="shrink-0 border-b border-gray-200 bg-white px-4 py-3">
+        <div className="relative">
+          <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-gray-400">search</span>
+          <input
+            ref={searchRef}
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && filtered.length === 1) onSelect(filtered[0]); }}
+            placeholder="Search categories…"
+            className="w-full rounded-lg border border-gray-300 bg-white py-2 pl-9 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-orange"
+          />
+          {query ? (
+            <button type="button" onClick={() => setQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600">
+              <span className="material-symbols-outlined text-[16px]">close</span>
+            </button>
+          ) : null}
+        </div>
+        <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5">
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">{statsHeading}</p>
+              {filtered.length === items.length ? (
+                <p className="mt-0.5 text-2xl font-black tabular-nums tracking-tight text-brand-blue">
+                  {items.length}
+                  <span className="ml-1.5 text-base font-bold text-gray-700">{items.length === 1 ? entitySingular : entityPlural}</span>
+                </p>
+              ) : (
+                <>
+                  <p className="mt-0.5 text-2xl font-black tabular-nums tracking-tight text-brand-blue">
+                    {filtered.length}
+                    <span className="mx-1 text-lg font-bold text-gray-400">/</span>
+                    <span className="text-xl font-bold text-gray-700">{items.length}</span>
+                  </p>
+                  <p className="mt-0.5 text-xs font-medium text-gray-600">Showing matches — {items.length} total</p>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain [-webkit-overflow-scrolling:touch]">
+        {filtered.length === 0 ? (
+          <div className="flex flex-col items-center justify-center px-6 py-16 text-center text-gray-500">
+            <span className="material-symbols-outlined mb-3 text-4xl text-gray-400">{query.trim() ? 'search_off' : 'category'}</span>
+            {query.trim() ? (
+              <>
+                <p className="text-sm font-semibold text-gray-800">No matches</p>
+                <p className="mt-1 max-w-sm text-sm text-gray-600">Try different keywords or clear the search.</p>
+              </>
+            ) : (
+              <p className="text-sm font-semibold text-gray-800">Nothing to show</p>
+            )}
+          </div>
+        ) : (
+          <table className="w-full border-collapse text-sm">
+            <tbody>
+              {filtered.map((cat, i) => (
+                <tr
+                  key={cat.category_id}
+                  onClick={() => onSelect(cat)}
+                  className={`cursor-pointer border-b border-gray-200/80 transition-colors hover:bg-brand-blue/5 hover:text-brand-blue ${i % 2 === 0 ? 'bg-white' : 'bg-brand-blue/10'}`}
+                >
+                  <td className="px-4 py-3 font-medium text-gray-900">
+                    {cat.name}
+                    {cat.children?.length > 0 && (
+                      <span className="ml-2 text-[11px] font-normal text-gray-400">{cat.children.length} sub-{cat.children.length === 1 ? 'category' : 'categories'}</span>
+                    )}
+                  </td>
+                  <td className="w-10 px-4 py-3 text-right">
+                    <span className="material-symbols-outlined align-middle text-[20px] text-gray-400">chevron_right</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Hierarchical category picker shown as a step inside the research form
+ * when the item doesn't already have a known category id.
+ */
+function CategoryPickerStep({ onSelect, onSkip }) {
+  const [allCategories, setAllCategories] = useState([]);
+  const [loadError, setLoadError] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [path, setPath] = useState([]); // stack of category nodes
+  const [query, setQuery] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchProductCategories().then((data) => {
+      if (cancelled) return;
+      setLoading(false);
+      if (Array.isArray(data) && data.length > 0) setAllCategories(data);
+      else setLoadError('Could not load categories.');
+    }).catch(() => {
+      if (!cancelled) { setLoading(false); setLoadError('Could not load categories.'); }
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  const currentLevelItems = path.length === 0 ? allCategories : (path[path.length - 1].children || []);
+  const currentCategory = path.length > 0 ? path[path.length - 1] : null;
+
+  const handleSelectItem = (cat) => {
+    if (cat.children?.length > 0) {
+      setPath([...path, cat]);
+      setQuery('');
+    } else {
+      const resolvedPath = [...path.map((p) => p.name), cat.name];
+      onSelect({ id: cat.category_id, name: cat.name, path: resolvedPath });
+    }
+  };
+
+  const handleUseCurrentCategory = () => {
+    if (!currentCategory) return;
+    onSelect({ id: currentCategory.category_id, name: currentCategory.name, path: path.map((p) => p.name) });
+  };
+
+  const navigateTo = (index) => {
+    setPath(path.slice(0, index + 1));
+    setQuery('');
+  };
+
+  return (
+    <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col gap-3 overflow-hidden p-4">
+      {/* Breadcrumb navigation */}
+      {path.length > 0 && (
+        <div className="shrink-0 flex flex-wrap items-center gap-1 text-xs font-medium">
+          <button type="button" onClick={() => { setPath([]); setQuery(''); }} className="text-brand-blue hover:underline">All Categories</button>
+          {path.map((p, i) => (
+            <React.Fragment key={p.category_id}>
+              <span className="text-gray-400">›</span>
+              {i < path.length - 1 ? (
+                <button type="button" onClick={() => navigateTo(i)} className="text-brand-blue hover:underline">{p.name}</button>
+              ) : (
+                <span className="font-bold text-gray-800">{p.name}</span>
+              )}
+            </React.Fragment>
+          ))}
+        </div>
+      )}
+
+      {/* "Use this category" when drilled into a non-leaf */}
+      {currentCategory && (currentCategory.children?.length > 0) && (
+        <button
+          type="button"
+          onClick={handleUseCurrentCategory}
+          className="shrink-0 flex items-center gap-2 rounded-lg border border-brand-blue/30 bg-brand-blue/5 px-3 py-2 text-xs font-bold text-brand-blue transition-colors hover:bg-brand-blue/10"
+        >
+          <span className="material-symbols-outlined text-[16px]">check_circle</span>
+          Use &ldquo;{currentCategory.name}&rdquo; as category
+        </button>
+      )}
+
+      {/* Back button + error */}
+      {path.length > 0 && (
+        <button type="button" onClick={() => { setPath(path.slice(0, -1)); setQuery(''); }} className="shrink-0 inline-flex w-fit items-center gap-1 text-xs font-bold text-brand-blue hover:underline">
+          <span className="material-symbols-outlined text-[16px]">arrow_back</span>
+          Back
+        </button>
+      )}
+
+      {loadError && <p className="shrink-0 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{loadError}</p>}
+
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-gray-200">
+        <CategoryPickerList
+          items={currentLevelItems}
+          isLoading={loading}
+          onSelect={handleSelectItem}
+          query={query}
+          setQuery={setQuery}
+          statsHeading={path.length === 0 ? 'Top-level categories' : `Sub-categories of "${currentCategory?.name}"`}
+          entitySingular="category"
+          entityPlural="categories"
+        />
+      </div>
+
+      <button
+        type="button"
+        onClick={onSkip}
+        className="shrink-0 rounded-lg border border-gray-300 bg-white px-4 py-2 text-xs font-semibold text-gray-600 shadow-sm transition-colors hover:bg-gray-50"
+      >
+        Skip — continue without selecting a category
+      </button>
+    </div>
+  );
+}
 
 const SOURCE_CONFIG = {
   eBay: {
@@ -92,21 +312,123 @@ function ExtensionResearchForm({
   containModalInParent = false,
   hideAddAction = false,
   lineItemContext = null,
+  blockedOfferSlots = null,
+  onBlockedOfferClick = null,
+  /** Called immediately when a category is selected (before search). Use to persist the
+   *  category onto the item so other research forms for the same item skip the picker. */
+  onCategoryResolved = null,
 }) {
   const config = SOURCE_CONFIG[source] ?? SOURCE_CONFIG.eBay;
   const isEbay = source === 'eBay';
 
-  const categoryId = category?.id ?? null;
+  // resolvedCategory: either the category prop (if it has an id), one restored from saved state,
+  // or one the user picks during this session
+  const [resolvedCategory, setResolvedCategory] = useState(() => {
+    if (category?.id != null) return category;
+    if (savedState?.resolvedCategory?.id != null) return savedState.resolvedCategory;
+    return null;
+  });
+  // Sync if the category prop changes externally (e.g. cart item updated)
+  const prevCategoryIdRef = useRef(category?.id);
+  useEffect(() => {
+    if (category?.id != null && category.id !== prevCategoryIdRef.current) {
+      prevCategoryIdRef.current = category?.id;
+      setResolvedCategory(category);
+    }
+  }, [category]);
+
+  const categoryId = resolvedCategory?.id ?? null;
   const ebayOfferMargins = useEbayOfferMargins(categoryId);
   useEffect(() => {
     if (categoryId) useAppStore.getState().loadEbayOfferMargins(categoryId);
   }, [categoryId]);
+  useEffect(() => {
+    if (!resolvedCategory) return;
+    if (typeof console === 'undefined') return;
+    console.log('[CG Suite][CategoryRule]', {
+      context: `${source}-research-category-and-rule`,
+      categoryName: resolvedCategory?.name ?? null,
+      categoryId: resolvedCategory?.id ?? null,
+      categoryPath: resolvedCategory?.path ?? null,
+      rule: {
+        source: 'ebay-offer-margins',
+        margins: Array.isArray(ebayOfferMargins) ? ebayOfferMargins : null,
+      },
+    });
+  }, [resolvedCategory, ebayOfferMargins, source]);
 
   const savedHasAnyResearch =
     Boolean(savedState?.listings?.length) ||
     Boolean(savedState?.buyOffers?.length) ||
     Boolean(savedState?.stats && typeof savedState.stats === 'object');
-  const [step, setStep] = useState(savedHasAnyResearch ? 'cards' : 'get-data');
+
+  // Show category picker when: not readOnly, no existing category id (from prop or saved state),
+  // and no saved research yet
+  const categoryKnown = (category?.id != null) || (savedState?.resolvedCategory?.id != null);
+  const needsCategoryPick = !readOnly && !categoryKnown && !savedHasAnyResearch;
+  const [step, setStep] = useState(() => {
+    if (savedHasAnyResearch) return 'cards';
+    if (needsCategoryPick) return 'category';
+    return 'get-data';
+  });
+
+  // ─── Auto-resolve CeX category name to DB category ─────────────────────
+  // Runs once when we land on the 'category' step with a named (non-id) category.
+  // If we can match "Games / Xbox" → DB "Xbox", we skip the picker entirely.
+  const [autoResolvingCategory, setAutoResolvingCategory] = useState(false);
+  const autoResolveDoneRef = useRef(false);
+
+  useEffect(() => {
+    if (step !== 'category') return;
+    if (autoResolveDoneRef.current) return;
+
+    // Only attempt auto-resolution when there's a real CeX-sourced category name to match.
+    // eBay items come in with "Other" or no category — skip straight to the manual picker.
+    const cexName = category?.name;
+    const GENERIC_NAMES = new Set(['cex', 'other', 'n/a', 'unknown', '']);
+    const isUsableName = cexName && !GENERIC_NAMES.has(cexName.toLowerCase().trim());
+
+    if (!isUsableName || category?.id != null) {
+      autoResolveDoneRef.current = true;
+      return;
+    }
+
+    autoResolveDoneRef.current = true;
+    let cancelled = false;
+    let slowResolveTimer = null;
+    setAutoResolvingCategory(true);
+    slowResolveTimer = window.setTimeout(() => {
+      if (!cancelled) setAutoResolvingCategory(false);
+    }, 2500);
+    fetchAllCategoriesFlat().then((flat) => {
+      if (cancelled) return;
+      const match = matchCexCategoryNameToDb(cexName, flat);
+      if (match) {
+        setResolvedCategory(match);
+        if (typeof console !== 'undefined') {
+          console.log('[CG Suite][CategoryRule]', {
+            context: `${source}-auto-resolved-from-cex-name`,
+            categoryName: match?.name ?? null,
+            categoryId: match?.id ?? null,
+            categoryPath: match?.path ?? null,
+            rawCexCategoryName: cexName,
+          });
+        }
+        onCategoryResolved?.(match);
+        setStep('get-data');
+      }
+    }).catch(() => {
+      /* silently fall through to manual picker */
+    }).finally(() => {
+      if (slowResolveTimer) window.clearTimeout(slowResolveTimer);
+      if (!cancelled) setAutoResolvingCategory(false);
+    });
+    return () => {
+      cancelled = true;
+      if (slowResolveTimer) window.clearTimeout(slowResolveTimer);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
   const [listings, setListings] = useState(() =>
     prepareExtensionListingsForShell(source, savedState?.listings ?? [], config.idPrefix)
   );
@@ -214,12 +536,13 @@ function ExtensionResearchForm({
 
   const autoTriggeredRef = useRef(false);
   useEffect(() => {
+    // Only auto-trigger when we're actually on the get-data step (not category step)
     if (mode === 'modal' && step === 'get-data' && !readOnly && savedState == null && !autoTriggeredRef.current) {
       autoTriggeredRef.current = true;
       handleGetData();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [step]);
 
   const handleCancelRefine = useCallback(() => {
     userCancelledRef.current = true;
@@ -393,9 +716,11 @@ function ExtensionResearchForm({
       filterOptions: [],
       manualOffer,
       advancedFilterState,
+      // Pass along any category that was resolved during this research session
+      resolvedCategory: resolvedCategory || null,
       ...extras,
     };
-  }, [listings, showHistogram, drillHistory, displayedStats, buyOffers, searchTerm, listingPageUrl, manualOffer, isEbay, includeEbayBroadMatchListings]);
+  }, [listings, showHistogram, drillHistory, displayedStats, buyOffers, searchTerm, listingPageUrl, manualOffer, isEbay, includeEbayBroadMatchListings, resolvedCategory]);
 
   const handleComplete = useCallback(() => {
     onComplete?.(buildPayload());
@@ -450,6 +775,94 @@ function ExtensionResearchForm({
     setLoading(false);
     setStep('get-data');
   }, [isEbay, loading, initialHistogramState, mode]);
+
+  // ─── Category-pick step ─────────────────────────────────────────────────
+  if (step === 'category') {
+    const handleCategorySelected = (cat) => {
+      setResolvedCategory(cat);
+      if (typeof console !== 'undefined') {
+        console.log('[CG Suite][CategoryRule]', {
+          context: `${source}-manual-category-selected`,
+          categoryName: cat?.name ?? null,
+          categoryId: cat?.id ?? null,
+          categoryPath: cat?.path ?? null,
+        });
+      }
+      // Immediately notify the parent so sibling research forms for the same item
+      // don't re-ask for category (the category is now known for this item).
+      onCategoryResolved?.(cat);
+      setStep('get-data');
+    };
+    const handleSkipCategory = () => {
+      setStep('get-data');
+    };
+
+    const categoryBody = (
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className="shrink-0 border-b border-gray-200 bg-brand-blue/5 px-4 py-3">
+          <p className="text-xs font-semibold text-brand-blue">
+            What category does this item belong to?
+          </p>
+          <p className="mt-0.5 text-[11px] text-gray-500">
+            Selecting a category applies the correct offer margins from the pricing rules config.
+          </p>
+        </div>
+        {autoResolvingCategory ? (
+          <div className="shrink-0 mx-4 mt-3 rounded-lg border border-brand-blue/20 bg-brand-blue/5 px-3 py-2 text-xs text-brand-blue">
+            Matching category from scraped data...
+          </div>
+        ) : null}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <CategoryPickerStep onSelect={handleCategorySelected} onSkip={handleSkipCategory} />
+        </div>
+      </div>
+    );
+
+    if (mode === 'modal') {
+      const wrapperClass = containModalInParent
+        ? 'flex h-full min-h-0 w-full flex-col'
+        : 'fixed inset-0 z-[100] flex items-start justify-center bg-black/40';
+      return (
+        <div className={wrapperClass}>
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white">
+            <header className="bg-brand-blue px-6 py-4 flex items-center justify-between text-white shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="bg-white/10 p-1.5 rounded">
+                  <Icon name="category" className="text-brand-orange" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold">{config.headerTitle}</h2>
+                  <p className="text-[10px] text-white/60 font-medium uppercase tracking-widest leading-none mt-0.5">
+                    Select item category
+                  </p>
+                </div>
+              </div>
+              <WorkspaceCloseButton
+                title={`Close ${config.label} research`}
+                onClick={() => onComplete?.({ cancel: true })}
+              />
+            </header>
+            {ephemeralSessionNotice && (
+              <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2.5 text-center text-xs font-semibold text-amber-950" role="status">
+                {ephemeralSessionNotice}
+              </div>
+            )}
+            <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white">{categoryBody}</main>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex flex-col h-full bg-gray-50">
+        <header className="px-6 py-4 border-b border-gray-200 bg-white shrink-0">
+          <h2 className="text-lg font-bold text-brand-blue">{config.headerTitle}</h2>
+          <p className="text-sm text-gray-500">Select the item category before searching</p>
+        </header>
+        <main className="flex-1 min-h-0 overflow-hidden flex flex-col">{categoryBody}</main>
+      </div>
+    );
+  }
 
   // ─── Get-data step ──────────────────────────────────────────────────────
   if (step === 'get-data') {
@@ -587,6 +1000,9 @@ function ExtensionResearchForm({
       ebayHasBroadMatchListings={ebayHasBroadMatchListings}
       includeEbayBroadMatchListings={includeEbayBroadMatchListings}
       onIncludeEbayBroadMatchChange={isEbay && !readOnly ? setIncludeEbayBroadMatchListings : undefined}
+      blockedOfferSlots={blockedOfferSlots}
+      onBlockedOfferClick={onBlockedOfferClick}
+      lineItemContext={lineItemContext}
     />
   );
 }

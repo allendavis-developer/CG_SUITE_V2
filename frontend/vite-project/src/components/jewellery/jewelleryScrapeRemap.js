@@ -3,11 +3,13 @@
  * to new rates while preserving tier index (selectedOfferId / selectedOfferTierPct).
  */
 
-import { roundOfferPrice, toVoucherOfferPrice, normalizeExplicitSalePrice } from '@/utils/helpers';
-import { isJewelleryCoinLine } from './jewelleryNegotiationCart';
-
-/** Same order as workspace: 1st = 30% margin, 2nd = 20%, 3rd = 10%. */
-const TIER_MARGINS_PCT = [30, 20, 10];
+import { normalizeExplicitSalePrice } from '@/utils/helpers';
+import {
+  isJewelleryCoinLine,
+  isJewelleryCoinSilverOzLine,
+  rebuildJewelleryOffersForNegotiationItem,
+} from './jewelleryNegotiationCart';
+import { troyOzSilverReferenceFromCatalog } from './jewellerySilverCoinReference';
 
 function normalizeSourceUnit(unitRaw) {
   const s = String(unitRaw || '').toLowerCase();
@@ -107,8 +109,14 @@ function suggestReferenceEntries(catalog, materialGrade) {
   return scored.length ? scored.map((x) => x.c) : slice.length ? slice : catalog;
 }
 
-function bestReferenceEntry(catalog, materialGrade) {
+function bestReferenceEntry(catalog, materialGrade, productName) {
   if (!catalog.length) return null;
+  const prod = String(productName ?? '').trim().toLowerCase();
+  const mg = String(materialGrade ?? '').trim().toLowerCase();
+  if (prod === 'coin' && mg === 'silver') {
+    const oz = troyOzSilverReferenceFromCatalog(catalog);
+    if (oz) return oz;
+  }
   const ranked = suggestReferenceEntries(catalog, materialGrade);
   return ranked[0] ?? catalog[0] ?? null;
 }
@@ -119,7 +127,7 @@ function resolveWorkspaceReferenceEntry(line, catalog) {
     const byId = catalog.find((c) => c.catalogId === cid);
     if (byId) return byId;
   }
-  return bestReferenceEntry(catalog, line.materialGrade);
+  return bestReferenceEntry(catalog, line.materialGrade, line.productName);
 }
 
 /**
@@ -153,12 +161,6 @@ export function remapJewelleryWorkspaceLines(lines, sections) {
   });
 }
 
-function tierOfferGbp(referenceTotalGbp, marginPct) {
-  if (!Number.isFinite(referenceTotalGbp) || referenceTotalGbp <= 0) return 0;
-  const raw = referenceTotalGbp * (1 - marginPct / 100);
-  return roundOfferPrice(raw);
-}
-
 function negotiationTotalFromRefEntry(refEntry, weightRaw, weightUnitRaw) {
   if (!refEntry) return 0;
   if (refEntry.sourceKind === 'UNIT') {
@@ -177,7 +179,7 @@ function negotiationTotalFromRefEntry(refEntry, weightRaw, weightUnitRaw) {
  * @param {Array} sections
  * @param {boolean} useVoucherOffers
  */
-export function applyJewelleryScrapeToNegotiationItem(item, sections, useVoucherOffers) {
+export function applyJewelleryScrapeToNegotiationItem(item, sections, useVoucherOffers, jewelleryRuleSettings = null) {
   if (!item?.isJewelleryItem || !item.referenceData?.jewellery_line) return item;
   const catalog = buildJewelleryScrapeCatalog(sections);
   if (!catalog.length) return item;
@@ -186,31 +188,22 @@ export function applyJewelleryScrapeToNegotiationItem(item, sections, useVoucher
   const cid = rd.reference_catalog_id;
   const refEntry =
     (cid ? catalog.find((c) => c.catalogId === cid) : null) ||
-    bestReferenceEntry(catalog, rd.material_grade);
+    bestReferenceEntry(catalog, rd.material_grade, rd.product_name);
   if (!refEntry) return item;
 
   const isCoin = isJewelleryCoinLine({ productName: rd.product_name, materialGrade: rd.material_grade });
+  const isSilverOz = isJewelleryCoinSilverOzLine({ productName: rd.product_name, materialGrade: rd.material_grade });
   const weight = isCoin ? '1' : rd.weight;
   const wu = isCoin ? 'each' : rd.weight_unit === 'each' ? 'each' : rd.weight_unit || 'g';
   const total = negotiationTotalFromRefEntry(refEntry, weight, wu);
 
-  const cashOffers = TIER_MARGINS_PCT.map((p, idx) => ({
-    id: `jew-cash-${p}`,
-    title: ['1st Offer', '2nd Offer', '3rd Offer'][idx] || 'Offer',
-    price: tierOfferGbp(total, p),
-  }));
-  const voucherOffers = cashOffers.map((o) => ({
-    id: `jew-v-${o.id}`,
-    title: o.title,
-    price: toVoucherOfferPrice(o.price),
-  }));
-  const offers = useVoucherOffers ? voucherOffers : cashOffers;
-
-  const displayWu = isCoin ? 'coin' : wu === 'each' ? 'ea' : wu;
+  const displayWu = isCoin ? (isSilverOz ? 't oz' : 'coin') : wu === 'each' ? 'ea' : wu;
   const subtitle = [
     refEntry.displayName,
     isCoin
-      ? '1 coin'
+      ? isSilverOz
+        ? '1 troy oz'
+        : '1 coin'
       : weight != null && weight !== ''
         ? `${weight}${displayWu}`
         : null,
@@ -236,14 +229,13 @@ export function applyJewelleryScrapeToNegotiationItem(item, sections, useVoucher
       ? { ...item.rawData, referenceData }
       : { referenceData };
 
-  return {
+  const base = {
     ...item,
     subtitle,
-    cashOffers,
-    voucherOffers,
-    offers,
     ourSalePrice: total > 0 ? normalizeExplicitSalePrice(total) : item.ourSalePrice,
     referenceData,
     rawData,
+    isJewelleryItem: true,
   };
+  return rebuildJewelleryOffersForNegotiationItem(base, useVoucherOffers, jewelleryRuleSettings);
 }

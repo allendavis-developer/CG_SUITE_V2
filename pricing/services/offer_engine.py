@@ -44,24 +44,45 @@ def generate_offer_set(
     our_sale_price,
     first_offer_pct=None,
     second_offer_pct=None,
+    third_offer_pct=None,
 ):
-    offer_3 = cex_reference_buy_price
+    """
+    Generate CeX offer tiers.
+    - Match CeX (last tier) always equals the raw CeX trade-in reference price.
+    - Offer 3 = third_offer_pct% of reference. If not specified, the 3rd tier is omitted.
+    - Offer 2 = second_offer_pct% of reference, or midpoint of 1 and 3 (or 1 and Match CeX).
+    - Offer 1 = first_offer_pct% of reference, or same absolute margin as CeX.
+    """
+    match_cex_price = float(cex_reference_buy_price)
+
+    # 3rd offer is only included when explicitly configured in the rule.
+    has_third = third_offer_pct is not None
+    if has_third:
+        rounded_offer_3 = round_offer_price(
+            max(cex_reference_buy_price * (third_offer_pct / 100.0), 0)
+        )
+    else:
+        rounded_offer_3 = None
+
     if first_offer_pct is not None:
         offer_1 = max(cex_reference_buy_price * (first_offer_pct / 100.0), 0)
     else:
         cex_abs_margin = cex_sale_price - cex_reference_buy_price
         offer_1 = max(our_sale_price - cex_abs_margin, 0)
     rounded_offer_1 = round_offer_price(offer_1)
-    rounded_offer_3 = float(offer_3)
+
+    # Midpoint fallback anchors to 3rd offer when present, else to Match CeX.
+    midpoint_anchor = rounded_offer_3 if has_third else match_cex_price
     if second_offer_pct is not None:
         rounded_offer_2 = round_offer_price(
             max(cex_reference_buy_price * (second_offer_pct / 100.0), 0)
         )
         if rounded_offer_2 == rounded_offer_1:
-            rounded_offer_2 = round((rounded_offer_1 + rounded_offer_3) / 2)
+            rounded_offer_2 = round((rounded_offer_1 + midpoint_anchor) / 2)
     else:
-        rounded_offer_2 = round((rounded_offer_1 + rounded_offer_3) / 2)
-    return [
+        rounded_offer_2 = round((rounded_offer_1 + midpoint_anchor) / 2)
+
+    tiers = [
         {
             "id": f"{prefix}_1",
             "title": "First Offer",
@@ -74,12 +95,21 @@ def generate_offer_set(
             "price": rounded_offer_2,
             "margin": calculate_margin_percentage(rounded_offer_2, our_sale_price),
         },
-        {
+    ]
+    if has_third:
+        tiers.append({
             "id": f"{prefix}_3",
             "title": "Third Offer",
             "price": rounded_offer_3,
             "margin": calculate_margin_percentage(rounded_offer_3, our_sale_price),
             "isHighlighted": True,
-        },
-    ]
+        })
+    tiers.append({
+        "id": f"{prefix}_4",
+        "title": "Match CeX",
+        "price": match_cex_price,
+        "margin": calculate_margin_percentage(match_cex_price, our_sale_price),
+        "isMatchCex": True,
+    })
+    return tiers
 

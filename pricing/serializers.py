@@ -254,7 +254,14 @@ class RequestItemSerializer(serializers.ModelSerializer):
 
     def get_senior_mgmt_approved_by(self, obj):
         user = getattr(obj, "senior_mgmt_approved_user", None)
-        return getattr(user, "username", None) if user else None
+        if user:
+            return getattr(user, "username", None)
+        meta = obj.line_metadata_json or {}
+        name = meta.get("senior_mgmt_approved_by")
+        if name is None:
+            return None
+        s = str(name).strip()
+        return s or None
     
     def validate_customer_expectation_gbp(self, value):
         if value is None:

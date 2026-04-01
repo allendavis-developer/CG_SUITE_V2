@@ -36,6 +36,12 @@ export default function ResearchOverlayPanel({
   showManualOffer = false,
   useVoucherOffers = false,
   hideOfferCards = false,
+  blockedOfferSlots = null,
+  onBlockedOfferClick = null,
+  /** Called immediately when a category is picked inside either research form (before search starts).
+   *  Signature: (itemId, category) => void. Use to stamp the category onto the item so sibling
+   *  research forms (eBay ↔ CC) skip the picker. */
+  onCategoryResolved = null,
 }) {
   if (!researchItem && !cashConvertersResearchItem) return null;
 
@@ -60,6 +66,9 @@ export default function ResearchOverlayPanel({
             useVoucherOffers={useVoucherOffers}
             marketComparisonContext={buildMarketComparisonContext(researchItem)}
             lineItemContext={researchItem}
+            blockedOfferSlots={blockedOfferSlots}
+            onBlockedOfferClick={(payload) => onBlockedOfferClick?.(payload, researchItem)}
+            onCategoryResolved={onCategoryResolved ? (cat) => onCategoryResolved(researchItem.id, cat) : null}
           />
         )}
         {cashConvertersResearchItem && (
@@ -79,6 +88,9 @@ export default function ResearchOverlayPanel({
             initialSearchQuery={buildInitialSearchQuery(cashConvertersResearchItem)}
             marketComparisonContext={buildMarketComparisonContext(cashConvertersResearchItem)}
             lineItemContext={cashConvertersResearchItem}
+            blockedOfferSlots={blockedOfferSlots}
+            onBlockedOfferClick={(payload) => onBlockedOfferClick?.(payload, cashConvertersResearchItem)}
+            onCategoryResolved={onCategoryResolved ? (cat) => onCategoryResolved(cashConvertersResearchItem.id, cat) : null}
           />
         )}
       </div>

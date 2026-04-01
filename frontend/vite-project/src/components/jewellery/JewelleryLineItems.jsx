@@ -5,18 +5,19 @@ import { NEGOTIATION_ROW_CONTEXT } from '@/pages/buyer/rowContextZones';
 import { SPREADSHEET_TABLE_STYLES } from '@/pages/buyer/spreadsheetTableStyles';
 import { formatOfferPrice, roundOfferPrice } from '@/utils/helpers';
 import {
-  JEWELLERY_TIER_MARGINS_PCT,
   tierOfferGbpFromReference,
   computeWorkspaceLineTotal,
   isJewelleryCoinLine,
+  isJewelleryCoinSilverOzLine,
+  resolveJewelleryTierMarginsPct,
 } from '@/components/jewellery/jewelleryNegotiationCart';
+import { troyOzSilverReferenceFromCatalog } from '@/components/jewellery/jewellerySilverCoinReference';
 import { fetchJewelleryCatalog } from '@/services/api';
+import useAppStore from '@/store/useAppStore';
+import { getBlockedOfferSlots, isBlockedForItem } from '@/utils/customerOfferRules';
 const PICKER_PAGE_SIZE = 20;
 
 const BULLION_GOLD_PRODUCT_NAME = 'Bullion (gold)';
-/** Same order as negotiation cart / scrape remap. */
-const JEWELLERY_OFFER_TIER_MARGINS_PCT = JEWELLERY_TIER_MARGINS_PCT;
-
 const GOLD_ONLY_MATERIAL_GRADES = new Set([
   '9ct gold',
   '14ct gold',
@@ -291,12 +292,12 @@ function defaultWeightUnit(sourceKind) {
   return 'g';
 }
 
-/** Reference scrap: unit suffix in-cell (/g, ea, or /unit for coins). */
+/** Reference scrap: unit suffix in-cell (/g, ea, /unit for gold coins, /oz for silver coin). */
 function ScrapReferenceCell({ line }) {
   if (line.sourceKind === 'UNIT') {
     const u = line.unitPrice;
     if (u != null && Number.isFinite(u) && u > 0) {
-      const unitSuffix = isJewelleryCoinLine(line) ? '/unit' : 'ea';
+      const unitSuffix = isJewelleryCoinSilverOzLine(line) ? '/oz' : isJewelleryCoinLine(line) ? '/unit' : 'ea';
       return (
         <td className="font-semibold tabular-nums text-gray-900">
           £{formatOfferPrice(u)}
@@ -384,13 +385,19 @@ function suggestReferenceEntries(catalog, materialGrade) {
   return scored.length ? scored.map((x) => x.c) : slice.length ? slice : catalog;
 }
 
-function bestReferenceEntry(catalog, materialGrade) {
+function bestReferenceEntry(catalog, materialGrade, productName) {
   if (!catalog.length) return null;
+  const prod = String(productName ?? '').trim().toLowerCase();
+  const mg = String(materialGrade ?? '').trim().toLowerCase();
+  if (prod === 'coin' && mg === 'silver') {
+    const oz = troyOzSilverReferenceFromCatalog(catalog);
+    if (oz) return oz;
+  }
   const ranked = suggestReferenceEntries(catalog, materialGrade);
   return ranked[0] ?? catalog[0] ?? null;
 }
 
-function JewelleryTierOfferCell({ referenceTotalGbp, marginPct, isSelected, onSelect }) {
+function JewelleryTierOfferCell({ referenceTotalGbp, marginPct, isSelected, onSelect, blocked = false, approvedBy = null }) {
   if (!Number.isFinite(referenceTotalGbp) || referenceTotalGbp <= 0) {
     return (
       <td className="align-top text-[13px] text-gray-400" aria-label={`Offer tier ${marginPct}%`}>
@@ -405,18 +412,21 @@ function JewelleryTierOfferCell({ referenceTotalGbp, marginPct, isSelected, onSe
     <td
       role="button"
       tabIndex={0}
-      className="cursor-pointer align-top text-[13px] leading-snug"
+      className="align-top text-[13px] leading-snug relative cursor-pointer"
       style={
-        isSelected
-          ? {
-              background: 'rgba(34, 197, 94, 0.15)',
-              fontWeight: 700,
-              color: '#166534',
-            }
-          : { fontWeight: 600, color: '#111827' }
+        blocked
+          ? { background: 'rgba(239,68,68,0.06)', color: '#9ca3af', fontWeight: 600 }
+          : isSelected
+            ? {
+                background: 'rgba(34, 197, 94, 0.15)',
+                fontWeight: 700,
+                color: '#166534',
+              }
+            : { fontWeight: 600, color: '#111827' }
       }
       aria-label={`${marginFromRoundedOfferPct.toFixed(1)}% margin on rounded offer${isSelected ? ', selected' : ''}`}
       aria-pressed={isSelected}
+      title={blocked ? 'Blocked — requires senior management authorisation' : undefined}
       onClick={onSelect}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -425,13 +435,25 @@ function JewelleryTierOfferCell({ referenceTotalGbp, marginPct, isSelected, onSe
         }
       }}
     >
-      <div>£{formatOfferPrice(offerAmt)}</div>
-      <div
-        className={`text-[9px] font-medium ${isSelected ? 'text-green-800' : 'text-brand-blue'}`}
-      >
-        {marginFromRoundedOfferPct >= 0 ? '+' : ''}
-        {marginFromRoundedOfferPct.toFixed(1)}% margin
+      <div className={blocked ? 'opacity-60' : ''}>
+        <div>£{formatOfferPrice(offerAmt)}</div>
+        <div
+          className={`text-[9px] font-medium ${blocked ? 'text-gray-400' : isSelected ? 'text-green-800' : 'text-brand-blue'}`}
+        >
+          {marginFromRoundedOfferPct >= 0 ? '+' : ''}
+          {marginFromRoundedOfferPct.toFixed(1)}% margin
+        </div>
+        {isSelected && approvedBy && (
+          <div className={`text-[9px] mt-1 font-semibold ${blocked ? 'text-gray-400' : 'text-red-700'}`}>
+            Approved by: {approvedBy}
+          </div>
+        )}
       </div>
+      {blocked && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <span className="material-symbols-outlined text-red-400 text-[18px] opacity-70">lock</span>
+        </div>
+      )}
     </td>
   );
 }
@@ -459,6 +481,18 @@ export default function JewelleryLineItems({
   const [jewelleryContextMenu, setJewelleryContextMenu] = useState(null);
   const [syncMarginsOpen, setSyncMarginsOpen] = useState(false);
   const [syncMarginInput, setSyncMarginInput] = useState('');
+  const customerData = useAppStore((s) => s.customerData);
+  const customerOfferRulesData = useAppStore((s) => s.customerOfferRulesData);
+  const jewelleryTierMargins = useMemo(
+    () => resolveJewelleryTierMarginsPct(customerOfferRulesData?.settings),
+    [customerOfferRulesData]
+  );
+  const jewelleryBlockedSlots = useMemo(
+    () => getBlockedOfferSlots(customerData, customerOfferRulesData?.rules, customerOfferRulesData?.settings),
+    [customerData, customerOfferRulesData]
+  );
+  const [jewelleryOfferAuthModal, setJewelleryOfferAuthModal] = useState(null);
+  const [jewelleryOfferAuthName, setJewelleryOfferAuthName] = useState('');
 
   useEffect(() => {
     if (!controlled) {
@@ -508,7 +542,7 @@ export default function JewelleryLineItems({
   };
 
   const addLineForVariant = (v) => {
-    const ref = bestReferenceEntry(scrapSectionsCatalog, v.material_grade);
+    const ref = bestReferenceEntry(scrapSectionsCatalog, v.material_grade, v.product_name);
     if (!ref) return;
     const wu = defaultWeightUnit(ref.sourceKind);
     const id = crypto.randomUUID?.() ?? `jewellery-item-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -531,6 +565,9 @@ export default function JewelleryLineItems({
         weight: '1',
         selectedOfferTierPct: null,
         manualOfferInput: '',
+        manualOfferAuthBy: null,
+        selectedOfferTierAuthBy: null,
+        authorisedOfferSlots: [],
       },
     ]);
     setModalOpen(false);
@@ -553,15 +590,23 @@ export default function JewelleryLineItems({
     );
   };
 
-  const handleSelectJewelleryTier = useCallback((lineId, marginPct) => {
+  const handleSelectJewelleryTier = useCallback((lineId, marginPct, authBy = undefined, slot = null) => {
     setLines((prev) =>
       prev.map((l) => {
         if (l.id !== lineId) return l;
         const nextPct = l.selectedOfferTierPct === marginPct ? null : marginPct;
+        let authorisedOfferSlots = Array.isArray(l.authorisedOfferSlots) ? [...l.authorisedOfferSlots] : [];
+        if (slot && !authorisedOfferSlots.includes(slot)) authorisedOfferSlots.push(slot);
+        if (nextPct != null) {
+          authorisedOfferSlots = authorisedOfferSlots.filter((s) => s !== 'manual');
+        }
         return {
           ...l,
           selectedOfferTierPct: nextPct,
-          ...(nextPct != null ? { manualOfferInput: '' } : {}),
+          selectedOfferTierAuthBy:
+            nextPct == null ? null : authBy !== undefined ? authBy : null,
+          ...(nextPct != null ? { manualOfferInput: '', manualOfferAuthBy: null } : {}),
+          authorisedOfferSlots,
         };
       })
     );
@@ -581,6 +626,7 @@ export default function JewelleryLineItems({
         return {
           ...line,
           selectedOfferTierPct: null,
+          selectedOfferTierAuthBy: null,
           manualOfferInput: formatOfferPrice(offer),
         };
       })
@@ -635,7 +681,7 @@ export default function JewelleryLineItems({
       const manualRaw = String(line.manualOfferInput ?? '').trim();
       const manualVal = parseFloat(manualRaw.replace(/[£,]/g, ''));
       let offerAmt = null;
-      if (pct != null && JEWELLERY_OFFER_TIER_MARGINS_PCT.includes(pct)) {
+      if (pct != null && jewelleryTierMargins.includes(pct)) {
         offerAmt = tierOfferGbpFromReference(ref, pct);
       } else if (Number.isFinite(manualVal) && manualVal > 0) {
         offerAmt = roundOfferPrice(manualVal);
@@ -652,7 +698,7 @@ export default function JewelleryLineItems({
       blendedMarginPct,
       selectedRows,
     };
-  }, [lines]);
+  }, [jewelleryTierMargins, lines]);
 
   if (!scrapSectionsCatalog.length && lines.length === 0) {
     return (
@@ -723,6 +769,9 @@ export default function JewelleryLineItems({
                 <th scope="col" className="w-24 spreadsheet-th-offer-tier">
                   3rd
                 </th>
+                <th scope="col" className="w-24 spreadsheet-th-offer-tier">
+                  4th
+                </th>
                 <th scope="col" className="min-w-[5.5rem] w-[6.5rem]">
                   Manual £
                 </th>
@@ -735,8 +784,10 @@ export default function JewelleryLineItems({
               {lines.map((line) => {
                 const total = computeWorkspaceLineTotal(line);
                 const isCoinLine = isJewelleryCoinLine(line);
+                const isSilverOzCoin = isJewelleryCoinSilverOzLine(line);
                 const isUnit = line.sourceKind === 'UNIT';
                 const manualSelected = String(line.manualOfferInput ?? '').trim() !== '';
+                const manualBlocked = isBlockedForItem('manual', jewelleryBlockedSlots, line);
                 return (
                   <tr
                     key={line.id}
@@ -769,7 +820,11 @@ export default function JewelleryLineItems({
                       {isCoinLine ? (
                         <span
                           className="flex h-8 items-center px-2 font-semibold tabular-nums text-gray-600"
-                          title="Coin lines use one piece at the reference table price"
+                          title={
+                            isSilverOzCoin
+                              ? 'Silver coin lines use 1 troy oz at the reference silver £/oz price'
+                              : 'Coin lines use one piece at the reference table price'
+                          }
                         >
                           1 unit
                         </span>
@@ -797,7 +852,7 @@ export default function JewelleryLineItems({
                     </td>
                     <td>
                       {isCoinLine ? (
-                        <span className="text-gray-500">coin</span>
+                        <span className="text-gray-500">{isSilverOzCoin ? 't oz' : 'coin'}</span>
                       ) : isUnit ? (
                         <span className="text-gray-500">each</span>
                       ) : (
@@ -813,15 +868,28 @@ export default function JewelleryLineItems({
                       )}
                     </td>
                     <ScrapReferenceCell line={line} />
-                    {JEWELLERY_OFFER_TIER_MARGINS_PCT.map((pct) => (
-                      <JewelleryTierOfferCell
-                        key={pct}
-                        referenceTotalGbp={total}
-                        marginPct={pct}
-                        isSelected={line.selectedOfferTierPct === pct}
-                        onSelect={() => handleSelectJewelleryTier(line.id, pct)}
-                      />
-                    ))}
+                    {jewelleryTierMargins.map((pct, tierIdx) => {
+                      const slot = `offer${tierIdx + 1}`;
+                      const tierBlocked = isBlockedForItem(slot, jewelleryBlockedSlots, line);
+                      return (
+                        <JewelleryTierOfferCell
+                          key={pct}
+                          referenceTotalGbp={total}
+                          marginPct={pct}
+                          isSelected={line.selectedOfferTierPct === pct}
+                          approvedBy={line.selectedOfferTierAuthBy}
+                          blocked={tierBlocked}
+                          onSelect={() => {
+                            if (tierBlocked) {
+                              setJewelleryOfferAuthModal({ kind: 'tier', lineId: line.id, marginPct: pct, slot });
+                              setJewelleryOfferAuthName('');
+                            } else {
+                              handleSelectJewelleryTier(line.id, pct);
+                            }
+                          }}
+                        />
+                      );
+                    })}
                     <td
                       style={
                         manualSelected
@@ -830,21 +898,32 @@ export default function JewelleryLineItems({
                               fontWeight: 700,
                               color: '#166534',
                             }
-                          : undefined
+                          : manualBlocked
+                            ? { background: 'rgba(239,68,68,0.06)' }
+                            : undefined
                       }
                     >
                       <input
                         type="text"
                         inputMode="decimal"
+                        readOnly={manualBlocked}
                         value={line.manualOfferInput ?? ''}
+                        onClick={() => {
+                          if (manualBlocked) {
+                            setJewelleryOfferAuthModal({ kind: 'manual', lineId: line.id });
+                            setJewelleryOfferAuthName('');
+                          }
+                        }}
                         onChange={(e) =>
                           updateLine(line.id, {
                             manualOfferInput: e.target.value,
                             selectedOfferTierPct: null,
+                            selectedOfferTierAuthBy: null,
+                            manualOfferAuthBy: null,
                           })
                         }
-                        placeholder="—"
-                        className="h-8 w-full min-w-[4.5rem] rounded border border-gray-300 px-2 font-semibold tabular-nums text-gray-900 placeholder:text-gray-400 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-blue/30 bg-transparent"
+                        placeholder={manualBlocked ? 'Auth required' : '—'}
+                        className={`h-8 w-full min-w-[4.5rem] rounded border border-gray-300 px-2 font-semibold tabular-nums text-gray-900 placeholder:text-gray-400 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-blue/30 bg-transparent ${manualBlocked ? 'cursor-pointer' : ''}`}
                         aria-label="Manual offer GBP"
                       />
                     </td>
@@ -1067,6 +1146,97 @@ export default function JewelleryLineItems({
                 </div>
               </>
             ) : null}
+          </div>
+        </TinyModal>
+      ) : null}
+
+      {jewelleryOfferAuthModal ? (
+        <TinyModal
+          title="Senior Management Authorisation"
+          zClass="z-[290]"
+          closeOnBackdrop={false}
+          showCloseButton={false}
+          onClose={() => {
+            setJewelleryOfferAuthModal(null);
+            setJewelleryOfferAuthName('');
+          }}
+        >
+          <p className="text-xs text-slate-600 mb-3">
+            {jewelleryOfferAuthModal.kind === 'manual'
+              ? 'Manual offer entry is restricted for this customer. Enter the approver&apos;s name to continue.'
+              : 'This offer tier is restricted for this customer. Enter the approver&apos;s name to select it.'}
+          </p>
+          <label className="block text-[10px] font-black uppercase tracking-wider mb-1.5 text-brand-blue">
+            Authorised by*
+          </label>
+          <input
+            autoFocus
+            type="text"
+            className="w-full px-3 py-2.5 border rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 mb-4"
+            style={{ borderColor: 'rgba(20,69,132,0.3)', color: 'var(--brand-blue)' }}
+            placeholder="Senior manager's name"
+            value={jewelleryOfferAuthName}
+            onChange={(e) => setJewelleryOfferAuthName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && jewelleryOfferAuthName.trim()) {
+                const name = jewelleryOfferAuthName.trim();
+                const { kind, lineId, marginPct, slot } = jewelleryOfferAuthModal;
+                if (kind === 'tier') {
+                  handleSelectJewelleryTier(lineId, marginPct, name, slot);
+                } else {
+                  setLines((prev) =>
+                    prev.map((l) => {
+                      if (l.id !== lineId) return l;
+                      const authorisedOfferSlots = Array.isArray(l.authorisedOfferSlots) ? [...l.authorisedOfferSlots] : [];
+                      if (!authorisedOfferSlots.includes('manual')) authorisedOfferSlots.push('manual');
+                      return { ...l, manualOfferAuthBy: name, authorisedOfferSlots };
+                    })
+                  );
+                }
+                setJewelleryOfferAuthModal(null);
+                setJewelleryOfferAuthName('');
+              }
+            }}
+          />
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="flex-1 py-2.5 rounded-lg border text-sm font-semibold hover:bg-slate-50"
+              style={{ borderColor: 'var(--ui-border)', color: 'var(--text-muted)' }}
+              onClick={() => {
+                setJewelleryOfferAuthModal(null);
+                setJewelleryOfferAuthName('');
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={!jewelleryOfferAuthName.trim()}
+              className="flex-1 py-2.5 rounded-lg text-sm font-bold transition-colors disabled:opacity-40"
+              style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
+              onClick={() => {
+                const name = jewelleryOfferAuthName.trim();
+                if (!name) return;
+                const { kind, lineId, marginPct, slot } = jewelleryOfferAuthModal;
+                if (kind === 'tier') {
+                  handleSelectJewelleryTier(lineId, marginPct, name, slot);
+                } else {
+                  setLines((prev) =>
+                    prev.map((l) => {
+                      if (l.id !== lineId) return l;
+                      const authorisedOfferSlots = Array.isArray(l.authorisedOfferSlots) ? [...l.authorisedOfferSlots] : [];
+                      if (!authorisedOfferSlots.includes('manual')) authorisedOfferSlots.push('manual');
+                      return { ...l, manualOfferAuthBy: name, authorisedOfferSlots };
+                    })
+                  );
+                }
+                setJewelleryOfferAuthModal(null);
+                setJewelleryOfferAuthName('');
+              }}
+            >
+              Proceed
+            </button>
           </div>
         </TinyModal>
       ) : null}
