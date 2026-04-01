@@ -165,6 +165,13 @@ export default function NegotiationItemRow({
   const hlCexSource = item.rrpOffersSource === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL;
   const hlEbaySource = item.rrpOffersSource === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY;
   const hlCcSource = item.rrpOffersSource === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS;
+  const resolvedLeafCategory =
+    (Array.isArray(item.categoryObject?.path) && item.categoryObject.path.length > 0
+      ? item.categoryObject.path[item.categoryObject.path.length - 1]
+      : null) ||
+    item.categoryObject?.name ||
+    item.category ||
+    '—';
 
   return (
     <tr
@@ -188,6 +195,13 @@ export default function NegotiationItemRow({
             }}
           />
         )}
+      </td>
+
+      {/* Resolved child category */}
+      <td className="align-top" onContextMenu={ctxRemoveOnly}>
+        <div className="text-[11px] font-semibold leading-snug" style={{ color: 'var(--text-muted)' }}>
+          {resolvedLeafCategory}
+        </div>
       </td>
 
       {/* Item Name & Attributes */}

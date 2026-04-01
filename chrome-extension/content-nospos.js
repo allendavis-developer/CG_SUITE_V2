@@ -12,16 +12,16 @@
  * 6. When done, background focuses app tab.
  */
 (function () {
-  function ensureCgSuiteRoboto() {
-    if (document.getElementById('cg-suite-font-roboto')) return;
+  function ensureCgSuiteInter() {
+    if (document.getElementById('cg-suite-font-inter')) return;
     var link = document.createElement('link');
-    link.id = 'cg-suite-font-roboto';
+    link.id = 'cg-suite-font-inter';
     link.rel = 'stylesheet';
     link.href =
-      'https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&display=swap';
+      'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap';
     (document.head || document.documentElement).appendChild(link);
   }
-  ensureCgSuiteRoboto();
+  ensureCgSuiteInter();
 
   const LOGIN_PATH_PATTERN = /^\/(login|signin|sign-in|auth|log-in|session|sessions|account\/login)(\/|$)/i;
   const LOGIN_SUBDOMAINS = ['login', 'auth', 'signin', 'sso', 'accounts'];
@@ -126,7 +126,7 @@
     panel.innerHTML =
       '<div style="position:fixed;top:50%;right:0;transform:translateY(-50%);z-index:2147483647;' +
         'background:#dc2626;color:white;padding:20px 24px;border-radius:12px 0 0 12px;' +
-        'box-shadow:-6px 6px 24px rgba(0,0,0,0.35);font-family:Roboto,sans-serif;' +
+        'box-shadow:-6px 6px 24px rgba(0,0,0,0.35);font-family:Inter,sans-serif;' +
         'min-width:280px;max-width:360px;">' +
         '<p style="margin:0 0 6px 0;font-weight:800;font-size:14px;">Save failed</p>' +
         (errText ? '<p style="margin:0 0 8px 0;font-size:13px;font-weight:600;opacity:0.95;">' + (errText.replace(/</g, '&lt;').replace(/>/g, '&gt;')) + '</p>' : '') +
@@ -162,7 +162,7 @@
     panel.innerHTML =
       '<div style="position:fixed;top:50%;right:0;transform:translateY(-50%);z-index:2147483647;' +
         'background:#1e3a8a;color:white;padding:28px 32px;border-radius:18px 0 0 18px;' +
-        'box-shadow:-8px 8px 32px rgba(0,0,0,0.45);font-family:Roboto,sans-serif;' +
+        'box-shadow:-8px 8px 32px rgba(0,0,0,0.45);font-family:Inter,sans-serif;' +
         'min-width:320px;max-width:400px;">' +
         '<p style="margin:0 0 8px 0;font-weight:800;font-size:20px;">Customer Lookup</p>' +
         '<p style="margin:0 0 20px 0;font-size:14px;opacity:0.85;line-height:1.5;">' +
@@ -322,7 +322,7 @@
   // ── field builders ────────────────────────────────────────────────────────
 
   var INPUT_BASE = 'width:100%;padding:9px 12px;border:1.5px solid #e5e7eb;border-radius:8px;' +
-    'font-size:14px;font-family:Roboto,sans-serif;color:#111827;background:#f9fafb;box-sizing:border-box;';
+    'font-size:14px;font-family:Inter,sans-serif;color:#111827;background:#f9fafb;box-sizing:border-box;';
 
   var LABEL_BASE = 'font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#6b7280;';
 
@@ -446,7 +446,7 @@
     overlay.innerHTML =
       '<div id="cg-modal-card" style="background:white;border-radius:20px;width:100%;max-width:700px;' +
         'max-height:92vh;display:flex;flex-direction:column;' +
-        'box-shadow:0 32px 80px rgba(0,0,0,0.5);font-family:Roboto,sans-serif;overflow:hidden;">' +
+        'box-shadow:0 32px 80px rgba(0,0,0,0.5);font-family:Inter,sans-serif;overflow:hidden;">' +
 
         // Header
         '<div style="background:#1e3a8a;padding:20px 28px 0;flex-shrink:0;">' +
@@ -459,10 +459,10 @@
           // Tab bar
           '<div style="display:flex;gap:0;">' +
             '<button id="cg-tab-details" style="padding:9px 20px;background:white;color:#1e3a8a;border:none;' +
-              'font-weight:800;font-size:13px;cursor:pointer;border-radius:10px 10px 0 0;font-family:Roboto,sans-serif;">' +
+              'font-weight:800;font-size:13px;cursor:pointer;border-radius:10px 10px 0 0;font-family:Inter,sans-serif;">' +
               'Details</button>' +
             '<button id="cg-tab-changes" style="padding:9px 20px;background:rgba(255,255,255,0.15);color:rgba(255,255,255,0.7);border:none;' +
-              'font-weight:700;font-size:13px;cursor:pointer;border-radius:10px 10px 0 0;font-family:Roboto,sans-serif;">' +
+              'font-weight:700;font-size:13px;cursor:pointer;border-radius:10px 10px 0 0;font-family:Inter,sans-serif;">' +
               'Changes' + (changes.length ? ' <span style="background:#facc15;color:#1e3a8a;border-radius:20px;padding:1px 7px;font-size:11px;">' + changes.length + '</span>' : '') +
             '</button>' +
           '</div>' +
@@ -537,7 +537,7 @@
                 '</div>' +
                 '<button id="cg-customer-bypass" type="button" style="padding:8px 14px;background:white;' +
                   'color:#166534;border:1px solid #86efac;border-radius:9999px;font-weight:700;' +
-                  'cursor:pointer;font-size:12px;font-family:Roboto,sans-serif;white-space:nowrap;">Bypass</button>' +
+                  'cursor:pointer;font-size:12px;font-family:Inter,sans-serif;white-space:nowrap;">Bypass</button>' +
               '</div>' +
               (recentWarning
                 ? '<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:8px;' +
@@ -631,10 +631,10 @@
           'justify-content:flex-end;align-items:center;background:#fafafa;flex-shrink:0;">' +
           '<button id="cg-customer-cancel" style="padding:10px 20px;background:transparent;' +
             'color:#6b7280;border:1.5px solid #e5e7eb;border-radius:10px;font-weight:600;' +
-            'cursor:pointer;font-size:14px;font-family:Roboto,sans-serif;">Cancel</button>' +
+            'cursor:pointer;font-size:14px;font-family:Inter,sans-serif;">Cancel</button>' +
           '<button id="cg-customer-use" style="padding:10px 28px;background:#facc15;' +
             'color:#1e3a8a;border:none;border-radius:10px;font-weight:800;cursor:pointer;' +
-            'font-size:14px;font-family:Roboto,sans-serif;box-shadow:0 4px 12px rgba(250,204,21,0.4);">' +
+            'font-size:14px;font-family:Inter,sans-serif;box-shadow:0 4px 12px rgba(250,204,21,0.4);">' +
             'OK</button>' +
         '</div>' + // end footer
 
@@ -811,19 +811,19 @@
         'display:flex;align-items:center;justify-content:center;pointer-events:auto;';
       promptOverlay.innerHTML =
         '<div style="background:white;border-radius:16px;padding:28px 32px;width:100%;max-width:400px;' +
-          'box-shadow:0 24px 60px rgba(0,0,0,0.55);font-family:Roboto,sans-serif;">' +
+          'box-shadow:0 24px 60px rgba(0,0,0,0.55);font-family:Inter,sans-serif;">' +
           '<h3 style="margin:0 0 6px;font-size:17px;font-weight:800;color:#1e3a8a;">Bypass Reason</h3>' +
           '<p style="margin:0 0 16px;font-size:13px;color:#64748b;">Please provide a reason for bypassing customer verification.</p>' +
           '<input id="cg-bypass-reason-input" type="text" placeholder="Enter reason..." ' +
             'style="width:100%;box-sizing:border-box;padding:10px 14px;border:1.5px solid #e5e7eb;border-radius:10px;' +
-            'font-size:14px;font-family:Roboto,sans-serif;outline:none;margin-bottom:18px;" />' +
+            'font-size:14px;font-family:Inter,sans-serif;outline:none;margin-bottom:18px;" />' +
           '<div style="display:flex;gap:10px;justify-content:flex-end;">' +
             '<button id="cg-bypass-cancel-btn" type="button" ' +
               'style="padding:9px 20px;background:#f1f5f9;color:#475569;border:none;border-radius:9999px;' +
-              'font-weight:700;font-size:13px;cursor:pointer;font-family:Roboto,sans-serif;">Cancel</button>' +
+              'font-weight:700;font-size:13px;cursor:pointer;font-family:Inter,sans-serif;">Cancel</button>' +
             '<button id="cg-bypass-ok-btn" type="button" ' +
               'style="padding:9px 20px;background:#1e3a8a;color:white;border:none;border-radius:9999px;' +
-              'font-weight:700;font-size:13px;cursor:pointer;font-family:Roboto,sans-serif;">OK</button>' +
+              'font-weight:700;font-size:13px;cursor:pointer;font-family:Inter,sans-serif;">OK</button>' +
           '</div>' +
         '</div>';
       document.body.appendChild(promptOverlay);

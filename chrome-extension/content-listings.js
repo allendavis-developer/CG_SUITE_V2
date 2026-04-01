@@ -23,17 +23,17 @@
 (function () {
   let currentRequestId = null;
 
-  /** Load Roboto to match the CG Suite web app (panel UI only; monospace unchanged). */
-  function ensureCgSuiteRoboto() {
-    if (document.getElementById('cg-suite-font-roboto')) return;
+  /** Load Inter to match the CG Suite web app (panel UI only; monospace unchanged). */
+  function ensureCgSuiteInter() {
+    if (document.getElementById('cg-suite-font-inter')) return;
     var link = document.createElement('link');
-    link.id = 'cg-suite-font-roboto';
+    link.id = 'cg-suite-font-inter';
     link.rel = 'stylesheet';
     link.href =
-      'https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&display=swap';
+      'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap';
     (document.head || document.documentElement).appendChild(link);
   }
-  ensureCgSuiteRoboto();
+  ensureCgSuiteInter();
 
   /**
    * eBay SRP: "6 results for rode m1" in h1.srp-controls__count-heading — strict keyword matches.
@@ -1370,7 +1370,7 @@
     ].join(';');
     overlay.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;gap:20px;">' +
       '<div class="cg-suite-spinner" style="width:64px;height:64px;border:4px solid rgba(254,249,195,0.4);border-top-color:#facc15;border-radius:50%;animation:cg-suite-spin 0.9s linear infinite;"></div>' +
-      '<span style="font-family:Roboto,sans-serif;font-size:16px;font-weight:600;color:#f8fafc;">Setting up eBay page…</span>' +
+      '<span style="font-family:Inter,sans-serif;font-size:16px;font-weight:600;color:#f8fafc;">Setting up eBay page…</span>' +
       '</div>';
     var style = document.createElement('style');
     style.id = 'cg-suite-ebay-overlay-style';
@@ -1458,7 +1458,7 @@
         position: fixed; top: 50%; right: 0; transform: translateY(-50%);
         z-index: 2147483647; background: #1e3a8a; color: white;
         padding: 28px 32px; border-radius: 18px 0 0 18px; box-shadow: -8px 8px 32px rgba(0,0,0,0.45);
-        font-family: Roboto, sans-serif; min-width: 380px; max-width: 460px;
+        font-family: Inter, sans-serif; min-width: 380px; max-width: 460px;
       ">
         <p style="margin: 0 0 16px 0; font-weight: 800; font-size: 20px;">${heading}</p>
         ${contextSectionHtml}

@@ -870,7 +870,7 @@ const RepricingNegotiation = () => {
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
     <div className="text-sm overflow-hidden min-h-screen flex flex-col" style={{ background: '#f8f9fa', color: '#1a1a1a' }}>
-      <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
       <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
       <style>{`
         .reprice-table th {
@@ -963,6 +963,7 @@ const RepricingNegotiation = () => {
             <table className="w-full reprice-table border-collapse text-left">
               <thead>
                 <tr>
+                  <th className="w-36">Category</th>
                   <th className="min-w-[220px]">Item Name &amp; Attributes</th>
                   <th className="w-24 spreadsheet-th-cex">Sell</th>
                   <th className="w-24 spreadsheet-th-cex">Voucher</th>
@@ -1027,6 +1028,14 @@ const RepricingNegotiation = () => {
                       className={item.isRemoved ? 'opacity-60' : ''}
                       style={item.isRemoved ? { textDecoration: 'line-through' } : {}}
                     >
+                      <td onContextMenu={(e) => openRowContext(e, NEGOTIATION_ROW_CONTEXT.ITEM_META)}>
+                        <div className="text-[11px] font-semibold leading-snug" style={{ color: 'var(--text-muted)' }}>
+                          {(Array.isArray(item.categoryObject?.path) && item.categoryObject.path.length > 0
+                            ? item.categoryObject.path[item.categoryObject.path.length - 1]
+                            : null) || item.categoryObject?.name || item.category || '—'}
+                        </div>
+                      </td>
+
                       {/* Item Name & Attributes */}
                       <td onContextMenu={(e) => openRowContext(e, NEGOTIATION_ROW_CONTEXT.ITEM_META)}>
                         <div

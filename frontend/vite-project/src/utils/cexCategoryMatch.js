@@ -14,7 +14,16 @@
  * Returns { id, name, path } or null.
  */
 
-const GENERIC_NAMES = new Set(['cex', 'other', 'n/a', 'unknown', '']);
+const GENERIC_NAMES = new Set([
+  'cex',
+  'ebay',
+  'cash converters',
+  'cashconverters',
+  'other',
+  'n/a',
+  'unknown',
+  '',
+]);
 
 function normalize(s) {
   return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');

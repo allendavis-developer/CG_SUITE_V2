@@ -11,6 +11,13 @@ import { matchCexCategoryNameToDb } from '@/utils/cexCategoryMatch';
 
 // ─── Category Picker (hierarchical, JewelleryPickerList-style) ───────────────
 
+/** DB may have a leaf named "eBay" for default/skip behaviour — show "Skip" in the picker only. */
+function categoryPickerDisplayName(cat) {
+  const n = String(cat?.name ?? '').trim().toLowerCase();
+  if (n === 'ebay') return 'Skip';
+  return cat?.name ?? '';
+}
+
 function CategoryPickerList({ items, isLoading, onSelect, query, setQuery, statsHeading, entitySingular, entityPlural }) {
   const searchRef = useRef(null);
 
@@ -19,7 +26,11 @@ function CategoryPickerList({ items, isLoading, onSelect, query, setQuery, stats
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return items;
-    return items.filter((c) => c.name.toLowerCase().includes(q));
+    return items.filter((c) => {
+      const name = String(c.name || '').toLowerCase();
+      const label = categoryPickerDisplayName(c).toLowerCase();
+      return name.includes(q) || label.includes(q);
+    });
   }, [items, query]);
 
   if (isLoading) {
@@ -97,7 +108,7 @@ function CategoryPickerList({ items, isLoading, onSelect, query, setQuery, stats
                   className={`cursor-pointer border-b border-gray-200/80 transition-colors hover:bg-brand-blue/5 hover:text-brand-blue ${i % 2 === 0 ? 'bg-white' : 'bg-brand-blue/10'}`}
                 >
                   <td className="px-4 py-3 font-medium text-gray-900">
-                    {cat.name}
+                    {categoryPickerDisplayName(cat)}
                     {cat.children?.length > 0 && (
                       <span className="ml-2 text-[11px] font-normal text-gray-400">{cat.children.length} sub-{cat.children.length === 1 ? 'category' : 'categories'}</span>
                     )}
@@ -119,7 +130,7 @@ function CategoryPickerList({ items, isLoading, onSelect, query, setQuery, stats
  * Hierarchical category picker shown as a step inside the research form
  * when the item doesn't already have a known category id.
  */
-function CategoryPickerStep({ onSelect, onSkip }) {
+function CategoryPickerStep({ onSelect }) {
   const [allCategories, setAllCategories] = useState([]);
   const [loadError, setLoadError] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -172,9 +183,9 @@ function CategoryPickerStep({ onSelect, onSkip }) {
             <React.Fragment key={p.category_id}>
               <span className="text-gray-400">›</span>
               {i < path.length - 1 ? (
-                <button type="button" onClick={() => navigateTo(i)} className="text-brand-blue hover:underline">{p.name}</button>
+                <button type="button" onClick={() => navigateTo(i)} className="text-brand-blue hover:underline">{categoryPickerDisplayName(p)}</button>
               ) : (
-                <span className="font-bold text-gray-800">{p.name}</span>
+                <span className="font-bold text-gray-800">{categoryPickerDisplayName(p)}</span>
               )}
             </React.Fragment>
           ))}
@@ -189,7 +200,7 @@ function CategoryPickerStep({ onSelect, onSkip }) {
           className="shrink-0 flex items-center gap-2 rounded-lg border border-brand-blue/30 bg-brand-blue/5 px-3 py-2 text-xs font-bold text-brand-blue transition-colors hover:bg-brand-blue/10"
         >
           <span className="material-symbols-outlined text-[16px]">check_circle</span>
-          Use &ldquo;{currentCategory.name}&rdquo; as category
+          Use &ldquo;{categoryPickerDisplayName(currentCategory)}&rdquo; as category
         </button>
       )}
 
@@ -210,19 +221,11 @@ function CategoryPickerStep({ onSelect, onSkip }) {
           onSelect={handleSelectItem}
           query={query}
           setQuery={setQuery}
-          statsHeading={path.length === 0 ? 'Top-level categories' : `Sub-categories of "${currentCategory?.name}"`}
+          statsHeading={path.length === 0 ? 'Top-level categories' : `Sub-categories of "${currentCategory ? categoryPickerDisplayName(currentCategory) : ''}"`}
           entitySingular="category"
           entityPlural="categories"
         />
       </div>
-
-      <button
-        type="button"
-        onClick={onSkip}
-        className="shrink-0 rounded-lg border border-gray-300 bg-white px-4 py-2 text-xs font-semibold text-gray-600 shadow-sm transition-colors hover:bg-gray-50"
-      >
-        Skip — continue without selecting a category
-      </button>
     </div>
   );
 }
@@ -385,7 +388,16 @@ function ExtensionResearchForm({
     // Only attempt auto-resolution when there's a real CeX-sourced category name to match.
     // eBay items come in with "Other" or no category — skip straight to the manual picker.
     const cexName = category?.name;
-    const GENERIC_NAMES = new Set(['cex', 'other', 'n/a', 'unknown', '']);
+    const GENERIC_NAMES = new Set([
+      'cex',
+      'ebay',
+      'cash converters',
+      'cashconverters',
+      'other',
+      'n/a',
+      'unknown',
+      '',
+    ]);
     const isUsableName = cexName && !GENERIC_NAMES.has(cexName.toLowerCase().trim());
 
     if (!isUsableName || category?.id != null) {
@@ -793,10 +805,6 @@ function ExtensionResearchForm({
       onCategoryResolved?.(cat);
       setStep('get-data');
     };
-    const handleSkipCategory = () => {
-      setStep('get-data');
-    };
-
     const categoryBody = (
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <div className="shrink-0 border-b border-gray-200 bg-brand-blue/5 px-4 py-3">
@@ -813,7 +821,7 @@ function ExtensionResearchForm({
           </div>
         ) : null}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <CategoryPickerStep onSelect={handleCategorySelected} onSkip={handleSkipCategory} />
+          <CategoryPickerStep onSelect={handleCategorySelected} />
         </div>
       </div>
     );

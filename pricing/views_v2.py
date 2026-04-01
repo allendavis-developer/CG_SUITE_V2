@@ -1093,6 +1093,31 @@ def cancel_request(request, request_id):
     )
 
 
+@api_view(['POST'])
+def complete_request_after_testing(request, request_id):
+    """
+    POST: Record that in-store testing passed — moves request from BOOKED_FOR_TESTING to COMPLETE.
+    """
+    existing_request = get_object_or_404(Request, request_id=request_id)
+    current = existing_request.status_history.first()
+    if not current or current.status != RequestStatus.BOOKED_FOR_TESTING:
+        return Response(
+            {"error": "Only requests that are booked for testing can be marked as passed."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    with transaction.atomic():
+        RequestStatusHistory.objects.create(
+            request=existing_request,
+            status=RequestStatus.COMPLETE,
+        )
+    return Response(
+        {
+            "request_id": existing_request.request_id,
+            "status": RequestStatus.COMPLETE,
+        },
+        status=status.HTTP_200_OK,
+    )
+
 
 @api_view(['GET'])
 def variant_market_stats(request):

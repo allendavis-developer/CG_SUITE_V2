@@ -19,7 +19,17 @@ import NewCustomerDetailsModal from '@/components/modals/NewCustomerDetailsModal
 import SalePriceConfirmModal from '@/components/modals/SalePriceConfirmModal';
 import ResearchOverlayPanel from './components/ResearchOverlayPanel';
 import TinyModal from '@/components/ui/TinyModal';
-import { finishRequest, fetchRequestDetail, updateCustomer, saveQuoteDraft, deleteRequestItem, updateRequestItemOffer, updateRequestItemRawData, fetchCustomerOfferRules } from '@/services/api';
+import {
+  finishRequest,
+  fetchRequestDetail,
+  updateCustomer,
+  saveQuoteDraft,
+  deleteRequestItem,
+  updateRequestItemOffer,
+  updateRequestItemRawData,
+  fetchCustomerOfferRules,
+  markRequestPassedTesting,
+} from '@/services/api';
 import { normalizeExplicitSalePrice, formatOfferPrice } from '@/utils/helpers';
 import { titleForEbayCcOfferIndex } from '@/components/forms/researchStats';
 import { useNotification } from '@/contexts/NotificationContext';
@@ -110,6 +120,7 @@ const Negotiation = ({ mode }) => {
   const [isCustomerModalOpen, setCustomerModalOpen] = useState(false);
   /** BOOKED_FOR_TESTING | COMPLETE | QUOTE | null — used for research sandbox in view mode. */
   const [viewRequestStatus, setViewRequestStatus] = useState(null);
+  const [passedTestingSubmitting, setPassedTestingSubmitting] = useState(false);
   const [showJewelleryReferenceModal, setShowJewelleryReferenceModal] = useState(false);
 
   // Refs
@@ -512,6 +523,21 @@ const Negotiation = ({ mode }) => {
     navigate,
     showNotification,
   ]);
+
+  const handlePassedTesting = useCallback(async () => {
+    if (!actualRequestId || viewRequestStatus !== 'BOOKED_FOR_TESTING') return;
+    setPassedTestingSubmitting(true);
+    try {
+      await markRequestPassedTesting(actualRequestId);
+      setViewRequestStatus('COMPLETE');
+      showNotification('Testing passed — request marked complete.', 'success');
+    } catch (err) {
+      console.error('markRequestPassedTesting:', err);
+      showNotification(err?.message || 'Could not mark request as complete.', 'error');
+    } finally {
+      setPassedTestingSubmitting(false);
+    }
+  }, [actualRequestId, viewRequestStatus, showNotification]);
 
   const handleNewCustomerDetailsSubmit = useCallback(async (formData) => {
     await updateCustomer(customerData.id, {
@@ -1175,7 +1201,7 @@ const Negotiation = ({ mode }) => {
 
   return (
     <div className="bg-ui-bg text-text-main min-h-screen flex flex-col text-sm overflow-hidden">
-      <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
       <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
       <style>{SPREADSHEET_TABLE_STYLES}</style>
 
@@ -1364,6 +1390,7 @@ const Negotiation = ({ mode }) => {
                 <thead>
                   <tr>
                     <th className="w-12 text-center">Qty</th>
+                    <th className="w-36">Category</th>
                     <th className="min-w-[220px]">Item Name &amp; Attributes</th>
                     <th className="w-24 spreadsheet-th-cex">Sell</th>
                     <th className="w-24 spreadsheet-th-cex">Voucher</th>
@@ -1501,23 +1528,44 @@ const Negotiation = ({ mode }) => {
               </div>
             )}
 
-            <button
-              className={`w-full font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 group active:scale-[0.98] ${
-                mode === 'view' || headerWorkspaceOpen || researchItem || cashConvertersResearchItem || (hasTarget && !targetMatched) ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
-              style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)', boxShadow: '0 10px 15px -3px rgba(247, 185, 24, 0.3)' }}
-              onClick={mode === 'view' || headerWorkspaceOpen || researchItem || cashConvertersResearchItem || (hasTarget && !targetMatched) ? undefined : handleFinalizeTransaction}
-              disabled={mode === 'view' || headerWorkspaceOpen || researchItem || cashConvertersResearchItem || (hasTarget && !targetMatched)}
-            >
-              <span className="text-base uppercase tracking-tight">Book for Testing</span>
-              <span className="material-symbols-outlined text-xl group-hover:translate-x-1 transition-transform">arrow_forward</span>
-            </button>
-            {hasTarget && !targetMatched && mode === 'negotiate' && (
-              <p className="text-[10px] text-center text-red-600 font-semibold -mt-2">
-                {totalOfferPrice < parsedTarget
-                  ? `Grand total is below target by £${targetShortfall.toFixed(2)}`
-                  : `Grand total is too high by £${targetExcess.toFixed(2)}`}
-              </p>
+            {researchSandboxBookedView ? (
+              <button
+                type="button"
+                className={`w-full font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 shadow-md active:scale-[0.98] bg-emerald-600 text-white hover:bg-emerald-700 ${
+                  passedTestingSubmitting ? 'opacity-90 cursor-wait' : ''
+                }`}
+                onClick={passedTestingSubmitting ? undefined : handlePassedTesting}
+                disabled={passedTestingSubmitting}
+                aria-busy={passedTestingSubmitting}
+              >
+                <span className="material-symbols-outlined text-xl" aria-hidden>
+                  check_circle
+                </span>
+                <span className="text-base uppercase tracking-tight">
+                  {passedTestingSubmitting ? 'Saving…' : 'Passed testing'}
+                </span>
+              </button>
+            ) : (
+              <>
+                <button
+                  className={`w-full font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 group active:scale-[0.98] ${
+                    mode === 'view' || headerWorkspaceOpen || researchItem || cashConvertersResearchItem || (hasTarget && !targetMatched) ? 'opacity-50 cursor-not-allowed' : ''
+                  }`}
+                  style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)', boxShadow: '0 10px 15px -3px rgba(247, 185, 24, 0.3)' }}
+                  onClick={mode === 'view' || headerWorkspaceOpen || researchItem || cashConvertersResearchItem || (hasTarget && !targetMatched) ? undefined : handleFinalizeTransaction}
+                  disabled={mode === 'view' || headerWorkspaceOpen || researchItem || cashConvertersResearchItem || (hasTarget && !targetMatched)}
+                >
+                  <span className="text-base uppercase tracking-tight">Book for Testing</span>
+                  <span className="material-symbols-outlined text-xl group-hover:translate-x-1 transition-transform">arrow_forward</span>
+                </button>
+                {hasTarget && !targetMatched && mode === 'negotiate' && (
+                  <p className="text-[10px] text-center text-red-600 font-semibold -mt-2">
+                    {totalOfferPrice < parsedTarget
+                      ? `Grand total is below target by £${targetShortfall.toFixed(2)}`
+                      : `Grand total is too high by £${targetExcess.toFixed(2)}`}
+                  </p>
+                )}
+              </>
             )}
           </div>
         </aside>

@@ -248,6 +248,12 @@ export const finishRequest = async (requestId, payload) => {
   return apiFetch(`/requests/${requestId}/finish/`, { method: 'POST', body: payload });
 };
 
+/** Mark a BOOKED_FOR_TESTING request as COMPLETE (testing passed). */
+export const markRequestPassedTesting = async (requestId) => {
+  if (!requestId) throw new Error('Request ID required');
+  return apiFetch(`/requests/${requestId}/complete-testing/`, { method: 'POST', body: {} });
+};
+
 export const saveQuoteDraft = async (requestId, payload, { keepalive = false } = {}) => {
   if (!requestId || !payload) return null;
   return apiFetch(`/requests/${requestId}/finish/`, {

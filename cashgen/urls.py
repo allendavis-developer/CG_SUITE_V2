@@ -24,6 +24,11 @@ urlpatterns = [
     path('api/requests/<int:request_id>/', v2.request_detail, name='request_detail'),
     path('api/requests/overview/', v2.requests_overview_list, name='requests_overview_list'),
     path('api/requests/<int:request_id>/finish/', v2.finish_request, name='finish_request'),
+    path(
+        'api/requests/<int:request_id>/complete-testing/',
+        v2.complete_request_after_testing,
+        name='complete_request_after_testing',
+    ),
     path('api/requests/<int:request_id>/cancel/', v2.cancel_request, name='cancel_request'),
     path('api/requests/<int:request_id>/update-intent/', v2.update_request_intent, name='update_request_intent'),
     path('api/request-items/<int:request_item_id>/update-raw/', v2.update_request_item_raw_data, name='update_request_item_raw_data'),
