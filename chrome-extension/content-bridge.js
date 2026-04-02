@@ -38,8 +38,35 @@
       window.postMessage({ type: JEWELLERY_SCRAP_WINDOW, payload: msg.payload }, '*');
       sendResponse({ ok: true });
     }
+    if (msg.type === 'NOSPOS_CUSTOMER_PROFILE_TAB_CLOSED') {
+      window.postMessage(
+        {
+          type: 'NOSPOS_PROFILE_TAB_CLOSED',
+          message: msg.message || 'NoSpos agreement window was closed. You can try again when ready.',
+        },
+        '*'
+      );
+      sendResponse({ ok: true });
+    }
+    if (msg.type === 'NOSPOS_AGREEMENT_ITEMS_SNAPSHOT_TO_PAGE') {
+      window.postMessage(
+        { type: 'NOSPOS_AGREEMENT_ITEMS_SNAPSHOT', payload: msg.payload },
+        '*'
+      );
+      sendResponse({ ok: true });
+    }
     return true;
   });
+
+  // CG Suite tab refresh/close → close tracked NosPos agreement tab (see background CG_APP_PAGE_UNLOADING).
+  window.addEventListener(
+    'pagehide',
+    function (ev) {
+      if (ev.persisted) return;
+      chrome.runtime.sendMessage({ type: 'CG_APP_PAGE_UNLOADING' }).catch(function () {});
+    },
+    { capture: true }
+  );
 
   window.addEventListener('message', function (event) {
     if (event.source !== window || event.data?.type !== 'EXTENSION_MESSAGE') return;

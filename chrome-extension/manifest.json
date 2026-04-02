@@ -62,6 +62,11 @@
       "matches": ["https://nospos.com/*", "https://*.nospos.com/*"],
       "js": ["content-nospos.js"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://nospos.com/newagreement/*", "https://*.nospos.com/newagreement/*"],
+      "js": ["content-nospos-agreement-items.js"],
+      "run_at": "document_idle"
     }
   ]
 }

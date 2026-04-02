@@ -243,6 +243,19 @@ export const fetchRequestDetail = async (requestId) => {
   }
 };
 
+/**
+ * Requests overview table (server-filtered by status when not ALL).
+ * Uses apiFetch so session cookies / errors match the rest of the app.
+ */
+export async function fetchRequestsOverview(statusFilter = 'ALL') {
+  const query =
+    statusFilter && statusFilter !== 'ALL'
+      ? `?status=${encodeURIComponent(statusFilter)}`
+      : '';
+  const data = await apiFetch(`/requests/overview/${query}`);
+  return Array.isArray(data) ? data : [];
+}
+
 export const finishRequest = async (requestId, payload) => {
   if (!requestId || !payload) throw new Error('Request ID and payload required');
   return apiFetch(`/requests/${requestId}/finish/`, { method: 'POST', body: payload });
@@ -275,6 +288,15 @@ export const updateRequestItemOffer = async (requestItemId, data) => {
   await apiFetch(`/request-items/${requestItemId}/update-offer/`, { method: 'PATCH', body: data });
 };
 
+/** PATCH testing_passed on a line (BOOKED_FOR_TESTING requests only). Returns updated item JSON. */
+export const setRequestItemTestingPassed = async (requestItemId, testingPassed) => {
+  if (requestItemId == null) throw new Error('Request item ID required');
+  return apiFetch(`/request-items/${requestItemId}/update-offer/`, {
+    method: 'PATCH',
+    body: { testing_passed: Boolean(testingPassed) },
+  });
+};
+
 export const updateRequestItemRawData = async (requestItemId, data) => {
   if (!requestItemId || !data) return null;
   try {
@@ -292,22 +314,58 @@ export const createCustomer = async (customerData) => {
   return apiFetch('/customers/', { method: 'POST', body: customerData });
 };
 
+function normalizeNosposCustomerId(raw) {
+  if (raw == null || raw === '') return null;
+  const n = parseInt(String(raw), 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** If we matched an existing row by phone/name but NoSpos id was missing, backfill it. */
+async function patchNosposCustomerIdIfMissing(customer, nosposCustomerId) {
+  if (customer == null || nosposCustomerId == null) return customer;
+  if (customer.nospos_customer_id != null) return customer;
+  try {
+    return await apiFetch(`/customers/${customer.id}/`, {
+      method: 'PATCH',
+      body: { nospos_customer_id: nosposCustomerId },
+    });
+  } catch {
+    return customer;
+  }
+}
+
 export const getOrCreateCustomer = async (customerData) => {
   if (!customerData?.name) return null;
+  const nid = normalizeNosposCustomerId(customerData.nospos_customer_id);
+
+  if (nid != null) {
+    try {
+      const data = await apiFetch(`/customers/?nospos_customer_id=${encodeURIComponent(nid)}`);
+      const results = Array.isArray(data) ? data : (data.results ?? []);
+      if (results.length > 0) {
+        return patchNosposCustomerIdIfMissing(results[0], nid);
+      }
+    } catch {}
+  }
+
   if (customerData.phone_number) {
     try {
       const data = await apiFetch(`/customers/?search=${encodeURIComponent(customerData.phone_number)}`);
       const results = Array.isArray(data) ? data : (data.results ?? []);
       const match = results.find((c) => c.phone_number === customerData.phone_number);
-      if (match) return match;
+      if (match) return patchNosposCustomerIdIfMissing(match, nid);
     } catch {}
   }
   try {
     const data = await apiFetch(`/customers/?search=${encodeURIComponent(customerData.name)}`);
     const results = Array.isArray(data) ? data : (data.results ?? []);
     const match = results.find((c) => c.name?.toLowerCase() === customerData.name.toLowerCase());
-    if (match) return match;
+    if (match) return patchNosposCustomerIdIfMissing(match, nid);
   } catch {}
+
+  if (nid != null) {
+    return createCustomer({ ...customerData, nospos_customer_id: nid });
+  }
   return createCustomer(customerData);
 };
 

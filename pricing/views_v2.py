@@ -231,13 +231,21 @@ def all_categories_flat(request):
 def customers_view(request):
     if request.method == 'GET':
         customers = Customer.objects.all()
+        nospos_q = request.query_params.get('nospos_customer_id')
+        if nospos_q is not None and str(nospos_q).strip() != '':
+            try:
+                customers = customers.filter(nospos_customer_id=int(nospos_q))
+            except (TypeError, ValueError):
+                customers = Customer.objects.none()
         data = [
             {
                 "id": c.customer_id,
                 "name": c.name,
                 "phone": c.phone_number,
+                "phone_number": c.phone_number,
                 "email": c.email,
-                "address": c.address
+                "address": c.address,
+                "nospos_customer_id": c.nospos_customer_id,
             }
             for c in customers
         ]
@@ -254,6 +262,7 @@ def customers_view(request):
                 "email": customer.email,
                 "address": customer.address or "",
                 "cancel_rate": customer.cancel_rate,
+                "nospos_customer_id": customer.nospos_customer_id,
             }
             return Response(data, status=status.HTTP_201_CREATED)
         logger.warning("CustomerSerializer errors: %s", serializer.errors)
@@ -279,6 +288,7 @@ def customer_detail(request, customer_id):
             "email": customer.email,
             "address": customer.address or "",
             "cancel_rate": customer.cancel_rate,
+            "nospos_customer_id": customer.nospos_customer_id,
         }
         return Response(data)
 
@@ -668,15 +678,40 @@ def requests_overview_list(request):
 @api_view(['PATCH'])
 def update_request_item(request, request_item_id):
     """
-    PATCH: Update offer selection and persisted offer data for a request item.
-    Only allowed for QUOTE requests.
+    PATCH: Update offer selection and persisted offer data for a request item (QUOTE),
+    or toggle testing_passed only (BOOKED_FOR_TESTING).
     """
     existing_item = get_object_or_404(RequestItem, request_item_id=request_item_id)
     existing_request = existing_item.request
     current_status = existing_request.status_history.first()
-    if not current_status or current_status.status != RequestStatus.QUOTE:
+    if not current_status:
         return Response(
-            {"error": "Can only update items in QUOTE requests"},
+            {"error": "Request has no status history"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if current_status.status == RequestStatus.BOOKED_FOR_TESTING:
+        extra_keys = set(request.data.keys()) - {'testing_passed'}
+        if extra_keys:
+            return Response(
+                {
+                    "error": "For booked-for-testing requests, only 'testing_passed' may be updated on a line.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if 'testing_passed' not in request.data:
+            return Response(
+                {"error": "Missing 'testing_passed'"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        existing_item.testing_passed = bool(request.data['testing_passed'])
+        existing_item.save(update_fields=['testing_passed'])
+        from .serializers import RequestItemSerializer
+        return Response(RequestItemSerializer(existing_item).data, status=status.HTTP_200_OK)
+
+    if current_status.status != RequestStatus.QUOTE:
+        return Response(
+            {"error": "Can only update items in QUOTE or BOOKED_FOR_TESTING requests"},
             status=status.HTTP_400_BAD_REQUEST
         )
 
@@ -1068,6 +1103,8 @@ def finish_request(request, request_id):
             request=existing_request,
             status=RequestStatus.BOOKED_FOR_TESTING
         )
+        # Fresh testing workflow: every line starts unchecked until staff ticks it in view.
+        existing_request.items.update(testing_passed=False)
 
     return Response(
         {
@@ -1103,6 +1140,21 @@ def complete_request_after_testing(request, request_id):
     if not current or current.status != RequestStatus.BOOKED_FOR_TESTING:
         return Response(
             {"error": "Only requests that are booked for testing can be marked as passed."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    eligible_items = [
+        i
+        for i in existing_request.items.all()
+        if i.negotiated_price_gbp is not None
+    ]
+    if not eligible_items:
+        return Response(
+            {"error": "Request has no negotiated lines to complete."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if not all(i.testing_passed for i in eligible_items):
+        return Response(
+            {"error": "Mark testing passed on every active line before completing the request."},
             status=status.HTTP_400_BAD_REQUEST,
         )
     with transaction.atomic():

@@ -42,18 +42,16 @@ export function formatIntent(intent) {
   }
 }
 
-/** Get display title for request filter status */
+/** Single source of truth for Requests Overview status filter (value → API, label → UI). */
+export const REQUEST_OVERVIEW_STATUS_FILTERS = [
+  { value: 'ALL', label: 'All Requests' },
+  { value: 'QUOTE', label: 'Quote Requests' },
+  { value: 'BOOKED_FOR_TESTING', label: 'Booked For Testing' },
+  { value: 'COMPLETE', label: 'Complete Requests' },
+];
+
+/** Display title for the current request overview filter value */
 export function getFilterTitle(status) {
-  switch (status) {
-    case 'ALL':
-      return 'All Requests';
-    case 'QUOTE':
-      return 'Quote Requests';
-    case 'BOOKED_FOR_TESTING':
-      return 'Booked For Testing';
-    case 'COMPLETE':
-      return 'Complete Requests';
-    default:
-      return 'Requests';
-  }
+  const row = REQUEST_OVERVIEW_STATUS_FILTERS.find((f) => f.value === status);
+  return row?.label ?? 'Requests';
 }

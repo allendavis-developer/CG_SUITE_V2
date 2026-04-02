@@ -3,6 +3,7 @@ import { normalizeExplicitSalePrice, roundSalePrice } from '@/utils/helpers';
 import { resolveOurSalePrice, getDisplayOffers } from '../utils/negotiationHelpers';
 import { NEGOTIATION_ROW_CONTEXT, RRP_SOURCE_CELL_CLASS } from '../rowContextZones';
 import { isBlockedForItem, offerIdToSlot, manualSlotCommitRequiresAuthorisation } from '@/utils/customerOfferRules';
+import TestingPassedCell from './TestingPassedCell';
 
 // ─── Reusable offer cell (1st / 2nd / 3rd / 4th) ─────────────────────────────
 
@@ -110,6 +111,10 @@ export default function NegotiationItemRow({
   blockedOfferSlots = null,
   /** Called when user clicks a blocked offer: (slot, offer) => void */
   onBlockedOfferClick = null,
+  /** null | 'booked' | 'complete' — per-line testing column in request view */
+  testingPassedColumnMode = null,
+  onTestingPassedChange = null,
+  testingPassedSavingId = null,
 }) {
   const quantity = item.quantity || 1;
   const displayOffers = getDisplayOffers(item, useVoucherOffers);
@@ -537,6 +542,15 @@ export default function NegotiationItemRow({
           </div>
         )}
       </td>
+
+      {testingPassedColumnMode ? (
+        <TestingPassedCell
+          item={item}
+          columnMode={testingPassedColumnMode}
+          onToggle={onTestingPassedChange}
+          saving={testingPassedSavingId}
+        />
+      ) : null}
     </tr>
   );
 }

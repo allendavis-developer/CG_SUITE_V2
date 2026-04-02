@@ -58,12 +58,17 @@ async function putTabInYellowGroup(tabId) {
   }
 }
 
+/**
+ * Open NosPos (or any URL) in a separate background window — same path as repricing `openNosposAndWait`.
+ * Never call putTabInYellowGroup on this tab: grouping can move the tab into the focused window.
+ * Order: minimized create → unfocused window + minimize → last resort inactive tab in current window.
+ */
 async function openBackgroundNosposTab(url, appTabId = null) {
   try {
     const win = await chrome.windows.create({
       url,
       focused: false,
-      state: 'minimized'
+      state: 'minimized',
     });
     if (win?.id != null) {
       await chrome.windows.update(win.id, { focused: false, state: 'minimized' }).catch(() => {});
@@ -79,12 +84,55 @@ async function openBackgroundNosposTab(url, appTabId = null) {
     console.warn('[CG Suite] Could not open minimized NoSpos window:', e?.message);
   }
 
+  try {
+    const win = await chrome.windows.create({
+      url,
+      focused: false,
+    });
+    if (win?.id != null) {
+      await chrome.windows.update(win.id, { focused: false, state: 'minimized' }).catch(() => {});
+    }
+    const tab = (win?.tabs || [])[0];
+    if (tab?.id != null) {
+      if (appTabId) {
+        await focusAppTab(appTabId);
+      }
+      return { tabId: tab.id, windowId: win.id || null };
+    }
+  } catch (e2) {
+    console.warn('[CG Suite] Could not open NosPos window (fallback):', e2?.message);
+  }
+
   const fallbackTab = await chrome.tabs.create({ url, active: false });
   await putTabInYellowGroup(fallbackTab.id);
   if (appTabId) {
     await focusAppTab(appTabId);
   }
   return { tabId: fallbackTab.id, windowId: fallbackTab.windowId || null };
+}
+
+/**
+ * NosPos agreement flow: open as an inactive tab (same profile as CG Suite), not a separate minimized window.
+ * Keeps the CG Suite tab focused.
+ */
+async function openNosposAgreementTabInactive(url, appTabId) {
+  if (appTabId == null) {
+    const tab = await chrome.tabs.create({ url, active: false });
+    return { tabId: tab.id, windowId: tab.windowId };
+  }
+  try {
+    const tab = await chrome.tabs.create({
+      url,
+      active: false,
+      openerTabId: appTabId,
+    });
+    await focusAppTab(appTabId);
+    return { tabId: tab.id, windowId: tab.windowId };
+  } catch (e) {
+    const tab = await chrome.tabs.create({ url, active: false });
+    await focusAppTab(appTabId);
+    return { tabId: tab.id, windowId: tab.windowId };
+  }
 }
 
 // ── Storage helpers ────────────────────────────────────────────────────────────
@@ -100,6 +148,34 @@ async function setPending(obj) {
 
 function isNosposSearchPath(path) {
   return /^\/stock\/search(?:\/index)?\/?$/i.test((path || '').trim());
+}
+
+function isNosposAgreementItemsUrl(url) {
+  try {
+    const u = new URL(url || '');
+    return /\/newagreement\/\d+\/items\/?$/i.test(u.pathname || '');
+  } catch (e) {
+    return false;
+  }
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function sendMessageToTabWithRetries(tabId, message, retries, delayMs) {
+  let lastErr = null;
+  for (let i = 0; i <= retries; i += 1) {
+    try {
+      return await chrome.tabs.sendMessage(tabId, message);
+    } catch (e) {
+      lastErr = e;
+      if (i < retries) {
+        await sleep(delayMs);
+      }
+    }
+  }
+  throw lastErr || new Error('Could not reach target tab');
 }
 
 async function clearNosposPendingEntries(tabId) {
@@ -598,10 +674,44 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'NOSPOS_ITEMS_FORM_SNAPSHOT') {
+    forwardNosposAgreementItemsSnapshot(message.payload, sender.tab?.id)
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+
   if (message.type === 'BRIDGE_FORWARD') {
     handleBridgeForward(message, sender)
-      .then(r => sendResponse(r))
-      .catch(() => sendResponse({ ok: false }));
+      .then((r) => sendResponse(r))
+      .catch((e) =>
+        sendResponse({
+          ok: false,
+          error: e?.message || String(e) || 'Extension bridge handler failed',
+        })
+      );
+    return true;
+  }
+
+  if (message.type === 'CG_APP_PAGE_UNLOADING') {
+    const appTabId = sender.tab?.id;
+    if (appTabId == null) {
+      sendResponse({ ok: false });
+      return false;
+    }
+    (async () => {
+      try {
+        const { cgNosposCustomerProfileWatch: watch } = await chrome.storage.session.get(
+          'cgNosposCustomerProfileWatch'
+        );
+        if (watch?.appTabId === appTabId && watch?.profileTabId != null) {
+          await chrome.storage.session.remove('cgNosposCustomerProfileWatch').catch(() => {});
+          await chrome.tabs.remove(watch.profileTabId).catch(() => {});
+        }
+      } finally {
+        sendResponse({ ok: true });
+      }
+    })();
     return true;
   }
 
@@ -685,7 +795,43 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return false;
 });
 
+// ── NosPos session (HTML fetch + redirect detection; shared by stock search & customer profile) ──
+
+const NOSPOS_HTML_FETCH_HEADERS = {
+  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+};
+
+/**
+ * True when a credentialed NosPos HTML response looks unauthenticated (same rules as stock search).
+ */
+function nosposHtmlFetchIndicatesNotLoggedIn(response, finalUrl) {
+  const url = (finalUrl || response?.url || '').toLowerCase();
+  if (!response?.ok) return true;
+  return (
+    url.includes('/login') ||
+    url.includes('/signin') ||
+    url.includes('/site/standard-login') ||
+    url.includes('/twofactor')
+  );
+}
+
 // ── Handlers ───────────────────────────────────────────────────────────────────
+
+/** NosPos items form snapshot → CG Suite tab (mirror modal). Only from the tracked profile tab. */
+async function forwardNosposAgreementItemsSnapshot(payload, nosposTabId) {
+  if (nosposTabId == null || !payload) return;
+  const { cgNosposCustomerProfileWatch: watch } = await chrome.storage.session.get(
+    'cgNosposCustomerProfileWatch'
+  );
+  if (!watch?.appTabId) return;
+  if (watch.profileTabId != null && watch.profileTabId !== nosposTabId) return;
+  await chrome.tabs
+    .sendMessage(watch.appTabId, {
+      type: 'NOSPOS_AGREEMENT_ITEMS_SNAPSHOT_TO_PAGE',
+      payload,
+    })
+    .catch(() => {});
+}
 
 async function handleBridgeForward(message, sender) {
   const { requestId, payload } = message;
@@ -769,10 +915,10 @@ async function handleBridgeForward(message, sender) {
       const searchUrl = `https://nospos.com/stock/search/index?StockSearchAndFilter[query]=${encodeURIComponent(barcode)}&sort=-quantity`;
       const response = await fetch(searchUrl, {
         credentials: 'include',
-        headers: { 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' }
+        headers: NOSPOS_HTML_FETCH_HEADERS,
       });
       const finalUrl = response.url || '';
-      if (!response.ok || finalUrl.includes('/login') || finalUrl.includes('/signin') || finalUrl.includes('/site/standard-login') || finalUrl.includes('/twofactor')) {
+      if (nosposHtmlFetchIndicatesNotLoggedIn(response, finalUrl)) {
         return { ok: false, loginRequired: true };
       }
       const html = await response.text();
@@ -784,6 +930,187 @@ async function handleBridgeForward(message, sender) {
     } catch (e) {
       return { ok: false, error: e.message || 'Search failed' };
     }
+  }
+
+  // Open NosPos “Create agreement” for this customer: session-check on /customer/{id}/buying, then
+  // load newagreement/create in an inactive tab (CG Suite stays focused until the mirror flow finishes).
+  // agreementType: PA = Buy Back Agreement, DP = Buy Agreement (direct sale / store credit).
+  if (payload.action === 'openNosposCustomerProfile') {
+    const id = parseInt(String(payload.nosposCustomerId ?? '').trim(), 10);
+    if (!Number.isFinite(id) || id <= 0) {
+      return { ok: false, error: 'Invalid NosPos customer id' };
+    }
+    const rawType = String(
+      payload.agreementType ?? payload.nosposAgreementType ?? 'DP'
+    ).toUpperCase();
+    const agreementType = rawType === 'PA' ? 'PA' : 'DP';
+    const buyingPageUrl = `https://nospos.com/customer/${id}/buying`;
+    const createUrl = `https://nospos.com/newagreement/agreement/create?type=${agreementType}&customer_id=${id}`;
+    const SESSION_CHECK_MS = 12000;
+
+    async function cancelResponseBody(response) {
+      try {
+        await response.body?.cancel?.();
+      } catch (_) {
+        /* ignore */
+      }
+    }
+
+    async function openAgreementInactiveTab() {
+      const { tabId } = await openNosposAgreementTabInactive(createUrl, appTabId);
+      if (appTabId != null && tabId != null) {
+        await chrome.storage.session.set({
+          cgNosposCustomerProfileWatch: { appTabId, profileTabId: tabId },
+        });
+      }
+      return tabId;
+    }
+
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), SESSION_CHECK_MS);
+      let response;
+      try {
+        response = await fetch(buyingPageUrl, {
+          credentials: 'include',
+          headers: NOSPOS_HTML_FETCH_HEADERS,
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
+
+      const finalUrl = response.url || '';
+      await cancelResponseBody(response);
+
+      if (nosposHtmlFetchIndicatesNotLoggedIn(response, finalUrl)) {
+        await openAgreementInactiveTab();
+        return { ok: false, loginRequired: true };
+      }
+
+      await openAgreementInactiveTab();
+      return { ok: true };
+    } catch (e) {
+      const isAbort = e?.name === 'AbortError';
+      try {
+        await openAgreementInactiveTab();
+        return {
+          ok: true,
+          sessionUnchecked: true,
+          warning: isAbort
+            ? 'NoSpos was slow to respond; an inactive NosPos tab was opened without a full session check. Select that tab to sign in if needed.'
+            : 'Could not verify your NoSpos session; an inactive NosPos tab was opened anyway. Select that tab to sign in if needed.',
+        };
+      } catch (createErr) {
+        return {
+          ok: false,
+          error: createErr?.message || e?.message || 'Failed to open NosPos',
+        };
+      }
+    }
+  }
+
+  // Apply mirrored field values to the NosPos #items-form (tracked profile tab).
+  if (payload.action === 'nosposAgreementApplyFields') {
+    const { cgNosposCustomerProfileWatch: watch } = await chrome.storage.session.get(
+      'cgNosposCustomerProfileWatch'
+    );
+    if (watch?.profileTabId == null) {
+      return { ok: false, error: 'No NosPos agreement tab is tracked. Open agreement from CG Suite first.' };
+    }
+    try {
+      const r = await sendMessageToTabWithRetries(watch.profileTabId, {
+        type: 'NOSPOS_ITEMS_FORM_APPLY',
+        fields: payload.fields || [],
+      }, 2, 180);
+      return r && typeof r === 'object' ? r : { ok: false };
+    } catch (e) {
+      return { ok: false, error: e?.message || 'Could not reach the NosPos tab' };
+    }
+  }
+
+  if (payload.action === 'nosposAgreementClickNext') {
+    const { cgNosposCustomerProfileWatch: watch } = await chrome.storage.session.get(
+      'cgNosposCustomerProfileWatch'
+    );
+    if (watch?.profileTabId == null) {
+      return { ok: false, error: 'No NosPos agreement tab is tracked.' };
+    }
+    try {
+      const r = await sendMessageToTabWithRetries(watch.profileTabId, {
+        type: 'NOSPOS_ITEMS_FORM_NEXT',
+      }, 1, 160);
+
+      // Give NosPos a moment to navigate. Success means we are no longer on /newagreement/{id}/items.
+      await sleep(700);
+      const tab = await chrome.tabs.get(watch.profileTabId).catch(() => null);
+      const stillOnItems = isNosposAgreementItemsUrl(tab?.url || '');
+      if (stillOnItems) {
+        return {
+          ok: false,
+          error: 'NosPos blocked Next. Please check any required fields on the items page.',
+        };
+      }
+      return r && typeof r === 'object' ? { ok: true } : { ok: true };
+    } catch (e) {
+      // If the tab navigated during submit, message channel can close; verify URL before failing.
+      await sleep(500);
+      const tab = await chrome.tabs.get(watch.profileTabId).catch(() => null);
+      const stillOnItems = isNosposAgreementItemsUrl(tab?.url || '');
+      if (!stillOnItems && tab?.url) {
+        return { ok: true };
+      }
+      return { ok: false, error: e?.message || 'Could not reach the NosPos tab' };
+    }
+  }
+
+  if (payload.action === 'nosposAgreementAddItem') {
+    const { cgNosposCustomerProfileWatch: watch } = await chrome.storage.session.get(
+      'cgNosposCustomerProfileWatch'
+    );
+    if (watch?.profileTabId == null) {
+      return { ok: false, error: 'No NosPos agreement tab is tracked.' };
+    }
+    try {
+      const r = await sendMessageToTabWithRetries(watch.profileTabId, {
+        type: 'NOSPOS_ITEMS_FORM_ADD',
+      }, 1, 160);
+      return r && typeof r === 'object' ? r : { ok: true };
+    } catch (e) {
+      return { ok: false, error: e?.message || 'Could not reach the NosPos tab' };
+    }
+  }
+
+  if (payload.action === 'focusNosposAgreementTab') {
+    const { cgNosposCustomerProfileWatch: watch } = await chrome.storage.session.get(
+      'cgNosposCustomerProfileWatch'
+    );
+    if (watch?.profileTabId == null) {
+      return { ok: false, error: 'No NosPos agreement tab is tracked.' };
+    }
+    try {
+      const tab = await chrome.tabs.get(watch.profileTabId);
+      await chrome.tabs.update(watch.profileTabId, { active: true });
+      if (tab?.windowId != null) {
+        await chrome.windows.update(tab.windowId, { focused: true });
+      }
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e?.message || 'Could not focus the NosPos tab' };
+    }
+  }
+
+  // Close the NosPos agreement tab opened from CG Suite (Park / Open in NoSpos mirror).
+  // Clear session storage before removing the tab so tabs.onRemoved does not post TAB_CLOSED to the app.
+  if (payload.action === 'closeNosposAgreementTab') {
+    const { cgNosposCustomerProfileWatch: watch } = await chrome.storage.session.get(
+      'cgNosposCustomerProfileWatch'
+    );
+    await chrome.storage.session.remove('cgNosposCustomerProfileWatch').catch(() => {});
+    if (watch?.profileTabId != null) {
+      await chrome.tabs.remove(watch.profileTabId).catch(() => {});
+    }
+    return { ok: true };
   }
 
   // Open nospos.com for customer intake – same flow as openNosposAndWait (waits for user to log in)
@@ -1731,6 +2058,33 @@ async function handleScrapedData(message) {
 // ── Tab close: only the single tab we opened is tracked; closing it notifies the app ─────────────
 
 chrome.tabs.onRemoved.addListener(async (removedTabId) => {
+  const profileWatch = (await chrome.storage.session.get('cgNosposCustomerProfileWatch'))
+    .cgNosposCustomerProfileWatch;
+
+  if (
+    profileWatch &&
+    profileWatch.appTabId === removedTabId &&
+    profileWatch.profileTabId != null
+  ) {
+    await chrome.storage.session.remove('cgNosposCustomerProfileWatch').catch(() => {});
+    await chrome.tabs.remove(profileWatch.profileTabId).catch(() => {});
+    return;
+  }
+
+  if (
+    profileWatch &&
+    profileWatch.profileTabId === removedTabId &&
+    profileWatch.appTabId != null
+  ) {
+    await chrome.storage.session.remove('cgNosposCustomerProfileWatch');
+    chrome.tabs
+      .sendMessage(profileWatch.appTabId, {
+        type: 'NOSPOS_CUSTOMER_PROFILE_TAB_CLOSED',
+        message: 'NoSpos agreement window was closed. You can try again when ready.',
+      })
+      .catch(() => {});
+  }
+
   const nosposData = (await chrome.storage.session.get('cgNosposRepricingData')).cgNosposRepricingData;
   const progress = (await chrome.storage.local.get('cgNosposRepricingProgress')).cgNosposRepricingProgress;
   if (nosposData?.nosposTabId === removedTabId) {

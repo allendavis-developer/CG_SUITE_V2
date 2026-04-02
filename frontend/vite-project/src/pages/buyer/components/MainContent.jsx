@@ -217,6 +217,7 @@ const MainContent = ({ mode = 'buyer' }) => {
       model: selectedModel?.name,
       condition: attributeValues.condition || selectedVariant?.condition,
       attributeValues: { ...attributeValues },
+      attributeLabels: Object.fromEntries((attributes || []).map((a) => [a.code, a.name])),
       ourSalePrice: ourSalePrice ? roundSalePrice(Number(ourSalePrice)) : null,
       cexSellPrice: referenceData?.cex_sale_price ? Number(referenceData.cex_sale_price) : null,
       cexBuyPrice: referenceData?.cex_tradein_cash ? Number(referenceData.cex_tradein_cash) : null,

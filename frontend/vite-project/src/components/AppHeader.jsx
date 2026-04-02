@@ -485,6 +485,7 @@ const AppHeader = ({
       model: selectedModel?.name,
       condition: attributeValues.condition || selectedVariant?.condition,
       attributeValues: { ...attributeValues },
+      attributeLabels: Object.fromEntries((attributes || []).map((a) => [a.code, a.name])),
       variantId: selectedVariant?.variant_id ?? null,
       cexSku: selectedVariant?.cex_sku ?? null,
       cexUrl: selectedVariant?.cex_sku ? `https://uk.webuy.com/product-detail?id=${selectedVariant.cex_sku}` : null,
@@ -501,7 +502,7 @@ const AppHeader = ({
       request_item_id: null,
       referenceData,
     };
-  }, [showNegotiationItemBuilder, selectedModel, variant, variants, referenceData, useVoucherOffers, offers, buyerControls?.selectedCategory, attributeValues, ourSalePrice]);
+  }, [showNegotiationItemBuilder, selectedModel, variant, variants, referenceData, useVoucherOffers, offers, buyerControls?.selectedCategory, attributeValues, attributes, ourSalePrice]);
 
   const handleAddNegotiationItem = async (offerArg) => {
     if (!buyerControls?.onAddNegotiationItem) return;

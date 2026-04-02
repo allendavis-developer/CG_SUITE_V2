@@ -2,6 +2,8 @@ from django.contrib import admin
 from django.urls import path, re_path
 
 import pricing.views_v2 as v2
+import pricing.ai_views as ai_views
+
 urlpatterns = [
     path('', v2.react_app, name='react_app_root'),
     path('admin/', admin.site.urls),
@@ -45,6 +47,11 @@ urlpatterns = [
     path('api/customer-offer-rules/', v2.customer_offer_rules_view, name='customer_offer_rules'),
     path('api/customer-offer-rules/<str:customer_type>/', v2.customer_offer_rule_detail, name='customer_offer_rule_detail'),
     path('api/address-lookup/<str:postcode>/', v2.address_lookup, name='address_lookup'),
+
+    # AI
+    path('api/ai/suggest-category/', ai_views.suggest_nospos_category, name='ai_suggest_nospos_category'),
+    path('api/ai/suggest-fields/', ai_views.suggest_nospos_fields, name='ai_suggest_nospos_fields'),
+
     re_path(r'^(?:.*)/?$', v2.react_app, name='react_app_catchall'),
 
 

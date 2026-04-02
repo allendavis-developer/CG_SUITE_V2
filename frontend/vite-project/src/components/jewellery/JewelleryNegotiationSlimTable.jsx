@@ -11,6 +11,8 @@ import {
   isJewelleryCoinSilverOzLine,
 } from '@/components/jewellery/jewelleryNegotiationCart';
 import { isBlockedForItem, offerIdToSlot } from '@/utils/customerOfferRules';
+import TestingPassedCell from '@/pages/buyer/components/TestingPassedCell';
+import TestingPassedColumnHeader from '@/pages/buyer/components/TestingPassedColumnHeader';
 
 function SlimOfferCell({
   offer,
@@ -98,6 +100,9 @@ export default function JewelleryNegotiationSlimTable({
   onJewelleryItemNameChange,
   blockedOfferSlots = null,
   onBlockedOfferClick = null,
+  testingPassedColumnMode = null,
+  onTestingPassedChange = null,
+  testingPassedSavingId = null,
 }) {
   const isView = mode === 'view';
 
@@ -154,6 +159,7 @@ export default function JewelleryNegotiationSlimTable({
             <th scope="col" className="w-32">
               Customer Expectation
             </th>
+            {testingPassedColumnMode ? <TestingPassedColumnHeader /> : null}
           </tr>
         </thead>
         <tbody className="text-xs">
@@ -451,11 +457,19 @@ export default function JewelleryNegotiationSlimTable({
                     readOnly={isView}
                   />
                 </td>
+                {testingPassedColumnMode ? (
+                  <TestingPassedCell
+                    item={item}
+                    columnMode={testingPassedColumnMode}
+                    onToggle={onTestingPassedChange}
+                    saving={testingPassedSavingId}
+                  />
+                ) : null}
               </tr>
             );
           })}
           <tr className="h-10 opacity-50">
-            <td colSpan="12" />
+            <td colSpan={testingPassedColumnMode ? 13 : 12} />
           </tr>
         </tbody>
       </table>

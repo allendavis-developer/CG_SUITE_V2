@@ -415,6 +415,11 @@ const useAppStore = create(
             cancelRate: info.cancelRate || 0,
             transactionType: info.transactionType || 'sale',
             isNewCustomer: info.isNewCustomer ?? false,
+            nospos_customer_id:
+              info.nospos_customer_id ??
+              c.nosposCustomerId ??
+              c.nospos_customer_id ??
+              null,
             joined: c.joined || null,
             lastTransacted: c.lastTransacted || null,
             buyBackRate: c.buyBackRate || null,

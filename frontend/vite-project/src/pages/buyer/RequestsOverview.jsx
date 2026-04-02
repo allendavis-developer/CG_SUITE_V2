@@ -1,99 +1,129 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useNotification } from '@/contexts/NotificationContext';
-import { API_BASE_URL, fetchRequestDetail } from '@/services/api';
-import { Icon, CustomDropdown } from '@/components/ui/components';
+import { fetchRequestDetail, fetchRequestsOverview } from '@/services/api';
+import { CustomDropdown } from '@/components/ui/components';
 import AppHeader from '@/components/AppHeader';
-import { formatIntent, getFilterTitle } from '@/utils/transactionConstants';
+import {
+  formatIntent,
+  getFilterTitle,
+  REQUEST_OVERVIEW_STATUS_FILTERS,
+} from '@/utils/transactionConstants';
+
+const FILTER_LABELS = REQUEST_OVERVIEW_STATUS_FILTERS.map((f) => f.label);
+
+function labelToFilterValue(label) {
+  return REQUEST_OVERVIEW_STATUS_FILTERS.find((f) => f.label === label)?.value ?? 'ALL';
+}
+
+const getStatusColor = (status) => {
+  switch (status) {
+    case 'QUOTE':
+      return 'bg-brand-blue/10 text-brand-blue';
+    case 'BOOKED_FOR_TESTING':
+      return 'bg-amber-600/10 text-amber-600';
+    case 'COMPLETE':
+      return 'bg-purple-600/10 text-purple-600';
+    default:
+      return 'bg-gray-600/10 text-gray-600';
+  }
+};
+
+const formatStatus = (status) => {
+  if (status === 'BOOKED_FOR_TESTING') return 'Booked for Testing';
+  if (status === 'QUOTE') return 'Quote';
+  if (status === 'COMPLETE') return 'Complete';
+  return String(status).replace(/_/g, ' ');
+};
+
+const getInitials = (name) => {
+  if (!name || typeof name !== 'string') return '?';
+  return name
+    .split(' ')
+    .map((word) => word[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 2);
+};
 
 const RequestsOverview = () => {
   const navigate = useNavigate();
   const { showNotification } = useNotification();
   const [requests, setRequests] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [filterStatus, setFilterStatus] = useState('ALL');
+  const [error, setError] = useState(null);
+  /** Full-page spinner only before the first successful load (filter changes do not blank the UI). */
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [listRefreshing, setListRefreshing] = useState(false);
+  const hasLoadedOnceRef = useRef(false);
 
-  useEffect(() => {
-    const fetchRequests = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        let url = `${API_BASE_URL}/requests/overview/`;
-        if (filterStatus !== 'ALL') {
-          url += `?status=${filterStatus}`;
-        }
-        
-        const response = await fetch(url);
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
-        }
-        const data = await response.json();
-        setRequests(data);
-      } catch (err) {
-        console.error("Error fetching requests:", err);
-        setError(err.message);
-        showNotification(`Failed to load requests: ${err.message}`, 'error');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchRequests();
+  const loadRequests = useCallback(async () => {
+    const isFirstLoad = !hasLoadedOnceRef.current;
+    if (isFirstLoad) {
+      setInitialLoading(true);
+    } else {
+      setListRefreshing(true);
+    }
+    setError(null);
+    try {
+      const data = await fetchRequestsOverview(filterStatus);
+      setRequests(data);
+      hasLoadedOnceRef.current = true;
+    } catch (err) {
+      console.error('Error fetching requests:', err);
+      const message = err?.message || 'Failed to load requests';
+      setError(message);
+      showNotification(`Failed to load requests: ${message}`, 'error');
+    } finally {
+      setInitialLoading(false);
+      setListRefreshing(false);
+    }
   }, [filterStatus, showNotification]);
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'QUOTE': 
-        return 'bg-brand-blue/10 text-brand-blue';
-      case 'BOOKED_FOR_TESTING': 
-        return 'bg-amber-600/10 text-amber-600';
-      case 'COMPLETE': 
-        return 'bg-purple-600/10 text-purple-600';
-      default: 
-        return 'bg-gray-600/10 text-gray-600';
-    }
-  };
+  useEffect(() => {
+    loadRequests();
+  }, [loadRequests]);
 
-  const formatStatus = (status) => {
-    if (status === 'BOOKED_FOR_TESTING') {
-      return 'Booked for Testing';
-    }
-    if (status === 'QUOTE') {
-      return 'Quote';
-    }
-    if (status === 'COMPLETE') {
-      return 'Complete';
-    }
-    return status.replace(/_/g, ' ');
-  };
+  const stats = useMemo(() => {
+    // Derived from the current server response (already filtered). Sidebar counts = “in this view”.
+    return {
+      quotes: requests.filter((r) => r.current_status === 'QUOTE').length,
+      booked: requests.filter((r) => r.current_status === 'BOOKED_FOR_TESTING').length,
+      completed: requests.filter((r) => r.current_status === 'COMPLETE').length,
+    };
+  }, [requests]);
 
-  const getInitials = (name) => {
-    return name
-      .split(' ')
-      .map(word => word[0])
-      .join('')
-      .toUpperCase()
-      .slice(0, 2);
-  };
+  const totalGrandValue = useMemo(
+    () =>
+      requests.reduce((sum, request) => sum + (Number(request.negotiated_grand_total_gbp) || 0), 0),
+    [requests]
+  );
 
-  // Calculate stats
-  const stats = {
-    total: requests.filter(r => r.current_status === 'QUOTE').length,
-    booked: requests.filter(r => r.current_status === 'BOOKED_FOR_TESTING').length,
-    completed: requests.filter(r => r.current_status === 'COMPLETE').length,
-  };
+  const onRowNavigate = useCallback(
+    async (requestItem) => {
+      if (requestItem.current_status === 'QUOTE') {
+        try {
+          const data = await fetchRequestDetail(requestItem.request_id);
+          if (data) {
+            navigate('/buyer', { state: { openQuoteRequest: data } });
+          } else {
+            navigate(`/requests/${requestItem.request_id}/view`);
+          }
+        } catch {
+          navigate(`/requests/${requestItem.request_id}/view`);
+        }
+      } else {
+        navigate(`/requests/${requestItem.request_id}/view`);
+      }
+    },
+    [navigate]
+  );
 
-  // Filter requests by search query
-  const filteredRequests = requests;
+  const onFilterLabelChange = useCallback((label) => {
+    setFilterStatus(labelToFilterValue(label));
+  }, []);
 
-  // Calculate total grand value
-  const totalGrandValue = filteredRequests.reduce((sum, request) => {
-    return sum + (Number(request.negotiated_grand_total_gbp) || 0);
-  }, 0);
-
-  if (loading) {
+  if (initialLoading) {
     return (
       <div className="bg-gray-50 min-h-screen flex items-center justify-center">
         <p className="text-gray-600 font-semibold">Loading requests...</p>
@@ -101,10 +131,17 @@ const RequestsOverview = () => {
     );
   }
 
-  if (error) {
+  if (error && requests.length === 0) {
     return (
-      <div className="bg-gray-50 min-h-screen flex items-center justify-center">
+      <div className="bg-gray-50 min-h-screen flex flex-col items-center justify-center gap-4">
         <p className="text-red-600 font-semibold">Error: {error}</p>
+        <button
+          type="button"
+          className="rounded-lg bg-brand-blue px-4 py-2 text-sm font-bold text-white"
+          onClick={() => loadRequests()}
+        >
+          Retry
+        </button>
       </div>
     );
   }
@@ -151,58 +188,87 @@ const RequestsOverview = () => {
         }
       `}</style>
 
-      {/* Header */}
       <AppHeader />
 
-      <main className="flex flex-1 overflow-hidden h-[calc(100vh-65px)]">
-        {/* Sidebar */}
+      <main className="relative flex flex-1 overflow-hidden h-[calc(100vh-65px)]">
+        {listRefreshing ? (
+          <div
+            className="pointer-events-none absolute inset-x-0 top-0 z-20 h-0.5 animate-pulse bg-brand-orange/80"
+            aria-hidden
+          />
+        ) : null}
+
         <aside className="w-64 bg-brand-blue flex flex-col shrink-0">
           <div className="p-6 space-y-8">
             <div>
-              <h3 className="text-white/40 text-[10px] font-black uppercase tracking-widest mb-4">Main Menu</h3>
+              <h3 className="text-white/40 text-[10px] font-black uppercase tracking-widest mb-4">
+                Main Menu
+              </h3>
               <nav className="space-y-1">
-                <a 
-                  className="flex items-center gap-3 text-white py-2 bg-white/10 rounded-lg px-3 -mx-3 cursor-pointer"
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-3 text-white py-2 bg-white/10 rounded-lg px-3 -mx-3 cursor-pointer text-left"
                   onClick={() => navigate('/requests-overview')}
                 >
-                  <span className="material-symbols-outlined text-sm text-brand-orange">receipt_long</span>
+                  <span className="material-symbols-outlined text-sm text-brand-orange">
+                    receipt_long
+                  </span>
                   <span className="text-sm font-bold">Overview</span>
-                </a>
+                </button>
               </nav>
             </div>
             <div>
-              <h3 className="text-white/40 text-[10px] font-black uppercase tracking-widest mb-4">Today's Stats</h3>
+              <h3 className="text-white/40 text-[10px] font-black uppercase tracking-widest mb-4">
+                In this view
+              </h3>
+              <p className="text-white/35 text-[9px] font-medium mb-3 leading-snug">
+                Counts match the table below (respects status filter).
+              </p>
               <div className="space-y-4">
                 <div className="bg-white/5 p-3 rounded-lg border border-white/10">
-                  <p className="text-white/50 text-[10px] font-bold uppercase tracking-wider">Quote Requests</p>
-                  <p className="text-xl font-extrabold text-white mt-1">{stats.total}</p>
+                  <p className="text-white/50 text-[10px] font-bold uppercase tracking-wider">
+                    Quote rows
+                  </p>
+                  <p className="text-xl font-extrabold text-white mt-1">{stats.quotes}</p>
                 </div>
                 <div className="bg-white/5 p-3 rounded-lg border border-white/10">
-                  <p className="text-white/50 text-[10px] font-bold uppercase tracking-wider">Booked / Total</p>
-                  <p className="text-xl font-extrabold text-white mt-1">{stats.booked} / {requests.length}</p>
+                  <p className="text-white/50 text-[10px] font-bold uppercase tracking-wider">
+                    Booked rows
+                  </p>
+                  <p className="text-xl font-extrabold text-white mt-1">{stats.booked}</p>
                 </div>
                 <div className="bg-white/5 p-3 rounded-lg border border-white/10">
-                  <p className="text-white/50 text-[10px] font-bold uppercase tracking-wider">Completed</p>
+                  <p className="text-white/50 text-[10px] font-bold uppercase tracking-wider">
+                    Complete rows
+                  </p>
                   <p className="text-xl font-extrabold text-white mt-1">{stats.completed}</p>
+                </div>
+                <div className="bg-white/5 p-3 rounded-lg border border-white/10">
+                  <p className="text-white/50 text-[10px] font-bold uppercase tracking-wider">
+                    Rows shown
+                  </p>
+                  <p className="text-xl font-extrabold text-white mt-1">{requests.length}</p>
                 </div>
               </div>
             </div>
           </div>
           <div className="mt-auto p-6 border-t border-white/10">
-            <button className="w-full bg-white/5 hover:bg-white/10 text-white/70 hover:text-white py-3 rounded-lg flex items-center justify-center gap-2 transition-all">
+            <button
+              type="button"
+              className="w-full bg-white/5 hover:bg-white/10 text-white/70 hover:text-white py-3 rounded-lg flex items-center justify-center gap-2 transition-all"
+            >
               <span className="material-symbols-outlined text-sm">logout</span>
               <span className="text-xs font-bold uppercase tracking-wider">Logout</span>
             </button>
           </div>
         </aside>
 
-        {/* Main Content */}
         <section className="flex-1 bg-white flex flex-col overflow-hidden">
           <div className="px-6 py-4 flex items-center justify-between border-b border-gray-200 bg-white">
             <div className="flex items-center gap-4">
               <h1 className="text-xl font-extrabold text-brand-blue">{getFilterTitle(filterStatus)}</h1>
               <span className="bg-brand-blue/10 text-brand-blue text-[11px] font-black px-2.5 py-0.5 rounded-full">
-                {filteredRequests.length} TOTAL
+                {requests.length} TOTAL
               </span>
               <span className="bg-brand-blue/10 text-brand-blue text-[11px] font-black px-2.5 py-0.5 rounded-full">
                 £{totalGrandValue.toFixed(2)} VALUE
@@ -212,10 +278,11 @@ const RequestsOverview = () => {
               <CustomDropdown
                 label=""
                 value={getFilterTitle(filterStatus)}
-                options={['ALL', 'QUOTE', 'BOOKED_FOR_TESTING', 'COMPLETE']}
-                onChange={(value) => setFilterStatus(value)}
+                options={FILTER_LABELS}
+                onChange={onFilterLabelChange}
               />
-              <button 
+              <button
+                type="button"
                 className="flex items-center gap-2 px-4 py-2 bg-brand-blue text-white rounded-lg hover:bg-brand-blue-hover transition-colors font-bold"
                 onClick={() => navigate('/buyer')}
               >
@@ -225,8 +292,10 @@ const RequestsOverview = () => {
             </div>
           </div>
 
-          <div className="overflow-auto flex-1">
-            {filteredRequests.length === 0 ? (
+          <div
+            className={`overflow-auto flex-1 transition-opacity duration-150 ${listRefreshing ? 'opacity-60' : ''}`}
+          >
+            {requests.length === 0 ? (
               <div className="flex items-center justify-center h-64">
                 <p className="text-gray-500 font-semibold">No requests found.</p>
               </div>
@@ -245,52 +314,41 @@ const RequestsOverview = () => {
                   </tr>
                 </thead>
                 <tbody className="text-xs">
-                  {filteredRequests.map((requestItem) => (
-                    <tr
-                      key={requestItem.request_id}
-                      onClick={async () => {
-                        if (requestItem.current_status === 'QUOTE') {
-                          try {
-                            const data = await fetchRequestDetail(requestItem.request_id);
-                            if (data) {
-                              navigate('/buyer', {
-                                state: { openQuoteRequest: data },
-                              });
-                            } else {
-                              navigate(`/requests/${requestItem.request_id}/view`);
-                            }
-                          } catch {
-                            navigate(`/requests/${requestItem.request_id}/view`);
-                          }
-                        } else {
-                          navigate(`/requests/${requestItem.request_id}/view`);
-                        }
-                      }}
-                    >
+                  {requests.map((requestItem) => (
+                    <tr key={requestItem.request_id} onClick={() => onRowNavigate(requestItem)}>
                       <td className="font-bold text-gray-600">#{requestItem.request_id}</td>
                       <td>
                         <div className="flex items-center gap-3">
                           <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center font-bold text-brand-blue text-[11px]">
-                            {getInitials(requestItem.customer_details.name)}
+                            {getInitials(requestItem.customer_details?.name)}
                           </div>
                           <div className="font-bold text-brand-blue text-[13px]">
-                            {requestItem.customer_details.name}
+                            {requestItem.customer_details?.name ?? '—'}
                           </div>
                         </div>
                       </td>
-                      <td className="font-semibold text-gray-600">{formatIntent(requestItem.intent)}</td>
-                      <td className="font-semibold">{requestItem.items.length} Item{requestItem.items.length !== 1 ? 's' : ''}</td>
-                      <td className="font-bold text-brand-blue text-[13px]">£{Number(requestItem.negotiated_grand_total_gbp)?.toFixed(2) || '0.00'}</td>
+                      <td className="font-semibold text-gray-600">
+                        {formatIntent(requestItem.intent)}
+                      </td>
+                      <td className="font-semibold">
+                        {requestItem.items?.length ?? 0} Item
+                        {(requestItem.items?.length ?? 0) !== 1 ? 's' : ''}
+                      </td>
+                      <td className="font-bold text-brand-blue text-[13px]">
+                        £{Number(requestItem.negotiated_grand_total_gbp)?.toFixed(2) || '0.00'}
+                      </td>
                       <td>
-                        <span className={`status-pill ${getStatusColor(requestItem.current_status)}`}>
+                        <span
+                          className={`status-pill ${getStatusColor(requestItem.current_status)}`}
+                        >
                           {formatStatus(requestItem.current_status)}
                         </span>
                       </td>
                       <td className="text-gray-600">
-                        {new Date(requestItem.created_at).toLocaleDateString('en-US', { 
-                          month: 'short', 
+                        {new Date(requestItem.created_at).toLocaleDateString('en-US', {
+                          month: 'short',
                           day: 'numeric',
-                          year: 'numeric'
+                          year: 'numeric',
                         })}
                       </td>
                       <td className="text-right">
@@ -305,7 +363,7 @@ const RequestsOverview = () => {
 
           <div className="px-6 py-4 border-t border-gray-200 bg-slate-50 flex items-center justify-between">
             <p className="text-[11px] text-gray-600 font-bold uppercase tracking-widest">
-              Showing {filteredRequests.length} of {requests.length} results
+              Showing {requests.length} result{requests.length !== 1 ? 's' : ''}
             </p>
           </div>
         </section>

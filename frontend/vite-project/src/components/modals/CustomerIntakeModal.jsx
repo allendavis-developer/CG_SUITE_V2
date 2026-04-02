@@ -118,6 +118,15 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
     }
     const c = nosposCustomer;
     const cancelRateNum = c.cancelRate ? parseFloat(c.cancelRate) || 0 : 0;
+    const rawNosposId = c.nosposCustomerId ?? c.nospos_customer_id;
+    const nosposCustomerIdParsed =
+      rawNosposId != null && rawNosposId !== ''
+        ? parseInt(String(rawNosposId), 10)
+        : null;
+    const nospos_customer_id =
+      Number.isFinite(nosposCustomerIdParsed) && nosposCustomerIdParsed > 0
+        ? nosposCustomerIdParsed
+        : undefined;
 
     setConfirming(true);
     setError(null);
@@ -128,6 +137,7 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
         email:        c.email       || null,
         address:      c.address     || "",
         is_temp_staging: false,
+        ...(nospos_customer_id != null ? { nospos_customer_id } : {}),
       });
 
       onClose({
@@ -141,6 +151,7 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
         email: c.email,
         address: c.address,
         cancelRate: cancelRateNum,
+        nospos_customer_id: created.nospos_customer_id ?? nospos_customer_id ?? null,
         nosposChanges,
         bypassReason: bypassReason || null,
       });

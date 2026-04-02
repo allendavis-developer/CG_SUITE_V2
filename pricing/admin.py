@@ -220,7 +220,7 @@ class PricingRuleAdmin(admin.ModelAdmin):
 
 @admin.register(Customer)
 class CustomerAdmin(admin.ModelAdmin):
-    list_display = ("name", "phone_number", "created_at")
+    list_display = ("name", "phone_number", "nospos_customer_id", "created_at")
     search_fields = ("name", "phone_number")
     ordering = ("-created_at",)
 

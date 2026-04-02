@@ -29,7 +29,7 @@
   const STOCK_SEARCH_PAGE_PATTERN = /^\/stock\/search(?:\/index)?\/?$/i;
   const STOCK_EDIT_PAGE_PATTERN = /^\/stock\/\d+\/edit\/?$/i;
   const CUSTOMER_SEARCH_PAGE_PATTERN = /^\/customers(?:\/|\?|$)/i;
-  const CUSTOMER_DETAIL_PAGE_PATTERN = /^\/customer\/\d+\/view\/?/i;
+  const CUSTOMER_DETAIL_PAGE_PATTERN = /^\/customer\/\d+\/(?:view|buying)\/?/i;
   const FORCED_LOGIN_PATHS = new Set(['/site/standard-login', '/twofactor/authenticate']);
 
   function isOnLoginPage() {
@@ -96,6 +96,19 @@
       return CUSTOMER_DETAIL_PAGE_PATTERN.test(window.location.pathname || '/');
     } catch (e) {
       return false;
+    }
+  }
+
+  /** Numeric id from /customer/{id}/view or /customer/{id}/buying */
+  function extractNosposCustomerIdFromPath() {
+    try {
+      var path = window.location.pathname || '';
+      var m = /^\/customer\/(\d+)\/(?:view|buying)\/?$/i.exec(path);
+      if (!m) return null;
+      var n = parseInt(m[1], 10);
+      return n > 0 ? n : null;
+    } catch (e) {
+      return null;
     }
   }
 
@@ -937,6 +950,7 @@
       if (enteredTown  !== d.town)                     changes.push({ field: 'Town',        from: d.town,     to: enteredTown  });
 
       var customer = {
+        nosposCustomerId: extractNosposCustomerIdFromPath(),
         forename:       finalForename,
         surname:        finalSurname,
         dob:            finalDob,
@@ -1099,6 +1113,7 @@
       if (currentTown) {
         sessionStorage.removeItem('cgWaitingForTownFix');
         var customer = scrapeCustomerForm();
+        customer.nosposCustomerId = extractNosposCustomerIdFromPath();
         customer.name    = (customer.forename + ' ' + customer.surname).trim();
         customer.phone   = customer.mobile || customer.homePhone;
         customer.address = [customer.address1, customer.address2, customer.town, customer.county, customer.postcode].filter(Boolean).join(', ');

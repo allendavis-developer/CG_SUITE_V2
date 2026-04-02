@@ -704,6 +704,13 @@ class Customer(models.Model):
     email = models.EmailField(max_length=255, unique=True, blank=True, null=True)
     address = models.TextField(blank=True)
     is_temp_staging = models.BooleanField(default=False)
+    nospos_customer_id = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        unique=True,
+        db_index=True,
+        help_text="NoSpos customer id from profile URL (e.g. /customer/33757/view)",
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -907,6 +914,10 @@ class RequestItem(models.Model):
     manual_offer_used = models.BooleanField(
         default=False,
         help_text="True if a manual offer was set using the manual offer tool"
+    )
+    testing_passed = models.BooleanField(
+        default=False,
+        help_text="In-store testing passed for this line (BOOKED_FOR_TESTING workflow)",
     )
     senior_mgmt_approved_user = models.ForeignKey(
         settings.AUTH_USER_MODEL,

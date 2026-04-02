@@ -9,8 +9,10 @@ import {
   remapJewelleryWorkspaceLines,
 } from '@/components/jewellery/jewelleryScrapeRemap';
 import CustomerTransactionHeader from './components/CustomerTransactionHeader';
+import NosposAgreementMirrorModal from './components/NosposAgreementMirrorModal';
 import CustomerIntakeModal from '@/components/modals/CustomerIntakeModal.jsx';
 import NegotiationItemRow from './components/NegotiationItemRow';
+import TestingPassedColumnHeader from './components/TestingPassedColumnHeader';
 import JewelleryReferencePricesTable from '@/components/jewellery/JewelleryReferencePricesTable';
 import { TargetOfferModal, ItemOfferModal, SeniorMgmtModal, MarginResultModal, BlockedOfferAuthModal } from './components/NegotiationModals';
 import NegotiationRowContextMenu from './components/NegotiationRowContextMenu';
@@ -28,7 +30,7 @@ import {
   updateRequestItemOffer,
   updateRequestItemRawData,
   fetchCustomerOfferRules,
-  markRequestPassedTesting,
+  setRequestItemTestingPassed,
 } from '@/services/api';
 import { normalizeExplicitSalePrice, formatOfferPrice } from '@/utils/helpers';
 import { titleForEbayCcOfferIndex } from '@/components/forms/researchStats';
@@ -37,6 +39,11 @@ import useAppStore from '@/store/useAppStore';
 import { useResearchOverlay, makeSalePriceBlurHandler } from './hooks/useResearchOverlay';
 import { useRefreshCexRowData } from './hooks/useRefreshCexRowData';
 import { mapRequestToCustomerData } from '@/utils/requestToCartMapping';
+import {
+  openNosposCustomerProfile,
+  withExtensionCallTimeout,
+  closeNosposAgreementTab,
+} from '@/services/extensionClient';
 import { getBlockedOfferSlots, revokeManualOfferAuthorisationIfSwitchingAway } from '@/utils/customerOfferRules';
 import { mapTransactionTypeToIntent } from '@/utils/transactionConstants';
 import {
@@ -121,7 +128,12 @@ const Negotiation = ({ mode }) => {
   /** BOOKED_FOR_TESTING | COMPLETE | QUOTE | null — used for research sandbox in view mode. */
   const [viewRequestStatus, setViewRequestStatus] = useState(null);
   const [passedTestingSubmitting, setPassedTestingSubmitting] = useState(false);
+  const [testingPassedSavingId, setTestingPassedSavingId] = useState(null);
+  const [nosposProfileOpening, setNosposProfileOpening] = useState(false);
   const [showJewelleryReferenceModal, setShowJewelleryReferenceModal] = useState(false);
+  const [agreementMirrorOpen, setAgreementMirrorOpen] = useState(false);
+  const [agreementMirrorSnapshot, setAgreementMirrorSnapshot] = useState(null);
+  const [agreementMirrorWaitExpired, setAgreementMirrorWaitExpired] = useState(false);
 
   // Refs
   const hasInitializedNegotiateRef = useRef(false);
@@ -130,8 +142,37 @@ const Negotiation = ({ mode }) => {
   const prevTransactionTypeRef = useRef(transactionType);
   /** Only clear jewellery reference when switching to a different request, not on undefined→id (avoids wiping hydrated scrape). */
   const prevNegotiationRequestIdRef = useRef(null);
+  const agreementMirrorOpenRef = useRef(false);
+  const agreementMirrorSnapshotRef = useRef(null);
+  /** Park / Open mirror flow: NosPos tab should be closed if user abandons (modal dismiss, refresh, unmount). */
+  const agreementMirrorSessionActiveRef = useRef(false);
 
   const useVoucherOffers = transactionType === 'store_credit';
+
+  /** NosPos newagreement type: PA = Buy Back, DP = Buy (direct sale + store credit). */
+  const nosposOpenOptions = useMemo(
+    () => ({ agreementType: transactionType === 'buyback' ? 'PA' : 'DP' }),
+    [transactionType]
+  );
+
+  const closeAgreementMirror = useCallback((opts = {}) => {
+    const completed = opts.completed === true;
+    const fromTabClosedEvent = opts.fromTabClosedEvent === true;
+    agreementMirrorSessionActiveRef.current = false;
+    setAgreementMirrorOpen(false);
+    setAgreementMirrorSnapshot(null);
+    setAgreementMirrorWaitExpired(false);
+    if (!completed && !fromTabClosedEvent) {
+      void closeNosposAgreementTab();
+    }
+  }, []);
+
+  const openAgreementMirror = useCallback(() => {
+    agreementMirrorSessionActiveRef.current = true;
+    setAgreementMirrorOpen(true);
+    setAgreementMirrorSnapshot(null);
+    setAgreementMirrorWaitExpired(false);
+  }, []);
 
   const blockedOfferSlots = useMemo(() => {
     if (!customerOfferRulesData) return new Set();
@@ -148,8 +189,27 @@ const Negotiation = ({ mode }) => {
     mode === 'view' && viewRequestStatus === 'BOOKED_FOR_TESTING';
   const researchFormReadOnly = mode === 'view' && !researchSandboxBookedView;
   const researchEphemeralNotice = researchSandboxBookedView
-    ? "Nothing you change here is saved. When you close this form, it shows the request's stored research again."
+    ? 'Research you run in this panel is not saved. Tick “testing passed” on each line in the tables — those updates are saved to the request.'
     : null;
+
+  const testingPassedColumnMode = useMemo(() => {
+    if (mode !== 'view') return null;
+    if (viewRequestStatus === 'BOOKED_FOR_TESTING') return 'booked';
+    if (viewRequestStatus === 'COMPLETE') return 'complete';
+    return null;
+  }, [mode, viewRequestStatus]);
+
+  /** Negotiated lines only (matches backend complete-testing eligible items). */
+  const eligibleTestingLines = useMemo(
+    () => items.filter((i) => !i.isRemoved),
+    [items]
+  );
+  const allActiveLinesTestingPassed = useMemo(
+    () =>
+      eligibleTestingLines.length > 0 &&
+      eligibleTestingLines.every((i) => Boolean(i.testingPassed)),
+    [eligibleTestingLines]
+  );
 
   // ─── Research overlay (shared hook) ─────────────────────────────────────
   const applyEbay = useCallback((item, state) => applyEbayResearchToItem(item, state, useVoucherOffers), [useVoucherOffers]);
@@ -212,6 +272,14 @@ const Negotiation = ({ mode }) => {
   const jewelleryNegotiationItems = useMemo(
     () => items.filter((i) => i.isJewelleryItem === true),
     [items]
+  );
+  /** NosPos mirror cards align with jewellery rows first, then main negotiation rows. */
+  const agreementMirrorSourceLines = useMemo(
+    () => [
+      ...jewelleryNegotiationItems.filter((i) => !i.isRemoved),
+      ...mainNegotiationItems.filter((i) => !i.isRemoved),
+    ],
+    [jewelleryNegotiationItems, mainNegotiationItems]
   );
 
   // Load customer offer rules once on mount
@@ -526,18 +594,128 @@ const Negotiation = ({ mode }) => {
 
   const handlePassedTesting = useCallback(async () => {
     if (!actualRequestId || viewRequestStatus !== 'BOOKED_FOR_TESTING') return;
+    if (!allActiveLinesTestingPassed) return;
     setPassedTestingSubmitting(true);
     try {
-      await markRequestPassedTesting(actualRequestId);
-      setViewRequestStatus('COMPLETE');
-      showNotification('Testing passed — request marked complete.', 'success');
+      const nid = customerData?.nospos_customer_id;
+      if (nid != null && customerData?.id) {
+        try {
+          const openResult = await withExtensionCallTimeout(
+            openNosposCustomerProfile(nid, nosposOpenOptions)
+          );
+          if (openResult?.warning) {
+            showNotification(openResult.warning, 'warning');
+          }
+          if (openResult?.loginRequired) {
+            closeAgreementMirror({ fromTabClosedEvent: true });
+            showNotification(
+              'You must be logged in to NoSpos. Sign in using the minimized NoSpos window, then use Park agreement again.',
+              'error'
+            );
+          } else if (!openResult?.ok) {
+            showNotification(openResult?.error || 'Could not open NoSpos.', 'warning');
+          } else if (!openResult?.warning) {
+            showNotification(
+              'NoSpos agreement opened in the background. Park agreement stays available while this request is booked.',
+              'success'
+            );
+          }
+          const openMirror =
+            openResult?.ok === true || openResult?.sessionUnchecked === true;
+          if (openMirror) {
+            openAgreementMirror();
+          }
+        } catch (openErr) {
+          showNotification(
+            openErr?.message ||
+              'Chrome extension is required to open NoSpos, or the request timed out — try again.',
+            'warning'
+          );
+        }
+      } else {
+        showNotification('No NoSpos customer id on file for this request.', 'warning');
+      }
     } catch (err) {
-      console.error('markRequestPassedTesting:', err);
-      showNotification(err?.message || 'Could not mark request as complete.', 'error');
+      console.error('handlePassedTesting:', err);
+      showNotification(err?.message || 'Something went wrong opening NoSpos.', 'error');
     } finally {
       setPassedTestingSubmitting(false);
     }
-  }, [actualRequestId, viewRequestStatus, showNotification]);
+  }, [
+    actualRequestId,
+    viewRequestStatus,
+    allActiveLinesTestingPassed,
+    customerData?.id,
+    customerData?.nospos_customer_id,
+    nosposOpenOptions,
+    showNotification,
+    openAgreementMirror,
+    closeAgreementMirror,
+  ]);
+
+  const handleOpenNosposCustomerProfile = useCallback(async () => {
+    const nid = customerData?.nospos_customer_id;
+    if (nid == null || !customerData?.id) return;
+    setNosposProfileOpening(true);
+    try {
+      const result = await withExtensionCallTimeout(
+        openNosposCustomerProfile(nid, nosposOpenOptions)
+      );
+      if (result?.warning) {
+        showNotification(result.warning, 'warning');
+      }
+      if (result?.loginRequired) {
+        closeAgreementMirror({ fromTabClosedEvent: true });
+        showNotification(
+          'You must be logged in to NoSpos. Sign in using the minimized NoSpos window, then press Open in NoSpos again.',
+          'error'
+        );
+        return;
+      }
+      if (!result?.ok) {
+        showNotification(result?.error || 'Could not open NoSpos.', 'error');
+      } else {
+        openAgreementMirror();
+      }
+    } catch (e) {
+      showNotification(
+        e?.message ||
+          'Chrome extension is required to open NoSpos, or the request timed out — try again.',
+        'warning'
+      );
+    } finally {
+      setNosposProfileOpening(false);
+    }
+  }, [
+    customerData?.id,
+    customerData?.nospos_customer_id,
+    nosposOpenOptions,
+    showNotification,
+    openAgreementMirror,
+    closeAgreementMirror,
+  ]);
+
+  const handleTestingPassedLineToggle = useCallback(
+    async (item, nextChecked) => {
+      const rid = item.request_item_id ?? item.id;
+      if (rid == null || item.isRemoved) return;
+      setTestingPassedSavingId(rid);
+      try {
+        await setRequestItemTestingPassed(rid, nextChecked);
+        setItems((prev) =>
+          prev.map((it) =>
+            (it.request_item_id ?? it.id) === rid ? { ...it, testingPassed: nextChecked } : it
+          )
+        );
+      } catch (err) {
+        console.error('setRequestItemTestingPassed:', err);
+        showNotification(err?.message || 'Could not update testing status for this line.', 'error');
+      } finally {
+        setTestingPassedSavingId(null);
+      }
+    },
+    [showNotification]
+  );
 
   const handleNewCustomerDetailsSubmit = useCallback(async (formData) => {
     await updateCustomer(customerData.id, {
@@ -1054,6 +1232,80 @@ const Negotiation = ({ mode }) => {
   }, [customerData]);
 
   useEffect(() => {
+    agreementMirrorOpenRef.current = agreementMirrorOpen;
+    agreementMirrorSnapshotRef.current = agreementMirrorSnapshot;
+  }, [agreementMirrorOpen, agreementMirrorSnapshot]);
+
+  // Extension: when the NoSpos background window/tab we opened is closed, mirror listing-tab UX.
+  useEffect(() => {
+    function onNosposProfileTabClosedMessage(event) {
+      if (event.source !== window || event.data?.type !== 'NOSPOS_PROFILE_TAB_CLOSED') return;
+      closeAgreementMirror({ fromTabClosedEvent: true });
+      showNotification(
+        event.data.message || 'NoSpos window was closed. You can try again when ready.',
+        'warning'
+      );
+    }
+    window.addEventListener('message', onNosposProfileTabClosedMessage);
+    return () => window.removeEventListener('message', onNosposProfileTabClosedMessage);
+  }, [showNotification, closeAgreementMirror]);
+
+  // NosPos items form snapshot → mirror modal (while open).
+  useEffect(() => {
+    function onAgreementItemsSnapshot(event) {
+      if (event.source !== window || event.data?.type !== 'NOSPOS_AGREEMENT_ITEMS_SNAPSHOT') return;
+      const payload = event.data.payload;
+      if (!payload?.cards?.length) return;
+      if (!agreementMirrorOpenRef.current) return;
+      setAgreementMirrorSnapshot(payload);
+      setAgreementMirrorWaitExpired(false);
+    }
+    window.addEventListener('message', onAgreementItemsSnapshot);
+    return () => window.removeEventListener('message', onAgreementItemsSnapshot);
+  }, []);
+
+  useEffect(() => {
+    if (!agreementMirrorOpen || agreementMirrorSnapshot) return;
+    const t = setTimeout(() => {
+      if (agreementMirrorOpenRef.current && !agreementMirrorSnapshotRef.current) {
+        setAgreementMirrorWaitExpired(true);
+        showNotification(
+          'The NosPos items step was not detected in time. Restore the minimized NosPos window or try Park / Open in NoSpos again.',
+          'warning'
+        );
+      }
+    }, 120000);
+    return () => clearTimeout(t);
+  }, [agreementMirrorOpen, agreementMirrorSnapshot, showNotification]);
+
+  // Full page unload / refresh / bfcache: close NosPos mirror tab (avoid unmount cleanup — Strict Mode).
+  useEffect(() => {
+    function onPageHide() {
+      if (agreementMirrorSessionActiveRef.current) {
+        void closeNosposAgreementTab();
+        agreementMirrorSessionActiveRef.current = false;
+      }
+    }
+    window.addEventListener('pagehide', onPageHide);
+    return () => window.removeEventListener('pagehide', onPageHide);
+  }, []);
+
+  const mirrorLocationPathRef = useRef(null);
+  useEffect(() => {
+    const next = `${location.pathname}${location.search}`;
+    if (mirrorLocationPathRef.current === null) {
+      mirrorLocationPathRef.current = next;
+      return;
+    }
+    if (mirrorLocationPathRef.current !== next) {
+      mirrorLocationPathRef.current = next;
+      if (agreementMirrorOpenRef.current) {
+        closeAgreementMirror();
+      }
+    }
+  }, [location.pathname, location.search, closeAgreementMirror]);
+
+  useEffect(() => {
     if (mode !== 'negotiate') return;
     const hasCustomer = Boolean(customerData?.id) || Boolean(initialCustomerData?.id);
     setCustomerModalOpen(!hasCustomer);
@@ -1331,10 +1583,17 @@ const Negotiation = ({ mode }) => {
                 <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Request ID</p>
                 <p className="text-lg font-bold" style={{ color: 'var(--brand-blue)' }}>#{actualRequestId || 'N/A'}</p>
                 {mode === 'view' && (
-                  <p className="mt-1 inline-flex items-center justify-end gap-1 text-[10px] font-bold uppercase tracking-widest text-red-600">
-                    <span className="material-symbols-outlined text-[12px]">visibility_off</span>
-                    View Only
-                  </p>
+                  researchSandboxBookedView ? (
+                    <p className="mt-1 inline-flex items-center justify-end gap-1 text-[10px] font-bold uppercase tracking-widest text-amber-800">
+                      <span className="material-symbols-outlined text-[12px]">science</span>
+                      In-store testing — tick each line, then Park agreement
+                    </p>
+                  ) : (
+                    <p className="mt-1 inline-flex items-center justify-end gap-1 text-[10px] font-bold uppercase tracking-widest text-red-600">
+                      <span className="material-symbols-outlined text-[12px]">visibility_off</span>
+                      View Only
+                    </p>
+                  )
                 )}
               </div>
             </div>
@@ -1378,6 +1637,9 @@ const Negotiation = ({ mode }) => {
                   onJewelleryItemNameChange={handleJewelleryItemNameChange}
                   blockedOfferSlots={blockedOfferSlots}
                   onBlockedOfferClick={(slot, offer, bItem) => handleBlockedOfferClick(slot, offer, bItem)}
+                  testingPassedColumnMode={testingPassedColumnMode}
+                  onTestingPassedChange={handleTestingPassedLineToggle}
+                  testingPassedSavingId={testingPassedSavingId}
                 />
               </div>
             ) : null}
@@ -1404,6 +1666,7 @@ const Negotiation = ({ mode }) => {
                     <th className="w-24">Our RRP</th>
                     <th className="w-36">eBay Price</th>
                     <th className="w-36">Cash Converters</th>
+                    {testingPassedColumnMode ? <TestingPassedColumnHeader /> : null}
                   </tr>
                 </thead>
                 <tbody className="text-xs">
@@ -1429,13 +1692,16 @@ const Negotiation = ({ mode }) => {
                       onReopenCashConvertersResearch={setCashConvertersResearchItem}
                       blockedOfferSlots={blockedOfferSlots}
                       onBlockedOfferClick={(slot, offer) => handleBlockedOfferClick(slot, offer, item)}
+                      testingPassedColumnMode={testingPassedColumnMode}
+                      onTestingPassedChange={handleTestingPassedLineToggle}
+                      testingPassedSavingId={testingPassedSavingId}
                     />
                   ))}
                   <tr className="h-10 opacity-50">
-                    <td colSpan="14"></td>
+                    <td colSpan={testingPassedColumnMode ? 16 : 15}></td>
                   </tr>
                   <tr className="h-10 opacity-50">
-                    <td colSpan="14"></td>
+                    <td colSpan={testingPassedColumnMode ? 16 : 15}></td>
                   </tr>
                 </tbody>
               </table>
@@ -1453,6 +1719,13 @@ const Negotiation = ({ mode }) => {
               setStoreTransactionType(nextType);
             }}
             readOnly={mode === 'view'}
+            nosposCustomerId={customerData?.id ? customerData.nospos_customer_id : null}
+            onOpenNosposProfile={
+              customerData?.id && customerData?.nospos_customer_id != null
+                ? handleOpenNosposCustomerProfile
+                : undefined
+            }
+            nosposProfileOpening={nosposProfileOpening}
           />
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
             <button
@@ -1529,22 +1802,48 @@ const Negotiation = ({ mode }) => {
             )}
 
             {researchSandboxBookedView ? (
-              <button
-                type="button"
-                className={`w-full font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 shadow-md active:scale-[0.98] bg-emerald-600 text-white hover:bg-emerald-700 ${
-                  passedTestingSubmitting ? 'opacity-90 cursor-wait' : ''
-                }`}
-                onClick={passedTestingSubmitting ? undefined : handlePassedTesting}
-                disabled={passedTestingSubmitting}
-                aria-busy={passedTestingSubmitting}
-              >
-                <span className="material-symbols-outlined text-xl" aria-hidden>
-                  check_circle
-                </span>
-                <span className="text-base uppercase tracking-tight">
-                  {passedTestingSubmitting ? 'Saving…' : 'Passed testing'}
-                </span>
-              </button>
+              <>
+                <button
+                  type="button"
+                  className={`w-full font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 group active:scale-[0.98] ${
+                    !allActiveLinesTestingPassed ? 'opacity-50 cursor-not-allowed' : passedTestingSubmitting ? 'cursor-wait' : ''
+                  }`}
+                  style={{
+                    background: 'var(--brand-orange)',
+                    color: 'var(--brand-blue)',
+                    boxShadow: allActiveLinesTestingPassed
+                      ? '0 10px 15px -3px rgba(247, 185, 24, 0.3)'
+                      : 'none',
+                  }}
+                  onClick={
+                    passedTestingSubmitting || !allActiveLinesTestingPassed ? undefined : handlePassedTesting
+                  }
+                  disabled={passedTestingSubmitting || !allActiveLinesTestingPassed}
+                  aria-busy={passedTestingSubmitting}
+                >
+                  <span className="material-symbols-outlined text-xl" aria-hidden>
+                    open_in_new
+                  </span>
+                  <span className="text-base uppercase tracking-tight">
+                    {passedTestingSubmitting ? 'Working…' : 'Park agreement'}
+                  </span>
+                </button>
+                {eligibleTestingLines.length === 0 && (
+                  <p className="text-[10px] text-center font-medium text-amber-800">
+                    This request has no negotiated lines — add offers before booking, or contact support.
+                  </p>
+                )}
+                {!allActiveLinesTestingPassed && eligibleTestingLines.length > 0 && (
+                  <p className="text-[10px] text-center font-medium" style={{ color: 'var(--text-muted)' }}>
+                    Tick testing passed on every negotiated line (including jewellery) to enable Park agreement.
+                  </p>
+                )}
+                {allActiveLinesTestingPassed && !passedTestingSubmitting && (
+                  <p className="text-[10px] text-center font-medium" style={{ color: 'var(--text-muted)' }}>
+                    Opens the right NoSpos agreement (buy vs buy-back) in a minimized background window. Request stays booked until you complete it elsewhere.
+                  </p>
+                )}
+              </>
             ) : (
               <>
                 <button
@@ -1707,6 +2006,22 @@ const Negotiation = ({ mode }) => {
         onClose={() => { setShowNewCustomerDetailsModal(false); setPendingFinishPayload(null); }}
         onSubmit={handleNewCustomerDetailsSubmit}
         initialName={customerData?.name || ""}
+      />
+
+      <NosposAgreementMirrorModal
+        open={agreementMirrorOpen}
+        snapshot={agreementMirrorSnapshot}
+        loading={agreementMirrorOpen && !agreementMirrorSnapshot}
+        waitExpired={agreementMirrorWaitExpired}
+        requestId={actualRequestId}
+        sourceLines={agreementMirrorSourceLines}
+        useVoucherOffers={useVoucherOffers}
+        onClose={(opts) => {
+          if (opts?.completed === true) {
+            showNotification('NosPos Next pressed successfully and moved to the next step.', 'success');
+          }
+          closeAgreementMirror(opts);
+        }}
       />
 
       {showNewBuyConfirm && (

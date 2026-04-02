@@ -17,7 +17,9 @@ python-dotenv
 
 # AI/ML
 google-generativeai
+google-genai
 openai
+groq
 
 pytest
 pytest-django

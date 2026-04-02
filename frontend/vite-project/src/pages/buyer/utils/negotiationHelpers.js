@@ -534,6 +534,7 @@ export function isQuoteDraftPayloadSaveable(payload) {
 // ─── Data mapping: API response → negotiation item shape ───────────────────
 
 export function mapApiItemToNegotiationItem(item, transactionType, mode) {
+  const testingPassed = Boolean(item.testing_passed);
   const [cartItem] = mapRequestItemsToCartItems([item], transactionType);
   if (!cartItem) {
     return {
@@ -553,6 +554,7 @@ export function mapApiItemToNegotiationItem(item, transactionType, mode) {
       offers: [],
       cashOffers: [],
       voucherOffers: [],
+      testingPassed,
     };
   }
 
@@ -614,6 +616,7 @@ export function mapApiItemToNegotiationItem(item, transactionType, mode) {
         cexVoucherPrice: null,
         cexSellPrice: null,
         cexUrl: null,
+        testingPassed,
       };
     }
     const ref = next.referenceData || {};
@@ -646,6 +649,7 @@ export function mapApiItemToNegotiationItem(item, transactionType, mode) {
       cexOutOfStock: item.variant_details?.cex_out_of_stock ?? next.cexOutOfStock,
       ourSalePrice: resolveOurSaleFromApi(),
       cexUrl,
+      testingPassed,
     };
   }
 
@@ -656,6 +660,7 @@ export function mapApiItemToNegotiationItem(item, transactionType, mode) {
       cexVoucherPrice: null,
       cexSellPrice: null,
       ourSalePrice: resolveOurSaleFromApi(),
+      testingPassed,
     };
   }
 
@@ -666,6 +671,7 @@ export function mapApiItemToNegotiationItem(item, transactionType, mode) {
     cexVoucherPrice: vd?.tradein_voucher != null ? parseFloat(vd.tradein_voucher) : next.cexVoucherPrice,
     cexSellPrice: vd?.current_price_gbp != null ? parseFloat(vd.current_price_gbp) : next.cexSellPrice,
     ourSalePrice: resolveOurSaleFromApi(),
+    testingPassed,
   };
 }
 

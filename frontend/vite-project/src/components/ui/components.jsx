@@ -695,11 +695,17 @@ export const OfferCard = ({ title, price, margin, isHighlighted, onClick }) => (
 
 /**
  * Styled checkbox for use inside table rows and headers.
- * Matches the brand-blue / yellow system palette.
+ * Matches the brand-blue / yellow system palette (same control as repricing session tables).
  *
- * Props: checked, onChange, indeterminate (for header "select-all"), aria-label
+ * Props: checked, onChange, indeterminate (header "select-all"), disabled (view-only / saving), aria-label
  */
-export const TableCheckbox = ({ checked, onChange, indeterminate = false, 'aria-label': ariaLabel }) => {
+export const TableCheckbox = ({
+  checked,
+  onChange,
+  indeterminate = false,
+  disabled = false,
+  'aria-label': ariaLabel,
+}) => {
   const ref = React.useRef(null);
 
   React.useEffect(() => {
@@ -708,22 +714,30 @@ export const TableCheckbox = ({ checked, onChange, indeterminate = false, 'aria-
     }
   }, [indeterminate]);
 
+  const showChecked = checked || indeterminate;
+
   return (
-    <label className="inline-flex items-center justify-center cursor-pointer group">
+    <label
+      className={`inline-flex items-center justify-center group ${
+        disabled ? 'cursor-default' : 'cursor-pointer'
+      }`}
+    >
       <input
         ref={ref}
         type="checkbox"
         checked={checked}
-        onChange={onChange}
+        disabled={disabled}
+        onChange={disabled ? undefined : onChange}
         aria-label={ariaLabel}
         className="sr-only"
       />
       <span
         className={`
           flex items-center justify-center w-4 h-4 transition-all
-          ${checked || indeterminate
+          ${showChecked
             ? 'bg-brand-blue border-2 border-brand-blue'
-            : 'bg-white border-2 border-black group-hover:border-brand-blue'}
+            : `bg-white border-2 border-black ${disabled ? '' : 'group-hover:border-brand-blue'}`}
+          ${disabled ? 'opacity-80' : ''}
         `}
       >
         {checked && !indeterminate && (

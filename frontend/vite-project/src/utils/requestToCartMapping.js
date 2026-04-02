@@ -268,6 +268,8 @@ export function mapRequestItemsToCartItems(items, transactionType) {
     const categoryId = item.variant_details?.category_id ?? null;
     const categoryName = item.variant_details?.category_name || null;
     const attributeValues = item.variant_details?.attribute_values || rawData?.attribute_values || {};
+    const attributeLabels =
+      item.variant_details?.attribute_labels || rawData?.attribute_labels || {};
     const condition = item.variant_details?.condition || null;
 
     const cexBuyPrice =
@@ -381,6 +383,7 @@ export function mapRequestItemsToCartItems(items, transactionType) {
         ? { id: categoryId, name: categoryName || '', path: [categoryName || ''] }
         : null;
       cartItem.attributeValues = attributeValues;
+      cartItem.attributeLabels = attributeLabels;
       cartItem.condition = condition || cartItem.condition || null;
       cartItem.isCustomCeXItem = false;
       cartItem.isCustomEbayItem = false;
@@ -420,6 +423,7 @@ export function mapRequestItemsToCartItems(items, transactionType) {
         ? { id: categoryId, name: categoryName || '', path: [categoryName || ''] }
         : null;
       cartItem.attributeValues = attributeValues;
+      cartItem.attributeLabels = attributeLabels;
       cartItem.condition = condition || cartItem.condition || null;
       cartItem.isCustomEbayItem = false;
       cartItem.isCustomCeXItem = !!isCexItem;
@@ -501,6 +505,7 @@ export function mapRequestToCustomerData(request) {
     name: cd?.name ?? enrichment.name ?? 'Unknown',
     cancelRate: cd?.cancel_rate ?? enrichment.cancelRate ?? 0,
     transactionType,
+    nospos_customer_id: cd?.nospos_customer_id ?? enrichment.nospos_customer_id ?? null,
     phone: cd?.phone ?? enrichment.phone ?? null,
     email: cd?.email ?? enrichment.email ?? null,
     address: cd?.address ?? enrichment.address ?? null,

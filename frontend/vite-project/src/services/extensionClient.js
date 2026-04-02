@@ -58,6 +58,82 @@ export async function openNosposForCustomerIntake() {
   });
 }
 
+/** Max time to wait for the extension + NosPos session check before we fail open and reset UI. */
+export const OPEN_NOSPOS_PROFILE_CLIENT_TIMEOUT_MS = 28000;
+
+/**
+ * Race an extension call so the UI never stays in "Opening…" forever if the bridge or fetch hangs.
+ *
+ * @param {Promise<T>} promise
+ * @param {number} [ms]
+ * @param {string} [timeoutMessage]
+ * @returns {Promise<T>}
+ */
+export function withExtensionCallTimeout(
+  promise,
+  ms = OPEN_NOSPOS_PROFILE_CLIENT_TIMEOUT_MS,
+  timeoutMessage
+) {
+  const msg =
+    timeoutMessage ||
+    'NoSpos did not respond in time. If you closed the app tab or the extension stalled, try again. If a button stays stuck, refresh this page.';
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(msg)), ms)),
+  ]);
+}
+
+/**
+ * Opens NosPos agreement creation in an inactive browser tab (same profile as CG Suite), after a
+ * session check on `/customer/{id}/buying`. CG Suite stays focused until the mirror flow finishes and
+ * calls focus (see focusNosposAgreementTab).
+ *
+ * @param {number|string} nosposCustomerId
+ * @param {{ agreementType?: 'PA' | 'DP' }} [options] - PA = Buy Back agreement, DP = Buy agreement (direct sale / store credit)
+ * @returns {Promise<{ ok: true, warning?: string, sessionUnchecked?: boolean } | { ok: false, loginRequired?: boolean, error?: string }>}
+ */
+export async function openNosposCustomerProfile(nosposCustomerId, options = {}) {
+  const agreementType = options.agreementType === 'PA' ? 'PA' : 'DP';
+  return sendMessage({
+    action: 'openNosposCustomerProfile',
+    nosposCustomerId,
+    agreementType,
+  });
+}
+
+/**
+ * Push field values to the NosPos draft agreement items form (mirrored from CG Suite modal).
+ * @param {Array<{ name: string, value: string }>} fields
+ */
+export async function nosposAgreementApplyFields(fields) {
+  return sendMessage({
+    action: 'nosposAgreementApplyFields',
+    fields: fields || [],
+  });
+}
+
+/** Clicks the real "Next" submit button on NosPos `#items-form`. */
+export async function nosposAgreementClickNext() {
+  return sendMessage({ action: 'nosposAgreementClickNext' });
+}
+
+/** Clicks the real "Add" action on NosPos `#items-form` to create another item card. */
+export async function nosposAgreementAddItem() {
+  return sendMessage({ action: 'nosposAgreementAddItem' });
+}
+
+/** Brings the NosPos agreement tab to the foreground (call after mirror Next succeeds). */
+export async function focusNosposAgreementTab() {
+  return sendMessage({ action: 'focusNosposAgreementTab' });
+}
+
+/**
+ * Close the NosPos agreement window tracked from openNosposCustomerProfile (mirror abandoned / page unload).
+ */
+export async function closeNosposAgreementTab() {
+  return sendMessage({ action: 'closeNosposAgreementTab' });
+}
+
 /**
  * Open nospos.com in a new tab via the Chrome extension and wait for the user to land on the main site.
  * If the user lands on a login page, waits for them to log in and redirect to nospos.com.

@@ -167,3 +167,11 @@ SESSION_COOKIE_SECURE = True       # Also secure sessions
 # Set IDEAL_POSTCODES_API_KEY in .env - get a key at https://ideal-postcodes.co.uk/
 IDEAL_POSTCODES_API_KEY = os.getenv('IDEAL_POSTCODES_API_KEY', '')
 
+# Groq API key for AI-powered NosPos category suggestion
+# Set GROQ_API_KEY in .env - get a key at https://console.groq.com/keys
+GROQ_API_KEY = os.getenv('GROQ_API_KEY', '')
+
+# Gemini API key (fallback when Groq fails)
+# Set GEMINI_API_KEY in .env - get a free key at https://aistudio.google.com/app/apikey
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
+

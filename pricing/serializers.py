@@ -61,6 +61,7 @@ class VariantSerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(source='product.category.name', read_only=True)
     condition = serializers.CharField(source='condition_grade.code', read_only=True)
     attribute_values = serializers.SerializerMethodField()
+    attribute_labels = serializers.SerializerMethodField()
 
     def get_product_name(self, obj):
         if obj.product.manufacturer:
@@ -70,6 +71,13 @@ class VariantSerializer(serializers.ModelSerializer):
     def get_attribute_values(self, obj):
         return {
             vav.attribute_value.attribute.code: vav.attribute_value.value
+            for vav in obj.variant_attribute_values.select_related('attribute_value__attribute').all()
+        }
+
+    def get_attribute_labels(self, obj):
+        """code → user-facing label (same as buyer attribute dropdowns)."""
+        return {
+            vav.attribute_value.attribute.code: vav.attribute_value.attribute.label
             for vav in obj.variant_attribute_values.select_related('attribute_value__attribute').all()
         }
 
@@ -89,6 +97,7 @@ class VariantSerializer(serializers.ModelSerializer):
             'category_name',
             'condition',
             'attribute_values',
+            'attribute_labels',
         ]
         read_only_fields = ['variant_id']
 
@@ -153,10 +162,20 @@ class CustomerSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Customer
-        fields = ['customer_id', 'name', 'phone_number', 'email', 'address', 'is_temp_staging', 'cancel_rate']
+        fields = [
+            'customer_id',
+            'name',
+            'phone_number',
+            'email',
+            'address',
+            'is_temp_staging',
+            'cancel_rate',
+            'nospos_customer_id',
+        ]
         extra_kwargs = {
             'name': {'required': True},
             'is_temp_staging': {'required': False, 'default': False},
+            'nospos_customer_id': {'required': False, 'allow_null': True},
         }
 
     def to_representation(self, instance):
@@ -166,7 +185,8 @@ class CustomerSerializer(serializers.ModelSerializer):
             "phone": instance.phone_number,
             "email": instance.email,
             "address": instance.address,
-            "cancel_rate": instance.cancel_rate  # Include cancel rate here
+            "cancel_rate": instance.cancel_rate,
+            "nospos_customer_id": instance.nospos_customer_id,
         }
 
 
@@ -202,6 +222,7 @@ class RequestItemSerializer(serializers.ModelSerializer):
             'cex_buy_voucher_at_negotiation',
             'cex_sell_at_negotiation',
             'our_sale_price_at_negotiation',
+            'testing_passed',
         ]
         read_only_fields = [
             'request_item_id',
@@ -210,6 +231,7 @@ class RequestItemSerializer(serializers.ModelSerializer):
             'cex_sell_at_negotiation',
             'raw_data',
             'cash_converters_data',
+            'testing_passed',
         ]
 
     def get_raw_data(self, obj):
