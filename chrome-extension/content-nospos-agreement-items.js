@@ -6,6 +6,7 @@
   const SNAP_INTERVAL_MS = 4000;
   const SNAP_DEBOUNCE_MS = 120;
   const SNAP_MAX_MS = 120000;
+  const PAGE_INSTANCE_ID = String(Date.now()) + '-' + Math.random().toString(36).slice(2, 10);
 
   function escapeCssIdent(s) {
     if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(s);
@@ -89,6 +90,7 @@
     return {
       formAction: form.getAttribute('action') || '',
       pageUrl: location.href,
+      pageInstanceId: PAGE_INSTANCE_ID,
       csrf: csrf,
       cards: cards,
       hasNext: !!nextBtn,
@@ -174,9 +176,44 @@
     return String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   }
 
-  /** Resolve a named control inside #items-form only (avoids wrong global getElementsByName match). */
-  function resolveFormControl(form, fieldName) {
+  function buildFieldResponseMeta(field) {
+    return {
+      name: field?.name || '',
+      cardId: field?.cardId || null,
+      cardIndex: Number.isInteger(field?.cardIndex) ? field.cardIndex : null,
+    };
+  }
+
+  function resolveCardElement(form, field) {
+    if (!form || !field) return null;
+    if (field.cardId) {
+      try {
+        var byId = form.querySelector('.card#' + escapeCssIdent(field.cardId));
+        if (byId) return byId;
+      } catch (e0) {
+        /* ignore */
+      }
+    }
+    if (Number.isInteger(field.cardIndex) && field.cardIndex >= 0) {
+      var cards = form.querySelectorAll('.card');
+      if (cards[field.cardIndex]) return cards[field.cardIndex];
+    }
+    return null;
+  }
+
+  /** Resolve a named control inside #items-form, optionally scoped to a specific item card first. */
+  function resolveFormControl(form, field) {
+    var fieldName = typeof field === 'string' ? field : field && field.name;
     if (!form || !fieldName) return null;
+    var cardEl = typeof field === 'object' ? resolveCardElement(form, field) : null;
+    if (cardEl) {
+      try {
+        var scoped = cardEl.querySelector('[name="' + escapeAttrName(fieldName) + '"]');
+        if (scoped) return scoped;
+      } catch (e1) {
+        /* ignore */
+      }
+    }
     var named = form.elements.namedItem(fieldName);
     if (named) {
       if (named.tagName) return named;
@@ -284,6 +321,51 @@
     return null;
   }
 
+  function findActionsDropdownToggle() {
+    var candidates = document.querySelectorAll(
+      'a.dropdown-toggle[data-toggle="dropdown"], button.dropdown-toggle[data-toggle="dropdown"]'
+    );
+    for (var i = 0; i < candidates.length; i++) {
+      if (/actions/i.test(candidates[i].textContent || '')) return candidates[i];
+    }
+    return null;
+  }
+
+  /**
+   * Runs in page context: confirm() auto-accept, find Park Agreement link, click with retries
+   * (dropdown animation / Rails UJS).
+   */
+  function injectParkAgreementClickInPage() {
+    var code =
+      '(function(){' +
+      'var _confirm=window.confirm;' +
+      'window.confirm=function(){return true;};' +
+      'var tries=0;' +
+      'function pick(){' +
+      'var L=document.querySelectorAll(\'a[href*="park"]\'),i,a,h,t;' +
+      'for(i=0;i<L.length;i++){' +
+      'a=L[i];h=a.getAttribute("href")||"";' +
+      'if(h.indexOf("newagreement")===-1)continue;' +
+      't=(a.textContent||"").replace(/\\s+/g," ");' +
+      'if(/park/i.test(t))return a;' +
+      '}' +
+      'for(i=0;i<L.length;i++){' +
+      'a=L[i];h=a.getAttribute("href")||"";' +
+      'if(h.indexOf("newagreement")!==-1&&/\\/park/i.test(h))return a;' +
+      '}' +
+      'return null;' +
+      '}' +
+      'function tick(){tries++;var el=pick();if(el){try{el.click();}catch(e1){}' +
+      'window.confirm=_confirm;return;}' +
+      'if(tries<20)setTimeout(tick,120);else window.confirm=_confirm;}' +
+      'tick();' +
+      '})();';
+    var s = document.createElement('script');
+    s.textContent = code;
+    (document.head || document.documentElement).appendChild(s);
+    s.remove();
+  }
+
   chrome.runtime.onMessage.addListener(function (msg, _sender, sendResponse) {
     if (msg.type === 'NOSPOS_ITEMS_FORM_APPLY') {
       var fields = msg.fields || [];
@@ -300,20 +382,20 @@
       for (var fi = 0; fi < fields.length; fi++) {
         var f = fields[fi];
         if (!f || !f.name) continue;
-        var el = resolveFormControl(form, f.name);
+        var meta = buildFieldResponseMeta(f);
+        var el = resolveFormControl(form, f);
         if (!el || el.type === 'hidden' || el.disabled) {
-          missing.push(f.name);
+          missing.push(meta);
           continue;
         }
         var setResult = setControlValue(el, f.value);
         if (doFlash) flashField(el);
         if (setResult.ok) applied++;
         else {
-          failed.push({
-            name: f.name,
+          failed.push(Object.assign({}, meta, {
             expected: f.value != null ? String(f.value) : '',
             actual: setResult.after,
-          });
+          }));
         }
       }
 
@@ -351,6 +433,30 @@
       }
       return true;
     }
+    if (msg.type === 'NOSPOS_AGREEMENT_PARK') {
+      var formPark = document.getElementById('items-form');
+      if (!formPark) {
+        sendResponse({ ok: false, error: 'Not on agreement items page (items-form not found).' });
+        return false;
+      }
+      var actionsToggle = findActionsDropdownToggle();
+      if (!actionsToggle) {
+        sendResponse({ ok: false, error: 'Actions dropdown not found on this page.' });
+        return false;
+      }
+      lastSentJson = null;
+      try {
+        actionsToggle.click();
+      } catch (eClick) {
+        sendResponse({ ok: false, error: eClick?.message || 'Could not open Actions menu.' });
+        return false;
+      }
+      setTimeout(function () {
+        injectParkAgreementClickInPage();
+        sendResponse({ ok: true, triggered: true });
+      }, 200);
+      return true;
+    }
     if (msg.type === 'NOSPOS_ITEMS_FORM_ADD') {
       var formA = document.getElementById('items-form');
       var addBtn = findAddButton(formA);
@@ -378,16 +484,8 @@
       sessionStorage.removeItem('cgOpenActionsDropdown');
     } catch (e) { return; }
 
-    function findActionsToggle() {
-      var candidates = document.querySelectorAll('a.dropdown-toggle[data-toggle="dropdown"], button.dropdown-toggle[data-toggle="dropdown"]');
-      for (var i = 0; i < candidates.length; i++) {
-        if (/actions/i.test(candidates[i].textContent || '')) return candidates[i];
-      }
-      return null;
-    }
-
     function tryOpen(attemptsLeft) {
-      var toggle = findActionsToggle();
+      var toggle = findActionsDropdownToggle();
       if (toggle) {
         toggle.click();
         return;

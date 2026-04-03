@@ -117,6 +117,11 @@ export async function nosposAgreementClickNext() {
   return sendMessage({ action: 'nosposAgreementClickNext' });
 }
 
+/** Opens Actions menu and triggers Park Agreement (POST), without using form Next. */
+export async function nosposAgreementParkAgreement() {
+  return sendMessage({ action: 'nosposAgreementParkAgreement' });
+}
+
 /** Clicks the real "Add" action on NosPos `#items-form` to create another item card. */
 export async function nosposAgreementAddItem() {
   return sendMessage({ action: 'nosposAgreementAddItem' });

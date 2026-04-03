@@ -100,6 +100,8 @@ export default function JewelleryNegotiationSlimTable({
   onJewelleryItemNameChange,
   blockedOfferSlots = null,
   onBlockedOfferClick = null,
+  showNosposAction = false,
+  getNosposAction = null,
   testingPassedColumnMode = null,
   onTestingPassedChange = null,
   testingPassedSavingId = null,
@@ -159,6 +161,11 @@ export default function JewelleryNegotiationSlimTable({
             <th scope="col" className="w-32">
               Customer Expectation
             </th>
+            {showNosposAction ? (
+              <th scope="col" className="w-40">
+                NoSpos
+              </th>
+            ) : null}
             {testingPassedColumnMode ? <TestingPassedColumnHeader /> : null}
           </tr>
         </thead>
@@ -204,6 +211,7 @@ export default function JewelleryNegotiationSlimTable({
                 : null;
             const manualExceedsSale =
               ourSalePrice && manualValue != null && !Number.isNaN(manualValue) && manualValue > ourSalePrice;
+            const nosposAction = getNosposAction?.(item) || null;
 
             return (
               <tr
@@ -457,6 +465,30 @@ export default function JewelleryNegotiationSlimTable({
                     readOnly={isView}
                   />
                 </td>
+                {showNosposAction ? (
+                  <td className="align-top">
+                    {nosposAction ? (
+                      <div>
+                        <button
+                          type="button"
+                          disabled={nosposAction.disabled}
+                          onClick={nosposAction.onClick}
+                          className={`rounded px-3 py-2 text-[11px] font-extrabold uppercase tracking-wide transition ${
+                            nosposAction.tone === 'done'
+                              ? 'border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                              : nosposAction.tone === 'primary'
+                                ? 'bg-brand-orange text-brand-blue hover:bg-brand-orange-hover'
+                                : 'border border-slate-200 bg-slate-100 text-slate-500'
+                          } disabled:cursor-not-allowed disabled:opacity-60`}
+                        >
+                          {nosposAction.label}
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-[11px] text-slate-300">—</span>
+                    )}
+                  </td>
+                ) : null}
                 {testingPassedColumnMode ? (
                   <TestingPassedCell
                     item={item}
@@ -469,7 +501,7 @@ export default function JewelleryNegotiationSlimTable({
             );
           })}
           <tr className="h-10 opacity-50">
-            <td colSpan={testingPassedColumnMode ? 13 : 12} />
+            <td colSpan={12 + (showNosposAction ? 1 : 0) + (testingPassedColumnMode ? 1 : 0)} />
           </tr>
         </tbody>
       </table>

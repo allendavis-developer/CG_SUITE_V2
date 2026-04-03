@@ -111,6 +111,8 @@ export default function NegotiationItemRow({
   blockedOfferSlots = null,
   /** Called when user clicks a blocked offer: (slot, offer) => void */
   onBlockedOfferClick = null,
+  showNosposAction = false,
+  nosposAction = null,
   /** null | 'booked' | 'complete' — per-line testing column in request view */
   testingPassedColumnMode = null,
   onTestingPassedChange = null,
@@ -542,6 +544,31 @@ export default function NegotiationItemRow({
           </div>
         )}
       </td>
+
+      {showNosposAction ? (
+        <td className="align-top">
+          {nosposAction ? (
+            <div>
+              <button
+                type="button"
+                disabled={nosposAction.disabled}
+                onClick={nosposAction.onClick}
+                className={`rounded px-3 py-2 text-[11px] font-extrabold uppercase tracking-wide transition ${
+                  nosposAction.tone === 'done'
+                    ? 'border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                    : nosposAction.tone === 'primary'
+                      ? 'bg-brand-orange text-brand-blue hover:bg-brand-orange-hover'
+                      : 'border border-slate-200 bg-slate-100 text-slate-500'
+                } disabled:cursor-not-allowed disabled:opacity-60`}
+              >
+                {nosposAction.label}
+              </button>
+            </div>
+          ) : (
+            <span className="text-[11px] text-slate-300">—</span>
+          )}
+        </td>
+      ) : null}
 
       {testingPassedColumnMode ? (
         <TestingPassedCell

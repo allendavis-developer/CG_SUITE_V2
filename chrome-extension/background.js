@@ -984,7 +984,10 @@ async function handleBridgeForward(message, sender) {
       await cancelResponseBody(response);
 
       if (nosposHtmlFetchIndicatesNotLoggedIn(response, finalUrl)) {
-        await openAgreementInactiveTab();
+        // Do not open an agreement tab — same idea as repricing / openNospos: fail fast and keep CG Suite focused.
+        if (appTabId != null) {
+          await focusAppTab(appTabId);
+        }
         return { ok: false, loginRequired: true };
       }
 
@@ -1062,6 +1065,41 @@ async function handleBridgeForward(message, sender) {
       }
       return { ok: false, error: e?.message || 'Could not reach the NosPos tab' };
     }
+  }
+
+  /** Actions → Park Agreement (POST + confirm), instead of form Next — leaves /newagreement/{id}/items */
+  if (payload.action === 'nosposAgreementParkAgreement') {
+    const { cgNosposCustomerProfileWatch: watch } = await chrome.storage.session.get(
+      'cgNosposCustomerProfileWatch'
+    );
+    if (watch?.profileTabId == null) {
+      return { ok: false, error: 'No NosPos agreement tab is tracked.' };
+    }
+    try {
+      await sendMessageToTabWithRetries(watch.profileTabId, {
+        type: 'NOSPOS_AGREEMENT_PARK',
+      }, 2, 200);
+    } catch (e) {
+      await sleep(600);
+      const tabEarly = await chrome.tabs.get(watch.profileTabId).catch(() => null);
+      if (!isNosposAgreementItemsUrl(tabEarly?.url || '') && tabEarly?.url) {
+        return { ok: true };
+      }
+      return { ok: false, error: e?.message || 'Could not reach the NosPos tab' };
+    }
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      await sleep(450);
+      const tab = await chrome.tabs.get(watch.profileTabId).catch(() => null);
+      const stillOnItems = isNosposAgreementItemsUrl(tab?.url || '');
+      if (!stillOnItems && tab?.url) {
+        return { ok: true };
+      }
+    }
+    return {
+      ok: false,
+      error:
+        'Park Agreement did not leave the items page. Open Actions → Park Agreement on NoSpos, or check the confirmation dialog.',
+    };
   }
 
   if (payload.action === 'nosposAgreementAddItem') {
@@ -1416,9 +1454,31 @@ async function handleNosposLoginRequired(message, sender) {
   const tabId = sender.tab?.id;
   if (tabId == null) return;
 
-  const pending = await getPending();
   const loginUrl = message?.url || '';
   const errorMessage = 'You must be logged into NoSpos to continue.';
+
+  const { cgNosposCustomerProfileWatch: profileWatch } = await chrome.storage.session.get(
+    'cgNosposCustomerProfileWatch'
+  );
+  if (profileWatch?.profileTabId === tabId && profileWatch?.appTabId != null) {
+    await chrome.storage.session.remove('cgNosposCustomerProfileWatch').catch(() => {});
+    chrome.tabs
+      .sendMessage(profileWatch.appTabId, {
+        type: 'NOSPOS_CUSTOMER_PROFILE_TAB_CLOSED',
+        message:
+          'You must be logged in to NoSpos. Sign in at nospos.com, then try opening the agreement again.',
+      })
+      .catch(() => {});
+    await focusAppTab(profileWatch.appTabId);
+    await chrome.tabs.remove(tabId).catch(() => {});
+    console.log('[CG Suite] NOSPOS_LOGIN_REQUIRED – closed agreement profile tab', {
+      tabId,
+      loginUrl,
+    });
+    return;
+  }
+
+  const pending = await getPending();
 
   for (const [requestId, entry] of Object.entries(pending)) {
     if (entry.listingTabId !== tabId) continue;

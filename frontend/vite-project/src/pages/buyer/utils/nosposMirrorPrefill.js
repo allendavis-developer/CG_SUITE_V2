@@ -66,52 +66,6 @@ function humanizeCodeAsFallback(code) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-/**
- * Same labels as AttributeConfiguration dropdowns: `attributeLabels[code]` === `attr.name` (API label).
- * Keys are never derived from title-cased codes or spec keys — always code → builder label lookup.
- */
-function buildBuilderStyleAttributesLog(item) {
-  if (!item) return {};
-  const labels = item.attributeLabels || {};
-  const av = item.attributeValues || {};
-  const out = {};
-
-  for (const [code, val] of Object.entries(av)) {
-    if (val == null || String(val).trim() === '') continue;
-    const name = labels[code] || humanizeCodeAsFallback(code);
-    out[name] = String(val).trim();
-  }
-
-  if (item.isJewelleryItem) {
-    const ref = item.referenceData || {};
-    const pairs = [
-      ['Material grade', ref.material_grade],
-      ['Product', ref.product_name],
-      ['Category', ref.category_label],
-      ['Stone', ref.stone],
-      ['Finger size', ref.finger_size],
-      ['Carat', ref.carat],
-      ['Hallmark', ref.hallmark],
-      ['Item name', ref.item_name],
-    ];
-    for (const [k, v] of pairs) {
-      if (v == null || String(v).trim() === '') continue;
-      out[k] = String(v).trim();
-    }
-  }
-
-  const specs = item.cexProductData?.specifications;
-  if (specs && typeof specs === 'object' && item.isCustomCeXItem) {
-    for (const [k, v] of Object.entries(specs)) {
-      if (v == null || String(v).trim() === '') continue;
-      if (out[k] !== undefined) continue;
-      out[k] = String(v).trim();
-    }
-  }
-
-  return out;
-}
-
 /** DraftAgreementItem / stock fields — category excluded. */
 export function inferNosposMirrorFieldRole(field) {
   if (isNosposCategoryField(field)) return 'category';
@@ -397,65 +351,18 @@ function buildPrefillForCard(item, card, useVoucherOffers) {
   }
 
   const attrEntries = buildAttributeEntriesForMatching(item);
-  const fieldMatchLog = [];
 
   for (const f of fields) {
     if (!f?.name) continue;
     if (coreFilled.has(f.name)) continue;
     const role = inferNosposMirrorFieldRole(f);
-    if (role !== 'other') {
-      fieldMatchLog.push({
-        fieldName: f.name,
-        label: f.label ?? '',
-        role,
-        action: 'skipped_role',
-      });
-      continue;
-    }
-    if (isNosposCategoryField(f)) {
-      fieldMatchLog.push({
-        fieldName: f.name,
-        label: f.label ?? '',
-        action: 'skipped_category',
-      });
-      continue;
-    }
+    if (role !== 'other') continue;
+    if (isNosposCategoryField(f)) continue;
 
     const hit = findBestAttributeMatch(f, attrEntries);
-    if (!hit || String(hit.value).trim() === '') {
-      fieldMatchLog.push({
-        fieldName: f.name,
-        label: f.label ?? '',
-        nameSegment: lastFormNameSegment(f.name || ''),
-        action: 'no_match',
-        minScore: MIN_ATTRIBUTE_MATCH_SCORE,
-      });
-      continue;
-    }
+    if (!hit || String(hit.value).trim() === '') continue;
     const resolved = resolvePrefillValueForField(f, hit.value);
     out[f.name] = String(resolved);
-    fieldMatchLog.push({
-      fieldName: f.name,
-      label: f.label ?? '',
-      nameSegment: lastFormNameSegment(f.name || ''),
-      matchedAttributeKey: hit.matchedKey,
-      score: hit.score,
-      itemValue: String(hit.value),
-      appliedValue: String(resolved),
-      action: 'filled',
-    });
-  }
-
-  if (typeof console !== 'undefined' && typeof console.log === 'function') {
-    console.log('[CG Suite][NosPos mirror] Attribute match pass', {
-      nosposCardTitle: card?.title,
-      itemId: item?.id ?? null,
-      requestItemId: item?.request_item_id ?? null,
-      displayName: itemDisplayName(item),
-      attributes: buildBuilderStyleAttributesLog(item),
-      matchEntryKeys: [...new Set(attrEntries.map(([k]) => k))],
-      fieldMatches: fieldMatchLog,
-    });
   }
 
   return out;
