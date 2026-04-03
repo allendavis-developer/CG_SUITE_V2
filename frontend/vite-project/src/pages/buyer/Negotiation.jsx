@@ -36,6 +36,7 @@ import { useNotification } from '@/contexts/NotificationContext';
 import useAppStore from '@/store/useAppStore';
 import { useResearchOverlay, makeSalePriceBlurHandler } from './hooks/useResearchOverlay';
 import { useRefreshCexRowData } from './hooks/useRefreshCexRowData';
+import useNosposMirrorRowCardMap from './hooks/useNosposMirrorRowCardMap';
 import { mapRequestToCustomerData } from '@/utils/requestToCartMapping';
 import {
   openNosposCustomerProfile,
@@ -63,19 +64,6 @@ import { EBAY_TOP_LEVEL_CATEGORY } from './constants';
 import { SPREADSHEET_TABLE_STYLES } from './spreadsheetTableStyles';
 
 // ─── Component ─────────────────────────────────────────────────────────────
-
-function isNosposFieldValueEmpty(field, rawValue) {
-  const value = rawValue != null ? String(rawValue).trim() : '';
-  return value === '';
-}
-
-function nosposCardIsComplete(card) {
-  if (!card) return false;
-  return !(card.fields || []).some((field) => {
-    if (!field?.required || !field?.name) return false;
-    return isNosposFieldValueEmpty(field, field.value);
-  });
-}
 
 const Negotiation = ({ mode }) => {
   const navigate = useNavigate();
@@ -145,6 +133,11 @@ const Negotiation = ({ mode }) => {
   const [agreementMirrorModalState, setAgreementMirrorModalState] = useState(null);
   const [agreementMirrorSnapshot, setAgreementMirrorSnapshot] = useState(null);
   const [agreementMirrorWaitExpired, setAgreementMirrorWaitExpired] = useState(false);
+  /** Before opening NoSpos: confirm in-store testing passed, or capture failure reason. */
+  const [completeTestingGateModal, setCompleteTestingGateModal] = useState(null);
+  const [completeTestingFailureReason, setCompleteTestingFailureReason] = useState('');
+  /** Per-row in-store testing outcome for BOOKED_FOR_TESTING flow: 'passed' | 'failed'. */
+  const [testingOutcomeByRow, setTestingOutcomeByRow] = useState({});
 
   // Refs
   const hasInitializedNegotiateRef = useRef(false);
@@ -214,7 +207,7 @@ const Negotiation = ({ mode }) => {
     mode === 'view' && viewRequestStatus === 'BOOKED_FOR_TESTING';
   const researchFormReadOnly = mode === 'view' && !researchSandboxBookedView;
   const researchEphemeralNotice = researchSandboxBookedView
-    ? 'Research you run in this panel is not saved. Use Complete testing on the first line only, then Park agreement.'
+    ? 'Research you run in this panel is not saved. Use Complete testing on each line in order (pass or fail), then Park agreement.'
     : null;
 
   /** Negotiated lines only (matches backend complete-testing eligible items). */
@@ -223,6 +216,10 @@ const Negotiation = ({ mode }) => {
     [items]
   );
   const hasEligibleTestingLines = eligibleTestingLines.length > 0;
+
+  useEffect(() => {
+    setTestingOutcomeByRow({});
+  }, [actualRequestId, viewRequestStatus]);
 
   // ─── Research overlay (shared hook) ─────────────────────────────────────
   const applyEbay = useCallback((item, state) => applyEbayResearchToItem(item, state, useVoucherOffers), [useVoucherOffers]);
@@ -301,24 +298,34 @@ const Negotiation = ({ mode }) => {
     });
     return map;
   }, [agreementMirrorSourceLines]);
-  const agreementMirrorRowStates = useMemo(
-    () =>
-      agreementMirrorSourceLines.map((_, index) => {
-        const card = agreementMirrorSnapshot?.cards?.[index] || null;
-        return {
-          isAdded: Boolean(card),
-          isComplete: nosposCardIsComplete(card),
-        };
-      }),
-    [agreementMirrorSourceLines, agreementMirrorSnapshot]
+  const {
+    rowStateByIndex: agreementMirrorRowStateByIndex,
+    allRowsProcessed: allAgreementMirrorItemsProcessed,
+  } = useNosposMirrorRowCardMap(
+    agreementMirrorSourceLines,
+    agreementMirrorSnapshot,
+    testingOutcomeByRow,
+    actualRequestId
   );
-  /** In-store testing only requires the first mirror line to be complete in NoSpos. */
-  const allAgreementMirrorItemsComplete = useMemo(
-    () =>
-      agreementMirrorSourceLines.length > 0 &&
-      Boolean(agreementMirrorRowStates[0]?.isComplete),
-    [agreementMirrorSourceLines.length, agreementMirrorRowStates]
-  );
+  useEffect(() => {
+    setTestingOutcomeByRow((prev) => {
+      const maxIndex = Math.max(0, agreementMirrorSourceLines.length - 1);
+      let changed = false;
+      const next = {};
+      for (const [rawIdx, outcome] of Object.entries(prev || {})) {
+        const idx = Number(rawIdx);
+        if (!Number.isInteger(idx) || idx < 0 || idx > maxIndex) {
+          changed = true;
+          continue;
+        }
+        next[idx] = outcome;
+      }
+      return changed ? next : prev;
+    });
+  }, [agreementMirrorSourceLines.length]);
+  const isAgreementMirrorRowProcessed = useCallback((rowIndex) => {
+    return Boolean(agreementMirrorRowStateByIndex.get(rowIndex)?.isProcessed);
+  }, [agreementMirrorRowStateByIndex]);
   const showNosposRowActions = researchSandboxBookedView;
   const openNosposAgreementFlow = useCallback(async ({ openItemIndex = null, openReview = false } = {}) => {
     if (!actualRequestId || viewRequestStatus !== 'BOOKED_FOR_TESTING') return false;
@@ -354,7 +361,7 @@ const Negotiation = ({ mode }) => {
               openAgreementMirrorReviewModal();
             }
             showNotification(
-              'NoSpos agreement opened in the background. Use Complete testing on the first line item.',
+              'NoSpos agreement opened in the background. Use Complete testing on each line in order.',
               'success'
             );
             return true;
@@ -392,15 +399,71 @@ const Negotiation = ({ mode }) => {
     endAgreementMirrorSession,
   ]);
 
+  const proceedMirrorAfterInStorePass = useCallback(
+    async (rowIndex) => {
+      if (!Number.isInteger(rowIndex)) return;
+      if (!agreementMirrorSessionActive) {
+        await openNosposAgreementFlow({ openItemIndex: rowIndex });
+      } else {
+        openAgreementMirrorItemModal(rowIndex);
+      }
+    },
+    [agreementMirrorSessionActive, openNosposAgreementFlow, openAgreementMirrorItemModal]
+  );
+
+  const requestCompleteTestingGate = useCallback((rowIndex) => {
+    if (!Number.isInteger(rowIndex)) return;
+    setCompleteTestingFailureReason('');
+    setCompleteTestingGateModal({ rowIndex, step: 'pass_question' });
+  }, []);
+
   const getAgreementMirrorRowAction = useCallback((item) => {
     const rowIndex = item?.id != null ? agreementMirrorIndexByItemId.get(item.id) : undefined;
     if (!showNosposRowActions || !Number.isInteger(rowIndex)) return null;
-    if (rowIndex > 0) {
+    const rowStateForGate = agreementMirrorRowStateByIndex.get(rowIndex) || { isAdded: false, isComplete: false, outcome: null };
+    const rowOutcome = rowStateForGate.outcome;
+    const rowAlreadyProcessed = isAgreementMirrorRowProcessed(rowIndex);
+    const previousLineProcessed =
+      rowIndex === 0 || isAgreementMirrorRowProcessed(rowIndex - 1);
+    const canUseThisRow =
+      previousLineProcessed || rowAlreadyProcessed || rowStateForGate.isAdded;
+    if (!canUseThisRow) {
       return {
-        label: 'Testing failed',
+        label: 'Complete testing',
         disabled: true,
         tone: 'muted',
-        hint: 'Only the first line is used for in-store testing.',
+        hint: 'Process the line above first (pass or fail) before continuing on this line.',
+      };
+    }
+    // Outcome checks come first — outcome is set regardless of whether NoSpos is open.
+    if (rowOutcome === 'failed') {
+      return {
+        label: 'Testing failed',
+        disabled: false,
+        tone: 'danger',
+        hint: 'This line failed in-store testing. Click to retest and mark as passed when ready.',
+        onClick: () => requestCompleteTestingGate(rowIndex),
+      };
+    }
+    const rowState = rowStateForGate;
+    if (rowState.isComplete) {
+      return {
+        label: 'Added to NoSpos',
+        disabled: false,
+        tone: 'done',
+        hint: 'This line is ready in NoSpos. Click to reopen and edit if needed.',
+        onClick: () => { void proceedMirrorAfterInStorePass(rowIndex); },
+      };
+    }
+    if (rowOutcome === 'passed') {
+      return {
+        label: 'Open NoSpos',
+        disabled: passedTestingSubmitting,
+        tone: 'primary',
+        hint: rowState.isAdded
+          ? 'Testing passed — finish the required NoSpos fields for this line.'
+          : 'Testing passed — open NoSpos to create and complete this line.',
+        onClick: () => { void proceedMirrorAfterInStorePass(rowIndex); },
       };
     }
     if (!agreementMirrorSessionActive) {
@@ -408,8 +471,8 @@ const Negotiation = ({ mode }) => {
         label: 'Complete testing',
         disabled: passedTestingSubmitting,
         tone: 'primary',
-        hint: 'Opens NoSpos so you can finish testing on the first line.',
-        onClick: () => { void openNosposAgreementFlow({ openItemIndex: rowIndex }); },
+        hint: 'Confirm in-store testing passed, then open NoSpos for this line.',
+        onClick: () => requestCompleteTestingGate(rowIndex),
       };
     }
     if (!agreementMirrorSnapshot) {
@@ -420,34 +483,25 @@ const Negotiation = ({ mode }) => {
         hint: 'Waiting for the NoSpos items page to load.',
       };
     }
-    const rowState = agreementMirrorRowStates[rowIndex] || { isAdded: false, isComplete: false };
-    if (rowState.isComplete) {
-      return {
-        label: 'Review',
-        disabled: false,
-        tone: 'done',
-        hint: 'This line is ready in NoSpos.',
-        onClick: () => openAgreementMirrorItemModal(rowIndex),
-      };
-    }
     return {
       label: 'Complete testing',
       disabled: false,
       tone: 'primary',
       hint: rowState.isAdded
-        ? 'Finish the required NoSpos fields for this line.'
-        : 'Create this line in NoSpos, then fill its fields.',
-      onClick: () => openAgreementMirrorItemModal(rowIndex),
+        ? 'Confirm in-store testing passed, then finish required NoSpos fields.'
+        : 'Confirm in-store testing passed, then create this line in NoSpos.',
+      onClick: () => requestCompleteTestingGate(rowIndex),
     };
   }, [
     showNosposRowActions,
     agreementMirrorIndexByItemId,
     agreementMirrorSessionActive,
     agreementMirrorSnapshot,
-    agreementMirrorRowStates,
-    openAgreementMirrorItemModal,
+    agreementMirrorRowStateByIndex,
+    isAgreementMirrorRowProcessed,
+    requestCompleteTestingGate,
+    proceedMirrorAfterInStorePass,
     passedTestingSubmitting,
-    openNosposAgreementFlow,
   ]);
 
   // Load customer offer rules once on mount
@@ -1671,7 +1725,7 @@ const Negotiation = ({ mode }) => {
                   researchSandboxBookedView ? (
                     <p className="mt-1 inline-flex items-center justify-end gap-1 text-[10px] font-bold uppercase tracking-widest text-amber-800">
                       <span className="material-symbols-outlined text-[12px]">science</span>
-                      In-store testing — complete the first line in NoSpos, then Park agreement
+                      In-store testing — complete each line in NoSpos in order, then Park agreement
                     </p>
                   ) : (
                     <p className="mt-1 inline-flex items-center justify-end gap-1 text-[10px] font-bold uppercase tracking-widest text-red-600">
@@ -1893,7 +1947,7 @@ const Negotiation = ({ mode }) => {
                 <button
                   type="button"
                   className={`w-full font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 group active:scale-[0.98] ${
-                    !hasEligibleTestingLines || !allAgreementMirrorItemsComplete
+                    !hasEligibleTestingLines || !allAgreementMirrorItemsProcessed
                       ? 'opacity-50 cursor-not-allowed'
                       : passedTestingSubmitting
                         ? 'cursor-wait'
@@ -1909,14 +1963,18 @@ const Negotiation = ({ mode }) => {
                   onClick={
                     passedTestingSubmitting || !hasEligibleTestingLines
                       ? undefined
-                      : allAgreementMirrorItemsComplete
-                        ? openAgreementMirrorReviewModal
+                      : allAgreementMirrorItemsProcessed
+                        ? (
+                          agreementMirrorSessionActive
+                            ? openAgreementMirrorReviewModal
+                            : () => { void openNosposAgreementFlow({ openReview: true }); }
+                        )
                         : undefined
                   }
                   disabled={
                     passedTestingSubmitting ||
                     !hasEligibleTestingLines ||
-                    !allAgreementMirrorItemsComplete
+                    !allAgreementMirrorItemsProcessed
                   }
                   aria-busy={passedTestingSubmitting}
                 >
@@ -1936,7 +1994,7 @@ const Negotiation = ({ mode }) => {
                 )}
                 {hasEligibleTestingLines && !passedTestingSubmitting && !agreementMirrorSessionActive && (
                   <p className="text-[10px] text-center font-medium" style={{ color: 'var(--text-muted)' }}>
-                    Use Complete testing on the first line. Park agreement unlocks when that line is done.
+                    Use Complete testing on each line in order. Park agreement unlocks when every line is processed (passed or failed).
                   </p>
                 )}
                 {hasEligibleTestingLines && agreementMirrorSessionActive && !agreementMirrorSnapshot && (
@@ -1944,14 +2002,14 @@ const Negotiation = ({ mode }) => {
                     Waiting for the NoSpos items page to load.
                   </p>
                 )}
-                {hasEligibleTestingLines && agreementMirrorSessionActive && agreementMirrorSnapshot && !allAgreementMirrorItemsComplete && (
+                {hasEligibleTestingLines && agreementMirrorSessionActive && agreementMirrorSnapshot && !allAgreementMirrorItemsProcessed && (
                   <p className="text-[10px] text-center font-medium" style={{ color: 'var(--text-muted)' }}>
-                    Finish Complete testing on the first line. Park agreement unlocks when it is done.
+                    Finish Complete testing on each line that is still open. The next row unlocks when the line above is processed; Park needs all lines processed.
                   </p>
                 )}
-                {hasEligibleTestingLines && agreementMirrorSessionActive && allAgreementMirrorItemsComplete && (
+                {hasEligibleTestingLines && agreementMirrorSessionActive && allAgreementMirrorItemsProcessed && (
                   <p className="text-[10px] text-center font-medium" style={{ color: 'var(--text-muted)' }}>
-                    The first line is ready in NoSpos. Park agreement is unlocked.
+                    Every line is processed. Park agreement is unlocked.
                   </p>
                 )}
               </>
@@ -2127,9 +2185,9 @@ const Negotiation = ({ mode }) => {
         requestId={actualRequestId}
         sourceLines={agreementMirrorSourceLines}
         useVoucherOffers={useVoucherOffers}
-        mirrorFirstLineOnly={researchSandboxBookedView}
         selectedIndex={agreementMirrorModalState?.kind === 'item' ? agreementMirrorModalState.index : null}
         autoAddSelectedIfMissing={agreementMirrorModalState?.kind === 'item'}
+        testingOutcomeByRow={testingOutcomeByRow}
         onClose={(opts) => {
           if (opts?.completed === true) {
             showNotification('Agreement parked on NoSpos successfully.', 'success');
@@ -2139,6 +2197,92 @@ const Negotiation = ({ mode }) => {
           closeAgreementMirrorModal();
         }}
       />
+
+      {completeTestingGateModal ? (
+        <TinyModal
+          title="In-store testing"
+          zClass="z-[125]"
+          onClose={() => {
+            setCompleteTestingGateModal(null);
+            setCompleteTestingFailureReason('');
+          }}
+        >
+          {completeTestingGateModal.step === 'pass_question' ? (
+            <>
+              <p className="text-xs text-slate-600 mb-4">
+                Did in-store testing pass for this line? You can only continue to NoSpos if testing passed.
+              </p>
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  className="px-4 py-2 rounded-lg text-sm font-bold transition-colors hover:opacity-90"
+                  style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
+                  onClick={() => {
+                    const idx = completeTestingGateModal.rowIndex;
+                    setTestingOutcomeByRow((prev) => ({ ...prev, [idx]: 'passed' }));
+                    setCompleteTestingGateModal(null);
+                    void proceedMirrorAfterInStorePass(idx);
+                  }}
+                >
+                  Yes, testing passed
+                </button>
+                <button
+                  type="button"
+                  className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
+                  style={{ background: 'white', color: 'var(--text-muted)', border: '1px solid var(--ui-border)' }}
+                  onClick={() =>
+                    setCompleteTestingGateModal((m) => (m ? { ...m, step: 'failure_reason' } : m))
+                  }
+                >
+                  No, testing failed
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-xs text-slate-600 mb-2">
+                What went wrong? (Required — NoSpos will not open until you pass testing on a later attempt.)
+              </p>
+              <textarea
+                className="w-full min-h-[88px] rounded-lg border border-[var(--ui-border)] p-2 text-sm text-[var(--text-main)]"
+                value={completeTestingFailureReason}
+                onChange={(e) => setCompleteTestingFailureReason(e.target.value)}
+                placeholder="Describe the failure…"
+              />
+              <div className="flex items-center justify-end gap-3 mt-4">
+                <button
+                  type="button"
+                  className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
+                  style={{ background: 'white', color: 'var(--text-muted)', border: '1px solid var(--ui-border)' }}
+                  onClick={() =>
+                    setCompleteTestingGateModal((m) => (m ? { ...m, step: 'pass_question' } : m))
+                  }
+                >
+                  Back
+                </button>
+                <button
+                  type="button"
+                  className="px-4 py-2 rounded-lg text-sm font-bold transition-colors hover:opacity-90 disabled:opacity-50"
+                  style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
+                  disabled={!completeTestingFailureReason.trim()}
+                  onClick={() => {
+                    const idx = completeTestingGateModal.rowIndex;
+                    const reason = completeTestingFailureReason.trim();
+                    console.info('[CG Suite] In-store testing reported failed', { rowIndex: idx, reason });
+                    setTestingOutcomeByRow((prev) => ({ ...prev, [idx]: 'failed' }));
+                    const short = reason.length > 140 ? `${reason.slice(0, 140)}…` : reason;
+                    showNotification(`Testing failed — recorded: ${short}`, 'warning');
+                    setCompleteTestingGateModal(null);
+                    setCompleteTestingFailureReason('');
+                  }}
+                >
+                  Submit
+                </button>
+              </div>
+            </>
+          )}
+        </TinyModal>
+      ) : null}
 
       {showNewBuyConfirm && (
         <TinyModal

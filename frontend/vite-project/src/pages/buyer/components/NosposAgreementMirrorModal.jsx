@@ -18,6 +18,16 @@ import {
   shouldSkipAiFill,
 } from '@/services/aiCategoryService';
 import { SPREADSHEET_TABLE_STYLES } from '../spreadsheetTableStyles';
+import useNosposMirrorQueuedApplies from '../hooks/useNosposMirrorQueuedApplies';
+import useNosposMirrorRowCardMap from '../hooks/useNosposMirrorRowCardMap';
+import useNosposMirrorValidation from '../hooks/useNosposMirrorValidation';
+import { buildApplyFieldKey, buildCardFieldKey } from '../utils/nosposMirrorKeys';
+import NosposAgreementMirrorItemSection from './NosposAgreementMirrorItemSection';
+import {
+  appendNosposMirrorCgSyncMarker,
+  hasNosposMirrorCgSyncMarker,
+  resolveNosposMirrorItemDescriptionField,
+} from '../utils/nosposMirrorSyncMarkers';
 
 const NOSPOS_MIRROR_DEBUG =
   typeof import.meta !== 'undefined' && Boolean(import.meta.env?.DEV);
@@ -160,11 +170,6 @@ function isNosposMirrorCategoryField(f) {
   return /\[category\]/i.test(f.name || '') || String(f.label || '').toLowerCase() === 'category';
 }
 
-function isEmptyForValidation(field, raw) {
-  const v = raw != null ? String(raw).trim() : '';
-  return v === '';
-}
-
 function partitionCardFields(fields) {
   const categoryFields = [];
   const coreFields = [];
@@ -191,15 +196,6 @@ function partitionCardFields(fields) {
   return { categoryFields, coreFields, otherFields };
 }
 
-function buildApplyFieldKey(name, cardIdx, cardId = null) {
-  const locationKey = cardId || (Number.isInteger(cardIdx) ? `idx:${cardIdx}` : 'idx:unknown');
-  return `${locationKey}\0${name || ''}`;
-}
-
-function buildCardFieldKey(cardIdx, name) {
-  return `${Number.isInteger(cardIdx) ? cardIdx : 'idx:unknown'}\0${name || ''}`;
-}
-
 function isNosposRateField(field) {
   const n = String(field?.name || '').toLowerCase();
   const l = String(field?.label || '').toLowerCase();
@@ -210,45 +206,6 @@ function isNosposLocationField(field) {
   const n = String(field?.name || '').toLowerCase();
   const l = String(field?.label || '').toLowerCase();
   return /\[location\]$/.test(n) || l === 'location' || l.includes('location');
-}
-
-const CG_SYNC_MARKER_PREFIX = '[CG_SUITE_SYNCED:';
-
-function isItemDescriptionField(field) {
-  const n = String(field?.name || '').toLowerCase();
-  const l = String(field?.label || '').toLowerCase();
-  return /\[description\]$/.test(n) || l === 'item description';
-}
-
-function buildSourceItemSyncKey(item, cardIdx, requestId) {
-  const reqPart = requestId != null && requestId !== '' ? String(requestId) : 'req-unknown';
-  const itemPart =
-    item?.request_item_id != null ? `rid-${item.request_item_id}`
-      : item?.id != null ? `id-${item.id}`
-      : item?.variantId != null ? `vid-${item.variantId}`
-      : `idx-${cardIdx}`;
-  return `${reqPart}:${itemPart}`;
-}
-
-function buildCgSyncMarkerForItem(item, cardIdx, requestId) {
-  return `${CG_SYNC_MARKER_PREFIX}${buildSourceItemSyncKey(item, cardIdx, requestId)}]`;
-}
-
-function hasCgSyncMarkerForItem(value, item, cardIdx, requestId) {
-  const marker = buildCgSyncMarkerForItem(item, cardIdx, requestId);
-  return String(value || '').includes(marker);
-}
-
-function appendCgSyncMarker(value, item, cardIdx, requestId) {
-  const s = value != null ? String(value) : '';
-  const marker = buildCgSyncMarkerForItem(item, cardIdx, requestId);
-  if (s.includes(marker)) return s;
-  return s.trim() ? `${s} ${marker}` : marker;
-}
-
-function resolveItemDescriptionFieldForCard(card) {
-  const fields = card?.fields || [];
-  return fields.find((f) => f?.name && isItemDescriptionField(f)) || null;
 }
 
 function shallowEqualObject(a, b) {
@@ -293,6 +250,13 @@ function CategoryCascadeField({
   });
 
   const updateFromPathRef = useRef(null);
+
+  useEffect(() => {
+    userTookOverRef.current = false;
+    autoCategoryPrefillAttemptedRef.current = false;
+    setCategoryAiManualFallback(false);
+    setAiSuggestions({});
+  }, [field?.name, item?.id, item?.request_item_id, item?.variantId, tree]);
 
   const updateFromPath = useCallback(
     (newPath) => {
@@ -376,7 +340,6 @@ function CategoryCascadeField({
           console.groupEnd();
         }
 
-        // eslint-disable-next-line no-await-in-loop
         const result = await suggestNosposCategory({
           item: itemSummary,
           levelIndex,
@@ -578,7 +541,7 @@ function MirrorField({
   const categoryTree = useMemo(() => {
     if (field.control !== 'select' || !isNosposMirrorCategoryField(field)) return null;
     return buildCategoryTree(field.options || []);
-  }, [field.control, field.options, field.name]);
+  }, [field]);
 
   if (field.control === 'select' && Array.isArray(field.options)) {
     const hierarchical =
@@ -589,6 +552,7 @@ function MirrorField({
     if (hierarchical) {
       const cascade = (
         <CategoryCascadeField
+          key={`${field.name}:${item?.request_item_id ?? item?.id ?? item?.variantId ?? 'item'}`}
           field={field}
           tree={categoryTree}
           value={value}
@@ -728,6 +692,8 @@ export default function NosposAgreementMirrorModal({
   mirrorFirstLineOnly = false,
   selectedIndex = null,
   autoAddSelectedIfMissing = false,
+  /** Optional per-line testing outcomes from BOOKED_FOR_TESTING view: index -> 'passed' | 'failed'. */
+  testingOutcomeByRow = {},
   onClose,
 }) {
   const [values, setValues] = useState({});
@@ -756,15 +722,21 @@ export default function NosposAgreementMirrorModal({
   useEffect(() => { valuesRef.current = values; });
   const snapshotRef = useRef(snapshot);
   useEffect(() => { snapshotRef.current = snapshot; });
-  const pendingFieldApplyRef = useRef(new Map());
-  const applyFlushTimerRef = useRef(null);
-  const applyInFlightRef = useRef(false);
-  const applyNeedsAnotherPassRef = useRef(false);
   const markerApplyQueuedRef = useRef(new Set());
   const autoAddAttemptedRef = useRef(new Set());
   const autoAiRequestedRef = useRef(new Set());
   const categoryAiRunDepthRef = useRef(0);
   const [categoryAiBlocking, setCategoryAiBlocking] = useState(false);
+  const {
+    applyInFlightRef,
+    queueFieldApply,
+    flushQueuedFieldApplies,
+    resetQueuedApplies,
+  } = useNosposMirrorQueuedApplies({
+    snapshotRef,
+    setApplyingCards,
+    setFormError,
+  });
 
   const notifyCategoryAiRunning = useCallback((running) => {
     if (running) {
@@ -775,9 +747,24 @@ export default function NosposAgreementMirrorModal({
     setCategoryAiBlocking(categoryAiRunDepthRef.current > 0);
   }, []);
 
+  const {
+    failedRows: failedRowsForParking,
+    activeRowIndexes,
+    rowToCardIndex,
+    rowStateByIndex,
+    nextRowToAdd,
+    expectedCardCount: expectedMirrorCardCount,
+    getSourceRowIndexForCard,
+  } = useNosposMirrorRowCardMap(sourceLines, snapshot, testingOutcomeByRow, requestId);
+
+  const mappedSourceLinesForCards = useMemo(
+    () => (snapshot?.cards || []).map((_, cardIdx) => sourceLines?.[getSourceRowIndexForCard(cardIdx)] || null),
+    [snapshot, sourceLines, getSourceRowIndexForCard]
+  );
+
   const attributePrefill = useMemo(
-    () => computeNosposMirrorPrefill(snapshot, sourceLines, useVoucherOffers),
-    [snapshot, sourceLines, useVoucherOffers]
+    () => computeNosposMirrorPrefill(snapshot, mappedSourceLinesForCards, useVoucherOffers),
+    [snapshot, mappedSourceLinesForCards, useVoucherOffers]
   );
 
   useEffect(() => {
@@ -785,17 +772,18 @@ export default function NosposAgreementMirrorModal({
     if (preexistingSyncScannedRef.current) return;
     const marked = new Set();
     (snapshot.cards || []).forEach((card, idx) => {
-      const sourceItem = sourceLines?.[idx] || null;
-      const descriptionField = resolveItemDescriptionFieldForCard(card);
+      const sourceRowIdx = getSourceRowIndexForCard(idx);
+      const sourceItem = sourceLines?.[sourceRowIdx] || null;
+      const descriptionField = resolveNosposMirrorItemDescriptionField(card);
       if (!descriptionField) return;
-      if (hasCgSyncMarkerForItem(descriptionField.value, sourceItem, idx, requestId)) {
+      if (hasNosposMirrorCgSyncMarker(descriptionField.value, sourceItem, sourceRowIdx, requestId)) {
         marked.add(idx);
       }
     });
     preexistingSyncScannedRef.current = true;
     setPreexistingSyncedCards(marked);
     mirrorDebug('[CG Suite] Initial sync scan complete', { markedCards: [...marked] });
-  }, [open, snapshot, sourceLines, requestId]);
+  }, [open, snapshot, sourceLines, requestId, getSourceRowIndexForCard]);
 
   useEffect(() => {
     if (!open || !snapshot) return;
@@ -804,11 +792,12 @@ export default function NosposAgreementMirrorModal({
     const fieldsToMark = [];
     for (let cardIdx = 0; cardIdx < (snapshot.cards || []).length; cardIdx++) {
       const card = snapshot.cards[cardIdx];
-      const sourceItem = sourceLines?.[cardIdx] || null;
-      const descriptionField = resolveItemDescriptionFieldForCard(card);
+      const sourceRowIdx = getSourceRowIndexForCard(cardIdx);
+      const sourceItem = sourceLines?.[sourceRowIdx] || null;
+      const descriptionField = resolveNosposMirrorItemDescriptionField(card);
       if (!descriptionField?.name) continue;
-      if (hasCgSyncMarkerForItem(descriptionField.value, sourceItem, cardIdx, requestId)) continue;
-      const markerValue = appendCgSyncMarker(descriptionField.value, sourceItem, cardIdx, requestId);
+      if (hasNosposMirrorCgSyncMarker(descriptionField.value, sourceItem, sourceRowIdx, requestId)) continue;
+      const markerValue = appendNosposMirrorCgSyncMarker(descriptionField.value, sourceItem, sourceRowIdx, requestId);
       const queueKey = `${snapshot.pageInstanceId || 'page:unknown'}::${card.cardId || `idx:${cardIdx}`}::${markerValue}`;
       if (markerApplyQueuedRef.current.has(queueKey)) continue;
       markerApplyQueuedRef.current.add(queueKey);
@@ -828,158 +817,7 @@ export default function NosposAgreementMirrorModal({
       .catch((e) => {
         console.error('[CG Suite] Auto-marker apply failed', e?.message || e);
       });
-  }, [open, snapshot, sourceLines, requestId, busy, addingItem]);
-
-  // -------------------------------------------------------------------------
-  // Stable flush implementation stored in a ref — breaks the useCallback
-  // dependency cycle that was causing cascading re-renders and lag.
-  // -------------------------------------------------------------------------
-  const flushQueuedFieldAppliesRef = useRef(null);
-
-  // Wire the real implementation into the ref after every render so it always
-  // closes over the freshest state/refs, but the function identity is stable.
-  useEffect(() => {
-    flushQueuedFieldAppliesRef.current = async function _flush() {
-      if (applyFlushTimerRef.current) {
-        clearTimeout(applyFlushTimerRef.current);
-        applyFlushTimerRef.current = null;
-      }
-      if (applyInFlightRef.current) {
-        applyNeedsAnotherPassRef.current = true;
-        return;
-      }
-
-      const pendingEntries = [...pendingFieldApplyRef.current.values()];
-      if (pendingEntries.length === 0) return;
-
-      applyInFlightRef.current = true;
-      applyNeedsAnotherPassRef.current = false;
-      pendingFieldApplyRef.current = new Map();
-
-      const currentCards = snapshotRef.current?.cards || [];
-      const currentSnapshotByKey = new Map();
-      for (let cardIdx = 0; cardIdx < currentCards.length; cardIdx++) {
-        const card = currentCards[cardIdx];
-        for (const f of card.fields || []) {
-          if (!f?.name) continue;
-          currentSnapshotByKey.set(
-            buildApplyFieldKey(f.name, cardIdx, card.cardId || null),
-            f.value != null ? String(f.value) : ''
-          );
-        }
-      }
-
-      let fields = pendingEntries.filter((f) => {
-        const fieldKey = buildApplyFieldKey(f.name, f.cardIndex, f.cardId || null);
-        return (currentSnapshotByKey.get(fieldKey) ?? '') !== f.value;
-      });
-
-      const cardIdxs = [...new Set(
-        fields.map((f) => f.cardIndex).filter((idx) => Number.isInteger(idx))
-      )];
-
-      if (fields.length === 0) {
-        applyInFlightRef.current = false;
-        if (applyNeedsAnotherPassRef.current || pendingFieldApplyRef.current.size > 0) {
-          void flushQueuedFieldAppliesRef.current();
-        }
-        return;
-      }
-
-      if (cardIdxs.length > 0) {
-        setApplyingCards((prev) => new Set([...prev, ...cardIdxs]));
-      }
-
-      try {
-        let pendingFields = [...fields];
-        for (let attempt = 1; attempt <= 3; attempt++) {
-          if (pendingFields.length === 0) break;
-          const r1 = await nosposAgreementApplyFields(pendingFields);
-          if (!r1?.ok && !Array.isArray(r1?.missing) && !Array.isArray(r1?.failed)) {
-            throw new Error(r1?.error || 'Could not update the NosPos form. Is the agreement tab still open?');
-          }
-          const missing = Array.isArray(r1?.missing) ? r1.missing : [];
-          const failed = Array.isArray(r1?.failed) ? r1.failed : [];
-          const retryKeys = new Set(
-            [...missing, ...failed]
-              .map((entry) => buildApplyFieldKey(entry?.name, entry?.cardIndex, entry?.cardId || null))
-              .filter((key) => key !== buildApplyFieldKey('', null, null))
-          );
-          if (retryKeys.size === 0) { pendingFields = []; break; }
-          pendingFields = pendingFields.filter((f) =>
-            retryKeys.has(buildApplyFieldKey(f.name, f.cardIndex, f.cardId || null))
-          );
-          if (pendingFields.length > 0) await new Promise((r) => setTimeout(r, 80));
-        }
-        if (pendingFields.length > 0) {
-          // Final false-positive guard: if snapshot now reflects desired values, treat as success.
-          const latestCards = snapshotRef.current?.cards || [];
-          const latestByKey = new Map();
-          for (let cardIdx = 0; cardIdx < latestCards.length; cardIdx++) {
-            const card = latestCards[cardIdx];
-            for (const f of card.fields || []) {
-              if (!f?.name) continue;
-              latestByKey.set(
-                buildApplyFieldKey(f.name, cardIdx, card.cardId || null),
-                f.value != null ? String(f.value) : ''
-              );
-            }
-          }
-          pendingFields = pendingFields.filter((f) => {
-            const key = buildApplyFieldKey(f.name, f.cardIndex, f.cardId || null);
-            const nowValue = latestByKey.get(key) ?? '';
-            return nowValue !== f.value;
-          });
-        }
-        if (pendingFields.length > 0) {
-          const names = pendingFields.slice(0, 5).map((f) => f.name).join(', ');
-          const more = pendingFields.length > 5 ? ', ...' : '';
-          throw new Error(`Could not copy all fields to NosPos (${pendingFields.length} field(s) still failing): ${names}${more}`);
-        }
-        setFormError(null);
-      } catch (err) {
-        setFormError(err?.message || 'Could not update the NosPos form.');
-      } finally {
-        applyInFlightRef.current = false;
-        if (cardIdxs.length > 0) {
-          setApplyingCards((prev) => {
-            const next = new Set(prev);
-            cardIdxs.forEach((idx) => next.delete(idx));
-            return next;
-          });
-        }
-        if (applyNeedsAnotherPassRef.current || pendingFieldApplyRef.current.size > 0) {
-          void flushQueuedFieldAppliesRef.current();
-        }
-      }
-    };
-  }); // intentionally no deps — runs after every render
-
-  // Stable public surface — never recreated, just delegates to the ref
-  const flushQueuedFieldApplies = useCallback(
-    () => flushQueuedFieldAppliesRef.current?.(),
-    []
-  );
-
-  // Stable — only uses refs, no state deps
-  const queueFieldApply = useCallback((name, value, cardIdx, cardId = null) => {
-    if (!name) return;
-    const normalized = {
-      name,
-      value: value != null ? String(value) : '',
-      cardIndex: Number.isInteger(cardIdx) ? cardIdx : null,
-      cardId: cardId || null,
-    };
-    pendingFieldApplyRef.current.set(
-      buildApplyFieldKey(normalized.name, normalized.cardIndex, normalized.cardId),
-      normalized
-    );
-    if (applyFlushTimerRef.current) clearTimeout(applyFlushTimerRef.current);
-    applyFlushTimerRef.current = setTimeout(() => {
-      applyFlushTimerRef.current = null;
-      void flushQueuedFieldAppliesRef.current?.();
-    }, 120);
-  }, []); // stable
+  }, [open, snapshot, sourceLines, requestId, busy, addingItem, getSourceRowIndexForCard]);
 
   useLayoutEffect(() => {
     if (open && !prevOpenRef.current) {
@@ -993,13 +831,7 @@ export default function NosposAgreementMirrorModal({
       preexistingSyncScannedRef.current = false;
       setPreexistingSyncedCards(new Set());
       setAiFilledFieldKeys(new Set());
-      pendingFieldApplyRef.current = new Map();
-      applyNeedsAnotherPassRef.current = false;
-      applyInFlightRef.current = false;
-      if (applyFlushTimerRef.current) {
-        clearTimeout(applyFlushTimerRef.current);
-        applyFlushTimerRef.current = null;
-      }
+      resetQueuedApplies();
       setApplyingCards(new Set());
       setUpdatingCategoryCards(new Set());
       setAddingItem(false);
@@ -1019,7 +851,7 @@ export default function NosposAgreementMirrorModal({
       );
     }
     prevOpenRef.current = open;
-  }, [open, snapshot, sourceLines, selectedIndex, mirrorFirstLineOnly]);
+  }, [open, snapshot, sourceLines, selectedIndex, mirrorFirstLineOnly, resetQueuedApplies]);
 
   useLayoutEffect(() => {
     if (!open || !snapshot) return;
@@ -1169,66 +1001,23 @@ export default function NosposAgreementMirrorModal({
     };
   }, [waitForSnapshotReload]);
 
-  const allFields = useMemo(() => {
-    if (!snapshot) return [];
-    const list = [];
-    for (const card of snapshot.cards || []) {
-      for (const f of card.fields || []) {
-        if (f?.name) list.push(f);
-      }
-    }
-    return list;
-  }, [snapshot]);
+  const hasUserOverride = useCallback(
+    (fieldName) => userOverriddenFieldsRef.current.has(fieldName),
+    []
+  );
 
-  const validationErrors = useMemo(() => {
-    const errs = new Set();
-    for (const f of allFields) {
-      if (!f.required) continue;
-      const localValue = values[f.name];
-      const localIsEmpty = isEmptyForValidation(f, localValue);
-      const wasUserOverridden = userOverriddenFieldsRef.current.has(f.name);
-      const effectiveValue =
-        !localIsEmpty || wasUserOverridden
-          ? localValue
-          : (f.value != null ? String(f.value) : '');
-      if (isEmptyForValidation(f, effectiveValue)) errs.add(f.name);
-    }
-    return errs;
-  }, [allFields, values]);
-
-  const getValidationErrorsForValues = useCallback((candidateValues) => {
-    const errs = new Set();
-    for (const f of allFields) {
-      if (!f.required) continue;
-      const localValue = candidateValues?.[f.name];
-      const localIsEmpty = isEmptyForValidation(f, localValue);
-      const wasUserOverridden = userOverriddenFieldsRef.current.has(f.name);
-      const effectiveValue =
-        !localIsEmpty || wasUserOverridden
-          ? localValue
-          : (f.value != null ? String(f.value) : '');
-      if (isEmptyForValidation(f, effectiveValue)) errs.add(f.name);
-    }
-    return errs;
-  }, [allFields]);
-
-  const getValidationErrorsForCard = useCallback((cardIdx, candidateValues) => {
-    const errs = new Set();
-    const card = snapshot?.cards?.[cardIdx];
-    if (!card) return errs;
-    for (const f of card.fields || []) {
-      if (!f?.required || !f?.name) continue;
-      const localValue = candidateValues?.[f.name];
-      const localIsEmpty = isEmptyForValidation(f, localValue);
-      const wasUserOverridden = userOverriddenFieldsRef.current.has(f.name);
-      const effectiveValue =
-        !localIsEmpty || wasUserOverridden
-          ? localValue
-          : (f.value != null ? String(f.value) : '');
-      if (isEmptyForValidation(f, effectiveValue)) errs.add(f.name);
-    }
-    return errs;
-  }, [snapshot]);
+  const {
+    allFields,
+    validationErrors,
+    getValidationErrorsForCard,
+    getValidationErrorsForParking,
+  } = useNosposMirrorValidation({
+    snapshot,
+    values,
+    hasUserOverride,
+    getSourceRowIndexForCard,
+    failedRowsForParking,
+  });
 
   const handleFieldChange = useCallback((name, cardIdx, cardId) => {
     return (v) => {
@@ -1323,7 +1112,8 @@ export default function NosposAgreementMirrorModal({
   const handleAiFillForCard = useCallback((cardIdx) => {
     const card = snapshotRef.current?.cards?.[cardIdx];
     if (!card) return;
-    const cardItem = sourceLines?.[cardIdx] ?? null;
+    const sourceRowIdx = getSourceRowIndexForCard(cardIdx);
+    const cardItem = sourceLines?.[sourceRowIdx] ?? null;
     if (!cardItem) return;
 
     setAiManualFallbackCards((prev) => {
@@ -1453,36 +1243,29 @@ export default function NosposAgreementMirrorModal({
       .finally(() => {
         setAiFillingCards((prev) => { const next = new Set(prev); next.delete(cardIdx); return next; });
       });
-  }, [queueFieldApply, sourceLines]);
+  }, [attributePrefill, queueFieldApply, sourceLines, getSourceRowIndexForCard]);
 
-  const handleAddItem = useCallback(async (cardIdx) => {
+  const handleAddItem = useCallback(async (rowIdx) => {
     if (!snapshot || busy || addingItem) return;
-    if (mirrorFirstLineOnly && cardIdx > 0) {
+    if (mirrorFirstLineOnly && rowIdx > 0) {
       setFormError('Only the first line is used in this testing flow.');
       return;
     }
     const currentCount = snapshot.cards?.length || 0;
-    if (cardIdx !== currentCount) {
+    const expectedRowIdx = nextRowToAdd;
+    if (!Number.isInteger(expectedRowIdx)) {
+      setFormError('There are no more rows available to add in NoSpos.');
+      return;
+    }
+    if (rowIdx !== expectedRowIdx) {
       setFormError('Add items to NoSpos in order from top to bottom.');
       return;
     }
-    if (validationErrors.size > 0) {
-      setTouched(true);
-      setFormError('Fill the highlighted required NoSpos fields before adding the next item.');
-      for (let i = 0; i < (snapshot.cards?.length || 0); i++) {
-        const c = snapshot.cards[i];
-        if (!c) continue;
-        const hasErr = (c.fields || []).some((f) => f?.name && validationErrors.has(f.name));
-        if (hasErr) {
-          setExpandedRows((prev) => new Set([...prev, i]));
-          break;
-        }
-      }
-      return;
-    }
+    // Allow adding the next row even when a prior line still has missing required fields
+    // (e.g. in-store testing failed on that line). Park / OK still enforce full validation.
 
     setAddingItem(true);
-    setAddingItemIndex(cardIdx);
+    setAddingItemIndex(currentCount);
     setFormError(null);
     void (async () => {
       try {
@@ -1497,13 +1280,14 @@ export default function NosposAgreementMirrorModal({
           actionLabel: 'Adding the next item',
         });
         const reloadedSnapshot = await waitForSnapshotCardCount(currentCount + 1);
-        const newCard = reloadedSnapshot?.cards?.[cardIdx];
-        const markerField = resolveItemDescriptionFieldForCard(newCard);
-        const sourceItem = sourceLines?.[cardIdx] || null;
+        const newCard = reloadedSnapshot?.cards?.[currentCount];
+        const markerField = resolveNosposMirrorItemDescriptionField(newCard);
+        const sourceItem = sourceLines?.[rowIdx] || null;
         if (markerField?.name) {
-          const markerValue = appendCgSyncMarker(markerField.value, sourceItem, cardIdx, requestId);
+          const markerValue = appendNosposMirrorCgSyncMarker(markerField.value, sourceItem, rowIdx, requestId);
           mirrorDebug('[CG Suite] Marking NoSpos card as synced', {
-            cardIdx,
+            cardIdx: currentCount,
+            sourceRowIdx: rowIdx,
             cardId: newCard?.cardId || null,
             markerField: markerField.name,
             markerValue,
@@ -1511,12 +1295,12 @@ export default function NosposAgreementMirrorModal({
           const markerResult = await nosposAgreementApplyFields([{
             name: markerField.name,
             value: markerValue,
-            cardIndex: cardIdx,
+            cardIndex: currentCount,
             cardId: newCard?.cardId || null,
           }]);
           mirrorDebug('[CG Suite] Marker apply response', markerResult);
         } else {
-          console.warn('[CG Suite] Could not find item description field for CG sync marker', { cardIdx });
+          console.warn('[CG Suite] Could not find item description field for CG sync marker', { cardIdx: currentCount, sourceRowIdx: rowIdx });
         }
       } catch (err) {
         setFormError(err?.message || 'Could not add the next NoSpos item.');
@@ -1529,20 +1313,21 @@ export default function NosposAgreementMirrorModal({
     snapshot,
     busy,
     addingItem,
-    validationErrors,
     flushQueuedFieldApplies,
     waitForSnapshotReload,
     waitForSnapshotCardCount,
     sourceLines,
     requestId,
     mirrorFirstLineOnly,
+    nextRowToAdd,
   ]);
 
   useEffect(() => {
     if (!open || !autoAddSelectedIfMissing) return;
     if (!Number.isInteger(selectedIndex)) return;
     if (busy || addingItem) return;
-    const alreadyAdded = Boolean(snapshot?.cards?.[selectedIndex]);
+    const selectedCardIdxForAutoAdd = rowToCardIndex.get(selectedIndex);
+    const alreadyAdded = Number.isInteger(selectedCardIdxForAutoAdd) && Boolean(snapshot?.cards?.[selectedCardIdxForAutoAdd]);
     if (alreadyAdded) return;
     const autoAddKey = `${snapshot?.pageInstanceId || 'page:unknown'}:${selectedIndex}`;
     if (autoAddAttemptedRef.current.has(autoAddKey)) return;
@@ -1555,6 +1340,7 @@ export default function NosposAgreementMirrorModal({
     busy,
     addingItem,
     snapshot,
+    rowToCardIndex,
     handleAddItem,
   ]);
 
@@ -1571,12 +1357,15 @@ export default function NosposAgreementMirrorModal({
     if (selectedIndex == null || busy) return;
     setTouched(true);
     setFormError(null);
-    const selectedCard = snapshotRef.current?.cards?.[selectedIndex] || null;
+    const selectedCardIdxForDone = rowToCardIndex.get(selectedIndex);
+    const selectedCard = Number.isInteger(selectedCardIdxForDone)
+      ? (snapshotRef.current?.cards?.[selectedCardIdxForDone] || null)
+      : null;
     if (!selectedCard) {
       setFormError('Add this item to NoSpos first.');
       return;
     }
-    const selectedErrors = getValidationErrorsForCard(selectedIndex, valuesRef.current);
+    const selectedErrors = getValidationErrorsForCard(selectedCardIdxForDone, valuesRef.current);
     if (selectedErrors.size > 0) {
       setFormError('Fill the required NoSpos fields for this item before continuing.');
       return;
@@ -1587,16 +1376,7 @@ export default function NosposAgreementMirrorModal({
     } catch (err) {
       setFormError(err?.message || 'Could not finish this NoSpos item yet.');
     }
-  }, [selectedIndex, busy, getValidationErrorsForCard, flushQueuedFieldApplies, onClose]);
-
-  useEffect(() => {
-    return () => {
-      if (applyFlushTimerRef.current) {
-        clearTimeout(applyFlushTimerRef.current);
-        applyFlushTimerRef.current = null;
-      }
-    };
-  }, []);
+  }, [selectedIndex, busy, getValidationErrorsForCard, flushQueuedFieldApplies, onClose, rowToCardIndex]);
 
   const handleNext = async () => {
     if (!snapshot || busy) return;
@@ -1608,16 +1388,21 @@ export default function NosposAgreementMirrorModal({
       const finalizedValues = { ...valuesRef.current };
 
       const currentCardCount = snapshot.cards?.length || 0;
-      const expectedCardCount = mirrorFirstLineOnly ? 1 : (sourceLines?.length || 0);
+      const expectedCardCount = mirrorFirstLineOnly
+        ? 1
+        : sourceLines.reduce(
+          (count, _line, rowIdx) => (failedRowsForParking.has(rowIdx) ? count : count + 1),
+          0
+        );
       if (currentCardCount < expectedCardCount) {
         throw new Error(
           mirrorFirstLineOnly
             ? 'Add the first line to NoSpos before parking.'
-            : 'Add each remaining item to NoSpos before continuing.'
+            : 'Add each non-failed item to NoSpos before continuing.'
         );
       }
 
-      const finalValidationErrors = getValidationErrorsForValues(finalizedValues);
+      const finalValidationErrors = getValidationErrorsForParking(finalizedValues);
       if (finalValidationErrors.size > 0) {
         const missingLabels = allFields
           .filter((f) => finalValidationErrors.has(f.name))
@@ -1633,15 +1418,16 @@ export default function NosposAgreementMirrorModal({
       const currentSnapshotByKey = new Map();
       for (let cardIdx = 0; cardIdx < (snapshot.cards || []).length; cardIdx++) {
         const card = snapshot.cards[cardIdx];
-        const markerField = resolveItemDescriptionFieldForCard(card);
+        const markerField = resolveNosposMirrorItemDescriptionField(card);
         const markerFieldName = markerField?.name || null;
-        const sourceItem = sourceLines?.[cardIdx] || null;
+        const sourceRowIdx = getSourceRowIndexForCard(cardIdx);
+        const sourceItem = sourceLines?.[sourceRowIdx] || null;
         for (const f of card.fields || []) {
           if (!f?.name) continue;
           const rawValue = finalizedValues[f.name] != null ? String(finalizedValues[f.name]) : '';
           const nextValue =
             markerFieldName && f.name === markerFieldName
-              ? appendCgSyncMarker(rawValue, sourceItem, cardIdx, requestId)
+              ? appendNosposMirrorCgSyncMarker(rawValue, sourceItem, sourceRowIdx, requestId)
               : rawValue;
           const descriptor = {
             name: f.name,
@@ -1799,41 +1585,27 @@ export default function NosposAgreementMirrorModal({
     handleAiFillForCard,
   ]);
 
-  useEffect(() => {
-    if (!open || !snapshot) return;
-    setAiManualFallbackCards((prev) => {
-      if (!prev || prev.size === 0) return prev;
-      const next = new Set(prev);
-      let changed = false;
-      for (const cardIdx of prev) {
-        const cardErrors = getValidationErrorsForCard(cardIdx, values);
-        if (cardErrors.size === 0) {
-          next.delete(cardIdx);
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [open, snapshot, values, getValidationErrorsForCard]);
-
   if (!open) return null;
 
   const showForm = snapshot && !loading;
-  const expectedMirrorCardCount = mirrorFirstLineOnly ? 1 : (sourceLines?.length || 0);
-  const missingCardCount = Math.max(0, expectedMirrorCardCount - (snapshot?.cards?.length || 0));
+  const effectiveExpectedMirrorCardCount = mirrorFirstLineOnly ? 1 : expectedMirrorCardCount;
+  const effectiveMissingCardCount = Math.max(0, effectiveExpectedMirrorCardCount - (snapshot?.cards?.length || 0));
   const addedCardCount = snapshot?.cards?.length || 0;
   const singleItemMode = Number.isInteger(selectedIndex);
-  const selectedCard = singleItemMode ? (snapshot?.cards?.[selectedIndex] || null) : null;
+  const selectedCardIdx = singleItemMode ? rowToCardIndex.get(selectedIndex) : null;
+  const selectedCard = singleItemMode && Number.isInteger(selectedCardIdx)
+    ? (snapshot?.cards?.[selectedCardIdx] || null)
+    : null;
   const selectedValidationErrors = singleItemMode
-    ? getValidationErrorsForCard(selectedIndex, values)
+    ? (Number.isInteger(selectedCardIdx) ? getValidationErrorsForCard(selectedCardIdx, values) : new Set())
     : new Set();
   const activeValidationErrors = singleItemMode ? selectedValidationErrors : validationErrors;
   const selectedRowBusy = singleItemMode && selectedIndex != null
     ? (
-      addingItemIndex === selectedIndex ||
-      aiFillingCards.has(selectedIndex) ||
-      applyingCards.has(selectedIndex) ||
-      updatingCategoryCards.has(selectedIndex)
+      (Number.isInteger(selectedCardIdx) && addingItemIndex === selectedCardIdx) ||
+      (Number.isInteger(selectedCardIdx) && aiFillingCards.has(selectedCardIdx)) ||
+      (Number.isInteger(selectedCardIdx) && applyingCards.has(selectedCardIdx)) ||
+      (Number.isInteger(selectedCardIdx) && updatingCategoryCards.has(selectedCardIdx))
     )
     : false;
   const canDoneSelectedItem =
@@ -1847,6 +1619,7 @@ export default function NosposAgreementMirrorModal({
   // True whenever we're waiting on NosPos to reload its page (category applied or item added)
   const nosposReloading = updatingCategoryCards.size > 0 || addingItem;
 
+  const parkingValidationErrors = getValidationErrorsForParking(values);
   const canProceed =
     !busy &&
     !addingItem &&
@@ -1855,8 +1628,8 @@ export default function NosposAgreementMirrorModal({
     !updatingCategoryCards.size &&
     showForm &&
     snapshot?.hasNext !== false &&
-    validationErrors.size === 0 &&
-    missingCardCount === 0;
+    parkingValidationErrors.size === 0 &&
+    effectiveMissingCardCount === 0;
 
   return (
     <div
@@ -1943,13 +1716,13 @@ export default function NosposAgreementMirrorModal({
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           {showForm ? (
             <div className="px-4 py-4">
-              {!singleItemMode && (missingCardCount > 0 || (touched && validationErrors.size > 0)) && (
+              {!singleItemMode && (effectiveMissingCardCount > 0 || (touched && parkingValidationErrors.size > 0)) && (
                 <div className="mb-4 rounded-[var(--radius)] border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
-                  {(touched && validationErrors.size > 0)
-                    ? 'Fill the highlighted required NoSpos fields before adding another item or continuing.'
+                  {(touched && parkingValidationErrors.size > 0)
+                    ? 'Some lines still have missing required fields — you can add the next line anyway; fix everything before Park on NoSpos.'
                     : mirrorFirstLineOnly
                       ? 'Add the first line to NoSpos from the row above, then finish required fields.'
-                      : `Open the next item row and add it to NoSpos${missingCardCount > 1 ? ` (${missingCardCount} items still not added)` : ''}.`}
+                      : `Open the next item row and add it to NoSpos${effectiveMissingCardCount > 1 ? ` (${effectiveMissingCardCount} items still not added)` : ''}.`}
                 </div>
               )}
               {singleItemMode && !selectedCard ? (
@@ -1957,23 +1730,31 @@ export default function NosposAgreementMirrorModal({
                   Add this line to NoSpos if needed, then finish the required fields before pressing OK.
                 </div>
               ) : null}
-              {sourceLines.map((cardItem, cardIdx) => {
-                if (singleItemMode && cardIdx !== selectedIndex) return null;
-                const card = snapshot.cards?.[cardIdx] || null;
-                const { categoryFields, coreFields, otherFields } = cardFieldPartitions[cardIdx] || {
-                  categoryFields: [],
-                  coreFields: [],
-                  otherFields: [],
-                };
+              {sourceLines.map((cardItem, rowIdx) => {
+                if (singleItemMode && rowIdx !== selectedIndex) return null;
+                const rowState = rowStateByIndex.get(rowIdx) || null;
+                const compactCardIdx = rowState?.cardIdx ?? rowToCardIndex.get(rowIdx);
+                const card = rowState?.card ?? (Number.isInteger(compactCardIdx) ? (snapshot.cards?.[compactCardIdx] || null) : null);
+                const { categoryFields, otherFields } = Number.isInteger(compactCardIdx)
+                  ? (cardFieldPartitions[compactCardIdx] || {
+                    categoryFields: [],
+                    coreFields: [],
+                    otherFields: [],
+                  })
+                  : {
+                    categoryFields: [],
+                    coreFields: [],
+                    otherFields: [],
+                  };
                 const requiredCategoryFields = categoryFields.filter((f) => f.required);
                 const requiredOtherFields = otherFields.filter((f) => f.required);
-                const isAdded = Boolean(card);
-                const isExpanded = expandedRows.has(cardIdx);
+                const isAdded = rowState?.isAdded ?? Boolean(card);
+                const isExpanded = expandedRows.has(rowIdx);
                 const canAddThisRow =
                   showForm &&
                   !isAdded &&
-                  cardIdx === addedCardCount &&
-                  !(mirrorFirstLineOnly && cardIdx > 0) &&
+                  rowIdx === nextRowToAdd &&
+                  !(mirrorFirstLineOnly && rowIdx > 0) &&
                   validationErrors.size === 0 &&
                   !busy &&
                   !addingItem &&
@@ -1983,37 +1764,37 @@ export default function NosposAgreementMirrorModal({
                   !applyInFlightRef.current &&
                   snapshot?.hasNext !== false;
                 const rowBusy =
-                  addingItemIndex === cardIdx ||
-                  aiFillingCards.has(cardIdx) ||
-                  applyingCards.has(cardIdx) ||
-                  updatingCategoryCards.has(cardIdx);
-                const categoryReloading = updatingCategoryCards.has(cardIdx);
+                  (Number.isInteger(compactCardIdx) && addingItemIndex === compactCardIdx) ||
+                  (Number.isInteger(compactCardIdx) && aiFillingCards.has(compactCardIdx)) ||
+                  (Number.isInteger(compactCardIdx) && applyingCards.has(compactCardIdx)) ||
+                  (Number.isInteger(compactCardIdx) && updatingCategoryCards.has(compactCardIdx));
+                const categoryReloading = Number.isInteger(compactCardIdx) && updatingCategoryCards.has(compactCardIdx);
                 const hasRequiredCategoryComplete =
                   requiredCategoryFields.length === 0 ||
                   requiredCategoryFields.every((f) => {
                     const v = values[f.name];
                     return v != null && String(v).trim() !== '';
                   });
-                const rowTitle = getSourceLineDisplayName(cardItem, card?.title || `Item ${cardIdx + 1}`);
+                const rowTitle = getSourceLineDisplayName(cardItem, card?.title || `Item ${rowIdx + 1}`);
                 const rowMeta = getSourceLineDisplayMeta(cardItem);
                 const rowAttributesSummary = getSourceLineAttributesSummary(cardItem);
-                const rowIsMarkedByCgSuite = preexistingSyncedCards.has(cardIdx);
-                const aiRunningForRow = aiFillingCards.has(cardIdx);
+                const rowIsMarkedByCgSuite = Number.isInteger(compactCardIdx) && preexistingSyncedCards.has(compactCardIdx);
+                const aiRunningForRow = Number.isInteger(compactCardIdx) && aiFillingCards.has(compactCardIdx);
                 const rowHasMissingRequired = (card?.fields || []).some(
                   (f) => f?.required && f?.name && activeValidationErrors.has(f.name)
                 );
-                const statusTone = mirrorFirstLineOnly && !isAdded && cardIdx > 0
+                const statusTone = mirrorFirstLineOnly && !isAdded && rowIdx > 0
                   ? 'border-slate-300 bg-slate-100 text-slate-600'
-                  : addingItemIndex === cardIdx
+                  : Number.isInteger(compactCardIdx) && addingItemIndex === compactCardIdx
                     ? 'border-amber-300 bg-amber-50 text-amber-800'
                     : isAdded
                       ? 'border-green-300 bg-green-50 text-green-800'
                       : canAddThisRow
                         ? 'border-blue-300 bg-blue-50 text-blue-800'
                         : 'border-slate-300 bg-slate-100 text-slate-700';
-                const statusLabel = mirrorFirstLineOnly && !isAdded && cardIdx > 0
+                const statusLabel = mirrorFirstLineOnly && !isAdded && rowIdx > 0
                   ? 'Not in test'
-                  : addingItemIndex === cardIdx
+                  : Number.isInteger(compactCardIdx) && addingItemIndex === compactCardIdx
                     ? 'Adding to NoSpos…'
                     : rowIsMarkedByCgSuite
                       ? 'Synced from NoSpos'
@@ -2022,280 +1803,52 @@ export default function NosposAgreementMirrorModal({
                         : canAddThisRow
                           ? 'Ready to add'
                           : 'Waiting';
+
                 return (
-                  <section
-                    key={card?.cardId || cardItem?.id || `mirror-row-${cardIdx}`}
-                    className="mb-4 overflow-hidden rounded-[var(--radius)] border border-[var(--ui-border)] bg-[var(--ui-bg)] last:mb-0 [content-visibility:auto] [contain-intrinsic-size:auto_200px]"
-                  >
-                    <button
-                      type="button"
-                      className="flex w-full items-center justify-between gap-3 border-b border-[var(--ui-border)] bg-[var(--ui-card)] px-4 py-3 text-left transition hover:bg-white"
-                      onClick={() => {
-                        setExpandedRows((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(cardIdx)) next.delete(cardIdx);
-                          else next.add(cardIdx);
-                          return next;
-                        });
-                      }}
-                      aria-expanded={isExpanded}
-                    >
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="truncate text-xs font-black uppercase tracking-wider text-[var(--brand-blue)]">
-                            {rowTitle}
-                          </h3>
-                          {rowAttributesSummary ? (
-                            <span className="text-[10px] font-semibold text-[var(--text-muted)]">
-                              {rowAttributesSummary}
-                            </span>
-                          ) : null}
-                          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold ${statusTone}`}>
-                            {statusLabel}
-                          </span>
-                          {rowBusy && addingItemIndex !== cardIdx ? (
-                            <span className="text-[10px] font-bold text-[var(--brand-blue)]">
-                              {updatingCategoryCards.has(cardIdx)
-                                ? 'Updating category…'
-                                : aiFillingCards.has(cardIdx)
-                                  ? 'AI filling…'
-                                  : 'Syncing to NoSpos…'}
-                            </span>
-                          ) : null}
-                        </div>
-                        {rowMeta ? (
-                          <p className="mt-1 text-xs text-[var(--text-muted)]">
-                            {rowMeta}
-                          </p>
-                        ) : null}
-                      </div>
-                      <span
-                        className={`material-symbols-outlined shrink-0 text-[20px] text-[var(--brand-blue)] transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                        aria-hidden
-                      >
-                        expand_more
-                      </span>
-                    </button>
-
-                    {isExpanded ? (
-                      isAdded ? (
-                        <div data-mirror-focus-chain>
-                          {requiredCategoryFields.length > 0 ? (
-                            <div className="border-b border-[var(--ui-border)] bg-[var(--brand-blue-alpha-05)] px-4 py-4">
-                              <div className="overflow-x-auto rounded-[var(--radius)] border border-[var(--ui-border)] bg-white">
-                                <table className="spreadsheet-table w-full min-w-[20rem] border-collapse text-left spreadsheet-table--static-header">
-                                  <thead>
-                                    <tr>
-                                      <th className="w-[32%] max-w-[14rem]">Field</th>
-                                      <th>Value</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {requiredCategoryFields.map((f) => {
-                                      const fid = getMirrorFieldControlId(f);
-                                      const aiFilled = aiFilledFieldKeys.has(buildCardFieldKey(cardIdx, f.name));
-                                      return (
-                                        <tr key={f.name}>
-                                          <td className="align-top bg-slate-50/90">
-                                            <label
-                                              htmlFor={fid}
-                                              className="block text-xs font-extrabold uppercase tracking-wide text-[var(--text-main)]"
-                                            >
-                                              {f.label || f.name}
-                                              {f.required ? <span className="text-red-600"> *</span> : null}
-                                              {aiFilled ? <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-[var(--brand-blue)]" aria-label="AI filled" /> : null}
-                                            </label>
-                                          </td>
-                                          <td className="align-top">
-                                            <MirrorField
-                                              layout="tableCell"
-                                              field={f}
-                                              value={values[f.name] ?? ''}
-                                              onChange={handleCategoryFieldChange(f.name, cardIdx, card.cardId || null)}
-                                              showError={touched && f.required && activeValidationErrors.has(f.name)}
-                                              item={cardItem}
-                                              onCategoryAiRunningChange={notifyCategoryAiRunning}
-                                              onAiFilled={() => {
-                                                setAiFilledFieldKeys((prev) => {
-                                                  const next = new Set(prev);
-                                                  next.add(buildCardFieldKey(cardIdx, f.name));
-                                                  return next;
-                                                });
-                                              }}
-                                            />
-                                          </td>
-                                        </tr>
-                                      );
-                                    })}
-                                  </tbody>
-                                </table>
-                              </div>
-                            </div>
-                          ) : null}
-
-                          {isAdded &&
-                          !categoryReloading &&
-                          requiredCategoryFields.length > 0 &&
-                          hasRequiredCategoryComplete &&
-                          (card?.fields || []).some((f) => f?.name && activeValidationErrors.has(f.name)) ? (
-                            <div
-                              className="border-b border-amber-200 bg-amber-50 px-4 py-3"
-                              role="status"
-                              aria-live="polite"
-                            >
-                              <div className="flex flex-col gap-2">
-                                <p className="text-sm font-semibold leading-snug text-amber-950">
-                                  You&apos;ve set the category for this item, but NoSpos still needs required fields.
-                                </p>
-                                <p className="text-xs font-semibold text-amber-900">
-                                  AI help runs automatically when available. You can still edit required fields manually below.
-                                </p>
-                              </div>
-                            </div>
-                          ) : null}
-
-                          {categoryReloading ? (
-                            <div className="border-b border-[var(--ui-border)] bg-white px-4 py-4">
-                              <div className="flex items-center gap-2">
-                                <div className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--brand-blue-alpha-15)] border-t-[var(--brand-blue)]" aria-hidden />
-                                <span className="text-xs font-bold text-[var(--brand-blue)]">
-                                  Waiting for NoSpos to reload category fields…
-                                </span>
-                              </div>
-                            </div>
-                          ) : hasRequiredCategoryComplete ? (
-                            <div
-                              className="border-b border-[var(--ui-border)] bg-white px-4 py-3"
-                              data-prefill-step-ver={prefillStepVersion}
-                            >
-                              <div className="flex flex-col gap-2">
-                                <p className="text-xs text-[var(--text-muted)]">
-                                  Required fields are auto-prefilled from negotiation first, then AI help runs automatically
-                                  for anything still missing.
-                                </p>
-                                {aiRunningForRow ? (
-                                  <p className="text-xs font-semibold text-[var(--brand-blue)]">
-                                    Running AI help…
-                                  </p>
-                                ) : null}
-                                {aiManualFallbackCards.has(cardIdx) && rowHasMissingRequired ? (
-                                  <p className="text-xs font-medium text-amber-800">
-                                    AI could not complete this row. Enter the remaining values manually — every field
-                                    below stays editable.
-                                  </p>
-                                ) : null}
-                              </div>
-                            </div>
-                          ) : null}
-
-                          {!categoryReloading && hasRequiredCategoryComplete && coreFields.length > 0 && (
-                            <div className="border-b border-[var(--ui-border)] bg-slate-50 px-4 py-3">
-                              <p className="mb-2 text-[10px] font-extrabold uppercase tracking-wide text-[var(--text-muted)]">
-                                Synced from negotiation (locked)
-                              </p>
-                              <div className="overflow-x-auto rounded-[var(--radius)] border border-[var(--ui-border)] bg-white">
-                                <table className="spreadsheet-table w-full min-w-0 border-collapse text-left spreadsheet-table--static-header">
-                                  <thead>
-                                    <tr>
-                                      {coreFields.map((f) => (
-                                        <th key={f.name}>{f.label || f.name}</th>
-                                      ))}
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    <tr className="[&_td]:hover:bg-transparent [&_td]:hover:shadow-none">
-                                      {coreFields.map((f) => {
-                                        const lockedValue =
-                                          values[f.name] != null
-                                            ? String(values[f.name])
-                                            : (f.value != null ? String(f.value) : '');
-                                        return (
-                                          <td key={f.name}>
-                                            <input
-                                              type="text"
-                                              value={lockedValue}
-                                              readOnly
-                                              disabled
-                                              tabIndex={-1}
-                                              className="w-full rounded-[var(--radius)] border border-[var(--ui-border)] bg-slate-100 px-2 py-2 text-sm text-[var(--text-main)]"
-                                            />
-                                          </td>
-                                        );
-                                      })}
-                                    </tr>
-                                  </tbody>
-                                </table>
-                              </div>
-                            </div>
-                          )}
-
-                          {!categoryReloading && hasRequiredCategoryComplete && (
-                            <div className="p-4">
-                              {requiredOtherFields.length > 0 ? (
-                                <div className="overflow-x-auto rounded-[var(--radius)] border border-[var(--ui-border)] bg-white">
-                                  <table className="spreadsheet-table w-full min-w-[20rem] border-collapse text-left spreadsheet-table--static-header">
-                                    <thead>
-                                      <tr>
-                                        <th className="w-[32%] max-w-[14rem]">Field</th>
-                                        <th>Value</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {requiredOtherFields.map((f) => {
-                                        const fid = getMirrorFieldControlId(f);
-                                        const aiFilled = aiFilledFieldKeys.has(buildCardFieldKey(cardIdx, f.name));
-                                        return (
-                                          <tr key={f.name}>
-                                            <td className="align-top bg-slate-50/90">
-                                              <label
-                                                htmlFor={fid}
-                                                className="block text-xs font-extrabold uppercase tracking-wide text-[var(--text-main)]"
-                                              >
-                                                {f.label || f.name}
-                                                {f.required ? <span className="text-red-600"> *</span> : null}
-                                                {aiFilled ? <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-[var(--brand-blue)]" aria-label="AI filled" /> : null}
-                                              </label>
-                                            </td>
-                                            <td className="align-top">
-                                              <MirrorField
-                                                layout="tableCell"
-                                                field={f}
-                                                value={values[f.name] ?? ''}
-                                                onChange={handleFieldChange(f.name, cardIdx, card.cardId || null)}
-                                                showError={touched && f.required && activeValidationErrors.has(f.name)}
-                                              />
-                                            </td>
-                                          </tr>
-                                        );
-                                      })}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              ) : null}
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="space-y-3 p-4">
-                          <p className="text-sm text-[var(--text-main)]">
-                            {singleItemMode && autoAddSelectedIfMissing
-                              ? 'This item has not been added to NoSpos yet. We are adding it to NoSpos automatically and will continue when the page refreshes.'
-                              : 'This item has not been added to NoSpos yet. Add it from the row action to continue.'}
-                          </p>
-                          <div className="flex items-center gap-2 text-xs font-semibold text-[var(--brand-blue)]">
-                            <div className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--brand-blue-alpha-15)] border-t-[var(--brand-blue)]" aria-hidden />
-                            {canAddThisRow
-                              ? 'Adding this item now…'
-                              : validationErrors.size > 0
-                                ? 'Waiting until required fields above are complete.'
-                                : cardIdx < addedCardCount
-                                  ? 'This item is already in NoSpos.'
-                                  : 'Waiting for previous item to finish.'}
-                          </div>
-                        </div>
-                      )
-                    ) : null}
-                  </section>
+                  <NosposAgreementMirrorItemSection
+                    key={card?.cardId || cardItem?.id || `mirror-row-${rowIdx}`}
+                    rowIdx={rowIdx}
+                    cardItem={cardItem}
+                    card={card}
+                    compactCardIdx={compactCardIdx}
+                    requiredCategoryFields={requiredCategoryFields}
+                    requiredOtherFields={requiredOtherFields}
+                    isAdded={isAdded}
+                    isExpanded={isExpanded}
+                    canAddThisRow={canAddThisRow}
+                    rowBusy={rowBusy}
+                    categoryReloading={categoryReloading}
+                    hasRequiredCategoryComplete={hasRequiredCategoryComplete}
+                    rowTitle={rowTitle}
+                    rowMeta={rowMeta}
+                    rowAttributesSummary={rowAttributesSummary}
+                    aiRunningForRow={aiRunningForRow}
+                    rowHasMissingRequired={rowHasMissingRequired}
+                    statusTone={statusTone}
+                    statusLabel={statusLabel}
+                    addedCardCount={addedCardCount}
+                    autoAddSelectedIfMissing={singleItemMode && autoAddSelectedIfMissing}
+                    touched={touched}
+                    activeValidationErrors={activeValidationErrors}
+                    values={values}
+                    notifyCategoryAiRunning={notifyCategoryAiRunning}
+                    setAiFilledFieldKeys={setAiFilledFieldKeys}
+                    aiFilledFieldKeys={aiFilledFieldKeys}
+                    aiManualFallbackCards={aiManualFallbackCards}
+                    getMirrorFieldControlId={getMirrorFieldControlId}
+                    handleCategoryFieldChange={handleCategoryFieldChange}
+                    handleFieldChange={handleFieldChange}
+                    MirrorField={MirrorField}
+                    prefillStepVersion={prefillStepVersion}
+                    onToggle={() => {
+                      setExpandedRows((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(rowIdx)) next.delete(rowIdx);
+                        else next.add(rowIdx);
+                        return next;
+                      });
+                    }}
+                  />
                 );
               })}
             </div>

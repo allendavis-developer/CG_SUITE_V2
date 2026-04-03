@@ -476,6 +476,8 @@ export default function JewelleryNegotiationSlimTable({
                           className={`rounded px-3 py-2 text-[11px] font-extrabold uppercase tracking-wide transition ${
                             nosposAction.tone === 'done'
                               ? 'border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                              : nosposAction.tone === 'danger'
+                                ? 'border border-red-300 bg-red-50 text-red-700 hover:bg-red-100'
                               : nosposAction.tone === 'primary'
                                 ? 'bg-brand-orange text-brand-blue hover:bg-brand-orange-hover'
                                 : 'border border-slate-200 bg-slate-100 text-slate-500'
