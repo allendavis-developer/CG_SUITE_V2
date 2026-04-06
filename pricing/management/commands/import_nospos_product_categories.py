@@ -3,10 +3,13 @@ Mirror NosPos category rows from `NosposCategory` into internal `ProductCategory
 
 Rules:
 - Skip entire subtrees for these NosPos category names: any row whose path contains one of
-  them as a segment (root or deeper) is excluded, with all descendants:
-  - Computers/Tablets & Networking
-  - Mobile Phones & Communications
+  them as a segment (root or deeper) is excluded, including all descendants (e.g.
+  `Mobile Phones & Communication > Mobile & Smart Phones` is excluded when
+  `Mobile Phones & Communication` is listed).
 - Under "Jewellery & Watches", only import "Watches" and its descendants (not other jewellery branches).
+
+ProductCategory rows use one segment per node: each `name` is a single path part (e.g. `Mobile & Smart Phones`),
+never the whole NosPos `full_name` string.
 - All created/linked categories get `ready_for_builder=False` (existing rows with the same
   parent+name keep their current `ready_for_builder`, e.g. Gaming/phones/tablets stay True).
 
@@ -32,6 +35,7 @@ _EXCLUDED_ROOTS = frozenset(
     {
         "Computers/Tablets & Networking",
         "Mobile Phones & Communications",
+        "Video Games & Consoles",
     }
 )
 
@@ -47,7 +51,7 @@ def _allowed_nospos_full_name(full_name: str) -> bool:
     parts = _parts(full_name)
     if not parts:
         return False
-    if any(segment in _EXCLUDED_ROOTS for segment in parts):
+    if any(segment in _EXCLUDED_SEGMENTS for segment in parts):
         return False
     root = parts[0]
     if root == _JEWELLERY_WATCHES_ROOT:
@@ -114,6 +118,9 @@ class Command(BaseCommand):
         with transaction.atomic():
             for full_path in sorted_paths:
                 segs = _parts(full_path)
+                # One ProductCategory per path prefix; `name` is always this node's segment only
+                # (e.g. last part of `Mobile Phones & Communication > Mobile & Smart Phones` is
+                # `Mobile & Smart Phones`), never the full NosPos string.
                 segment = segs[-1]
                 parent_path = " > ".join(segs[:-1]) if len(segs) > 1 else None
                 parent = path_to_cat.get(parent_path) if parent_path else None
