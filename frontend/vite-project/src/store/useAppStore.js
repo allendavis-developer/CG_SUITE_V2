@@ -18,6 +18,7 @@ import { getDataFromListingPage } from '@/services/extensionClient';
 import { mapTransactionTypeToIntent } from '@/utils/transactionConstants';
 import { normalizeExplicitSalePrice, roundSalePrice, toVoucherOfferPrice, formatOfferPrice } from '@/utils/helpers';
 import { mapRequestItemsToCartItems, mapRequestToCustomerData } from '@/utils/requestToCartMapping';
+import { buildPersistedEbayRawData } from '@/utils/researchPersistence';
 import { withDefaultRrpOffersSource } from '@/pages/buyer/utils/negotiationHelpers';
 import { validateBuyerCartItemOffers } from '@/utils/cartOfferValidation';
 import { revokeManualOfferAuthorisationIfSwitchingAway } from '@/utils/customerOfferRules';
@@ -389,7 +390,12 @@ const useAppStore = create(
             if (item.request_item_id) {
               const payload =
                 type === 'ebay'
-                  ? { raw_data: item.referenceData ? { ...data, referenceData: item.referenceData } : data }
+                  ? {
+                      raw_data: buildPersistedEbayRawData(data, {
+                        categoryObject: item.categoryObject,
+                        referenceData: item.referenceData,
+                      }),
+                    }
                   : { cash_converters_data: data };
               updateRequestItemRawData(item.request_item_id, payload).catch(() => {});
             }

@@ -208,7 +208,7 @@ function CartItemCard({ item, isSelected, isRepricing, customerData, onSelect, o
     <div
       role="button"
       tabIndex={0}
-      className={`border rounded-lg p-3 cursor-pointer transition-all relative select-none ${
+      className={`cg-animate-list-item border rounded-lg p-3 cursor-pointer transition-all relative select-none ${
         isSelected
           ? 'border-brand-blue bg-brand-blue/5 shadow-md'
           : 'border-brand-blue/10 bg-gray-50/30 hover:border-brand-blue/40 hover:bg-brand-blue/5/50'

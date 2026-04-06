@@ -1846,3 +1846,33 @@ class CustomerOfferRule(models.Model):
 
     def __str__(self):
         return f"Offer rule for {self.get_customer_type_display()}"
+
+
+class NosposCategoryMapping(models.Model):
+    """
+    User-configured mapping from an internal ProductCategory to a NoSpos
+    category path string.  The nospos_path uses ' > ' as a hierarchy delimiter,
+    e.g. 'Gaming > Consoles > Sony > PlayStation5'.
+    """
+
+    category = models.OneToOneField(
+        ProductCategory,
+        on_delete=models.CASCADE,
+        related_name='nospos_category_mapping',
+        help_text="Internal category being mapped.",
+    )
+    nospos_path = models.CharField(
+        max_length=500,
+        help_text="NoSpos path using '>' as delimiter, e.g. 'Gaming > Consoles > Sony > PlayStation5'.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'nospos_category_mapping'
+        verbose_name = 'NoSpos Category Mapping'
+        verbose_name_plural = 'NoSpos Category Mappings'
+        ordering = ['category__name']
+
+    def __str__(self):
+        return f"{self.category.name} → {self.nospos_path}"

@@ -103,7 +103,7 @@ export const CustomDropdown = ({ label, value, options, onChange, labelPosition 
   const dropdownMenu = isOpen && filteredOptions.length > 0 && menuRect && createPortal(
     <div
       ref={menuRef}
-      className="cg-portal-dropdown-menu fixed z-[9999] bg-white border border-gray-200 rounded-lg shadow-lg overflow-y-auto max-h-60 overflow-x-hidden"
+      className="cg-portal-dropdown-menu cg-animate-modal-panel fixed z-[9999] bg-white border border-gray-200 rounded-lg shadow-lg overflow-y-auto max-h-60 overflow-x-hidden"
       style={{ top: menuRect.top, left: menuRect.left, width: menuRect.width, minWidth: 120 }}
     >
       {filteredOptions.map((option) => (

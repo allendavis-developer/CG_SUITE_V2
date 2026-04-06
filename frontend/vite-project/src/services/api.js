@@ -429,6 +429,13 @@ export const fetchCustomerRuleSettings = () => apiFetch('/customer-rule-settings
 export const updateCustomerRuleSettings = (data) =>
   apiFetch('/customer-rule-settings/', { method: 'PUT', body: data });
 
+// ─── NoSpos Category Mappings ───────────────────────────────────────────────────
+
+export const fetchNosposCategoryMappings = () => apiFetch('/nospos-category-mappings/');
+export const createNosposCategoryMapping = (data) => apiFetch('/nospos-category-mappings/', { method: 'POST', body: data });
+export const updateNosposCategoryMapping = (id, data) => apiFetch(`/nospos-category-mappings/${id}/`, { method: 'PATCH', body: data });
+export const deleteNosposCategoryMapping = (id) => apiFetch(`/nospos-category-mappings/${id}/`, { method: 'DELETE' });
+
 // ─── Categories ────────────────────────────────────────────────────────────────
 
 export const fetchAllCategoriesFlat = () => apiFetch('/all-categories/');

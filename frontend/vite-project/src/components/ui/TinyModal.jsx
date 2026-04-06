@@ -20,7 +20,7 @@ const TinyModal = ({
     onClick={(e) => e.stopPropagation()}
   >
     <div
-      className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+      className="cg-animate-modal-backdrop absolute inset-0 bg-black/50 backdrop-blur-sm"
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => {
         e.stopPropagation();
@@ -28,7 +28,7 @@ const TinyModal = ({
       }}
     />
     <div
-      className={`relative mx-4 flex w-full max-w-sm flex-col rounded-2xl bg-white p-6 shadow-2xl ${
+      className={`cg-animate-modal-panel relative z-10 mx-4 flex w-full max-w-sm flex-col rounded-2xl bg-white p-6 shadow-2xl ${
         bodyScroll ? 'max-h-[min(92vh,720px)] overflow-hidden' : 'my-2 shrink-0'
       } ${panelClassName}`}
       onMouseDown={(e) => e.stopPropagation()}

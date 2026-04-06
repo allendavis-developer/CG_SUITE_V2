@@ -1642,7 +1642,7 @@ export default function ResearchFormShell({
   const advancedFilterPanelEl = showAdvancedFilter && listings && (
     <div
       ref={advancedFilterRef}
-      className={`fixed z-[130] bg-white rounded-xl shadow-2xl w-80 overflow-hidden border-2 ${
+      className={`cg-animate-popover fixed z-[130] bg-white rounded-xl shadow-2xl w-80 overflow-hidden border-2 ${
         advancedFilterActive ? 'border-brand-orange' : 'border-gray-200'
       }`}
       style={{ top: filterPanelPos.top, left: filterPanelPos.left }}
@@ -1827,7 +1827,7 @@ export default function ResearchFormShell({
   const excludeContextMenuEl = excludeContextMenu && (
     <div
       ref={excludeContextMenuRef}
-      className="fixed z-[120] bg-white rounded-lg border border-gray-200 shadow-xl min-w-[200px]"
+      className="cg-animate-popover fixed z-[120] bg-white rounded-lg border border-gray-200 shadow-xl min-w-[200px]"
       style={{
         left: Math.min(excludeContextMenu.x, window.innerWidth - 220),
         top: Math.min(excludeContextMenu.y, window.innerHeight - 100),
@@ -1872,7 +1872,7 @@ export default function ResearchFormShell({
   const manualOfferDialogEl = manualOfferDialog && (
     <div
       ref={manualOfferDialogRef}
-      className="fixed z-[110] w-72 bg-white rounded-lg border border-gray-200 shadow-xl p-3"
+      className="cg-animate-popover fixed z-[110] w-72 bg-white rounded-lg border border-gray-200 shadow-xl p-3"
       style={{ left: manualOfferDialog.x, top: manualOfferDialog.y }}
       role="dialog"
       aria-label="Set manual offer and add to cart"
@@ -1924,21 +1924,21 @@ export default function ResearchFormShell({
   const wrapperClasses = mode === "modal"
     ? (containModalInParent
         ? "flex h-full min-h-0 w-full flex-col"
-        : "fixed inset-0 z-[100] flex items-start justify-center bg-black/40")
+        : "fixed inset-0 z-[100] flex items-start justify-center")
     : "";
 
   const containerClasses = mode === "modal"
     ? (containModalInParent
         ? "flex min-h-0 flex-1 flex-col overflow-hidden bg-white"
-        : "flex h-full w-full flex-col overflow-hidden bg-white")
+        : "relative z-10 flex h-full w-full flex-col overflow-hidden bg-white cg-animate-modal-panel")
     : "flex h-full w-full flex-col overflow-hidden bg-white";
 
   // ─── Blocked offer auth inline modal ─────────────────────────────────────
   const [blockedAuthName, setBlockedAuthName] = React.useState('');
   const blockedAuthModalEl = blockedAuthModal && (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setBlockedAuthModal(null)} />
-      <div className="relative bg-white w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden">
+      <div className="cg-animate-modal-backdrop absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setBlockedAuthModal(null)} />
+      <div className="cg-animate-modal-panel relative z-10 bg-white w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden">
         <header className="bg-brand-blue px-6 py-4 flex items-center gap-3 text-white">
           <span className="material-symbols-outlined text-brand-orange">lock</span>
           <h3 className="font-black text-base">Senior Management Authorisation</h3>
@@ -1997,6 +1997,9 @@ export default function ResearchFormShell({
 
   return mode === "modal" ? (
     <div className={wrapperClasses}>
+      {mode === "modal" && !containModalInParent && (
+        <div className="cg-animate-modal-backdrop absolute inset-0 bg-black/40" aria-hidden />
+      )}
       <div className={containerClasses}>
         {content}
         {advancedFilterPanelEl}

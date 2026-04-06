@@ -194,9 +194,9 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <div className="cg-animate-modal-backdrop absolute inset-0 bg-black/60 backdrop-blur-sm" />
 
-      <div className="relative bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+      <div className="cg-animate-modal-panel relative z-10 bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col">
         {/* Header */}
         <header className="bg-brand-blue px-8 py-6 flex items-center justify-between text-white">
           <div className="flex items-center gap-3">

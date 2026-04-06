@@ -98,6 +98,7 @@ export default function JewelleryNegotiationSlimTable({
   onSetManualOffer,
   onCustomerExpectationChange,
   onJewelleryItemNameChange,
+  onJewelleryWeightChange,
   blockedOfferSlots = null,
   onBlockedOfferClick = null,
   showNosposAction = false,
@@ -246,7 +247,26 @@ export default function JewelleryNegotiationSlimTable({
                   )}
                 </td>
                 <td className="tabular-nums text-gray-900" onContextMenu={ctxRemoveOnly(item)}>
-                  {isCoinRow ? '1 unit' : (ref.weight ?? '—')}
+                  {isCoinRow ? (
+                    '1 unit'
+                  ) : isView ? (
+                    ref.weight ?? '—'
+                  ) : (
+                    <input
+                      className="h-8 w-full rounded border border-gray-300 bg-white px-2 text-xs font-semibold tabular-nums text-gray-900 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-blue/30"
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={ref.weight ?? ''}
+                      onChange={(e) => onJewelleryWeightChange?.(item, e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          e.currentTarget.blur();
+                        }
+                      }}
+                    />
+                  )}
                 </td>
                 <td className="text-gray-600" onContextMenu={ctxRemoveOnly(item)}>
                   {isCoinRow ? (isSilverOzCoin ? 't oz' : 'coin') : unitLabel}

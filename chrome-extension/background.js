@@ -111,30 +111,6 @@ async function openBackgroundNosposTab(url, appTabId = null) {
   return { tabId: fallbackTab.id, windowId: fallbackTab.windowId || null };
 }
 
-/**
- * NosPos agreement flow: open as an inactive tab (same profile as CG Suite), not a separate minimized window.
- * Keeps the CG Suite tab focused.
- */
-async function openNosposAgreementTabInactive(url, appTabId) {
-  if (appTabId == null) {
-    const tab = await chrome.tabs.create({ url, active: false });
-    return { tabId: tab.id, windowId: tab.windowId };
-  }
-  try {
-    const tab = await chrome.tabs.create({
-      url,
-      active: false,
-      openerTabId: appTabId,
-    });
-    await focusAppTab(appTabId);
-    return { tabId: tab.id, windowId: tab.windowId };
-  } catch (e) {
-    const tab = await chrome.tabs.create({ url, active: false });
-    await focusAppTab(appTabId);
-    return { tabId: tab.id, windowId: tab.windowId };
-  }
-}
-
 // ── Storage helpers ────────────────────────────────────────────────────────────
 
 async function getPending() {
@@ -933,7 +909,7 @@ async function handleBridgeForward(message, sender) {
   }
 
   // Open NosPos “Create agreement” for this customer: session-check on /customer/{id}/buying, then
-  // load newagreement/create in an inactive tab (CG Suite stays focused until the mirror flow finishes).
+  // load newagreement/create in a minimized window (same as repricing openNosposAndWait; CG Suite stays focused).
   // agreementType: PA = Buy Back Agreement, DP = Buy Agreement (direct sale / store credit).
   if (payload.action === 'openNosposCustomerProfile') {
     const id = parseInt(String(payload.nosposCustomerId ?? '').trim(), 10);
@@ -956,8 +932,8 @@ async function handleBridgeForward(message, sender) {
       }
     }
 
-    async function openAgreementInactiveTab() {
-      const { tabId } = await openNosposAgreementTabInactive(createUrl, appTabId);
+    async function openAgreementMinimizedWindow() {
+      const { tabId } = await openBackgroundNosposTab(createUrl, appTabId);
       if (appTabId != null && tabId != null) {
         await chrome.storage.session.set({
           cgNosposCustomerProfileWatch: { appTabId, profileTabId: tabId },
@@ -991,18 +967,18 @@ async function handleBridgeForward(message, sender) {
         return { ok: false, loginRequired: true };
       }
 
-      await openAgreementInactiveTab();
+      await openAgreementMinimizedWindow();
       return { ok: true };
     } catch (e) {
       const isAbort = e?.name === 'AbortError';
       try {
-        await openAgreementInactiveTab();
+        await openAgreementMinimizedWindow();
         return {
           ok: true,
           sessionUnchecked: true,
           warning: isAbort
-            ? 'NoSpos was slow to respond; an inactive NosPos tab was opened without a full session check. Select that tab to sign in if needed.'
-            : 'Could not verify your NoSpos session; an inactive NosPos tab was opened anyway. Select that tab to sign in if needed.',
+            ? 'NoSpos was slow to respond; a minimized NoSpos window was opened without a full session check. Restore that window to sign in if needed.'
+            : 'Could not verify your NoSpos session; a minimized NoSpos window was opened anyway. Restore that window to sign in if needed.',
         };
       } catch (createErr) {
         return {
@@ -1130,7 +1106,7 @@ async function handleBridgeForward(message, sender) {
       const tab = await chrome.tabs.get(watch.profileTabId);
       await chrome.tabs.update(watch.profileTabId, { active: true });
       if (tab?.windowId != null) {
-        await chrome.windows.update(tab.windowId, { focused: true });
+        await chrome.windows.update(tab.windowId, { focused: true, state: 'normal' });
       }
       return { ok: true };
     } catch (e) {

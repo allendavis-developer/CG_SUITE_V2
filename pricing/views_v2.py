@@ -36,6 +36,7 @@ from .models_v2 import (
     RequestJewelleryReferenceSnapshot,
     CustomerRuleSettings,
     CustomerOfferRule,
+    NosposCategoryMapping,
 )
 from . import research_storage
 from .offer_rows import get_selected_offer_code, sync_request_item_offer_rows_from_payload
@@ -2462,4 +2463,63 @@ def address_lookup(request, postcode):
         )
 
 
+# ─── NoSpos Category Mappings ──────────────────────────────────────────────────
+
+def _serialize_nospos_category_mapping(m):
+    return {
+        'id': m.id,
+        'internalCategoryId': m.category_id,
+        'internalCategoryName': m.category.name,
+        'nosposPath': m.nospos_path,
+    }
+
+
+@api_view(['GET', 'POST'])
+def nospos_category_mappings_view(request):
+    """List all NoSpos category mappings or create a new one."""
+    if request.method == 'GET':
+        mappings = NosposCategoryMapping.objects.select_related('category').all()
+        return Response([_serialize_nospos_category_mapping(m) for m in mappings])
+
+    # POST — create
+    category_id = request.data.get('internalCategoryId')
+    nospos_path = str(request.data.get('nosposPath') or '').strip()
+
+    if not category_id:
+        return Response({'error': 'internalCategoryId is required'}, status=400)
+    if not nospos_path:
+        return Response({'error': 'nosposPath is required'}, status=400)
+
+    try:
+        category = ProductCategory.objects.get(pk=category_id)
+    except ProductCategory.DoesNotExist:
+        return Response({'error': 'Category not found'}, status=404)
+
+    if NosposCategoryMapping.objects.filter(category=category).exists():
+        return Response({'error': 'A mapping for this category already exists. Delete the existing one first.'}, status=400)
+
+    mapping = NosposCategoryMapping.objects.create(category=category, nospos_path=nospos_path)
+    return Response(_serialize_nospos_category_mapping(mapping), status=status.HTTP_201_CREATED)
+
+
+@api_view(['PATCH', 'DELETE'])
+def nospos_category_mapping_detail(request, mapping_id):
+    """Update or delete a single NoSpos category mapping."""
+    try:
+        mapping = NosposCategoryMapping.objects.select_related('category').get(pk=mapping_id)
+    except NosposCategoryMapping.DoesNotExist:
+        return Response({'error': 'Mapping not found'}, status=404)
+
+    if request.method == 'DELETE':
+        mapping.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    # PATCH — update path only
+    nospos_path = str(request.data.get('nosposPath') or '').strip()
+    if not nospos_path:
+        return Response({'error': 'nosposPath is required'}, status=400)
+
+    mapping.nospos_path = nospos_path
+    mapping.save()
+    return Response(_serialize_nospos_category_mapping(mapping))
 

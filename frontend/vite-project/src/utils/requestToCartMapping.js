@@ -6,6 +6,7 @@
 import { normalizeExplicitSalePrice, roundOfferPrice, roundSalePrice, toVoucherOfferPrice, formatOfferPrice } from '@/utils/helpers';
 import { titleForEbayCcOfferIndex } from '@/components/forms/researchStats';
 import { NEGOTIATION_ROW_CONTEXT } from '@/pages/buyer/rowContextZones';
+import { resolvePersistedResearchCategory } from '@/utils/researchPersistence';
 
 /** DB → cart: default source highlight when `raw_data` has no `rrpOffersSource` (see `withDefaultRrpOffersSource`). */
 function applyDefaultRrpSourceToMappedCartItem(cartItem) {
@@ -403,11 +404,14 @@ export function mapRequestItemsToCartItems(items, transactionType) {
           ...(rawData?.referenceData?.cex_image_urls ? { cex_image_urls: rawData.referenceData.cex_image_urls } : {}),
         };
     } else if (isEbayResearchPayload) {
+      const persistedCategoryObject = resolvePersistedResearchCategory(ebayResearchBlob);
+      const persistedCategoryName = ebayResearchBlob?.category || persistedCategoryObject?.name || 'Other';
       cartItem.variantId = null;
       cartItem.isCustomEbayItem = true;
       cartItem.isCustomCeXItem = false;
       cartItem.isCustomCashConvertersItem = false;
-      cartItem.category = ebayResearchBlob?.category || 'Other';
+      cartItem.category = persistedCategoryName;
+      cartItem.categoryObject = persistedCategoryObject || { name: persistedCategoryName, path: [persistedCategoryName] };
     } else if (cashConvertersResearchData) {
       cartItem.variantId = null;
       cartItem.isCustomEbayItem = false;

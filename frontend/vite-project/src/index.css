@@ -297,3 +297,77 @@
     color: #374151 !important;
   }
 }
+
+/* Subtle UI motion: overlays, dialogs, list inserts (keep durations short; motion is easy to overdo) */
+@keyframes cg-ui-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes cg-ui-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px) scale(0.992);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes cg-ui-list-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes cg-ui-popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@layer utilities {
+  .cg-animate-modal-backdrop {
+    animation: cg-ui-backdrop-in 180ms ease-out forwards;
+  }
+
+  .cg-animate-modal-panel {
+    animation: cg-ui-panel-in 220ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    transform-origin: center center;
+  }
+
+  .cg-animate-list-item {
+    animation: cg-ui-list-in 260ms ease-out both;
+  }
+
+  .cg-animate-popover {
+    animation: cg-ui-popover-in 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    transform-origin: top left;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cg-animate-modal-backdrop,
+  .cg-animate-modal-panel,
+  .cg-animate-list-item,
+  .cg-animate-popover {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}

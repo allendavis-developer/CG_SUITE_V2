@@ -214,7 +214,7 @@ const OfferSelection = ({
                   }
                 }}
                 className={`
-                  p-6 rounded-xl bg-white text-center relative overflow-hidden border-2 cursor-pointer
+                  cg-animate-list-item p-6 rounded-xl bg-white text-center relative overflow-hidden border-2 cursor-pointer
                   transition-all duration-200 ease-out
                   ${isHighlighted
                     ? 'border-brand-blue ring-2 ring-brand-blue ring-offset-2 ring-offset-white shadow-xl shadow-brand-blue/10 scale-[1.03]'
@@ -263,7 +263,7 @@ const OfferSelection = ({
             <div
               key={offer.id}
               onContextMenu={showAddToCart ? (e) => openContextMenu(e, index) : undefined}
-              className={isBlocked ? 'relative' : undefined}
+              className={isBlocked ? 'relative cg-animate-list-item' : 'cg-animate-list-item'}
               title={isBlocked ? 'Blocked — requires senior management authorisation' : undefined}
             >
               <OfferCard
@@ -308,7 +308,7 @@ const OfferSelection = ({
       {contextMenu && (
         <div
           ref={menuRef}
-          className="fixed z-[100] w-72 bg-white rounded-lg border border-gray-200 shadow-xl p-3"
+          className="cg-animate-popover fixed z-[100] w-72 bg-white rounded-lg border border-gray-200 shadow-xl p-3"
           style={{ left: contextMenu.x, top: contextMenu.y }}
           role="dialog"
           aria-label="Set manual offer"

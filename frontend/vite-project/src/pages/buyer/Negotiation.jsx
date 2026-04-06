@@ -3,7 +3,7 @@ import { useNavigate, useLocation, useParams } from "react-router-dom";
 import AppHeader from "@/components/AppHeader";
 import JewelleryNegotiationSlimTable from '@/components/jewellery/JewelleryNegotiationSlimTable';
 import { buildJewelleryNegotiationCartItem, getJewelleryWorkspaceDerivedState } from '@/components/jewellery/jewelleryNegotiationCart';
-import { negotiationJewelleryItemsToWorkspaceLines } from '@/components/jewellery/jewelleryWorkspaceMapping';
+import { negotiationJewelleryItemsToWorkspaceLines, negotiationJewelleryItemToWorkspaceLine } from '@/components/jewellery/jewelleryWorkspaceMapping';
 import {
   applyJewelleryScrapeToNegotiationItem,
   remapJewelleryWorkspaceLines,
@@ -32,6 +32,7 @@ import {
 } from '@/services/api';
 import { normalizeExplicitSalePrice, formatOfferPrice } from '@/utils/helpers';
 import { titleForEbayCcOfferIndex } from '@/components/forms/researchStats';
+import { buildPersistedEbayRawData } from '@/utils/researchPersistence';
 import { useNotification } from '@/contexts/NotificationContext';
 import useAppStore from '@/store/useAppStore';
 import { useResearchOverlay, makeSalePriceBlurHandler } from './hooks/useResearchOverlay';
@@ -62,6 +63,19 @@ import {
 } from './utils/negotiationHelpers';
 import { EBAY_TOP_LEVEL_CATEGORY } from './constants';
 import { SPREADSHEET_TABLE_STYLES } from './spreadsheetTableStyles';
+
+/** NosPos draft agreement items step — matches extension content script snapshot `pageUrl`. */
+function isNosposAgreementItemsPageUrl(raw) {
+  if (!raw || typeof raw !== 'string') return false;
+  try {
+    const u = new URL(raw);
+    const host = u.hostname.replace(/^www\./i, '').toLowerCase();
+    if (host !== 'nospos.com') return false;
+    return /\/newagreement\/\d+\/items\/?$/i.test(u.pathname || '');
+  } catch {
+    return false;
+  }
+}
 
 // ─── Component ─────────────────────────────────────────────────────────────
 
@@ -132,6 +146,8 @@ const Negotiation = ({ mode }) => {
   const [agreementMirrorSessionActive, setAgreementMirrorSessionActive] = useState(false);
   const [agreementMirrorModalState, setAgreementMirrorModalState] = useState(null);
   const [agreementMirrorSnapshot, setAgreementMirrorSnapshot] = useState(null);
+  /** From NosPos items-form snapshots; cleared when mirror session ends. */
+  const [nosposAgreementItemsParkUrl, setNosposAgreementItemsParkUrl] = useState(null);
   const [agreementMirrorWaitExpired, setAgreementMirrorWaitExpired] = useState(false);
   /** Before opening NoSpos: confirm in-store testing passed, or capture failure reason. */
   const [completeTestingGateModal, setCompleteTestingGateModal] = useState(null);
@@ -165,6 +181,7 @@ const Negotiation = ({ mode }) => {
     setAgreementMirrorSessionActive(false);
     setAgreementMirrorModalState(null);
     setAgreementMirrorSnapshot(null);
+    setNosposAgreementItemsParkUrl(null);
     setAgreementMirrorWaitExpired(false);
     if (!completed && !fromTabClosedEvent) {
       void closeNosposAgreementTab();
@@ -176,16 +193,13 @@ const Negotiation = ({ mode }) => {
     setAgreementMirrorSessionActive(true);
     setAgreementMirrorModalState(null);
     setAgreementMirrorSnapshot(null);
+    setNosposAgreementItemsParkUrl(null);
     setAgreementMirrorWaitExpired(false);
   }, []);
 
   const openAgreementMirrorItemModal = useCallback((itemIndex) => {
     if (!Number.isInteger(itemIndex)) return;
     setAgreementMirrorModalState({ kind: 'item', index: itemIndex });
-  }, []);
-
-  const openAgreementMirrorReviewModal = useCallback(() => {
-    setAgreementMirrorModalState({ kind: 'all' });
   }, []);
 
   const closeAgreementMirrorModal = useCallback(() => {
@@ -207,7 +221,7 @@ const Negotiation = ({ mode }) => {
     mode === 'view' && viewRequestStatus === 'BOOKED_FOR_TESTING';
   const researchFormReadOnly = mode === 'view' && !researchSandboxBookedView;
   const researchEphemeralNotice = researchSandboxBookedView
-    ? 'Research you run in this panel is not saved. Use Complete testing on each line in order (pass or fail), then Park agreement.'
+    ? 'Research you run in this panel is not saved. Use Complete testing on each line in order (pass or fail), then use the Park agreement link to NoSpos when it appears.'
     : null;
 
   /** Negotiated lines only (matches backend complete-testing eligible items). */
@@ -307,6 +321,15 @@ const Negotiation = ({ mode }) => {
     testingOutcomeByRow,
     actualRequestId
   );
+  const parkAgreementNosposHref = useMemo(() => {
+    if (!hasEligibleTestingLines || !allAgreementMirrorItemsProcessed || passedTestingSubmitting) return null;
+    return nosposAgreementItemsParkUrl || null;
+  }, [
+    hasEligibleTestingLines,
+    allAgreementMirrorItemsProcessed,
+    passedTestingSubmitting,
+    nosposAgreementItemsParkUrl,
+  ]);
   useEffect(() => {
     setTestingOutcomeByRow((prev) => {
       const maxIndex = Math.max(0, agreementMirrorSourceLines.length - 1);
@@ -327,7 +350,7 @@ const Negotiation = ({ mode }) => {
     return Boolean(agreementMirrorRowStateByIndex.get(rowIndex)?.isProcessed);
   }, [agreementMirrorRowStateByIndex]);
   const showNosposRowActions = researchSandboxBookedView;
-  const openNosposAgreementFlow = useCallback(async ({ openItemIndex = null, openReview = false } = {}) => {
+  const openNosposAgreementFlow = useCallback(async ({ openItemIndex = null } = {}) => {
     if (!actualRequestId || viewRequestStatus !== 'BOOKED_FOR_TESTING') return false;
     setPassedTestingSubmitting(true);
     try {
@@ -357,8 +380,6 @@ const Negotiation = ({ mode }) => {
             openAgreementMirrorSession();
             if (Number.isInteger(openItemIndex)) {
               openAgreementMirrorItemModal(openItemIndex);
-            } else if (openReview) {
-              openAgreementMirrorReviewModal();
             }
             showNotification(
               'NoSpos agreement opened in the background. Use Complete testing on each line in order.',
@@ -395,7 +416,6 @@ const Negotiation = ({ mode }) => {
     showNotification,
     openAgreementMirrorSession,
     openAgreementMirrorItemModal,
-    openAgreementMirrorReviewModal,
     endAgreementMirrorSession,
   ]);
 
@@ -1044,6 +1064,60 @@ const Negotiation = ({ mode }) => {
     }
   }, []);
 
+  const handleJewelleryWeightChange = useCallback((item, nextWeight) => {
+    const cleaned = String(nextWeight ?? '').replace(/[^0-9.]/g, '');
+    const workspaceLine = negotiationJewelleryItemToWorkspaceLine(item);
+    if (!workspaceLine) return;
+    const updatedLine = { ...workspaceLine, weight: cleaned };
+    const d = getJewelleryWorkspaceDerivedState(updatedLine, useVoucherOffers, customerOfferRulesData?.settings);
+    const ourSale = d.ourSalePrice != null && d.ourSalePrice > 0 ? d.ourSalePrice : item.ourSalePrice;
+    setItems((prev) =>
+      prev.map((row) => {
+        if (row.id !== item.id) return row;
+        return {
+          ...row,
+          cashOffers: d.cashOffers,
+          voucherOffers: d.voucherOffers,
+          offers: d.offers,
+          selectedOfferId: d.selectedOfferId,
+          manualOffer: d.manualOffer,
+          manualOfferUsed: d.manualOfferUsed,
+          ourSalePrice: ourSale,
+          referenceData: d.referenceData,
+          rawData:
+            row.rawData != null && typeof row.rawData === 'object'
+              ? { ...row.rawData, referenceData: d.referenceData }
+              : { referenceData: d.referenceData },
+        };
+      })
+    );
+    setJewelleryWorkspaceLines((prev) =>
+      prev.map((l) => (l.id === item.id ? { ...l, weight: cleaned } : l))
+    );
+    if (item.request_item_id) {
+      const itemName = updatedLine.itemName || updatedLine.categoryLabel || updatedLine.variantTitle || null;
+      updateRequestItemOffer(item.request_item_id, {
+        selected_offer_id: d.selectedOfferId,
+        manual_offer_used: d.selectedOfferId === 'manual',
+        manual_offer_gbp:
+          d.selectedOfferId === 'manual' && d.manualOffer
+            ? normalizeExplicitSalePrice(parseFloat(String(d.manualOffer).replace(/[£,]/g, '')))
+            : null,
+        our_sale_price_at_negotiation: ourSale ?? null,
+        cash_offers_json: normalizeOffersForApi(d.cashOffers),
+        voucher_offers_json: normalizeOffersForApi(d.voucherOffers),
+      }).catch(() => {});
+      updateRequestItemRawData(item.request_item_id, {
+        raw_data: {
+          referenceData: {
+            ...d.referenceData,
+            item_name: itemName,
+          },
+        },
+      }).catch(() => {});
+    }
+  }, [useVoucherOffers, customerOfferRulesData?.settings, normalizeOffersForApi]);
+
   const handleAddNegotiationItem = useCallback(async (cartItem, options = {}) => {
     if (!cartItem) return false;
     const { skipSuccessNotification = false } = options;
@@ -1054,6 +1128,13 @@ const Negotiation = ({ mode }) => {
         const rawDataPayload =
           cartItem.rawData != null && typeof cartItem.rawData === 'object'
             ? cartItem.rawData
+            : cartItem.ebayResearchData != null && typeof cartItem.ebayResearchData === 'object'
+              ? buildPersistedEbayRawData(cartItem.ebayResearchData, {
+                  categoryObject: cartItem.categoryObject,
+                  referenceData: cartItem.referenceData,
+                  cashOffers: cartItem.cashOffers || [],
+                  voucherOffers: cartItem.voucherOffers || [],
+                })
             : cartItem.referenceData != null && typeof cartItem.referenceData === 'object'
               ? { referenceData: cartItem.referenceData }
               : null;
@@ -1218,13 +1299,16 @@ const Negotiation = ({ mode }) => {
       data.searchTerm != null && String(data.searchTerm).trim() !== ''
         ? String(data.searchTerm).trim().slice(0, 200)
         : 'eBay Research Item';
+    const resolved = data.resolvedCategory?.id != null ? data.resolvedCategory : null;
+    const categoryObject = resolved ?? EBAY_TOP_LEVEL_CATEGORY;
+    const categoryName = categoryObject?.name ?? 'eBay';
     const customItem = {
       id: crypto.randomUUID?.() ?? `neg-ebay-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       title: searchTitle,
       subtitle: 'eBay Research',
       quantity: 1,
-      category: 'eBay',
-      categoryObject: EBAY_TOP_LEVEL_CATEGORY,
+      category: categoryName,
+      categoryObject,
       offers: displayOffers,
       cashOffers,
       voucherOffers,
@@ -1396,6 +1480,9 @@ const Negotiation = ({ mode }) => {
       if (!payload?.cards?.length) return;
       if (!agreementMirrorSessionActiveRef.current) return;
       setAgreementMirrorSnapshot(payload);
+      if (payload?.pageUrl && isNosposAgreementItemsPageUrl(payload.pageUrl)) {
+        setNosposAgreementItemsParkUrl(payload.pageUrl);
+      }
       setAgreementMirrorWaitExpired(false);
     }
     window.addEventListener('message', onAgreementItemsSnapshot);
@@ -1725,7 +1812,7 @@ const Negotiation = ({ mode }) => {
                   researchSandboxBookedView ? (
                     <p className="mt-1 inline-flex items-center justify-end gap-1 text-[10px] font-bold uppercase tracking-widest text-amber-800">
                       <span className="material-symbols-outlined text-[12px]">science</span>
-                      In-store testing — complete each line in NoSpos in order, then Park agreement
+                      In-store testing — complete each line in NoSpos in order, then use the Park agreement link
                     </p>
                   ) : (
                     <p className="mt-1 inline-flex items-center justify-end gap-1 text-[10px] font-bold uppercase tracking-widest text-red-600">
@@ -1774,6 +1861,7 @@ const Negotiation = ({ mode }) => {
                   onSetManualOffer={(it) => setItemOfferModal({ item: it })}
                   onCustomerExpectationChange={handleCustomerExpectationChange}
                   onJewelleryItemNameChange={handleJewelleryItemNameChange}
+                  onJewelleryWeightChange={handleJewelleryWeightChange}
                   blockedOfferSlots={blockedOfferSlots}
                   onBlockedOfferClick={(slot, offer, bItem) => handleBlockedOfferClick(slot, offer, bItem)}
                   testingPassedColumnMode={null}
@@ -1944,49 +2032,60 @@ const Negotiation = ({ mode }) => {
 
             {researchSandboxBookedView ? (
               <>
-                <button
-                  type="button"
-                  className={`w-full font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 group active:scale-[0.98] ${
-                    !hasEligibleTestingLines || !allAgreementMirrorItemsProcessed
-                      ? 'opacity-50 cursor-not-allowed'
-                      : passedTestingSubmitting
-                        ? 'cursor-wait'
-                        : ''
-                  }`}
-                  style={{
-                    background: 'var(--brand-orange)',
-                    color: 'var(--brand-blue)',
-                    boxShadow: hasEligibleTestingLines
-                      ? '0 10px 15px -3px rgba(247, 185, 24, 0.3)'
-                      : 'none',
-                  }}
-                  onClick={
-                    passedTestingSubmitting || !hasEligibleTestingLines
-                      ? undefined
-                      : allAgreementMirrorItemsProcessed
-                        ? (
-                          agreementMirrorSessionActive
-                            ? openAgreementMirrorReviewModal
-                            : () => { void openNosposAgreementFlow({ openReview: true }); }
-                        )
-                        : undefined
-                  }
-                  disabled={
-                    passedTestingSubmitting ||
-                    !hasEligibleTestingLines ||
-                    !allAgreementMirrorItemsProcessed
-                  }
-                  aria-busy={passedTestingSubmitting}
-                >
-                  <span className="material-symbols-outlined text-xl" aria-hidden>
-                    task_alt
-                  </span>
-                  <span className="text-base uppercase tracking-tight">
-                    {passedTestingSubmitting
-                      ? 'Working…'
-                      : 'Park agreement'}
-                  </span>
-                </button>
+                {parkAgreementNosposHref ? (
+                  <a
+                    href={parkAgreementNosposHref}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="Opens your NoSpos draft items page in a new tab"
+                    className="w-full font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 group active:scale-[0.98] text-center no-underline hover:opacity-95"
+                    style={{
+                      background: 'var(--brand-orange)',
+                      color: 'var(--brand-blue)',
+                      boxShadow: hasEligibleTestingLines
+                        ? '0 10px 15px -3px rgba(247, 185, 24, 0.3)'
+                        : 'none',
+                    }}
+                  >
+                    <span className="material-symbols-outlined text-xl" aria-hidden>
+                      task_alt
+                    </span>
+                    <span className="text-base uppercase tracking-tight">Park agreement</span>
+                    <span className="material-symbols-outlined text-lg opacity-80" aria-hidden>
+                      open_in_new
+                    </span>
+                  </a>
+                ) : (
+                  <div
+                    className={`w-full font-bold py-4 rounded-xl flex items-center justify-center gap-2 select-none ${
+                      !hasEligibleTestingLines || !allAgreementMirrorItemsProcessed || passedTestingSubmitting
+                        ? 'opacity-50 cursor-not-allowed'
+                        : 'opacity-50 cursor-default'
+                    }`}
+                    style={{
+                      background: 'var(--brand-orange)',
+                      color: 'var(--brand-blue)',
+                      boxShadow: hasEligibleTestingLines
+                        ? '0 10px 15px -3px rgba(247, 185, 24, 0.3)'
+                        : 'none',
+                    }}
+                    aria-disabled="true"
+                    title={
+                      !hasEligibleTestingLines || !allAgreementMirrorItemsProcessed
+                        ? 'Complete every line first'
+                        : passedTestingSubmitting
+                          ? undefined
+                          : 'Opens when the NoSpos items page URL is available from your session'
+                    }
+                  >
+                    <span className="material-symbols-outlined text-xl" aria-hidden>
+                      task_alt
+                    </span>
+                    <span className="text-base uppercase tracking-tight">
+                      {passedTestingSubmitting ? 'Working…' : 'Park agreement'}
+                    </span>
+                  </div>
+                )}
                 {eligibleTestingLines.length === 0 && (
                   <p className="text-[10px] text-center font-medium text-amber-800">
                     This request has no negotiated lines — add offers before booking, or contact support.
@@ -1994,7 +2093,7 @@ const Negotiation = ({ mode }) => {
                 )}
                 {hasEligibleTestingLines && !passedTestingSubmitting && !agreementMirrorSessionActive && (
                   <p className="text-[10px] text-center font-medium" style={{ color: 'var(--text-muted)' }}>
-                    Use Complete testing on each line in order. Park agreement unlocks when every line is processed (passed or failed).
+                    Use Complete testing on each line in order. The Park agreement link appears when every line is processed (passed or failed) and NoSpos has loaded the items page.
                   </p>
                 )}
                 {hasEligibleTestingLines && agreementMirrorSessionActive && !agreementMirrorSnapshot && (
@@ -2009,7 +2108,9 @@ const Negotiation = ({ mode }) => {
                 )}
                 {hasEligibleTestingLines && agreementMirrorSessionActive && allAgreementMirrorItemsProcessed && (
                   <p className="text-[10px] text-center font-medium" style={{ color: 'var(--text-muted)' }}>
-                    Every line is processed. Park agreement is unlocked.
+                    {parkAgreementNosposHref
+                      ? 'Every line is processed. Park agreement opens your NoSpos items page in a new tab.'
+                      : 'Every line is processed. The Park agreement link appears once NoSpos sends the items page URL.'}
                   </p>
                 )}
               </>

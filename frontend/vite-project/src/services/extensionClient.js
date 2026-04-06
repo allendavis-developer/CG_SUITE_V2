@@ -84,7 +84,7 @@ export function withExtensionCallTimeout(
 }
 
 /**
- * Opens NosPos agreement creation in an inactive browser tab (same profile as CG Suite), after a
+ * Opens NosPos agreement creation in a minimized browser window (same path as repricing), after a
  * session check on `/customer/{id}/buying`. CG Suite stays focused until the mirror flow finishes and
  * calls focus (see focusNosposAgreementTab).
  *

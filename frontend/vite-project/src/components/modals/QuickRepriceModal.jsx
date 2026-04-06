@@ -191,8 +191,9 @@ const QuickRepriceModal = ({ onClose, onAddItems }) => {
   );
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col overflow-hidden max-h-[90vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="cg-animate-modal-backdrop absolute inset-0 bg-black/60" aria-hidden />
+      <div className="cg-animate-modal-panel relative z-10 bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col overflow-hidden max-h-[90vh]">
 
         {/* Header */}
         <div className="px-6 py-4 bg-brand-blue flex items-center justify-between shrink-0">

@@ -34,6 +34,7 @@ export default function NosposAgreementMirrorItemSection({
   handleCategoryFieldChange,
   handleFieldChange,
   MirrorField: FieldRenderer,
+  nosposMappings,
   prefillStepVersion,
   onToggle,
 }) {
@@ -125,6 +126,7 @@ export default function NosposAgreementMirrorItemSection({
                                 showError: touched && field.required && activeValidationErrors.has(field.name),
                                 item: cardItem,
                                 onCategoryAiRunningChange: notifyCategoryAiRunning,
+                                nosposMappings,
                                 onAiFilled: () => {
                                   setAiFilledFieldKeys((prev) => {
                                     const next = new Set(prev);

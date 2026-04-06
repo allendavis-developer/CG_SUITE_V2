@@ -1050,14 +1050,18 @@ const AppHeader = ({
       )}
       {showBuyerControls && marketplaceSearchDialog && (
         <div
-          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/45 px-4"
+          className="fixed inset-0 z-[200] flex items-center justify-center px-4"
           role="dialog"
           aria-modal="true"
           aria-labelledby="marketplace-search-dialog-title"
-          onClick={() => setMarketplaceSearchDialog(null)}
         >
           <div
-            className="w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-2xl"
+            className="cg-animate-modal-backdrop absolute inset-0 bg-black/45"
+            aria-hidden
+            onClick={() => setMarketplaceSearchDialog(null)}
+          />
+          <div
+            className="cg-animate-modal-panel relative z-10 w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <h2 id="marketplace-search-dialog-title" className="text-lg font-extrabold text-gray-900 tracking-tight">

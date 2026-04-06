@@ -1,4 +1,11 @@
-import React, { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   focusNosposAgreementTab,
   nosposAgreementAddItem,
@@ -9,7 +16,13 @@ import {
   buildCategoryTree,
   categoryOptionsAreHierarchical,
   findPathForCategoryValue,
+  matchDbCategoryPathToNosposTree,
 } from '../nosposCategoryTree';
+import {
+  findNosposMappingForCategory,
+  parseNosposPath,
+} from '@/utils/nosposCategoryMappings';
+import { fetchNosposCategoryMappings } from '@/services/api';
 import { computeNosposMirrorPrefill, inferNosposMirrorFieldRole } from '../utils/nosposMirrorPrefill';
 import {
   normalizeAiFieldResponseKeys,
@@ -29,62 +42,92 @@ import {
   resolveNosposMirrorItemDescriptionField,
 } from '../utils/nosposMirrorSyncMarkers';
 
-const NOSPOS_MIRROR_DEBUG =
-  typeof import.meta !== 'undefined' && Boolean(import.meta.env?.DEV);
+// ---------------------------------------------------------------------------
+// Constants & utilities
+// ---------------------------------------------------------------------------
 
-function mirrorDebug(...args) {
-  if (NOSPOS_MIRROR_DEBUG) console.debug(...args);
+const DEBUG = typeof import.meta !== 'undefined' && Boolean(import.meta.env?.DEV);
+const log = (...a) => DEBUG && console.debug(...a);
+
+const cx = (...parts) => parts.filter(Boolean).join(' ');
+
+const INPUT_BASE =
+  'w-full rounded-[var(--radius)] border border-[var(--ui-border)] bg-white px-3 py-2.5 text-sm text-[var(--text-main)] transition-colors focus:border-[var(--brand-blue)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-blue)]';
+const INPUT_ERROR = 'border-red-400 focus:border-red-500 focus:ring-red-500';
+const inputCx = (err) => cx(INPUT_BASE, err && INPUT_ERROR);
+
+// ---------------------------------------------------------------------------
+// Field-type predicates (table-driven to avoid repetition)
+// ---------------------------------------------------------------------------
+
+const FIELD_ROLE_PATTERNS = {
+  category: { nameRe: /\[category\]/i, labelEq: 'category' },
+  rate:     { nameRe: /\[rate\]$/i,    labelRe: /rate/i },
+  location: { nameRe: /\[location\]$/i, labelRe: /location/i },
+};
+
+function matchesFieldPattern({ name = '', label = '' }, pattern) {
+  const n = name.toLowerCase();
+  const l = label.toLowerCase();
+  if (pattern.nameRe?.test(n)) return true;
+  if (pattern.labelEq && l === pattern.labelEq) return true;
+  if (pattern.labelRe?.test(l)) return true;
+  return false;
+}
+
+const isCategoryField = (f) => matchesFieldPattern(f, FIELD_ROLE_PATTERNS.category);
+const isRateField     = (f) => matchesFieldPattern(f, FIELD_ROLE_PATTERNS.rate);
+const isLocationField = (f) => matchesFieldPattern(f, FIELD_ROLE_PATTERNS.location);
+
+const CORE_ROLES = new Set(['item_name', 'quantity', 'retail_price', 'offer']);
+
+function partitionCardFields(fields = []) {
+  const categoryFields = [], coreFields = [], otherFields = [];
+  for (const f of fields) {
+    if (!f?.name) continue;
+    if (isCategoryField(f)) { categoryFields.push(f); continue; }
+    const role = inferNosposMirrorFieldRole(f);
+    if (CORE_ROLES.has(role) || isRateField(f) || isLocationField(f)) coreFields.push(f);
+    else otherFields.push(f);
+  }
+  return { categoryFields, coreFields, otherFields };
 }
 
 // ---------------------------------------------------------------------------
-// Item summariser — builds the payload sent to the AI service
+// Item summariser
 // ---------------------------------------------------------------------------
 
-function summariseItemForAiPrompt(item) {
+function summariseItem(item) {
   if (!item) return { name: 'Unknown item', dbCategory: null, attributes: {} };
-
   const ref = item.referenceData || {};
-
-  let name = item.isJewelleryItem
+  const name = item.isJewelleryItem
     ? (ref.item_name || ref.line_title || ref.reference_display_name || ref.product_name || item.variantName || item.title || 'Unknown item')
     : (item.variantName || item.title || ref.product_name || 'Unknown item');
-
-  const dbCategory =
-    item.categoryName || item.category || ref.category_label || ref.product_name || null;
+  const dbCategory = item.categoryName || item.category || ref.category_label || ref.product_name || null;
 
   const attributes = {};
   const labels = item.attributeLabels || {};
   for (const [code, val] of Object.entries(item.attributeValues || {})) {
-    if (val == null || String(val).trim() === '') continue;
-    attributes[labels[code] || code] = String(val).trim();
+    if (val != null && String(val).trim()) attributes[labels[code] || code] = String(val).trim();
   }
   if (item.isJewelleryItem) {
     for (const [k, v] of [
-      ['Material grade', ref.material_grade],
-      ['Product', ref.product_name],
-      ['Stone', ref.stone],
-      ['Finger size', ref.finger_size],
-      ['Carat', ref.carat],
-      ['Hallmark', ref.hallmark],
+      ['Material grade', ref.material_grade], ['Product', ref.product_name],
+      ['Stone', ref.stone], ['Finger size', ref.finger_size],
+      ['Carat', ref.carat], ['Hallmark', ref.hallmark],
     ]) {
-      if (v != null && String(v).trim() !== '') attributes[k] = String(v).trim();
+      if (v != null && String(v).trim()) attributes[k] = String(v).trim();
     }
   }
   if (item.isCustomCeXItem) {
-    const specs = item.cexProductData?.specifications;
-    if (specs && typeof specs === 'object') {
-      for (const [k, v] of Object.entries(specs)) {
-        if (v != null && String(v).trim() !== '' && attributes[k] === undefined) {
-          attributes[k] = String(v).trim();
-        }
-      }
+    for (const [k, v] of Object.entries(item.cexProductData?.specifications || {})) {
+      if (v != null && String(v).trim() && attributes[k] === undefined) attributes[k] = String(v).trim();
     }
   }
-
   return { name: String(name).trim(), dbCategory, attributes };
 }
 
-function getSourceLineDisplayName(item, fallback = 'Item') {
+function getItemDisplayName(item, fallback = 'Item') {
   if (!item) return fallback;
   const ref = item.referenceData || {};
   const name = item.isJewelleryItem
@@ -93,364 +136,245 @@ function getSourceLineDisplayName(item, fallback = 'Item') {
   return String(name || fallback).trim() || fallback;
 }
 
-function getSourceLineDisplayMeta(item) {
+function getItemDisplayMeta(item) {
   if (!item) return '';
-  const parts = [];
-  const quantity = Math.max(1, Math.floor(Number(item.quantity)) || 1);
-  if (quantity > 1) parts.push(`Qty ${quantity}`);
   const ref = item.referenceData || {};
-  const category = item.categoryName || item.category || ref.category_label || null;
-  if (category) parts.push(String(category).trim());
+  const parts = [];
+  const qty = Math.max(1, Math.floor(Number(item.quantity)) || 1);
+  if (qty > 1) parts.push(`Qty ${qty}`);
+  const cat = item.categoryName || item.category || ref.category_label;
+  if (cat) parts.push(String(cat).trim());
   return parts.join(' / ');
 }
 
-function getSourceLineAttributesSummary(item) {
-  const summary = summariseItemForAiPrompt(item);
-  const entries = Object.entries(summary.attributes || {})
-    .filter(([k, v]) => String(k || '').trim() !== '' && String(v || '').trim() !== '')
-    .map(([k, v]) => `${k}: ${v}`);
-  return entries.join(' | ');
+function getItemAttributesSummary(item) {
+  return Object.entries(summariseItem(item).attributes || {})
+    .filter(([k, v]) => k?.trim() && v?.trim())
+    .map(([k, v]) => `${k}: ${v}`)
+    .join(' | ');
 }
 
 // ---------------------------------------------------------------------------
-// Option-value resolver
+// Misc helpers
 // ---------------------------------------------------------------------------
 
 function resolveOptionValue(options, aiValue) {
-  if (!options || options.length === 0 || !aiValue) return aiValue;
+  if (!options?.length || !aiValue) return aiValue;
   const raw = String(aiValue).trim();
-  const rawLower = raw.toLowerCase();
-  for (const o of options) {
-    if (String(o.value ?? '') === raw) return String(o.value);
-  }
-  for (const o of options) {
-    if (String(o.text ?? '').trim() === raw) return String(o.value);
-  }
-  for (const o of options) {
-    const tl = String(o.text ?? '').trim().toLowerCase();
-    const vl = String(o.value ?? '').toLowerCase();
-    if (tl === rawLower || vl === rawLower) return String(o.value);
-  }
-  return raw;
+  const lo = raw.toLowerCase();
+  return (
+    options.find((o) => String(o.value ?? '') === raw) ||
+    options.find((o) => String(o.text ?? '').trim() === raw) ||
+    options.find((o) => String(o.text ?? '').trim().toLowerCase() === lo || String(o.value ?? '').toLowerCase() === lo)
+  )?.value != null
+    ? String((options.find((o) => String(o.value ?? '') === raw) ||
+               options.find((o) => String(o.text ?? '').trim() === raw) ||
+               options.find((o) => [o.text, o.value].map((x) => String(x ?? '').trim().toLowerCase()).includes(lo)))?.value ?? raw)
+    : raw;
 }
 
-// ---------------------------------------------------------------------------
-
-const inputClass =
-  'w-full rounded-[var(--radius)] border border-[var(--ui-border)] bg-white px-3 py-2.5 text-sm text-[var(--text-main)] transition-colors focus:border-[var(--brand-blue)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-blue)]';
-const inputErrorClass =
-  'border-red-400 focus:border-red-500 focus:ring-red-500';
+function shallowEqual(a, b) {
+  const ak = Object.keys(a || {}), bk = Object.keys(b || {});
+  if (ak.length !== bk.length) return false;
+  return ak.every((k) => a[k] === b[k]);
+}
 
 function getMirrorFieldControlId(field) {
   return `nospos-mirror-${String(field?.name || '').replace(/[^\w-]/g, '_')}`;
 }
 
-/** Advance focus to the next `[data-mirror-focusable]` within the nearest `[data-mirror-focus-chain]`. */
-function mirrorFocusChainAdvance(current) {
+function focusChainAdvance(current) {
   const root = current?.closest?.('[data-mirror-focus-chain]');
   if (!root) return;
   const nodes = Array.from(root.querySelectorAll('[data-mirror-focusable="true"]')).filter(
-    (n) =>
-      n instanceof HTMLElement &&
-      !n.disabled &&
-      n.getAttribute('aria-hidden') !== 'true' &&
-      !n.closest('[hidden]')
+    (n) => n instanceof HTMLElement && !n.disabled && n.getAttribute('aria-hidden') !== 'true' && !n.closest('[hidden]')
   );
   const idx = nodes.indexOf(current);
   if (idx >= 0 && idx < nodes.length - 1) nodes[idx + 1].focus();
 }
 
-function mirrorFocusChainKeyDown(e) {
-  if (e.key !== 'Enter') return;
-  e.preventDefault();
-  mirrorFocusChainAdvance(e.currentTarget);
-}
+const onEnterAdvance = (e) => { if (e.key === 'Enter') { e.preventDefault(); focusChainAdvance(e.currentTarget); } };
 
-function isNosposMirrorCategoryField(f) {
-  return /\[category\]/i.test(f.name || '') || String(f.label || '').toLowerCase() === 'category';
-}
+// ---------------------------------------------------------------------------
+// Spinner overlay (shared)
+// ---------------------------------------------------------------------------
 
-function partitionCardFields(fields) {
-  const categoryFields = [];
-  const coreFields = [];
-  const otherFields = [];
-  for (const f of fields || []) {
-    if (!f?.name) continue;
-    if (isNosposMirrorCategoryField(f)) categoryFields.push(f);
-    else {
-      const role = inferNosposMirrorFieldRole(f);
-      if (
-        role === 'item_name' ||
-        role === 'quantity' ||
-        role === 'retail_price' ||
-        role === 'offer' ||
-        isNosposRateField(f) ||
-        isNosposLocationField(f)
-      ) {
-        coreFields.push(f);
-      } else {
-        otherFields.push(f);
-      }
-    }
-  }
-  return { categoryFields, coreFields, otherFields };
-}
-
-function isNosposRateField(field) {
-  const n = String(field?.name || '').toLowerCase();
-  const l = String(field?.label || '').toLowerCase();
-  return /\[rate\]$/.test(n) || l === 'rate' || l.includes('rate');
-}
-
-function isNosposLocationField(field) {
-  const n = String(field?.name || '').toLowerCase();
-  const l = String(field?.label || '').toLowerCase();
-  return /\[location\]$/.test(n) || l === 'location' || l.includes('location');
-}
-
-function shallowEqualObject(a, b) {
-  if (a === b) return true;
-  const aKeys = Object.keys(a || {});
-  const bKeys = Object.keys(b || {});
-  if (aKeys.length !== bKeys.length) return false;
-  for (const key of aKeys) {
-    if (a[key] !== b[key]) return false;
-  }
-  return true;
+function SpinnerOverlay({ message, sub, className = '' }) {
+  return (
+    <div
+      className={cx('absolute inset-0 z-20 flex flex-col items-center justify-center gap-3', className)}
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-[var(--brand-blue-alpha-15)] border-t-[var(--brand-blue)]" aria-hidden />
+      <p className="text-sm font-bold text-[var(--brand-blue)]">{message}</p>
+      {sub && <p className="text-xs text-[var(--text-muted)]">{sub}</p>}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
-// CategoryCascadeField — manual only, with "Prefill using AI" button
+// CategoryCascadeField
 // ---------------------------------------------------------------------------
 
-function CategoryCascadeField({
-  field,
-  tree,
-  value,
-  onChange,
-  required,
-  showError,
-  item,
-  firstSelectId,
-  onAiFilled,
-  onCategoryAiRunningChange,
-}) {
+function CategoryCascadeField({ field, tree, value, onChange, required, showError, item, firstSelectId, onAiFilled, onCategoryAiRunningChange, nosposMappings }) {
   const [path, setPath] = useState([]);
-
-  // { [levelIndex]: { status: 'loading'|'ready'|'error', suggestion: null|{...}, error: null|string } }
-  const [, setAiSuggestions] = useState({});
   const [aiRunning, setAiRunning] = useState(false);
-  const [categoryAiManualFallback, setCategoryAiManualFallback] = useState(false);
+  const [manualFallback, setManualFallback] = useState(false);
 
   const userTookOverRef = useRef(false);
-  const autoCategoryPrefillAttemptedRef = useRef(false);
+  const autoAttemptedRef = useRef(false);
   const onAiFilledRef = useRef(onAiFilled);
-  useEffect(() => {
-    onAiFilledRef.current = onAiFilled;
-  });
+  const updatePathRef = useRef(null);
 
-  const updateFromPathRef = useRef(null);
+  useEffect(() => { onAiFilledRef.current = onAiFilled; });
 
+  // Reset when item / field changes
   useEffect(() => {
     userTookOverRef.current = false;
-    autoCategoryPrefillAttemptedRef.current = false;
-    setCategoryAiManualFallback(false);
-    setAiSuggestions({});
+    autoAttemptedRef.current = false;
+    setManualFallback(false);
   }, [field?.name, item?.id, item?.request_item_id, item?.variantId, tree]);
 
-  const updateFromPath = useCallback(
-    (newPath) => {
-      setPath(newPath);
-      let node = tree;
-      for (const s of newPath) {
-        node = node.children.get(s);
-        if (!node) break;
-      }
-      if (node && node.children.size === 0 && node.leafValues.length === 1) {
-        onChange(node.leafValues[0].value);
-      } else {
-        onChange('');
-      }
-    },
-    [tree, onChange]
-  );
+  const updatePath = useCallback((newPath) => {
+    setPath(newPath);
+    let node = tree;
+    for (const s of newPath) { node = node.children.get(s); if (!node) break; }
+    onChange(node && node.children.size === 0 && node.leafValues.length === 1 ? node.leafValues[0].value : '');
+  }, [tree, onChange]);
 
-  useEffect(() => {
-    updateFromPathRef.current = updateFromPath;
-  });
+  useEffect(() => { updatePathRef.current = updatePath; });
 
+  // Sync path from external value
   useEffect(() => {
     if (!tree) return;
-    const rawValue = value != null ? String(value) : '';
-    if (!rawValue) {
-      setPath((prev) => (prev.length ? [] : prev));
-      return;
-    }
-    const resolvedPath = findPathForCategoryValue(tree, rawValue) || [];
-    setPath((prev) => {
-      if (
-        resolvedPath.length === prev.length &&
-        resolvedPath.every((seg, idx) => seg === prev[idx])
-      ) {
-        return prev;
-      }
-      return resolvedPath;
-    });
+    const raw = value != null ? String(value) : '';
+    if (!raw) { setPath((p) => p.length ? [] : p); return; }
+    const resolved = findPathForCategoryValue(tree, raw) || [];
+    setPath((p) => resolved.length === p.length && resolved.every((s, i) => s === p[i]) ? p : resolved);
   }, [tree, value]);
 
-  /**
-   * Recursively cascade through levels starting from `startPath`,
-   * calling the AI for each level sequentially.
-   */
-  const runAiCascade = useCallback(async (startPath) => {
+  const runCascade = useCallback(async (startPath) => {
     onCategoryAiRunningChange?.(true);
     setAiRunning(true);
-    setAiSuggestions({});
-    setCategoryAiManualFallback(false);
-
+    setManualFallback(false);
     let currentPath = [...startPath];
     let node = tree;
-
+    let succeeded = false;
     try {
-      for (const seg of currentPath) {
-        const next = node.children.get(seg);
-        if (!next) return;
-        node = next;
-      }
-
-      const itemSummary = summariseItemForAiPrompt(item);
-
+      for (const seg of currentPath) { const next = node.children.get(seg); if (!next) return; node = next; }
+      const itemSummary = summariseItem(item);
+      // Accumulate the full path in memory without touching React state at all,
+      // then apply the complete result in one single update at the end.
       while (node.children.size > 0) {
         const levelIndex = currentPath.length;
         const availableOptions = [...node.children.keys()].sort((a, b) => a.localeCompare(b));
-
-        setAiSuggestions((prev) => ({
-          ...prev,
-          [levelIndex]: { status: 'loading', suggestion: null, error: null },
-        }));
-
-        if (NOSPOS_MIRROR_DEBUG) {
-          console.group(
-            `%c[CG Suite] AI Category — Level ${levelIndex + 1} (sending list)`,
-            'color:#1a56db;font-weight:bold'
-          );
-          console.log('Item         :', itemSummary.name, itemSummary.dbCategory ? `(${itemSummary.dbCategory})` : '');
-          console.log('Path so far  :', currentPath.length ? currentPath.join(' > ') : '(top level)');
-          console.log(`List sent    : [${availableOptions.length} options]`, availableOptions);
-          console.groupEnd();
-        }
-
-        const result = await suggestNosposCategory({
-          item: itemSummary,
-          levelIndex,
-          availableOptions,
-          previousPath: currentPath,
-        });
-
-        console.info(
-          '[CG Suite] Category AI reasoning',
-          {
-            level: levelIndex + 1,
-            selected: result.suggested,
-            confidence: result.confidence,
-            reasoning: result.reasoning || '',
-          }
-        );
-
-        setAiSuggestions((prev) => ({
-          ...prev,
-          [levelIndex]: { status: 'ready', suggestion: result, error: null },
-        }));
-
+        const result = await suggestNosposCategory({ item: itemSummary, levelIndex, availableOptions, previousPath: currentPath });
+        console.info('[CG Suite] Category AI reasoning', { level: levelIndex + 1, selected: result.suggested, confidence: result.confidence, reasoning: result.reasoning || '' });
         const nextNode = node.children.get(result.suggested);
         if (!nextNode) break;
-
         currentPath = [...currentPath, result.suggested];
         node = nextNode;
-
-        startTransition(() => {
-          updateFromPathRef.current([...currentPath]);
-        });
+      }
+      succeeded = true;
+    } catch (err) {
+      console.error('[CG Suite] AI Category error:', err.message);
+      setManualFallback(true);
+    } finally {
+      // Apply the full path in one shot — one render, one onChange call
+      if (succeeded && currentPath.length > startPath.length) {
+        updatePathRef.current([...currentPath]);
         onAiFilledRef.current?.();
       }
-    } catch (err) {
-      const levelIndex = currentPath.length;
-      console.error(`[CG Suite] AI Category — Level ${levelIndex + 1} ERROR:`, err.message);
-      setAiSuggestions((prev) => ({
-        ...prev,
-        [levelIndex]: { status: 'error', suggestion: null, error: err.message },
-      }));
-      setCategoryAiManualFallback(true);
-    } finally {
       setAiRunning(false);
       onCategoryAiRunningChange?.(false);
     }
   }, [tree, item, onCategoryAiRunningChange]);
 
-  const handlePrefillClick = useCallback(() => {
+  const handlePrefill = useCallback(() => {
     userTookOverRef.current = false;
-    setCategoryAiManualFallback(false);
-    runAiCascade(path);
-  }, [runAiCascade, path]);
+    setManualFallback(false);
+    runCascade(path);
+  }, [runCascade, path]);
 
-  const categoryFullySelected = String(value ?? '').trim() !== '';
+  const categorySelected = String(value ?? '').trim() !== '';
 
+  // Auto-trigger cascade once.
+  // Priority order:
+  //   1. User-configured NoSpos category mapping (Config page)
+  //   2. Item's saved DB category path
+  //   3. Full AI
   useEffect(() => {
-    if (!tree || tree.children.size === 0) return;
-    if (categoryFullySelected) {
-      autoCategoryPrefillAttemptedRef.current = true;
+    if (!tree || tree.children.size === 0 || categorySelected || aiRunning || manualFallback || autoAttemptedRef.current) return;
+    autoAttemptedRef.current = true;
+
+    function applyPath(matchedPath, label) {
+      let node = tree;
+      for (const seg of matchedPath) { node = node.children.get(seg); if (!node) break; }
+      if (!node || node.children.size === 0) {
+        console.info(`[CG Suite] Category: ${label} — full match, applying directly (no AI)`, matchedPath);
+        updatePath(matchedPath);
+      } else {
+        console.info(`[CG Suite] Category: ${label} — partial match, AI filling remainder from prefix`, matchedPath);
+        runCascade(matchedPath);
+      }
+    }
+
+    // 1. Check user-configured mappings (Config page → NoSpos category mappings)
+    const categoryId = item?.categoryObject?.id ?? item?.categoryId ?? null;
+    const categoryName = item?.categoryName || item?.category || null;
+    const userMapping = findNosposMappingForCategory(categoryId, categoryName, nosposMappings || []);
+    if (userMapping) {
+      const userPath = parseNosposPath(userMapping.nosposPath);
+      const matchedUser = matchDbCategoryPathToNosposTree(tree, userPath);
+      if (matchedUser) {
+        applyPath(matchedUser, 'user-configured mapping');
+        return;
+      }
+      console.info('[CG Suite] Category: user mapping found but path not in nospos tree, trying DB path', { nosposPath: userMapping.nosposPath });
+    }
+
+    // 2. Check item's DB category path
+    const dbCategoryPath = item?.categoryObject?.path;
+    const matchedDb = matchDbCategoryPathToNosposTree(tree, dbCategoryPath);
+    if (matchedDb) {
+      applyPath(matchedDb, 'saved DB category path');
       return;
     }
-    if (aiRunning || categoryAiManualFallback) return;
-    if (autoCategoryPrefillAttemptedRef.current) return;
-    autoCategoryPrefillAttemptedRef.current = true;
-    handlePrefillClick();
-  }, [tree, categoryFullySelected, aiRunning, categoryAiManualFallback, handlePrefillClick]);
 
+    // 3. Full AI
+    console.info('[CG Suite] Category: no mapping/DB path match in nospos tree, falling back to full AI', { dbCategoryPath, userMapping: userMapping?.nosposPath ?? null });
+    handlePrefill();
+  }, [tree, categorySelected, aiRunning, manualFallback, handlePrefill, item, runCascade, updatePath, nosposMappings]);
+
+  // Build level selects
   const levelBlocks = [];
-  let node = tree;
-  let depth = 0;
-  const maxDepth = 24;
-
-  while (node && depth < maxDepth) {
+  let node = tree, depth = 0;
+  while (node && depth < 24) {
     const branchKeys = [...node.children.keys()].sort((a, b) => a.localeCompare(b));
     if (branchKeys.length > 0) {
-      const capturedDepth = depth;
-      const sel = path[capturedDepth] || '';
+      const d = depth, sel = path[d] || '';
       levelBlocks.push(
-        <div key={`row-${capturedDepth}`} className="flex min-w-0 max-w-full shrink-0 items-center gap-1.5">
+        <div key={`row-${d}`} className="flex min-w-0 max-w-full shrink-0 items-center gap-1.5">
           <select
-            id={firstSelectId && levelBlocks.length === 0 ? firstSelectId : undefined}
-            aria-label={`${field.label} — level ${capturedDepth + 1}`}
-            required={required && capturedDepth === 0}
+            id={!levelBlocks.length && firstSelectId ? firstSelectId : undefined}
+            aria-label={`${field.label} — level ${d + 1}`}
+            required={required && !d}
             data-mirror-focusable="true"
-            onKeyDown={mirrorFocusChainKeyDown}
-            className={`min-w-[10rem] max-w-[18rem] shrink-0 ${inputClass} ${showError ? inputErrorClass : ''}`}
+            onKeyDown={onEnterAdvance}
+            className={cx('min-w-[10rem] max-w-[18rem] shrink-0', inputCx(showError))}
             value={sel}
             onChange={(e) => {
               const seg = e.target.value;
-              const next = path.slice(0, capturedDepth);
-              if (seg) next.push(seg);
               userTookOverRef.current = true;
-              setCategoryAiManualFallback(false);
-              setAiSuggestions((prev) => {
-                const cleaned = { ...prev };
-                Object.keys(cleaned).forEach((k) => {
-                  if (Number(k) >= capturedDepth) delete cleaned[k];
-                });
-                return cleaned;
-              });
-              updateFromPath(next);
+              setManualFallback(false);
+              updatePath(seg ? [...path.slice(0, d), seg] : path.slice(0, d));
             }}
           >
             <option value="">Select…</option>
-            {branchKeys.map((k) => (
-              <option key={k} value={k}>
-                {k}
-              </option>
-            ))}
+            {branchKeys.map((k) => <option key={k} value={k}>{k}</option>)}
           </select>
-
         </div>
       );
       if (!sel) break;
@@ -458,25 +382,21 @@ function CategoryCascadeField({
       depth++;
       continue;
     }
-    if (node.leafValues && node.leafValues.length > 1) {
+    if (node.leafValues?.length > 1) {
       levelBlocks.push(
         <div key={`lf-${depth}`} className="flex min-w-0 shrink-0 items-center">
           <select
-            id={firstSelectId && levelBlocks.length === 0 ? firstSelectId : undefined}
+            id={!levelBlocks.length && firstSelectId ? firstSelectId : undefined}
             aria-label={`${field.label} — variant`}
             required={required}
             data-mirror-focusable="true"
-            onKeyDown={mirrorFocusChainKeyDown}
-            className={`min-w-[10rem] max-w-[20rem] ${inputClass} ${showError ? inputErrorClass : ''}`}
+            onKeyDown={onEnterAdvance}
+            className={cx('min-w-[10rem] max-w-[20rem]', inputCx(showError))}
             value={value}
             onChange={(e) => onChange(e.target.value)}
           >
             <option value="">Select…</option>
-            {node.leafValues.map((l) => (
-              <option key={l.value} value={l.value}>
-                {l.text}
-              </option>
-            ))}
+            {node.leafValues.map((l) => <option key={l.value} value={l.value}>{l.text}</option>)}
           </select>
         </div>
       );
@@ -486,192 +406,91 @@ function CategoryCascadeField({
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Prefill button */}
-      {tree && tree.children.size > 0 && !categoryFullySelected && (
+      {tree?.children.size > 0 && !categorySelected && (
         <div className="flex items-center gap-2">
           <button
             type="button"
             disabled={aiRunning}
-            onClick={handlePrefillClick}
+            onClick={handlePrefill}
             className="inline-flex items-center gap-1.5 rounded-md border border-[var(--brand-blue)] bg-[var(--brand-blue-alpha-05)] px-3 py-1.5 text-xs font-bold text-[var(--brand-blue)] transition hover:bg-[var(--brand-blue)] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {aiRunning ? (
-              <>
-                <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                Calculating…
-              </>
-            ) : (
-              <>
-                <span className="material-symbols-outlined text-[14px] leading-none">auto_awesome</span>
-                Prefill using AI
-              </>
-            )}
+            {aiRunning
+              ? <><div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />Calculating…</>
+              : <><span className="material-symbols-outlined text-[14px] leading-none">auto_awesome</span>Prefill using AI</>}
           </button>
-          {aiRunning && (
-            <span className="text-[10px] font-semibold text-[var(--text-muted)]">
-              AI calculating category…
-            </span>
-          )}
+          {aiRunning && <span className="text-[10px] font-semibold text-[var(--text-muted)]">AI calculating category…</span>}
         </div>
       )}
-      {categoryAiManualFallback ? (
+      {manualFallback && (
         <p className="text-xs font-medium text-amber-800">
           Category AI stopped early. Choose each level manually using the dropdowns — they stay fully editable.
         </p>
-      ) : null}
+      )}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">{levelBlocks}</div>
     </div>
   );
 }
 
-function MirrorField({
-  field,
-  value,
-  onChange,
-  showError,
-  item,
-  layout = 'default',
-  onAiFilled,
-  onCategoryAiRunningChange,
-}) {
+// ---------------------------------------------------------------------------
+// MirrorField
+// ---------------------------------------------------------------------------
+
+function MirrorField({ field, value, onChange, showError, item, layout = 'default', onAiFilled, onCategoryAiRunningChange, nosposMappings }) {
   const id = getMirrorFieldControlId(field);
   const req = Boolean(field.required);
   const tableCell = layout === 'tableCell';
 
-  const categoryTree = useMemo(() => {
-    if (field.control !== 'select' || !isNosposMirrorCategoryField(field)) return null;
-    return buildCategoryTree(field.options || []);
-  }, [field]);
+  const categoryTree = useMemo(
+    () => field.control === 'select' && isCategoryField(field) ? buildCategoryTree(field.options || []) : null,
+    [field]
+  );
 
+  let control;
   if (field.control === 'select' && Array.isArray(field.options)) {
-    const hierarchical =
-      isNosposMirrorCategoryField(field) &&
-      categoryTree &&
-      categoryTree.children.size > 0 &&
-      categoryOptionsAreHierarchical(field.options);
+    const hierarchical = isCategoryField(field) && categoryTree?.children.size > 0 && categoryOptionsAreHierarchical(field.options);
     if (hierarchical) {
-      const cascade = (
+      control = (
         <CategoryCascadeField
           key={`${field.name}:${item?.request_item_id ?? item?.id ?? item?.variantId ?? 'item'}`}
-          field={field}
-          tree={categoryTree}
-          value={value}
-          onChange={onChange}
-          required={req}
-          showError={showError}
-          item={item}
+          field={field} tree={categoryTree} value={value} onChange={onChange}
+          required={req} showError={showError} item={item}
           firstSelectId={tableCell ? id : undefined}
           onAiFilled={onAiFilled}
           onCategoryAiRunningChange={onCategoryAiRunningChange}
+          nosposMappings={nosposMappings}
         />
       );
-      if (tableCell) {
-        return (
-          <div className="space-y-1">
-            {cascade}
-            {showError ? (
-              <p className="text-xs font-semibold text-red-600">This field is required.</p>
-            ) : null}
-          </div>
-        );
-      }
-      return (
-        <div className="space-y-1.5">
-          <label htmlFor={id} className="block text-xs font-extrabold uppercase tracking-wide text-[var(--brand-blue)]">
-            {field.label}
-            {req ? <span className="text-red-600"> *</span> : null}
-          </label>
-          {cascade}
-          {showError ? (
-            <p className="text-xs font-semibold text-red-600">This field is required.</p>
-          ) : null}
-        </div>
+    } else {
+      control = (
+        <select
+          id={id} required={req} data-mirror-focusable="true" onKeyDown={onEnterAdvance}
+          className={inputCx(showError)} value={value} onChange={(e) => onChange(e.target.value)}
+        >
+          {(field.options || []).map((o) => <option key={String(o.value)} value={o.value}>{o.text || o.value || '—'}</option>)}
+        </select>
       );
     }
-
-    const flatSelect = (
-      <select
-        id={id}
-        required={req}
-        data-mirror-focusable="true"
-        onKeyDown={mirrorFocusChainKeyDown}
-        className={`${inputClass} ${showError ? inputErrorClass : ''}`}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        {(field.options || []).map((o) => (
-          <option key={String(o.value)} value={o.value}>
-            {o.text || o.value || '—'}
-          </option>
-        ))}
-      </select>
-    );
-
-    if (tableCell) {
-      return (
-        <div className="space-y-1">
-          {flatSelect}
-          {showError ? (
-            <p className="text-xs font-semibold text-red-600">This field is required.</p>
-          ) : null}
-        </div>
-      );
-    }
-
-    return (
-      <div className="space-y-1.5">
-        <label htmlFor={id} className="block text-xs font-extrabold uppercase tracking-wide text-[var(--brand-blue)]">
-          {field.label}
-          {req ? <span className="text-red-600"> *</span> : null}
-        </label>
-        {flatSelect}
-        {showError ? (
-          <p className="text-xs font-semibold text-red-600">This field is required.</p>
-        ) : null}
-      </div>
+  } else {
+    const inputType = ['number', 'email', 'tel'].includes(field.inputType) ? field.inputType : 'text';
+    control = (
+      <input
+        id={id} type={inputType} required={req} data-mirror-focusable="true" onKeyDown={onEnterAdvance}
+        className={inputCx(showError)} value={value} onChange={(e) => onChange(e.target.value)} autoComplete="off"
+      />
     );
   }
 
-  const inputType =
-    field.inputType === 'number' || field.inputType === 'email' || field.inputType === 'tel'
-      ? field.inputType
-      : 'text';
+  const error = showError ? <p className="text-xs font-semibold text-red-600">This field is required.</p> : null;
 
-  const textInput = (
-    <input
-      id={id}
-      type={inputType}
-      required={req}
-      data-mirror-focusable="true"
-      onKeyDown={mirrorFocusChainKeyDown}
-      className={`${inputClass} ${showError ? inputErrorClass : ''}`}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      autoComplete="off"
-    />
-  );
-
-  if (tableCell) {
-    return (
-      <div className="space-y-1">
-        {textInput}
-        {showError ? (
-          <p className="text-xs font-semibold text-red-600">This field is required.</p>
-        ) : null}
-      </div>
-    );
-  }
+  if (tableCell) return <div className="space-y-1">{control}{error}</div>;
 
   return (
     <div className="space-y-1.5">
       <label htmlFor={id} className="block text-xs font-extrabold uppercase tracking-wide text-[var(--brand-blue)]">
-        {field.label}
-        {req ? <span className="text-red-600"> *</span> : null}
+        {field.label}{req && <span className="text-red-600"> *</span>}
       </label>
-      {textInput}
-      {showError ? (
-        <p className="text-xs font-semibold text-red-600">This field is required.</p>
-      ) : null}
+      {control}
+      {error}
     </div>
   );
 }
@@ -688,556 +507,361 @@ export default function NosposAgreementMirrorModal({
   requestId = null,
   sourceLines = [],
   useVoucherOffers = false,
-  /** When true (in-store testing), only one NoSpos item card is required; other lines are display-only. */
   mirrorFirstLineOnly = false,
   selectedIndex = null,
   autoAddSelectedIfMissing = false,
-  /** Optional per-line testing outcomes from BOOKED_FOR_TESTING view: index -> 'passed' | 'failed'. */
   testingOutcomeByRow = {},
   onClose,
 }) {
+  // --- UI state ---
   const [values, setValues] = useState({});
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState(null);
   const [touched, setTouched] = useState(false);
+  const [expandedRows, setExpandedRows] = useState(new Set());
+
+  // --- Card/AI state ---
   const [aiFillingCards, setAiFillingCards] = useState(new Set());
   const [applyingCards, setApplyingCards] = useState(new Set());
   const [updatingCategoryCards, setUpdatingCategoryCards] = useState(new Set());
   const [addingItem, setAddingItem] = useState(false);
   const [addingItemIndex, setAddingItemIndex] = useState(null);
-  const [expandedRows, setExpandedRows] = useState(new Set());
+  const [categoryAiBlocking, setCategoryAiBlocking] = useState(false);
   const [preexistingSyncedCards, setPreexistingSyncedCards] = useState(new Set());
   const [aiFilledFieldKeys, setAiFilledFieldKeys] = useState(new Set());
-  /** Card indices that completed the first “attribute prefill” button press (enables AI pass label). */
-  const attrPrefillStepDoneRef = useRef(new Set());
-  const [prefillStepVersion, setPrefillStepVersion] = useState(0);
-  /** Cards where AI failed or returned nothing useful — show manual fallback hint. */
   const [aiManualFallbackCards, setAiManualFallbackCards] = useState(new Set());
-  const userOverriddenFieldsRef = useRef(new Set());
-  const preservedFieldValuesRef = useRef(new Set());
-  const prevOpenRef = useRef(false);
-  const preexistingSyncScannedRef = useRef(false);
+  const [prefillStepVersion, setPrefillStepVersion] = useState(0);
 
+  // --- NoSpos category mappings (loaded once from DB on first open) ---
+  const [nosposMappings, setNosposMappings] = useState([]);
+  const mappingsLoadedRef = useRef(false);
+  useEffect(() => {
+    if (!open || mappingsLoadedRef.current) return;
+    mappingsLoadedRef.current = true;
+    fetchNosposCategoryMappings().then(setNosposMappings).catch(() => {});
+  }, [open]);
+
+  // --- Refs ---
   const valuesRef = useRef(values);
-  useEffect(() => { valuesRef.current = values; });
   const snapshotRef = useRef(snapshot);
-  useEffect(() => { snapshotRef.current = snapshot; });
-  const markerApplyQueuedRef = useRef(new Set());
+  const categoryAiDepthRef = useRef(0);
+  const attrPrefillDoneRef = useRef(new Set());
+  const userOverriddenRef = useRef(new Set());
+  const preservedRef = useRef(new Set());
+  const prevOpenRef = useRef(false);
+  const markerQueuedRef = useRef(new Set());
   const autoAddAttemptedRef = useRef(new Set());
   const autoAiRequestedRef = useRef(new Set());
-  const categoryAiRunDepthRef = useRef(0);
-  const [categoryAiBlocking, setCategoryAiBlocking] = useState(false);
-  const {
-    applyInFlightRef,
-    queueFieldApply,
-    flushQueuedFieldApplies,
-    resetQueuedApplies,
-  } = useNosposMirrorQueuedApplies({
-    snapshotRef,
-    setApplyingCards,
-    setFormError,
-  });
+  const preexistingScannedRef = useRef(false);
+
+  useEffect(() => { valuesRef.current = values; });
+  useEffect(() => { snapshotRef.current = snapshot; });
+
+  const { applyInFlightRef, queueFieldApply, flushQueuedFieldApplies, resetQueuedApplies } =
+    useNosposMirrorQueuedApplies({ snapshotRef, setApplyingCards, setFormError });
 
   const notifyCategoryAiRunning = useCallback((running) => {
-    if (running) {
-      categoryAiRunDepthRef.current += 1;
-    } else {
-      categoryAiRunDepthRef.current = Math.max(0, categoryAiRunDepthRef.current - 1);
-    }
-    setCategoryAiBlocking(categoryAiRunDepthRef.current > 0);
+    categoryAiDepthRef.current = Math.max(0, categoryAiDepthRef.current + (running ? 1 : -1));
+    setCategoryAiBlocking(categoryAiDepthRef.current > 0);
   }, []);
 
-  const {
-    failedRows: failedRowsForParking,
-    activeRowIndexes,
-    rowToCardIndex,
-    rowStateByIndex,
-    nextRowToAdd,
-    expectedCardCount: expectedMirrorCardCount,
-    getSourceRowIndexForCard,
-  } = useNosposMirrorRowCardMap(sourceLines, snapshot, testingOutcomeByRow, requestId);
+  const { failedRows: failedRowsForParking, rowToCardIndex, rowStateByIndex, nextRowToAdd, expectedCardCount: expectedMirrorCardCount, getSourceRowIndexForCard } =
+    useNosposMirrorRowCardMap(sourceLines, snapshot, testingOutcomeByRow, requestId);
 
-  const mappedSourceLinesForCards = useMemo(
-    () => (snapshot?.cards || []).map((_, cardIdx) => sourceLines?.[getSourceRowIndexForCard(cardIdx)] || null),
+  const mappedSourceLines = useMemo(
+    () => (snapshot?.cards || []).map((_, i) => sourceLines?.[getSourceRowIndexForCard(i)] || null),
     [snapshot, sourceLines, getSourceRowIndexForCard]
   );
 
   const attributePrefill = useMemo(
-    () => computeNosposMirrorPrefill(snapshot, mappedSourceLinesForCards, useVoucherOffers),
-    [snapshot, mappedSourceLinesForCards, useVoucherOffers]
+    () => computeNosposMirrorPrefill(snapshot, mappedSourceLines, useVoucherOffers),
+    [snapshot, mappedSourceLines, useVoucherOffers]
   );
 
-  useEffect(() => {
-    if (!open || !snapshot) return;
-    if (preexistingSyncScannedRef.current) return;
-    const marked = new Set();
-    (snapshot.cards || []).forEach((card, idx) => {
-      const sourceRowIdx = getSourceRowIndexForCard(idx);
-      const sourceItem = sourceLines?.[sourceRowIdx] || null;
-      const descriptionField = resolveNosposMirrorItemDescriptionField(card);
-      if (!descriptionField) return;
-      if (hasNosposMirrorCgSyncMarker(descriptionField.value, sourceItem, sourceRowIdx, requestId)) {
-        marked.add(idx);
-      }
-    });
-    preexistingSyncScannedRef.current = true;
-    setPreexistingSyncedCards(marked);
-    mirrorDebug('[CG Suite] Initial sync scan complete', { markedCards: [...marked] });
-  }, [open, snapshot, sourceLines, requestId, getSourceRowIndexForCard]);
-
-  useEffect(() => {
-    if (!open || !snapshot) return;
-    if (!preexistingSyncScannedRef.current) return;
-    if (busy || addingItem) return;
-    const fieldsToMark = [];
-    for (let cardIdx = 0; cardIdx < (snapshot.cards || []).length; cardIdx++) {
-      const card = snapshot.cards[cardIdx];
-      const sourceRowIdx = getSourceRowIndexForCard(cardIdx);
-      const sourceItem = sourceLines?.[sourceRowIdx] || null;
-      const descriptionField = resolveNosposMirrorItemDescriptionField(card);
-      if (!descriptionField?.name) continue;
-      if (hasNosposMirrorCgSyncMarker(descriptionField.value, sourceItem, sourceRowIdx, requestId)) continue;
-      const markerValue = appendNosposMirrorCgSyncMarker(descriptionField.value, sourceItem, sourceRowIdx, requestId);
-      const queueKey = `${snapshot.pageInstanceId || 'page:unknown'}::${card.cardId || `idx:${cardIdx}`}::${markerValue}`;
-      if (markerApplyQueuedRef.current.has(queueKey)) continue;
-      markerApplyQueuedRef.current.add(queueKey);
-      fieldsToMark.push({
-        name: descriptionField.name,
-        value: markerValue,
-        cardIndex: cardIdx,
-        cardId: card.cardId || null,
-      });
-    }
-    if (fieldsToMark.length === 0) return;
-    mirrorDebug('[CG Suite] Auto-applying CG sync marker to item description', fieldsToMark);
-    void nosposAgreementApplyFields(fieldsToMark)
-      .then((r) => {
-        mirrorDebug('[CG Suite] Auto-marker apply response', r);
-      })
-      .catch((e) => {
-        console.error('[CG Suite] Auto-marker apply failed', e?.message || e);
-      });
-  }, [open, snapshot, sourceLines, requestId, busy, addingItem, getSourceRowIndexForCard]);
+  // ---------------------------------------------------------------------------
+  // Reset on open
+  // ---------------------------------------------------------------------------
 
   useLayoutEffect(() => {
-    if (open && !prevOpenRef.current) {
-      userOverriddenFieldsRef.current = new Set();
-      preservedFieldValuesRef.current = new Set();
-      markerApplyQueuedRef.current = new Set();
-      autoAddAttemptedRef.current = new Set();
-      autoAiRequestedRef.current = new Set();
-      categoryAiRunDepthRef.current = 0;
-      setCategoryAiBlocking(false);
-      preexistingSyncScannedRef.current = false;
-      setPreexistingSyncedCards(new Set());
-      setAiFilledFieldKeys(new Set());
-      resetQueuedApplies();
-      setApplyingCards(new Set());
-      setUpdatingCategoryCards(new Set());
-      setAddingItem(false);
-      setAddingItemIndex(null);
-      setTouched(false);
-      attrPrefillStepDoneRef.current = new Set();
-      setPrefillStepVersion(0);
-      setAiManualFallbackCards(new Set());
-      const defaultExpandIdx =
-        mirrorFirstLineOnly && !Number.isInteger(selectedIndex)
-          ? 0
-          : Number.isInteger(selectedIndex)
-            ? selectedIndex
-            : Math.min(snapshot?.cards?.length || 0, (sourceLines?.length || 1) - 1);
-      setExpandedRows(
-        new Set((sourceLines?.length || 0) > 0 ? [defaultExpandIdx] : [])
-      );
-    }
-    prevOpenRef.current = open;
+    if (!open || prevOpenRef.current) { prevOpenRef.current = open; return; }
+    prevOpenRef.current = true;
+    userOverriddenRef.current = new Set();
+    preservedRef.current = new Set();
+    markerQueuedRef.current = new Set();
+    autoAddAttemptedRef.current = new Set();
+    autoAiRequestedRef.current = new Set();
+    categoryAiDepthRef.current = 0;
+    preexistingScannedRef.current = false;
+    attrPrefillDoneRef.current = new Set();
+    setCategoryAiBlocking(false);
+    setPreexistingSyncedCards(new Set());
+    setAiFilledFieldKeys(new Set());
+    resetQueuedApplies();
+    setApplyingCards(new Set());
+    setUpdatingCategoryCards(new Set());
+    setAddingItem(false);
+    setAddingItemIndex(null);
+    setTouched(false);
+    setPrefillStepVersion(0);
+    setAiManualFallbackCards(new Set());
+    const defaultIdx =
+      mirrorFirstLineOnly && !Number.isInteger(selectedIndex) ? 0
+      : Number.isInteger(selectedIndex) ? selectedIndex
+      : Math.min(snapshot?.cards?.length || 0, (sourceLines?.length || 1) - 1);
+    setExpandedRows(new Set((sourceLines?.length || 0) > 0 ? [defaultIdx] : []));
   }, [open, snapshot, sourceLines, selectedIndex, mirrorFirstLineOnly, resetQueuedApplies]);
 
+  // ---------------------------------------------------------------------------
+  // Scan pre-existing synced cards
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    if (!open || !snapshot || preexistingScannedRef.current) return;
+    preexistingScannedRef.current = true;
+    const marked = new Set(
+      (snapshot.cards || []).reduce((acc, card, idx) => {
+        const srcIdx = getSourceRowIndexForCard(idx);
+        const desc = resolveNosposMirrorItemDescriptionField(card);
+        if (desc && hasNosposMirrorCgSyncMarker(desc.value, sourceLines?.[srcIdx] || null, srcIdx, requestId)) acc.push(idx);
+        return acc;
+      }, [])
+    );
+    setPreexistingSyncedCards(marked);
+    log('[CG Suite] Initial sync scan complete', { markedCards: [...marked] });
+  }, [open, snapshot, sourceLines, requestId, getSourceRowIndexForCard]);
+
+  // ---------------------------------------------------------------------------
+  // Auto-apply CG sync markers
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    if (!open || !snapshot || !preexistingScannedRef.current || busy || addingItem) return;
+    const toMark = [];
+    for (let i = 0; i < (snapshot.cards || []).length; i++) {
+      const card = snapshot.cards[i];
+      const srcIdx = getSourceRowIndexForCard(i);
+      const srcItem = sourceLines?.[srcIdx] || null;
+      const desc = resolveNosposMirrorItemDescriptionField(card);
+      if (!desc?.name || hasNosposMirrorCgSyncMarker(desc.value, srcItem, srcIdx, requestId)) continue;
+      const markerValue = appendNosposMirrorCgSyncMarker(desc.value, srcItem, srcIdx, requestId);
+      const qKey = `${snapshot.pageInstanceId || 'page:unknown'}::${card.cardId || `idx:${i}`}::${markerValue}`;
+      if (markerQueuedRef.current.has(qKey)) continue;
+      markerQueuedRef.current.add(qKey);
+      toMark.push({ name: desc.name, value: markerValue, cardIndex: i, cardId: card.cardId || null });
+    }
+    if (!toMark.length) return;
+    log('[CG Suite] Auto-applying CG sync markers', toMark);
+    nosposAgreementApplyFields(toMark).catch((e) => console.error('[CG Suite] Auto-marker apply failed', e?.message));
+  }, [open, snapshot, sourceLines, requestId, busy, addingItem, getSourceRowIndexForCard]);
+
+  // ---------------------------------------------------------------------------
+  // Init / sync field values from snapshot
+  // ---------------------------------------------------------------------------
+
   useLayoutEffect(() => {
     if (!open || !snapshot) return;
-    const names = new Set();
-    for (const card of snapshot.cards || []) {
-      for (const f of card.fields || []) {
-        if (f?.name) names.add(f.name);
-      }
-    }
-    for (const k of [...userOverriddenFieldsRef.current]) {
-      if (!names.has(k)) userOverriddenFieldsRef.current.delete(k);
-    }
-    for (const k of [...preservedFieldValuesRef.current]) {
-      if (!names.has(k)) preservedFieldValuesRef.current.delete(k);
+    const allNames = new Set((snapshot.cards || []).flatMap((c) => (c.fields || []).map((f) => f?.name).filter(Boolean)));
+    for (const k of [...userOverriddenRef.current, ...preservedRef.current]) {
+      if (!allNames.has(k)) { userOverriddenRef.current.delete(k); preservedRef.current.delete(k); }
     }
 
     const base = {};
-    const autoApplyCoreFields = [];
-    for (let cardIdx = 0; cardIdx < (snapshot.cards || []).length; cardIdx++) {
-      const card = snapshot.cards[cardIdx];
-      const cardMarked = preexistingSyncedCards.has(cardIdx);
+    const autoApply = [];
+
+    for (let ci = 0; ci < (snapshot.cards || []).length; ci++) {
+      const card = snapshot.cards[ci];
+      const cardMarked = preexistingSyncedCards.has(ci);
       for (const f of card.fields || []) {
         if (!f?.name) continue;
-        if (cardMarked) {
-          base[f.name] = f.value != null ? String(f.value) : '';
-          continue;
-        }
+        if (cardMarked) { base[f.name] = f.value != null ? String(f.value) : ''; continue; }
         const role = inferNosposMirrorFieldRole(f);
-        const prefillValue = attributePrefill[f.name];
-        const currentNosposValue = f.value != null ? String(f.value) : '';
-        if (
-          (role === 'item_name' || role === 'quantity' || role === 'retail_price' || role === 'offer') &&
-          prefillValue != null &&
-          String(prefillValue).trim() !== ''
-        ) {
-          const normalizedPrefill = String(prefillValue);
-          base[f.name] = normalizedPrefill;
-          if (!userOverriddenFieldsRef.current.has(f.name)) {
-            const currentNosposValue = f.value != null ? String(f.value) : '';
-            if (currentNosposValue !== normalizedPrefill) {
-              autoApplyCoreFields.push({
-                name: f.name,
-                value: normalizedPrefill,
-                cardIndex: cardIdx,
-                cardId: card.cardId || null,
-              });
-            }
+        const prefill = attributePrefill[f.name];
+        const nosposVal = f.value != null ? String(f.value) : '';
+        if (CORE_ROLES.has(role) && prefill != null && String(prefill).trim()) {
+          const norm = String(prefill);
+          base[f.name] = norm;
+          if (!userOverriddenRef.current.has(f.name) && nosposVal !== norm) {
+            autoApply.push({ name: f.name, value: norm, cardIndex: ci, cardId: card.cardId || null });
           }
           continue;
         }
-        if (isNosposRateField(f) || isNosposLocationField(f)) {
-          base[f.name] = currentNosposValue;
-          continue;
-        }
-        base[f.name] = '';
+        base[f.name] = isRateField(f) || isLocationField(f) ? nosposVal : '';
       }
     }
-    mirrorDebug('[CG Suite] Base field init', {
-      fieldCount: Object.keys(base).length,
-      markedCards: [...preexistingSyncedCards],
-      sample: Object.entries(base).slice(0, 15),
-    });
+
     setValues((prev) => {
       const next = { ...base };
-      for (const k of preservedFieldValuesRef.current) {
-        if (names.has(k) && prev[k] !== undefined) next[k] = prev[k];
-      }
-      return shallowEqualObject(prev, next) ? prev : next;
+      for (const k of preservedRef.current) if (allNames.has(k) && prev[k] !== undefined) next[k] = prev[k];
+      return shallowEqual(prev, next) ? prev : next;
     });
-    if (autoApplyCoreFields.length > 0) {
-      mirrorDebug('[CG Suite] Auto-syncing core prefill fields to NoSpos', autoApplyCoreFields);
-      for (const field of autoApplyCoreFields) {
-        preservedFieldValuesRef.current.add(field.name);
-        queueFieldApply(field.name, field.value, field.cardIndex, field.cardId);
-      }
+
+    if (autoApply.length) {
+      for (const f of autoApply) { preservedRef.current.add(f.name); queueFieldApply(f.name, f.value, f.cardIndex, f.cardId); }
     }
     setFormError(null);
   }, [open, snapshot, attributePrefill, preexistingSyncedCards, queueFieldApply]);
 
-  const waitForSnapshotReload = useCallback((previousPageInstanceId, options = {}) => {
-    const { minCardCount = 0, timeoutMs = 15000, actionLabel = 'NoSpos' } = options;
-    const startingSnapshot = snapshotRef.current;
+  // ---------------------------------------------------------------------------
+  // Snapshot waiter helpers
+  // ---------------------------------------------------------------------------
+
+  const waitForSnapshotReload = useCallback((prevPageId, { minCardCount = 0, timeoutMs = 15000, actionLabel = 'NoSpos' } = {}) => {
+    const start = snapshotRef.current;
     return new Promise((resolve, reject) => {
-      const startedAt = Date.now();
-      function check() {
-        const nextSnapshot = snapshotRef.current;
-        const nextCardCount = nextSnapshot?.cards?.length || 0;
-        const nextPageInstanceId = nextSnapshot?.pageInstanceId || null;
-        const pageReloaded = previousPageInstanceId
-          ? nextPageInstanceId != null && nextPageInstanceId !== previousPageInstanceId
-          : nextSnapshot != null && nextSnapshot !== startingSnapshot;
-        if (pageReloaded && nextCardCount >= minCardCount) {
-          resolve(nextSnapshot);
-          return;
-        }
-        if (Date.now() - startedAt >= timeoutMs) {
-          reject(new Error(`${actionLabel} triggered a NoSpos reload, but the refreshed items page did not come back in time.`));
-          return;
-        }
+      const t0 = Date.now();
+      (function check() {
+        const next = snapshotRef.current;
+        const pageReloaded = prevPageId ? next?.pageInstanceId != null && next.pageInstanceId !== prevPageId : next != null && next !== start;
+        if (pageReloaded && (next?.cards?.length || 0) >= minCardCount) return resolve(next);
+        if (Date.now() - t0 >= timeoutMs) return reject(new Error(`${actionLabel} did not reload in time.`));
         setTimeout(check, 150);
-      }
-      check();
+      })();
     });
   }, []);
 
-  const handleCategoryFieldChange = useCallback((name, cardIdx, cardId) => {
-    return (v) => {
-      userOverriddenFieldsRef.current.add(name);
-      preservedFieldValuesRef.current.add(name);
-      const str = v != null ? String(v) : '';
-      mirrorDebug('[CG Suite] Category changed', { cardIdx, cardId, name, value: str });
-      setValues((prev) => ({ ...prev, [name]: str }));
-      if (str.trim() === '') return;
-      void (async () => {
-        try {
-          setFormError(null);
-          setUpdatingCategoryCards((prev) => new Set([...prev, cardIdx]));
-          const currentPageInstanceId = snapshotRef.current?.pageInstanceId || null;
-          const r = await nosposAgreementApplyFields([{
-            name,
-            value: str,
-            cardIndex: cardIdx,
-            cardId: cardId || null,
-          }]);
-          mirrorDebug('[CG Suite] Category apply response', { cardIdx, cardId, name, value: str, response: r });
-          if (!r?.ok) {
-            setFormError(
-              r?.error ||
-                'Could not update category on NosPos. Check the agreement tab is still open.'
-            );
-          } else {
-            await waitForSnapshotReload(currentPageInstanceId, {
-              minCardCount: snapshotRef.current?.cards?.length || 0,
-              actionLabel: 'Updating the category',
-            });
-          }
-        } catch (e) {
-          setFormError(e?.message || 'Could not update category on NosPos.');
-        } finally {
-          setUpdatingCategoryCards((prev) => {
-            const next = new Set(prev);
-            next.delete(cardIdx);
-            return next;
-          });
-        }
+  const waitForCardCount = useCallback((target, timeoutMs = 12000) => {
+    return new Promise((resolve, reject) => {
+      const t0 = Date.now();
+      (function check() {
+        if ((snapshotRef.current?.cards?.length || 0) >= target) return resolve(snapshotRef.current);
+        if (Date.now() - t0 >= timeoutMs) return reject(new Error('NoSpos did not add the next item card in time.'));
+        setTimeout(check, 150);
       })();
-    };
-  }, [waitForSnapshotReload]);
+    });
+  }, []);
 
-  const hasUserOverride = useCallback(
-    (fieldName) => userOverriddenFieldsRef.current.has(fieldName),
-    []
-  );
+  // ---------------------------------------------------------------------------
+  // Field change handlers
+  // ---------------------------------------------------------------------------
 
-  const {
-    allFields,
-    validationErrors,
-    getValidationErrorsForCard,
-    getValidationErrorsForParking,
-  } = useNosposMirrorValidation({
-    snapshot,
-    values,
-    hasUserOverride,
-    getSourceRowIndexForCard,
-    failedRowsForParking,
-  });
-
-  const handleFieldChange = useCallback((name, cardIdx, cardId) => {
-    return (v) => {
-      userOverriddenFieldsRef.current.add(name);
-      preservedFieldValuesRef.current.add(name);
-      const str = v != null ? String(v) : '';
-      mirrorDebug('[CG Suite] Field changed', { cardIdx, cardId, name, value: str });
-      setValues((prev) => ({ ...prev, [name]: str }));
-      queueFieldApply(name, str, cardIdx, cardId || null);
-    };
+  const handleFieldChange = useCallback((name, cardIdx, cardId) => (v) => {
+    userOverriddenRef.current.add(name);
+    preservedRef.current.add(name);
+    const str = v != null ? String(v) : '';
+    setValues((prev) => ({ ...prev, [name]: str }));
+    queueFieldApply(name, str, cardIdx, cardId || null);
   }, [queueFieldApply]);
 
-  const waitForSnapshotCardCount = useCallback((targetCount, timeoutMs = 12000) => {
-    return new Promise((resolve, reject) => {
-      const startedAt = Date.now();
-      function check() {
-        const count = snapshotRef.current?.cards?.length || 0;
-        if (count >= targetCount) {
-          resolve(snapshotRef.current);
-          return;
+  const handleCategoryFieldChange = useCallback((name, cardIdx, cardId) => (v) => {
+    userOverriddenRef.current.add(name);
+    preservedRef.current.add(name);
+    const str = v != null ? String(v) : '';
+    setValues((prev) => ({ ...prev, [name]: str }));
+    if (!str.trim()) return;
+    void (async () => {
+      try {
+        setFormError(null);
+        setUpdatingCategoryCards((prev) => new Set([...prev, cardIdx]));
+        const prevPageId = snapshotRef.current?.pageInstanceId || null;
+        const r = await nosposAgreementApplyFields([{ name, value: str, cardIndex: cardIdx, cardId: cardId || null }]);
+        if (!r?.ok) {
+          setFormError(r?.error || 'Could not update category on NosPos. Check the agreement tab is still open.');
+        } else {
+          await waitForSnapshotReload(prevPageId, { minCardCount: snapshotRef.current?.cards?.length || 0, actionLabel: 'Updating the category' });
         }
-        if (Date.now() - startedAt >= timeoutMs) {
-          reject(new Error('NoSpos did not add the next item card in time.'));
-          return;
-        }
-        setTimeout(check, 150);
+      } catch (e) {
+        setFormError(e?.message || 'Could not update category on NosPos.');
+      } finally {
+        setUpdatingCategoryCards((prev) => { const next = new Set(prev); next.delete(cardIdx); return next; });
       }
-      check();
-    });
-  }, []);
+    })();
+  }, [waitForSnapshotReload]);
 
-  const handleApplyAttributePrefillForCard = useCallback((cardIdx) => {
+  // ---------------------------------------------------------------------------
+  // Attribute prefill
+  // ---------------------------------------------------------------------------
+
+  const applyAttributePrefillForCard = useCallback((cardIdx) => {
     const card = snapshotRef.current?.cards?.[cardIdx];
     if (!card) return;
     const { otherFields } = partitionCardFields(card.fields);
     const toApply = [];
-    const skipped = [];
     for (const field of otherFields) {
-      if (!field?.name) continue;
-      if (userOverriddenFieldsRef.current.has(field.name)) {
-        skipped.push({ name: field.name, reason: 'user_overridden' });
-        continue;
-      }
+      if (!field?.name || userOverriddenRef.current.has(field.name)) continue;
       const prefillValue = attributePrefill[field.name];
-      if (prefillValue == null || String(prefillValue).trim() === '') {
-        skipped.push({ name: field.name, reason: 'no_attribute_prefill_match' });
-        continue;
-      }
+      if (prefillValue == null || !String(prefillValue).trim()) continue;
       const options = Array.isArray(field.options) ? field.options : [];
-      if (field.control === 'select' && options.length === 0) {
-        skipped.push({ name: field.name, reason: 'select_options_not_ready' });
-        continue;
-      }
+      if (field.control === 'select' && !options.length) continue;
       const resolved = resolveOptionValue(options, String(prefillValue));
-      // Select-style fields must map to a real option value before we try applying to NoSpos.
-      if (options.length > 0) {
-        const hasResolvedOption = options.some((o) => String(o.value ?? '') === String(resolved ?? ''));
-        if (!hasResolvedOption) {
-          skipped.push({ name: field.name, reason: 'prefill_not_in_options', requested: String(prefillValue) });
-          continue;
-        }
-      }
-      if (resolved == null || String(resolved).trim() === '') {
-        skipped.push({ name: field.name, reason: 'resolved_empty' });
-        continue;
-      }
+      if (options.length && !options.some((o) => String(o.value ?? '') === String(resolved ?? ''))) continue;
+      if (!resolved || !String(resolved).trim()) continue;
       toApply.push({ name: field.name, value: String(resolved) });
     }
-    if (NOSPOS_MIRROR_DEBUG) {
-      console.group('[CG Suite] Apply attribute prefill');
-      console.log('Card idx:', cardIdx);
-      console.log('Card title:', card.title || `Card ${cardIdx + 1}`);
-      console.log('Applying fields:', toApply);
-      console.log('Skipped fields:', skipped);
-      console.groupEnd();
-    }
-    if (toApply.length === 0) {
-      return;
-    }
-    setValues((prev) => {
-      const next = { ...prev };
-      for (const { name, value } of toApply) next[name] = value;
-      return next;
-    });
+    if (!toApply.length) return;
+    setValues((prev) => { const next = { ...prev }; for (const { name, value } of toApply) next[name] = value; return next; });
     for (const { name, value } of toApply) {
-      preservedFieldValuesRef.current.add(name);
+      preservedRef.current.add(name);
       queueFieldApply(name, value, cardIdx, card.cardId || null);
     }
     setFormError(null);
   }, [attributePrefill, queueFieldApply]);
 
-  const handleAiFillForCard = useCallback((cardIdx) => {
+  // ---------------------------------------------------------------------------
+  // AI fill
+  // ---------------------------------------------------------------------------
+
+  const aiFillForCard = useCallback((cardIdx) => {
     const card = snapshotRef.current?.cards?.[cardIdx];
-    if (!card) return;
-    const sourceRowIdx = getSourceRowIndexForCard(cardIdx);
-    const cardItem = sourceLines?.[sourceRowIdx] ?? null;
-    if (!cardItem) return;
+    const srcIdx = getSourceRowIndexForCard(cardIdx);
+    const cardItem = sourceLines?.[srcIdx] ?? null;
+    if (!card || !cardItem) return;
 
-    setAiManualFallbackCards((prev) => {
-      const next = new Set(prev);
-      next.delete(cardIdx);
-      return next;
-    });
-
+    setAiManualFallbackCards((prev) => { const next = new Set(prev); next.delete(cardIdx); return next; });
     const { otherFields } = partitionCardFields(card.fields);
-    const aiSkipped = [];
     const fieldsForAi = otherFields.filter((f) => {
       if (!f?.name || !f.required) return false;
-      const currentVal = valuesRef.current?.[f.name];
-      const isRequired = Boolean(f.required);
-      const isCurrentlyEmpty = currentVal == null || String(currentVal).trim() === '';
-      const userOverridden = userOverriddenFieldsRef.current.has(f.name);
-      const hasAttrPrefill = attributePrefill[f.name] != null && String(attributePrefill[f.name]).trim() !== '';
-
-      // Required and empty always gets sent to AI, even if manually touched or usually skipped.
-      if (isRequired && isCurrentlyEmpty) return true;
-
-      if (userOverridden) {
-        aiSkipped.push({ name: f.name, reason: 'user_overridden' });
-        return false;
-      }
-      if (shouldSkipAiFill(f)) {
-        aiSkipped.push({ name: f.name, reason: 'skip_rule' });
-        return false;
-      }
-      if (hasAttrPrefill) {
-        aiSkipped.push({ name: f.name, reason: 'handled_by_attribute_prefill' });
-        return false;
-      }
-      if (!isCurrentlyEmpty) {
-        aiSkipped.push({ name: f.name, reason: 'already_has_value' });
-        return false;
-      }
-      return true;
+      const empty = !String(valuesRef.current?.[f.name] ?? '').trim();
+      if (f.required && empty) return true;
+      if (userOverriddenRef.current.has(f.name)) return false;
+      if (shouldSkipAiFill(f)) return false;
+      if (attributePrefill[f.name] != null && String(attributePrefill[f.name]).trim()) return false;
+      return empty;
     });
-    if (NOSPOS_MIRROR_DEBUG) {
-      console.group('[CG Suite] Fill out using AI');
-      console.log('Card idx:', cardIdx);
-      console.log('Card title:', card.title || `Card ${cardIdx + 1}`);
-      console.log('Fields sent to AI:', fieldsForAi.map((f) => ({ name: f.name, label: f.label || '' })));
-      console.log('Fields skipped:', aiSkipped);
-      console.groupEnd();
-    }
-    if (fieldsForAi.length === 0) {
-      setFormError(
-        'Nothing left for AI to suggest for required fields on this item. Fill any empty required fields manually.'
-      );
+
+    if (!fieldsForAi.length) {
+      setFormError('Nothing left for AI to suggest for required fields on this item. Fill any empty required fields manually.');
       setAiManualFallbackCards((prev) => new Set([...prev, cardIdx]));
       return;
     }
 
-    const fieldOptionsMap = Object.fromEntries(
-      fieldsForAi.map((f) => [f.name, f.options || []])
-    );
-    const itemSummary = summariseItemForAiPrompt(cardItem);
+    const fieldOptionsMap = Object.fromEntries(fieldsForAi.map((f) => [f.name, f.options || []]));
     setAiFillingCards((prev) => new Set([...prev, cardIdx]));
 
     suggestFieldValues({
-      item: itemSummary,
+      item: summariseItem(cardItem),
       fields: fieldsForAi.map((f) => ({
-        name: f.name,
-        label: f.label || '',
-        control: f.control || 'text',
-        options: (f.options || []).map((o) => ({
-          value: String(o.value ?? ''),
-          text: String(o.text ?? o.value ?? ''),
-        })),
+        name: f.name, label: f.label || '', control: f.control || 'text',
+        options: (f.options || []).map((o) => ({ value: String(o.value ?? ''), text: String(o.text ?? o.value ?? '') })),
       })),
     })
       .then((result) => {
-        const normalizedFields = normalizeAiFieldResponseKeys(result.fields, fieldsForAi);
+        const normalized = normalizeAiFieldResponseKeys(result.fields, fieldsForAi);
         const toApply = {};
-        for (const [fieldName, aiRaw] of Object.entries(normalizedFields)) {
-          if (userOverriddenFieldsRef.current.has(fieldName)) continue;
-          if (aiRaw == null || String(aiRaw).trim() === '') continue;
-          const opts = fieldOptionsMap[fieldName] || [];
-          const resolved = resolveOptionValue(opts, String(aiRaw));
-          if (!resolved || String(resolved).trim() === '') continue;
-          toApply[fieldName] = String(resolved);
+        for (const [fieldName, aiRaw] of Object.entries(normalized)) {
+          if (userOverriddenRef.current.has(fieldName) || !aiRaw || !String(aiRaw).trim()) continue;
+          const resolved = resolveOptionValue(fieldOptionsMap[fieldName] || [], String(aiRaw));
+          if (resolved && String(resolved).trim()) toApply[fieldName] = String(resolved);
         }
-        if (NOSPOS_MIRROR_DEBUG) {
-          console.group('[CG Suite] AI response');
-          console.log('Card idx:', cardIdx);
-          console.log('Raw response:', result);
-          console.log('Normalized response:', normalizedFields);
-          console.log('Applying AI fields:', toApply);
-          console.groupEnd();
-        }
-        if (Object.keys(toApply).length > 0) {
-          setValues((prev) => {
-            const next = { ...prev };
-            for (const [fieldName, resolved] of Object.entries(toApply)) {
-              next[fieldName] = resolved;
-            }
-            return next;
-          });
+        if (Object.keys(toApply).length) {
+          setValues((prev) => ({ ...prev, ...toApply }));
           setAiFilledFieldKeys((prev) => {
             const next = new Set(prev);
-            for (const fieldName of Object.keys(toApply)) {
-              next.add(buildCardFieldKey(cardIdx, fieldName));
-            }
+            for (const k of Object.keys(toApply)) next.add(buildCardFieldKey(cardIdx, k));
             return next;
           });
-          for (const [fieldName, resolved] of Object.entries(toApply)) {
-            preservedFieldValuesRef.current.add(fieldName);
-            queueFieldApply(fieldName, resolved, cardIdx, card.cardId || null);
+          for (const [k, v] of Object.entries(toApply)) {
+            preservedRef.current.add(k);
+            queueFieldApply(k, v, cardIdx, card.cardId || null);
           }
           setFormError(null);
-        } else if (fieldsForAi.length > 0) {
-          setFormError(
-            'AI did not return usable values for the empty fields. Please complete them manually — all fields below stay editable.'
-          );
+        } else if (fieldsForAi.length) {
+          setFormError('AI did not return usable values for the empty fields. Please complete them manually — all fields below stay editable.');
           setAiManualFallbackCards((prev) => new Set([...prev, cardIdx]));
         }
       })
       .catch((err) => {
         console.error('[CG Suite] AI fill failed', { cardIdx, error: err?.message });
-        setFormError(
-          `${err?.message || 'AI fill failed.'} You can fill every field manually below; nothing is locked.`
-        );
+        setFormError(`${err?.message || 'AI fill failed.'} You can fill every field manually below; nothing is locked.`);
         setAiManualFallbackCards((prev) => new Set([...prev, cardIdx]));
       })
       .finally(() => {
@@ -1245,138 +869,113 @@ export default function NosposAgreementMirrorModal({
       });
   }, [attributePrefill, queueFieldApply, sourceLines, getSourceRowIndexForCard]);
 
+  // ---------------------------------------------------------------------------
+  // Add item
+  // ---------------------------------------------------------------------------
+
   const handleAddItem = useCallback(async (rowIdx) => {
     if (!snapshot || busy || addingItem) return;
-    if (mirrorFirstLineOnly && rowIdx > 0) {
-      setFormError('Only the first line is used in this testing flow.');
+    if (mirrorFirstLineOnly && rowIdx > 0) { setFormError('Only the first line is used in this testing flow.'); return; }
+    if (!Number.isInteger(nextRowToAdd) || rowIdx !== nextRowToAdd) {
+      setFormError(Number.isInteger(nextRowToAdd) ? 'Add items to NoSpos in order from top to bottom.' : 'There are no more rows available to add in NoSpos.');
       return;
     }
     const currentCount = snapshot.cards?.length || 0;
-    const expectedRowIdx = nextRowToAdd;
-    if (!Number.isInteger(expectedRowIdx)) {
-      setFormError('There are no more rows available to add in NoSpos.');
-      return;
-    }
-    if (rowIdx !== expectedRowIdx) {
-      setFormError('Add items to NoSpos in order from top to bottom.');
-      return;
-    }
-    // Allow adding the next row even when a prior line still has missing required fields
-    // (e.g. in-store testing failed on that line). Park / OK still enforce full validation.
-
     setAddingItem(true);
     setAddingItemIndex(currentCount);
     setFormError(null);
-    void (async () => {
-      try {
-        await flushQueuedFieldApplies();
-        const currentPageInstanceId = snapshotRef.current?.pageInstanceId || null;
-        const addResult = await nosposAgreementAddItem();
-        if (!addResult?.ok) {
-          throw new Error(addResult?.error || 'Could not add the next NoSpos item.');
-        }
-        await waitForSnapshotReload(currentPageInstanceId, {
-          minCardCount: currentCount + 1,
-          actionLabel: 'Adding the next item',
-        });
-        const reloadedSnapshot = await waitForSnapshotCardCount(currentCount + 1);
-        const newCard = reloadedSnapshot?.cards?.[currentCount];
-        const markerField = resolveNosposMirrorItemDescriptionField(newCard);
-        const sourceItem = sourceLines?.[rowIdx] || null;
-        if (markerField?.name) {
-          const markerValue = appendNosposMirrorCgSyncMarker(markerField.value, sourceItem, rowIdx, requestId);
-          mirrorDebug('[CG Suite] Marking NoSpos card as synced', {
-            cardIdx: currentCount,
-            sourceRowIdx: rowIdx,
-            cardId: newCard?.cardId || null,
-            markerField: markerField.name,
-            markerValue,
-          });
-          const markerResult = await nosposAgreementApplyFields([{
-            name: markerField.name,
-            value: markerValue,
-            cardIndex: currentCount,
-            cardId: newCard?.cardId || null,
-          }]);
-          mirrorDebug('[CG Suite] Marker apply response', markerResult);
-        } else {
-          console.warn('[CG Suite] Could not find item description field for CG sync marker', { cardIdx: currentCount, sourceRowIdx: rowIdx });
-        }
-      } catch (err) {
-        setFormError(err?.message || 'Could not add the next NoSpos item.');
-      } finally {
-        setAddingItem(false);
-        setAddingItemIndex(null);
+    try {
+      await flushQueuedFieldApplies();
+      const prevPageId = snapshotRef.current?.pageInstanceId || null;
+      const addResult = await nosposAgreementAddItem();
+      if (!addResult?.ok) throw new Error(addResult?.error || 'Could not add the next NoSpos item.');
+      await waitForSnapshotReload(prevPageId, { minCardCount: currentCount + 1, actionLabel: 'Adding the next item' });
+      const reloaded = await waitForCardCount(currentCount + 1);
+      const newCard = reloaded?.cards?.[currentCount];
+      const markerField = resolveNosposMirrorItemDescriptionField(newCard);
+      const srcItem = sourceLines?.[rowIdx] || null;
+      if (markerField?.name) {
+        const markerValue = appendNosposMirrorCgSyncMarker(markerField.value, srcItem, rowIdx, requestId);
+        await nosposAgreementApplyFields([{ name: markerField.name, value: markerValue, cardIndex: currentCount, cardId: newCard?.cardId || null }]);
       }
-    })();
-  }, [
-    snapshot,
-    busy,
-    addingItem,
-    flushQueuedFieldApplies,
-    waitForSnapshotReload,
-    waitForSnapshotCardCount,
-    sourceLines,
-    requestId,
-    mirrorFirstLineOnly,
-    nextRowToAdd,
-  ]);
+    } catch (err) {
+      setFormError(err?.message || 'Could not add the next NoSpos item.');
+    } finally {
+      setAddingItem(false);
+      setAddingItemIndex(null);
+    }
+  }, [snapshot, busy, addingItem, flushQueuedFieldApplies, waitForSnapshotReload, waitForCardCount, sourceLines, requestId, mirrorFirstLineOnly, nextRowToAdd]);
+
+  // ---------------------------------------------------------------------------
+  // Auto-add selected item if missing
+  // ---------------------------------------------------------------------------
 
   useEffect(() => {
-    if (!open || !autoAddSelectedIfMissing) return;
-    if (!Number.isInteger(selectedIndex)) return;
-    if (busy || addingItem) return;
-    const selectedCardIdxForAutoAdd = rowToCardIndex.get(selectedIndex);
-    const alreadyAdded = Number.isInteger(selectedCardIdxForAutoAdd) && Boolean(snapshot?.cards?.[selectedCardIdxForAutoAdd]);
-    if (alreadyAdded) return;
-    const autoAddKey = `${snapshot?.pageInstanceId || 'page:unknown'}:${selectedIndex}`;
-    if (autoAddAttemptedRef.current.has(autoAddKey)) return;
-    autoAddAttemptedRef.current.add(autoAddKey);
+    if (!open || !autoAddSelectedIfMissing || !Number.isInteger(selectedIndex) || busy || addingItem) return;
+    const cardIdx = rowToCardIndex.get(selectedIndex);
+    if (Number.isInteger(cardIdx) && snapshot?.cards?.[cardIdx]) return;
+    const key = `${snapshot?.pageInstanceId || 'page:unknown'}:${selectedIndex}`;
+    if (autoAddAttemptedRef.current.has(key)) return;
+    autoAddAttemptedRef.current.add(key);
     handleAddItem(selectedIndex);
-  }, [
-    open,
-    autoAddSelectedIfMissing,
-    selectedIndex,
-    busy,
-    addingItem,
-    snapshot,
-    rowToCardIndex,
-    handleAddItem,
-  ]);
+  }, [open, autoAddSelectedIfMissing, selectedIndex, busy, addingItem, snapshot, rowToCardIndex, handleAddItem]);
 
-  const handleDismiss = useCallback(async () => {
-    if (busy) return;
-    try {
-      await flushQueuedFieldApplies();
-    } finally {
-      onClose?.();
-    }
-  }, [busy, flushQueuedFieldApplies, onClose]);
+  // ---------------------------------------------------------------------------
+  // Validation
+  // ---------------------------------------------------------------------------
 
-  const handleDoneWithItem = useCallback(async () => {
-    if (selectedIndex == null || busy) return;
-    setTouched(true);
-    setFormError(null);
-    const selectedCardIdxForDone = rowToCardIndex.get(selectedIndex);
-    const selectedCard = Number.isInteger(selectedCardIdxForDone)
-      ? (snapshotRef.current?.cards?.[selectedCardIdxForDone] || null)
-      : null;
-    if (!selectedCard) {
-      setFormError('Add this item to NoSpos first.');
-      return;
+  const hasUserOverride = useCallback((n) => userOverriddenRef.current.has(n), []);
+  const { allFields, validationErrors, getValidationErrorsForCard, getValidationErrorsForParking } =
+    useNosposMirrorValidation({ snapshot, values, hasUserOverride, getSourceRowIndexForCard, failedRowsForParking });
+
+  // ---------------------------------------------------------------------------
+  // Auto attribute prefill when category is ready
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    if (!open || !snapshot) return;
+    const cards = snapshot.cards || [];
+    const toPrefill = [];
+    for (let ci = 0; ci < cards.length; ci++) {
+      if (attrPrefillDoneRef.current.has(ci)) continue;
+      const card = cards[ci];
+      const { categoryFields } = partitionCardFields(card?.fields || []);
+      const reqCat = categoryFields.filter((f) => f.required);
+      const catReady = !reqCat.length || reqCat.every((f) => String(values[f.name] ?? (f.value ?? '')).trim());
+      if (!catReady) continue;
+      toPrefill.push(ci);
     }
-    const selectedErrors = getValidationErrorsForCard(selectedCardIdxForDone, valuesRef.current);
-    if (selectedErrors.size > 0) {
-      setFormError('Fill the required NoSpos fields for this item before continuing.');
-      return;
+    if (!toPrefill.length) return;
+    for (const ci of toPrefill) { attrPrefillDoneRef.current.add(ci); applyAttributePrefillForCard(ci); }
+    setPrefillStepVersion((v) => v + 1);
+  }, [open, snapshot, values, applyAttributePrefillForCard]);
+
+  // ---------------------------------------------------------------------------
+  // Auto AI fill when attribute prefill done and fields still missing
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    if (!open || !snapshot || busy || addingItem || aiFillingCards.size || applyingCards.size || updatingCategoryCards.size) return;
+    const cards = snapshot.cards || [];
+    for (let ci = 0; ci < cards.length; ci++) {
+      const card = cards[ci];
+      if (!card || !attrPrefillDoneRef.current.has(ci)) continue;
+      const { categoryFields } = partitionCardFields(card.fields || []);
+      const reqCat = categoryFields.filter((f) => f.required);
+      const catReady = !reqCat.length || reqCat.every((f) => String(values[f.name] ?? (f.value ?? '')).trim());
+      if (!catReady) continue;
+      if (!getValidationErrorsForCard(ci, values).size) { autoAiRequestedRef.current.delete(`${snapshot.pageInstanceId || 'page:unknown'}::${card.cardId || `idx:${ci}`}`); continue; }
+      const aiKey = `${snapshot.pageInstanceId || 'page:unknown'}::${card.cardId || `idx:${ci}`}`;
+      if (autoAiRequestedRef.current.has(aiKey)) continue;
+      autoAiRequestedRef.current.add(aiKey);
+      aiFillForCard(ci);
+      break;
     }
-    try {
-      await flushQueuedFieldApplies();
-      onClose?.({ itemCompleted: true, itemIndex: selectedIndex });
-    } catch (err) {
-      setFormError(err?.message || 'Could not finish this NoSpos item yet.');
-    }
-  }, [selectedIndex, busy, getValidationErrorsForCard, flushQueuedFieldApplies, onClose, rowToCardIndex]);
+  }, [open, snapshot, values, busy, addingItem, aiFillingCards, applyingCards, updatingCategoryCards, getValidationErrorsForCard, aiFillForCard]);
+
+  // ---------------------------------------------------------------------------
+  // Park / submit
+  // ---------------------------------------------------------------------------
 
   const handleNext = async () => {
     if (!snapshot || busy) return;
@@ -1385,117 +984,56 @@ export default function NosposAgreementMirrorModal({
     setBusy(true);
     try {
       await flushQueuedFieldApplies();
-      const finalizedValues = { ...valuesRef.current };
-
-      const currentCardCount = snapshot.cards?.length || 0;
-      const expectedCardCount = mirrorFirstLineOnly
-        ? 1
-        : sourceLines.reduce(
-          (count, _line, rowIdx) => (failedRowsForParking.has(rowIdx) ? count : count + 1),
-          0
-        );
-      if (currentCardCount < expectedCardCount) {
-        throw new Error(
-          mirrorFirstLineOnly
-            ? 'Add the first line to NoSpos before parking.'
-            : 'Add each non-failed item to NoSpos before continuing.'
-        );
+      const finalValues = { ...valuesRef.current };
+      const expectedCount = mirrorFirstLineOnly ? 1 : sourceLines.reduce((n, _, i) => failedRowsForParking.has(i) ? n : n + 1, 0);
+      if ((snapshot.cards?.length || 0) < expectedCount) {
+        throw new Error(mirrorFirstLineOnly ? 'Add the first line to NoSpos before parking.' : 'Add each non-failed item to NoSpos before continuing.');
+      }
+      const finalErrors = getValidationErrorsForParking(finalValues);
+      if (finalErrors.size > 0) {
+        const labels = allFields.filter((f) => finalErrors.has(f.name)).slice(0, 4).map((f) => f.label || f.name);
+        throw new Error(`Please fill all required fields before continuing: ${labels.join(', ')}${finalErrors.size > 4 ? '…' : ''}`);
       }
 
-      const finalValidationErrors = getValidationErrorsForParking(finalizedValues);
-      if (finalValidationErrors.size > 0) {
-        const missingLabels = allFields
-          .filter((f) => finalValidationErrors.has(f.name))
-          .slice(0, 4)
-          .map((f) => f.label || f.name);
-        const suffix = finalValidationErrors.size > 4 ? '…' : '';
-        throw new Error(
-          `Please fill all required fields before continuing: ${missingLabels.join(', ')}${suffix}`
-        );
-      }
-
+      // Build field list
+      const snapshotFieldMap = new Map();
       const fieldsInOrder = [];
-      const currentSnapshotByKey = new Map();
-      for (let cardIdx = 0; cardIdx < (snapshot.cards || []).length; cardIdx++) {
-        const card = snapshot.cards[cardIdx];
-        const markerField = resolveNosposMirrorItemDescriptionField(card);
-        const markerFieldName = markerField?.name || null;
-        const sourceRowIdx = getSourceRowIndexForCard(cardIdx);
-        const sourceItem = sourceLines?.[sourceRowIdx] || null;
+      for (let ci = 0; ci < (snapshot.cards || []).length; ci++) {
+        const card = snapshot.cards[ci];
+        const srcIdx = getSourceRowIndexForCard(ci);
+        const srcItem = sourceLines?.[srcIdx] || null;
+        const markerFieldName = resolveNosposMirrorItemDescriptionField(card)?.name || null;
         for (const f of card.fields || []) {
           if (!f?.name) continue;
-          const rawValue = finalizedValues[f.name] != null ? String(finalizedValues[f.name]) : '';
-          const nextValue =
-            markerFieldName && f.name === markerFieldName
-              ? appendNosposMirrorCgSyncMarker(rawValue, sourceItem, sourceRowIdx, requestId)
-              : rawValue;
-          const descriptor = {
-            name: f.name,
-            value: nextValue,
-            cardIndex: cardIdx,
-            cardId: card.cardId || null,
-          };
-          fieldsInOrder.push(descriptor);
-          currentSnapshotByKey.set(
-            buildApplyFieldKey(f.name, cardIdx, card.cardId || null),
-            f.value != null ? String(f.value) : ''
-          );
+          const raw = finalValues[f.name] != null ? String(finalValues[f.name]) : '';
+          const next = markerFieldName && f.name === markerFieldName ? appendNosposMirrorCgSyncMarker(raw, srcItem, srcIdx, requestId) : raw;
+          fieldsInOrder.push({ name: f.name, value: next, cardIndex: ci, cardId: card.cardId || null });
+          snapshotFieldMap.set(buildApplyFieldKey(f.name, ci, card.cardId || null), f.value != null ? String(f.value) : '');
         }
       }
-      const fields = fieldsInOrder.filter((f) =>
-        (currentSnapshotByKey.get(buildApplyFieldKey(f.name, f.cardIndex, f.cardId || null)) ?? '') !== f.value
-      );
 
-      let pendingFields = [...fields];
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        if (pendingFields.length === 0) break;
-        const r1 = await nosposAgreementApplyFields(pendingFields);
-        if (!r1?.ok && !Array.isArray(r1?.missing) && !Array.isArray(r1?.failed)) {
-          throw new Error(r1?.error || 'Could not update the NosPos form. Is the agreement window still open?');
-        }
-        const missing = Array.isArray(r1?.missing) ? r1.missing : [];
-        const failed = Array.isArray(r1?.failed) ? r1.failed : [];
-        const retryKeys = new Set(
-          [...missing, ...failed]
-            .map((entry) => buildApplyFieldKey(entry?.name, entry?.cardIndex, entry?.cardId || null))
-            .filter((key) => key !== buildApplyFieldKey('', null, null))
-        );
-        if (retryKeys.size === 0) { pendingFields = []; break; }
-        console.warn(
-          `[CG Suite] NosPos apply attempt ${attempt} retrying ${retryKeys.size} control(s).`,
-          { missing, failed }
-        );
-        pendingFields = pendingFields.filter((f) =>
-          retryKeys.has(buildApplyFieldKey(f.name, f.cardIndex, f.cardId || null))
-        );
-        if (pendingFields.length > 0) await new Promise((r) => setTimeout(r, 80));
+      // Apply with retry
+      let pending = fieldsInOrder.filter((f) => (snapshotFieldMap.get(buildApplyFieldKey(f.name, f.cardIndex, f.cardId || null)) ?? '') !== f.value);
+      for (let attempt = 1; attempt <= 3 && pending.length; attempt++) {
+        const r = await nosposAgreementApplyFields(pending);
+        if (!r?.ok && !r?.missing?.length && !r?.failed?.length) throw new Error(r?.error || 'Could not update the NosPos form. Is the agreement window still open?');
+        const retryKeys = new Set([...(r?.missing || []), ...(r?.failed || [])].map((e) => buildApplyFieldKey(e?.name, e?.cardIndex, e?.cardId || null)).filter(Boolean));
+        pending = retryKeys.size ? pending.filter((f) => retryKeys.has(buildApplyFieldKey(f.name, f.cardIndex, f.cardId || null))) : [];
+        if (pending.length && attempt < 3) await new Promise((r) => setTimeout(r, 80));
       }
-      if (pendingFields.length > 0) {
-        const names = pendingFields.slice(0, 5).map((f) => f.name).join(', ');
-        const more = pendingFields.length > 5 ? ', …' : '';
-        throw new Error(`Could not copy all fields to NosPos (${pendingFields.length} field(s) still failing): ${names}${more}`);
-      }
+      if (pending.length) throw new Error(`Could not copy all fields to NosPos (${pending.length} still failing): ${pending.slice(0, 5).map((f) => f.name).join(', ')}${pending.length > 5 ? ', …' : ''}`);
 
       await new Promise((r) => setTimeout(r, 120));
 
-      let r2 = null;
+      let parkResult = null;
       for (let attempt = 1; attempt <= 3; attempt++) {
-        r2 = await nosposAgreementParkAgreement();
-        if (r2?.ok) break;
+        parkResult = await nosposAgreementParkAgreement();
+        if (parkResult?.ok) break;
         await new Promise((r) => setTimeout(r, 400));
       }
-      if (!r2?.ok) {
-        throw new Error(
-          r2?.error
-            || 'Could not park the agreement from NoSpos. Use Actions → Park Agreement on the NoSpos tab.'
-        );
-      }
-      if (NOSPOS_MIRROR_DEBUG) console.info('[CG Suite] NosPos Park Agreement triggered successfully.');
-      try {
-        await focusNosposAgreementTab();
-      } catch (focusErr) {
-        console.warn('[CG Suite] Could not focus NosPos tab:', focusErr?.message);
-      }
+      if (!parkResult?.ok) throw new Error(parkResult?.error || 'Could not park the agreement. Use Actions → Park Agreement on the NoSpos tab.');
+
+      try { await focusNosposAgreementTab(); } catch { /* non-fatal */ }
       onClose?.({ completed: true });
     } catch (e) {
       setFormError(e?.message || 'Something went wrong');
@@ -1504,169 +1042,77 @@ export default function NosposAgreementMirrorModal({
     }
   };
 
+  // ---------------------------------------------------------------------------
+  // Per-row done (single item mode)
+  // ---------------------------------------------------------------------------
+
+  const handleDoneWithItem = useCallback(async () => {
+    if (selectedIndex == null || busy) return;
+    setTouched(true);
+    setFormError(null);
+    const cardIdx = rowToCardIndex.get(selectedIndex);
+    if (!Number.isInteger(cardIdx) || !snapshotRef.current?.cards?.[cardIdx]) { setFormError('Add this item to NoSpos first.'); return; }
+    if (getValidationErrorsForCard(cardIdx, valuesRef.current).size) { setFormError('Fill the required NoSpos fields for this item before continuing.'); return; }
+    try { await flushQueuedFieldApplies(); onClose?.({ itemCompleted: true, itemIndex: selectedIndex }); }
+    catch (err) { setFormError(err?.message || 'Could not finish this NoSpos item yet.'); }
+  }, [selectedIndex, busy, getValidationErrorsForCard, flushQueuedFieldApplies, onClose, rowToCardIndex]);
+
+  const handleDismiss = useCallback(async () => {
+    if (busy) return;
+    try { await flushQueuedFieldApplies(); } finally { onClose?.(); }
+  }, [busy, flushQueuedFieldApplies, onClose]);
+
+  // ---------------------------------------------------------------------------
+  // Derived render values (all hooks must come before any early return)
+  // ---------------------------------------------------------------------------
+
   const cardFieldPartitions = useMemo(
     () => (snapshot?.cards || []).map((c) => partitionCardFields(c?.fields || [])),
     [snapshot]
   );
 
-  useEffect(() => {
-    if (!open || !snapshot) return;
-    const cards = snapshot.cards || [];
-    const autoPrefilled = [];
-    for (let cardIdx = 0; cardIdx < cards.length; cardIdx++) {
-      if (attrPrefillStepDoneRef.current.has(cardIdx)) continue;
-      const card = cards[cardIdx];
-      if (!card) continue;
-      const { categoryFields } = partitionCardFields(card.fields || []);
-      const requiredCategoryFieldsForAuto = categoryFields.filter((f) => f.required);
-      const categoryReady =
-        requiredCategoryFieldsForAuto.length === 0 ||
-        requiredCategoryFieldsForAuto.every((f) => {
-          const local = values[f.name];
-          const effective = (local != null ? String(local) : '').trim() !== ''
-            ? local
-            : (f.value != null ? String(f.value) : '');
-          return String(effective ?? '').trim() !== '';
-        });
-      if (!categoryReady) continue;
-      autoPrefilled.push(cardIdx);
-    }
-    if (autoPrefilled.length === 0) return;
-    autoPrefilled.forEach((cardIdx) => {
-      attrPrefillStepDoneRef.current.add(cardIdx);
-      handleApplyAttributePrefillForCard(cardIdx);
-    });
-    setPrefillStepVersion((v) => v + 1);
-  }, [open, snapshot, values, handleApplyAttributePrefillForCard]);
-
-  useEffect(() => {
-    if (!open || !snapshot) return;
-    if (busy || addingItem || applyingCards.size > 0 || updatingCategoryCards.size > 0 || aiFillingCards.size > 0) return;
-    const cards = snapshot.cards || [];
-    for (let cardIdx = 0; cardIdx < cards.length; cardIdx++) {
-      const card = cards[cardIdx];
-      if (!card) continue;
-      if (!attrPrefillStepDoneRef.current.has(cardIdx)) continue;
-
-      const { categoryFields } = partitionCardFields(card.fields || []);
-      const requiredCategoryFieldsForAuto = categoryFields.filter((f) => f.required);
-      const categoryReady =
-        requiredCategoryFieldsForAuto.length === 0 ||
-        requiredCategoryFieldsForAuto.every((f) => {
-          const local = values[f.name];
-          const effective = (local != null ? String(local) : '').trim() !== ''
-            ? local
-            : (f.value != null ? String(f.value) : '');
-          return String(effective ?? '').trim() !== '';
-        });
-      if (!categoryReady) continue;
-
-      const missing = getValidationErrorsForCard(cardIdx, values);
-      const aiKey = `${snapshot.pageInstanceId || 'page:unknown'}::${card.cardId || `idx:${cardIdx}`}`;
-      if (missing.size === 0) {
-        autoAiRequestedRef.current.delete(aiKey);
-        continue;
-      }
-      if (autoAiRequestedRef.current.has(aiKey)) continue;
-      autoAiRequestedRef.current.add(aiKey);
-      handleAiFillForCard(cardIdx);
-      break;
-    }
-  }, [
-    open,
-    snapshot,
-    values,
-    busy,
-    addingItem,
-    applyingCards,
-    updatingCategoryCards,
-    aiFillingCards,
-    getValidationErrorsForCard,
-    handleAiFillForCard,
-  ]);
-
   if (!open) return null;
 
   const showForm = snapshot && !loading;
-  const effectiveExpectedMirrorCardCount = mirrorFirstLineOnly ? 1 : expectedMirrorCardCount;
-  const effectiveMissingCardCount = Math.max(0, effectiveExpectedMirrorCardCount - (snapshot?.cards?.length || 0));
-  const addedCardCount = snapshot?.cards?.length || 0;
   const singleItemMode = Number.isInteger(selectedIndex);
   const selectedCardIdx = singleItemMode ? rowToCardIndex.get(selectedIndex) : null;
-  const selectedCard = singleItemMode && Number.isInteger(selectedCardIdx)
-    ? (snapshot?.cards?.[selectedCardIdx] || null)
-    : null;
-  const selectedValidationErrors = singleItemMode
-    ? (Number.isInteger(selectedCardIdx) ? getValidationErrorsForCard(selectedCardIdx, values) : new Set())
-    : new Set();
+  const selectedCard = singleItemMode && Number.isInteger(selectedCardIdx) ? snapshot?.cards?.[selectedCardIdx] || null : null;
+  const selectedValidationErrors = singleItemMode ? (Number.isInteger(selectedCardIdx) ? getValidationErrorsForCard(selectedCardIdx, values) : new Set()) : new Set();
   const activeValidationErrors = singleItemMode ? selectedValidationErrors : validationErrors;
-  const selectedRowBusy = singleItemMode && selectedIndex != null
-    ? (
-      (Number.isInteger(selectedCardIdx) && addingItemIndex === selectedCardIdx) ||
-      (Number.isInteger(selectedCardIdx) && aiFillingCards.has(selectedCardIdx)) ||
-      (Number.isInteger(selectedCardIdx) && applyingCards.has(selectedCardIdx)) ||
-      (Number.isInteger(selectedCardIdx) && updatingCategoryCards.has(selectedCardIdx))
-    )
-    : false;
-  const canDoneSelectedItem =
-    singleItemMode &&
-    selectedCard &&
-    !busy &&
-    !selectedRowBusy &&
-    !applyInFlightRef.current &&
-    selectedValidationErrors.size === 0;
-
-  // True whenever we're waiting on NosPos to reload its page (category applied or item added)
+  const addedCardCount = snapshot?.cards?.length || 0;
+  const effectiveExpectedCount = mirrorFirstLineOnly ? 1 : expectedMirrorCardCount;
+  const missingCardCount = Math.max(0, effectiveExpectedCount - addedCardCount);
+  const parkingErrors = getValidationErrorsForParking(values);
   const nosposReloading = updatingCategoryCards.size > 0 || addingItem;
 
-  const parkingValidationErrors = getValidationErrorsForParking(values);
-  const canProceed =
-    !busy &&
-    !addingItem &&
-    !aiFillingCards.size &&
-    !applyingCards.size &&
-    !updatingCategoryCards.size &&
-    showForm &&
-    snapshot?.hasNext !== false &&
-    parkingValidationErrors.size === 0 &&
-    effectiveMissingCardCount === 0;
+  const selectedRowBusy = singleItemMode && Number.isInteger(selectedCardIdx) && (
+    addingItemIndex === selectedCardIdx || aiFillingCards.has(selectedCardIdx) ||
+    applyingCards.has(selectedCardIdx) || updatingCategoryCards.has(selectedCardIdx)
+  );
+  const canDoneSelectedItem = singleItemMode && selectedCard && !busy && !selectedRowBusy && !applyInFlightRef.current && !selectedValidationErrors.size;
+  const canProceed = !busy && !addingItem && !aiFillingCards.size && !applyingCards.size && !updatingCategoryCards.size && showForm && snapshot?.hasNext !== false && !parkingErrors.size && !missingCardCount;
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
 
   return (
-    <div
-      className="fixed inset-0 z-[130] flex h-[100dvh] min-h-[100svh] w-full flex-col"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="nospos-mirror-title"
-    >
+    <div className="fixed inset-0 z-[130] flex h-[100dvh] min-h-[100svh] w-full flex-col" role="dialog" aria-modal="true" aria-labelledby="nospos-mirror-title">
       <style>{SPREADSHEET_TABLE_STYLES}</style>
-      <div
-        className="absolute inset-0 bg-black/30"
-        onClick={() => { if (!busy) void handleDismiss(); }}
-        aria-hidden="true"
-      />
-      <div
-        className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--ui-card)]"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {categoryAiBlocking && !nosposReloading ? (
-          <div
-            className="absolute inset-0 z-[50] flex flex-col items-center justify-center gap-3 bg-white/92"
-            role="status"
-            aria-live="polite"
-            aria-busy="true"
-          >
-            <div
-              className="h-10 w-10 animate-spin rounded-full border-[3px] border-[var(--brand-blue-alpha-15)] border-t-[var(--brand-blue)]"
-              aria-hidden
-            />
-            <p className="text-base font-bold text-[var(--brand-blue)]">
-              Calculating category with AI…
-            </p>
-            <p className="max-w-xs px-4 text-center text-xs text-[var(--text-muted)]">
-              Choosing category levels — please wait
-            </p>
+      <div className="cg-animate-modal-backdrop absolute inset-0 bg-black/30" onClick={() => { if (!busy) void handleDismiss(); }} aria-hidden="true" />
+
+      <div className="cg-animate-modal-panel relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--ui-card)]" onClick={(e) => e.stopPropagation()}>
+
+        {/* Category AI blocking overlay */}
+        {categoryAiBlocking && !nosposReloading && (
+          <div className="absolute inset-0 z-[50] flex flex-col items-center justify-center gap-3 bg-white/92" role="status" aria-live="polite" aria-busy="true">
+            <div className="h-10 w-10 animate-spin rounded-full border-[3px] border-[var(--brand-blue-alpha-15)] border-t-[var(--brand-blue)]" aria-hidden />
+            <p className="text-base font-bold text-[var(--brand-blue)]">Calculating category with AI…</p>
+            <p className="max-w-xs px-4 text-center text-xs text-[var(--text-muted)]">Choosing category levels — please wait</p>
           </div>
-        ) : null}
+        )}
+
+        {/* Header */}
         <header className="flex shrink-0 items-start justify-between gap-3 border-b border-white/15 bg-brand-blue px-5 py-4 text-white">
           <div className="min-w-0">
             <h2 id="nospos-mirror-title" className="text-xl font-bold leading-none tracking-tight">
@@ -1677,229 +1123,163 @@ export default function NosposAgreementMirrorModal({
                 ? 'Add this item to NoSpos if needed, then finish its category and required fields using AI help or manual entry.'
                 : mirrorFirstLineOnly
                   ? 'Only the first line is tested in NoSpos. Complete it below, then park the agreement. Other lines are shown for reference only.'
-                  : 'Each negotiation item appears as its own row here. Expand a row and add it to NoSpos when you want that item created; once added, category, AI, and manual field updates sync to that row.'}
+                  : 'Each negotiation item appears as its own row here. Expand a row and add it to NoSpos when you want that item created.'}
               {requestId != null ? ` Request ${requestId}.` : ''}
             </p>
           </div>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => { void handleDismiss(); }}
-            className="shrink-0 rounded-xl border border-white/20 p-2 text-white transition hover:bg-white/15 disabled:opacity-50"
-            aria-label="Close"
-          >
+          <button type="button" disabled={busy} onClick={() => void handleDismiss()} className="shrink-0 rounded-xl border border-white/20 p-2 text-white transition hover:bg-white/15 disabled:opacity-50" aria-label="Close">
             <span className="material-symbols-outlined text-xl leading-none">close</span>
           </button>
         </header>
 
-        {/* Outer clips height; inner scrolls. Overlay is a sibling of the scroller so it stays
-            fixed over the visible viewport instead of scrolling away with the content. */}
+        {/* Scrollable body + overlays */}
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-          {nosposReloading ? (
-            <div
-              className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-white/90"
-              role="status"
-              aria-live="polite"
-            >
-              <div
-                className="h-8 w-8 animate-spin rounded-full border-[3px] border-[var(--brand-blue-alpha-15)] border-t-[var(--brand-blue)]"
-                aria-hidden
-              />
-              <p className="text-sm font-bold text-[var(--brand-blue)]">
-                {addingItem ? 'Adding item on NoSpos…' : 'Waiting for NoSpos to update…'}
-              </p>
-              <p className="text-xs text-[var(--text-muted)]">
-                NosPos is reloading the items page
-              </p>
-            </div>
-          ) : null}
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-          {showForm ? (
-            <div className="px-4 py-4">
-              {!singleItemMode && (effectiveMissingCardCount > 0 || (touched && parkingValidationErrors.size > 0)) && (
-                <div className="mb-4 rounded-[var(--radius)] border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
-                  {(touched && parkingValidationErrors.size > 0)
-                    ? 'Some lines still have missing required fields — you can add the next line anyway; fix everything before Park on NoSpos.'
-                    : mirrorFirstLineOnly
-                      ? 'Add the first line to NoSpos from the row above, then finish required fields.'
-                      : `Open the next item row and add it to NoSpos${effectiveMissingCardCount > 1 ? ` (${effectiveMissingCardCount} items still not added)` : ''}.`}
-                </div>
-              )}
-              {singleItemMode && !selectedCard ? (
-                <div className="mb-4 rounded-[var(--radius)] border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
-                  Add this line to NoSpos if needed, then finish the required fields before pressing OK.
-                </div>
-              ) : null}
-              {sourceLines.map((cardItem, rowIdx) => {
-                if (singleItemMode && rowIdx !== selectedIndex) return null;
-                const rowState = rowStateByIndex.get(rowIdx) || null;
-                const compactCardIdx = rowState?.cardIdx ?? rowToCardIndex.get(rowIdx);
-                const card = rowState?.card ?? (Number.isInteger(compactCardIdx) ? (snapshot.cards?.[compactCardIdx] || null) : null);
-                const { categoryFields, otherFields } = Number.isInteger(compactCardIdx)
-                  ? (cardFieldPartitions[compactCardIdx] || {
-                    categoryFields: [],
-                    coreFields: [],
-                    otherFields: [],
-                  })
-                  : {
-                    categoryFields: [],
-                    coreFields: [],
-                    otherFields: [],
-                  };
-                const requiredCategoryFields = categoryFields.filter((f) => f.required);
-                const requiredOtherFields = otherFields.filter((f) => f.required);
-                const isAdded = rowState?.isAdded ?? Boolean(card);
-                const isExpanded = expandedRows.has(rowIdx);
-                const canAddThisRow =
-                  showForm &&
-                  !isAdded &&
-                  rowIdx === nextRowToAdd &&
-                  !(mirrorFirstLineOnly && rowIdx > 0) &&
-                  validationErrors.size === 0 &&
-                  !busy &&
-                  !addingItem &&
-                  !aiFillingCards.size &&
-                  !applyingCards.size &&
-                  !updatingCategoryCards.size &&
-                  !applyInFlightRef.current &&
-                  snapshot?.hasNext !== false;
-                const rowBusy =
-                  (Number.isInteger(compactCardIdx) && addingItemIndex === compactCardIdx) ||
-                  (Number.isInteger(compactCardIdx) && aiFillingCards.has(compactCardIdx)) ||
-                  (Number.isInteger(compactCardIdx) && applyingCards.has(compactCardIdx)) ||
-                  (Number.isInteger(compactCardIdx) && updatingCategoryCards.has(compactCardIdx));
-                const categoryReloading = Number.isInteger(compactCardIdx) && updatingCategoryCards.has(compactCardIdx);
-                const hasRequiredCategoryComplete =
-                  requiredCategoryFields.length === 0 ||
-                  requiredCategoryFields.every((f) => {
-                    const v = values[f.name];
-                    return v != null && String(v).trim() !== '';
-                  });
-                const rowTitle = getSourceLineDisplayName(cardItem, card?.title || `Item ${rowIdx + 1}`);
-                const rowMeta = getSourceLineDisplayMeta(cardItem);
-                const rowAttributesSummary = getSourceLineAttributesSummary(cardItem);
-                const rowIsMarkedByCgSuite = Number.isInteger(compactCardIdx) && preexistingSyncedCards.has(compactCardIdx);
-                const aiRunningForRow = Number.isInteger(compactCardIdx) && aiFillingCards.has(compactCardIdx);
-                const rowHasMissingRequired = (card?.fields || []).some(
-                  (f) => f?.required && f?.name && activeValidationErrors.has(f.name)
-                );
-                const statusTone = mirrorFirstLineOnly && !isAdded && rowIdx > 0
-                  ? 'border-slate-300 bg-slate-100 text-slate-600'
-                  : Number.isInteger(compactCardIdx) && addingItemIndex === compactCardIdx
-                    ? 'border-amber-300 bg-amber-50 text-amber-800'
-                    : isAdded
-                      ? 'border-green-300 bg-green-50 text-green-800'
-                      : canAddThisRow
-                        ? 'border-blue-300 bg-blue-50 text-blue-800'
-                        : 'border-slate-300 bg-slate-100 text-slate-700';
-                const statusLabel = mirrorFirstLineOnly && !isAdded && rowIdx > 0
-                  ? 'Not in test'
-                  : Number.isInteger(compactCardIdx) && addingItemIndex === compactCardIdx
-                    ? 'Adding to NoSpos…'
-                    : rowIsMarkedByCgSuite
-                      ? 'Synced from NoSpos'
-                      : isAdded
-                        ? 'Added to NoSpos'
-                        : canAddThisRow
-                          ? 'Ready to add'
-                          : 'Waiting';
-
-                return (
-                  <NosposAgreementMirrorItemSection
-                    key={card?.cardId || cardItem?.id || `mirror-row-${rowIdx}`}
-                    rowIdx={rowIdx}
-                    cardItem={cardItem}
-                    card={card}
-                    compactCardIdx={compactCardIdx}
-                    requiredCategoryFields={requiredCategoryFields}
-                    requiredOtherFields={requiredOtherFields}
-                    isAdded={isAdded}
-                    isExpanded={isExpanded}
-                    canAddThisRow={canAddThisRow}
-                    rowBusy={rowBusy}
-                    categoryReloading={categoryReloading}
-                    hasRequiredCategoryComplete={hasRequiredCategoryComplete}
-                    rowTitle={rowTitle}
-                    rowMeta={rowMeta}
-                    rowAttributesSummary={rowAttributesSummary}
-                    aiRunningForRow={aiRunningForRow}
-                    rowHasMissingRequired={rowHasMissingRequired}
-                    statusTone={statusTone}
-                    statusLabel={statusLabel}
-                    addedCardCount={addedCardCount}
-                    autoAddSelectedIfMissing={singleItemMode && autoAddSelectedIfMissing}
-                    touched={touched}
-                    activeValidationErrors={activeValidationErrors}
-                    values={values}
-                    notifyCategoryAiRunning={notifyCategoryAiRunning}
-                    setAiFilledFieldKeys={setAiFilledFieldKeys}
-                    aiFilledFieldKeys={aiFilledFieldKeys}
-                    aiManualFallbackCards={aiManualFallbackCards}
-                    getMirrorFieldControlId={getMirrorFieldControlId}
-                    handleCategoryFieldChange={handleCategoryFieldChange}
-                    handleFieldChange={handleFieldChange}
-                    MirrorField={MirrorField}
-                    prefillStepVersion={prefillStepVersion}
-                    onToggle={() => {
-                      setExpandedRows((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(rowIdx)) next.delete(rowIdx);
-                        else next.add(rowIdx);
-                        return next;
-                      });
-                    }}
-                  />
-                );
-              })}
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
-              <div
-                className="mb-4 h-9 w-9 animate-spin rounded-full border-2 border-[var(--brand-blue-alpha-15)] border-t-[var(--brand-blue)]"
-                aria-hidden
-              />
-              <p className="text-sm font-bold text-[var(--brand-blue)]">
-                {waitExpired ? 'Items form not detected yet' : 'Waiting for NosPos items form…'}
-              </p>
-              <p className="mt-2 max-w-sm text-xs font-medium leading-relaxed text-[var(--text-muted)]">
-                {waitExpired
-                  ? 'Restore the minimized NosPos window and complete earlier steps, or close and try Park / Open in NoSpos again.'
-                  : 'Finish any NosPos steps before the items page; this panel fills in automatically.'}
-              </p>
-            </div>
+          {nosposReloading && (
+            <SpinnerOverlay
+              className="bg-white/90 z-20"
+              message={addingItem ? 'Adding item on NoSpos…' : 'Waiting for NoSpos to update…'}
+              sub="NosPos is reloading the items page"
+            />
           )}
+
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            {showForm ? (
+              <div className="px-4 py-4">
+                {/* Banner */}
+                {!singleItemMode && (missingCardCount > 0 || (touched && parkingErrors.size > 0)) && (
+                  <div className="mb-4 rounded-[var(--radius)] border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
+                    {touched && parkingErrors.size > 0
+                      ? 'Some lines still have missing required fields — you can add the next line anyway; fix everything before Park on NoSpos.'
+                      : mirrorFirstLineOnly
+                        ? 'Add the first line to NoSpos from the row above, then finish required fields.'
+                        : `Open the next item row and add it to NoSpos${missingCardCount > 1 ? ` (${missingCardCount} items still not added)` : ''}.`}
+                  </div>
+                )}
+                {singleItemMode && !selectedCard && (
+                  <div className="mb-4 rounded-[var(--radius)] border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
+                    Add this line to NoSpos if needed, then finish the required fields before pressing OK.
+                  </div>
+                )}
+
+                {/* Item rows */}
+                {sourceLines.map((cardItem, rowIdx) => {
+                  if (singleItemMode && rowIdx !== selectedIndex) return null;
+                  const rowState = rowStateByIndex.get(rowIdx) || null;
+                  const compactCardIdx = rowState?.cardIdx ?? rowToCardIndex.get(rowIdx);
+                  const card = rowState?.card ?? (Number.isInteger(compactCardIdx) ? snapshot.cards?.[compactCardIdx] || null : null);
+                  const { categoryFields, otherFields } = Number.isInteger(compactCardIdx)
+                    ? (cardFieldPartitions[compactCardIdx] || { categoryFields: [], coreFields: [], otherFields: [] })
+                    : { categoryFields: [], coreFields: [], otherFields: [] };
+
+                  const isAdded = rowState?.isAdded ?? Boolean(card);
+                  const isExpanded = expandedRows.has(rowIdx);
+                  const rowBusy = Number.isInteger(compactCardIdx) && (addingItemIndex === compactCardIdx || aiFillingCards.has(compactCardIdx) || applyingCards.has(compactCardIdx) || updatingCategoryCards.has(compactCardIdx));
+                  const canAddThisRow = showForm && !isAdded && rowIdx === nextRowToAdd && !(mirrorFirstLineOnly && rowIdx > 0) && !validationErrors.size && !busy && !addingItem && !aiFillingCards.size && !applyingCards.size && !updatingCategoryCards.size && !applyInFlightRef.current && snapshot?.hasNext !== false;
+
+                  const reqCat = categoryFields.filter((f) => f.required);
+                  const hasRequiredCategoryComplete = !reqCat.length || reqCat.every((f) => String(values[f.name] ?? '').trim());
+                  const rowIsMarkedByCgSuite = Number.isInteger(compactCardIdx) && preexistingSyncedCards.has(compactCardIdx);
+                  const rowHasMissingRequired = (card?.fields || []).some((f) => f?.required && f?.name && activeValidationErrors.has(f.name));
+
+                  const statusTone = mirrorFirstLineOnly && !isAdded && rowIdx > 0 ? 'border-slate-300 bg-slate-100 text-slate-600'
+                    : Number.isInteger(compactCardIdx) && addingItemIndex === compactCardIdx ? 'border-amber-300 bg-amber-50 text-amber-800'
+                    : isAdded ? 'border-green-300 bg-green-50 text-green-800'
+                    : canAddThisRow ? 'border-blue-300 bg-blue-50 text-blue-800'
+                    : 'border-slate-300 bg-slate-100 text-slate-700';
+                  const statusLabel = mirrorFirstLineOnly && !isAdded && rowIdx > 0 ? 'Not in test'
+                    : Number.isInteger(compactCardIdx) && addingItemIndex === compactCardIdx ? 'Adding to NoSpos…'
+                    : rowIsMarkedByCgSuite ? 'Synced from NoSpos'
+                    : isAdded ? 'Added to NoSpos'
+                    : canAddThisRow ? 'Ready to add'
+                    : 'Waiting';
+
+                  return (
+                    <NosposAgreementMirrorItemSection
+                      key={card?.cardId || cardItem?.id || `mirror-row-${rowIdx}`}
+                      rowIdx={rowIdx}
+                      cardItem={cardItem}
+                      card={card}
+                      compactCardIdx={compactCardIdx}
+                      requiredCategoryFields={reqCat}
+                      requiredOtherFields={otherFields.filter((f) => f.required)}
+                      isAdded={isAdded}
+                      isExpanded={isExpanded}
+                      canAddThisRow={canAddThisRow}
+                      rowBusy={rowBusy}
+                      categoryReloading={Number.isInteger(compactCardIdx) && updatingCategoryCards.has(compactCardIdx)}
+                      hasRequiredCategoryComplete={hasRequiredCategoryComplete}
+                      rowTitle={getItemDisplayName(cardItem, card?.title || `Item ${rowIdx + 1}`)}
+                      rowMeta={getItemDisplayMeta(cardItem)}
+                      rowAttributesSummary={getItemAttributesSummary(cardItem)}
+                      aiRunningForRow={Number.isInteger(compactCardIdx) && aiFillingCards.has(compactCardIdx)}
+                      rowHasMissingRequired={rowHasMissingRequired}
+                      statusTone={statusTone}
+                      statusLabel={statusLabel}
+                      addedCardCount={addedCardCount}
+                      autoAddSelectedIfMissing={singleItemMode && autoAddSelectedIfMissing}
+                      touched={touched}
+                      activeValidationErrors={activeValidationErrors}
+                      values={values}
+                      notifyCategoryAiRunning={notifyCategoryAiRunning}
+                      setAiFilledFieldKeys={setAiFilledFieldKeys}
+                      aiFilledFieldKeys={aiFilledFieldKeys}
+                      aiManualFallbackCards={aiManualFallbackCards}
+                      getMirrorFieldControlId={getMirrorFieldControlId}
+                      handleCategoryFieldChange={handleCategoryFieldChange}
+                      handleFieldChange={handleFieldChange}
+                      MirrorField={MirrorField}
+                      nosposMappings={nosposMappings}
+                      prefillStepVersion={prefillStepVersion}
+                      onToggle={() => setExpandedRows((prev) => {
+                        const next = new Set(prev);
+                        next.has(rowIdx) ? next.delete(rowIdx) : next.add(rowIdx);
+                        return next;
+                      })}
+                    />
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
+                <div className="mb-4 h-9 w-9 animate-spin rounded-full border-2 border-[var(--brand-blue-alpha-15)] border-t-[var(--brand-blue)]" aria-hidden />
+                <p className="text-sm font-bold text-[var(--brand-blue)]">
+                  {waitExpired ? 'Items form not detected yet' : 'Waiting for NosPos items form…'}
+                </p>
+                <p className="mt-2 max-w-sm text-xs font-medium leading-relaxed text-[var(--text-muted)]">
+                  {waitExpired
+                    ? 'Restore the minimized NosPos window and complete earlier steps, or close and try Park / Open in NoSpos again.'
+                    : 'Finish any NosPos steps before the items page; this panel fills in automatically.'}
+                </p>
+              </div>
+            )}
           </div>
         </div>
 
-        {formError ? (
+        {/* Error bar */}
+        {formError && (
           <div className="shrink-0 border-t border-red-200 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-800">
             {formError}
           </div>
-        ) : null}
+        )}
 
+        {/* Footer */}
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-[var(--ui-border)] bg-[var(--ui-card)] px-4 py-3">
           <button
-            type="button"
-            disabled={busy}
-            onClick={() => { void handleDismiss(); }}
+            type="button" disabled={busy} onClick={() => void handleDismiss()}
             className="rounded-[var(--radius)] border border-[var(--ui-border)] bg-white px-4 py-2.5 text-sm font-bold text-[var(--text-main)] hover:bg-[var(--ui-bg)] disabled:opacity-50"
           >
             {singleItemMode ? 'Cancel' : 'Close'}
           </button>
           {singleItemMode ? (
             <button
-              type="button"
-              disabled={!canDoneSelectedItem}
-              onClick={() => { void handleDoneWithItem(); }}
+              type="button" disabled={!canDoneSelectedItem} onClick={() => void handleDoneWithItem()}
               className="rounded-[var(--radius)] bg-brand-orange px-5 py-2.5 text-sm font-black uppercase tracking-wide text-brand-blue transition hover:bg-brand-orange-hover disabled:cursor-not-allowed disabled:opacity-50"
             >
               {busy ? 'Working…' : selectedRowBusy ? 'Syncing…' : 'OK'}
             </button>
           ) : (
             <button
-              type="button"
-              disabled={!canProceed}
-              onClick={handleNext}
+              type="button" disabled={!canProceed} onClick={handleNext}
               className="rounded-[var(--radius)] bg-brand-orange px-5 py-2.5 text-sm font-black uppercase tracking-wide text-brand-blue transition hover:bg-brand-orange-hover disabled:cursor-not-allowed disabled:opacity-50"
             >
               {busy ? 'Working…' : addingItem ? 'Adding item…' : 'Park on NoSpos'}

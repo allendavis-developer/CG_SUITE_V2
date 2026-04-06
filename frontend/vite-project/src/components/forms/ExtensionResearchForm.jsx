@@ -829,10 +829,13 @@ function ExtensionResearchForm({
     if (mode === 'modal') {
       const wrapperClass = containModalInParent
         ? 'flex h-full min-h-0 w-full flex-col'
-        : 'fixed inset-0 z-[100] flex items-start justify-center bg-black/40';
+        : 'fixed inset-0 z-[100] flex items-start justify-center';
       return (
         <div className={wrapperClass}>
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white">
+          {!containModalInParent && (
+            <div className="cg-animate-modal-backdrop absolute inset-0 bg-black/40" aria-hidden />
+          )}
+          <div className={`flex min-h-0 flex-1 flex-col overflow-hidden bg-white ${!containModalInParent ? 'relative z-10 cg-animate-modal-panel' : ''}`}>
             <header className="bg-brand-blue px-6 py-4 flex items-center justify-between text-white shrink-0">
               <div className="flex items-center gap-3">
                 <div className="bg-white/10 p-1.5 rounded">
@@ -892,10 +895,13 @@ function ExtensionResearchForm({
     if (mode === 'modal') {
       const wrapperClass = containModalInParent
         ? 'flex h-full min-h-0 w-full flex-col'
-        : 'fixed inset-0 z-[100] flex items-start justify-center bg-black/40';
+        : 'fixed inset-0 z-[100] flex items-start justify-center';
       return (
         <div className={wrapperClass}>
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white">
+          {!containModalInParent && (
+            <div className="cg-animate-modal-backdrop absolute inset-0 bg-black/40" aria-hidden />
+          )}
+          <div className={`flex min-h-0 flex-1 flex-col overflow-hidden bg-white ${!containModalInParent ? 'relative z-10 cg-animate-modal-panel' : ''}`}>
             <header className="bg-brand-blue px-6 py-4 flex items-center justify-between text-white shrink-0">
               <div className="flex items-center gap-3">
                 <div className="bg-white/10 p-1.5 rounded">

@@ -395,13 +395,18 @@ def compose_raw_data_for_request_item(item: RequestItem) -> dict | None:
     meta = item.line_metadata_json or {}
     snap = item.cex_line_snapshot_json
 
+    _META_PASSTHROUGH = (
+        "display_title", "display_subtitle", "rrpOffersSource", "authorisedOfferSlots",
+        "resolvedCategory", "categoryObject", "category",
+    )
+
     if snap:
         out = deepcopy(snap) if isinstance(snap, dict) else {}
         if ref is not None:
             out["referenceData"] = ref
         if ebay_blob:
             out["ebayResearchData"] = ebay_blob
-        for k in ("display_title", "display_subtitle", "rrpOffersSource", "authorisedOfferSlots"):
+        for k in _META_PASSTHROUGH:
             if meta.get(k) is not None:
                 out[k] = meta[k]
         return out if out else None
@@ -410,7 +415,7 @@ def compose_raw_data_for_request_item(item: RequestItem) -> dict | None:
         out = dict(ebay_blob)
         if ref is not None:
             out["referenceData"] = ref
-        for k in ("display_title", "display_subtitle", "rrpOffersSource", "authorisedOfferSlots"):
+        for k in _META_PASSTHROUGH:
             if meta.get(k) is not None:
                 out[k] = meta[k]
         return out if (out.get("listings") or ref or meta) else None
@@ -486,6 +491,23 @@ def sync_merged_raw_into_request_item(item: RequestItem, raw: dict | None) -> No
             meta["authorisedOfferSlots"] = cleaned
         elif slots is None:
             meta.pop("authorisedOfferSlots", None)
+    # Persist the category the user selected in the eBay research picker so it
+    # survives the backend normalisation round-trip and is restored on reopen.
+    resolved = raw.get("resolvedCategory")
+    if isinstance(resolved, dict) and resolved.get("name"):
+        meta["resolvedCategory"] = resolved
+    elif "resolvedCategory" in raw and raw["resolvedCategory"] is None:
+        meta.pop("resolvedCategory", None)
+    cat_obj = raw.get("categoryObject")
+    if isinstance(cat_obj, dict) and cat_obj.get("name"):
+        meta["categoryObject"] = cat_obj
+    elif "categoryObject" in raw and raw["categoryObject"] is None:
+        meta.pop("categoryObject", None)
+    cat_name = raw.get("category")
+    if cat_name and isinstance(cat_name, str) and cat_name.strip():
+        meta["category"] = cat_name.strip()
+    elif "category" in raw and not raw["category"]:
+        meta.pop("category", None)
     item.line_metadata_json = meta if meta else None
 
     ebay_src = None

@@ -46,6 +46,8 @@ urlpatterns = [
     path('api/customer-rule-settings/', v2.customer_rule_settings_view, name='customer_rule_settings'),
     path('api/customer-offer-rules/', v2.customer_offer_rules_view, name='customer_offer_rules'),
     path('api/customer-offer-rules/<str:customer_type>/', v2.customer_offer_rule_detail, name='customer_offer_rule_detail'),
+    path('api/nospos-category-mappings/', v2.nospos_category_mappings_view, name='nospos_category_mappings'),
+    path('api/nospos-category-mappings/<int:mapping_id>/', v2.nospos_category_mapping_detail, name='nospos_category_mapping_detail'),
     path('api/address-lookup/<str:postcode>/', v2.address_lookup, name='address_lookup'),
 
     # AI

@@ -625,13 +625,16 @@ const RepricingNegotiation = () => {
   const handleEbayResearchCompleteFromHeader = useCallback((data) => {
     if (!data) return;
     const searchTitle = data.searchTerm?.trim()?.slice(0, 200) || 'eBay Research Item';
+    const resolved = data.resolvedCategory?.id != null ? data.resolvedCategory : null;
+    const categoryObject = resolved ?? EBAY_TOP_LEVEL_CATEGORY;
+    const categoryName = categoryObject?.name ?? 'eBay';
     const customItem = {
       id: crypto.randomUUID?.() ?? `reprice-ebay-${Date.now()}`,
       title: searchTitle,
       subtitle: 'eBay Research',
       quantity: 1,
-      category: 'eBay',
-      categoryObject: EBAY_TOP_LEVEL_CATEGORY,
+      category: categoryName,
+      categoryObject,
       offers: [],
       cashOffers: [],
       voucherOffers: [],
@@ -1455,8 +1458,8 @@ const RepricingNegotiation = () => {
 
       {isBackgroundRepricingRunning && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-950/55 backdrop-blur-sm" />
-          <div className="relative w-full max-w-3xl max-h-[85vh] overflow-hidden rounded-3xl bg-white shadow-2xl border" style={{ borderColor: 'var(--brand-blue-alpha-15)' }}>
+          <div className="cg-animate-modal-backdrop absolute inset-0 bg-slate-950/55 backdrop-blur-sm" />
+          <div className="cg-animate-modal-panel relative z-10 w-full max-w-3xl max-h-[85vh] overflow-hidden rounded-3xl bg-white shadow-2xl border" style={{ borderColor: 'var(--brand-blue-alpha-15)' }}>
             <div className="px-6 py-5 border-b bg-brand-blue" style={{ borderColor: 'var(--brand-blue-alpha-15)' }}>
               <div className="flex items-start gap-4">
                 <span className="material-symbols-outlined text-brand-orange text-3xl animate-spin">progress_activity</span>
@@ -1533,9 +1536,9 @@ const RepricingNegotiation = () => {
       )}
 
       {unverifiedModal && (
-        <div className="fixed inset-0 z-[130] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setUnverifiedModal(null)} />
-          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden">
+        <div className="fixed inset-0 z-[130] relative flex items-center justify-center p-4">
+          <div className="cg-animate-modal-backdrop absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setUnverifiedModal(null)} />
+          <div className="cg-animate-modal-panel relative z-10 bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden">
             <div className="px-6 py-5 border-b" style={{ borderColor: 'var(--brand-blue-alpha-15)' }}>
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -1622,9 +1625,9 @@ const RepricingNegotiation = () => {
       )}
 
       {ambiguousBarcodeModal && (
-        <div className="fixed inset-0 z-[130] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={handleCloseAmbiguousBarcodeModal} />
-          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden">
+        <div className="fixed inset-0 z-[130] relative flex items-center justify-center p-4">
+          <div className="cg-animate-modal-backdrop absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={handleCloseAmbiguousBarcodeModal} />
+          <div className="cg-animate-modal-panel relative z-10 bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden">
             <div className="px-6 py-5 border-b" style={{ borderColor: 'var(--brand-blue-alpha-15)' }}>
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -2016,8 +2019,8 @@ const RepricingNegotiation = () => {
 
       {zeroSalePriceModal && (
         <div className="fixed inset-0 z-[140] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
-          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+          <div className="cg-animate-modal-backdrop absolute inset-0 bg-black/50 backdrop-blur-sm" />
+          <div className="cg-animate-modal-panel relative z-10 bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
             <div className="px-6 py-5 border-b" style={{ borderColor: 'var(--brand-blue-alpha-15)' }}>
               <p className="text-[11px] font-black uppercase tracking-wider text-amber-600">
                 Cannot Update Sale Price

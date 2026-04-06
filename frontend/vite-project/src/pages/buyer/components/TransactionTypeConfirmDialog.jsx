@@ -11,8 +11,9 @@ export default function TransactionTypeConfirmDialog({ pendingType, cartCount, o
   const isVoucher = pendingType === 'store_credit';
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl p-6 w-[500px] shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="cg-animate-modal-backdrop absolute inset-0 bg-black/50" aria-hidden />
+      <div className="cg-animate-modal-panel relative z-10 bg-white rounded-xl p-6 w-[500px] shadow-2xl">
         <div className="flex items-center gap-3 mb-4">
           <div className="bg-brand-orange/15 p-2 rounded-lg">
             <span className="material-symbols-outlined text-brand-orange-hover text-2xl">warning</span>

@@ -15,6 +15,7 @@ import { useProductAttributes } from '@/pages/buyer/hooks/useProductAttributes';
 import { fetchVariantPrices, updateRequestItemRawData } from '@/services/api';
 import { mapTransactionTypeToIntent } from '@/utils/transactionConstants';
 import { roundOfferPrice, roundSalePrice, toVoucherOfferPrice, formatOfferPrice } from '@/utils/helpers';
+import { buildPersistedEbayRawData } from '@/utils/researchPersistence';
 import { EBAY_TOP_LEVEL_CATEGORY } from '@/pages/buyer/constants';
 import {
   referenceDataWithNormalizedCexOffers,
@@ -355,10 +356,13 @@ const MainContent = ({ mode = 'buyer' }) => {
         data.searchTerm != null && String(data.searchTerm).trim() !== ''
           ? String(data.searchTerm).trim().slice(0, 200)
           : 'eBay Research Item';
+      const resolved = data.resolvedCategory?.id != null ? data.resolvedCategory : null;
+      const categoryObject = resolved ?? EBAY_TOP_LEVEL_CATEGORY;
+      const categoryName = categoryObject?.name ?? EBAY_TOP_LEVEL_CATEGORY.name;
       const customCartItem = {
         id: crypto.randomUUID?.() ?? `cart-${Date.now()}-${Math.random().toString(36).slice(2)}`,
         title: searchTitle, subtitle: filterSubtitle, quantity: 1,
-        category: EBAY_TOP_LEVEL_CATEGORY.name, categoryObject: EBAY_TOP_LEVEL_CATEGORY,
+        category: categoryName, categoryObject,
         offers: displayOffers, cashOffers, voucherOffers, ebayResearchData: data, isCustomEbayItem: true,
         variantId: null, request_item_id: null,
         ourSalePrice: data.stats?.suggestedPrice != null ? roundSalePrice(Number(data.stats.suggestedPrice)) : null,
@@ -379,7 +383,12 @@ const MainContent = ({ mode = 'buyer' }) => {
           addToCart(customCartItem, { showNotification });
         } else {
           const reqItemId = await createOrAppendRequestItem({
-            variantId: null, rawData: { ...data, cash_offers: cashOffers, voucher_offers: voucherOffers },
+            variantId: null,
+            rawData: buildPersistedEbayRawData(data, {
+              categoryObject,
+              cashOffers,
+              voucherOffers,
+            }),
             cashConvertersData: null, cashOffers, voucherOffers,
             selectedOfferId: customCartItem.selectedOfferId, manualOffer: customCartItem.manualOffer, ourSalePrice: customCartItem.ourSalePrice,
           });
@@ -484,7 +493,9 @@ const MainContent = ({ mode = 'buyer' }) => {
 
     if (selectedCartItem.request_item_id) {
       updateRequestItemRawData(selectedCartItem.request_item_id, {
-        raw_data: updatedResearchData,
+        raw_data: buildPersistedEbayRawData(updatedResearchData, {
+          categoryObject: selectedCartItem.categoryObject,
+        }),
       }).catch(() => {});
     }
   }, [selectedCartItem, updateCartItem, updateCartItemOffers, useVoucherOffers]);
@@ -565,7 +576,12 @@ const MainContent = ({ mode = 'buyer' }) => {
             .find((i) => i.id === itemId);
           if (cartItem?.request_item_id) {
             const payload = type === 'ebay'
-              ? { raw_data: cartItem.referenceData ? { ...data, referenceData: cartItem.referenceData } : data }
+              ? {
+                  raw_data: buildPersistedEbayRawData(data, {
+                    categoryObject: cartItem.categoryObject,
+                    referenceData: cartItem.referenceData,
+                  }),
+                }
               : { cash_converters_data: data };
             updateRequestItemRawData(cartItem.request_item_id, payload).catch(() => {});
           }
@@ -787,8 +803,9 @@ const MainContent = ({ mode = 'buyer' }) => {
       )}
 
       {showDuplicateDialog && pendingDuplicateItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-2xl p-7 w-full max-w-sm border border-gray-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="cg-animate-modal-backdrop absolute inset-0 bg-black/40" aria-hidden />
+          <div className="cg-animate-modal-panel relative z-10 bg-white rounded-2xl shadow-2xl p-7 w-full max-w-sm border border-gray-200">
             <div className="flex items-center gap-3 mb-4">
               <div className="bg-brand-orange/10 p-2 rounded-lg">
                 <span className="material-symbols-outlined text-brand-orange-hover text-xl">inventory_2</span>

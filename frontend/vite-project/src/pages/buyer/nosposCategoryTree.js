@@ -28,6 +28,34 @@ export function buildCategoryTree(options) {
   return root;
 }
 
+/**
+ * Try to match an item's DB category path against the nospos tree.
+ * Walks the tree from the root matching each segment case-insensitively.
+ * Returns the path array (using the tree's own key casing) if any levels
+ * matched, or null if the first segment doesn't match at root at all.
+ * A partial match (fewer segments than the path) is still returned so the
+ * caller can start AI from that point rather than from scratch.
+ */
+export function matchDbCategoryPathToNosposTree(tree, categoryPath) {
+  if (!tree || !Array.isArray(categoryPath) || categoryPath.length === 0) return null;
+
+  let node = tree;
+  const matchedPath = [];
+
+  for (const seg of categoryPath) {
+    const segLower = String(seg).trim().toLowerCase();
+    let found = null;
+    for (const key of node.children.keys()) {
+      if (key.toLowerCase() === segLower) { found = key; break; }
+    }
+    if (!found) break;
+    matchedPath.push(found);
+    node = node.children.get(found);
+  }
+
+  return matchedPath.length > 0 ? matchedPath : null;
+}
+
 /** Segment path from root to the leaf with this option value. */
 export function findPathForCategoryValue(root, value) {
   if (value === '' || value == null) return [];

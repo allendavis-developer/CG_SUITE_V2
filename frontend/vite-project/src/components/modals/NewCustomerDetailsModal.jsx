@@ -48,8 +48,8 @@ export default function NewCustomerDetailsModal({ open, onClose, onSubmit, initi
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !isSubmitting && onClose()} />
-      <div className="relative bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden">
+      <div className="cg-animate-modal-backdrop absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !isSubmitting && onClose()} />
+      <div className="cg-animate-modal-panel relative z-10 bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden">
         <header className="bg-brand-blue px-6 py-5 flex items-center gap-3 text-white">
           <span className="material-symbols-outlined text-brand-orange text-2xl">person_add</span>
           <div>
