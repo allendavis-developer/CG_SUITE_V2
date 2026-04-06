@@ -154,6 +154,70 @@ async function sendMessageToTabWithRetries(tabId, message, retries, delayMs) {
   throw lastErr || new Error('Could not reach target tab');
 }
 
+async function scrapeNosposGridMessage(tabId, messageType) {
+  try {
+    const response = await sendMessageToTabWithRetries(tabId, { type: messageType }, 12, 400);
+    const rows = Array.isArray(response?.rows) ? response.rows : [];
+    if (response?.ok === false && rows.length === 0) {
+      return { ok: false, rows: [], error: response?.error || 'Scrape returned no rows' };
+    }
+    return { ok: true, rows };
+  } catch (e) {
+    return { ok: false, rows: [], error: e?.message || 'Scrape failed' };
+  }
+}
+
+async function scrapeNosposStockCategoryTab(tabId) {
+  return scrapeNosposGridMessage(tabId, 'SCRAPE_NOSPOS_STOCK_CATEGORY');
+}
+
+async function scrapeNosposStockCategoryModifyTab(tabId) {
+  try {
+    const response = await sendMessageToTabWithRetries(
+      tabId,
+      { type: 'SCRAPE_NOSPOS_STOCK_CATEGORY_MODIFY' },
+      12,
+      400
+    );
+    const rows = Array.isArray(response?.rows) ? response.rows : [];
+    let buybackRatePercent = null;
+    if (response?.buybackRatePercent != null && response.buybackRatePercent !== '') {
+      const n = Number(response.buybackRatePercent);
+      buybackRatePercent = Number.isFinite(n) ? n : null;
+    }
+    let offerRatePercent = null;
+    if (response?.offerRatePercent != null && response.offerRatePercent !== '') {
+      const n = Number(response.offerRatePercent);
+      offerRatePercent = Number.isFinite(n) ? n : null;
+    }
+    const hasData = rows.length > 0 || buybackRatePercent != null || offerRatePercent != null;
+    if (response?.ok === false && !hasData) {
+      return {
+        ok: false,
+        rows: [],
+        buybackRatePercent: null,
+        offerRatePercent: null,
+        error: response?.error || 'Scrape returned no data',
+      };
+    }
+    return {
+      ok: true,
+      rows,
+      buybackRatePercent,
+      offerRatePercent,
+      error: response?.error || null,
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      rows: [],
+      buybackRatePercent: null,
+      offerRatePercent: null,
+      error: e?.message || 'Scrape failed',
+    };
+  }
+}
+
 async function clearNosposPendingEntries(tabId) {
   const pending = await getPending();
   let changed = false;
@@ -377,12 +441,13 @@ importScripts('tasks/jewellery-scrap-prices-tab.js');
 
 // ── CeX nav scrape (super-categories) — see cex-scrape/ in repo ──────────────
 
-function waitForTabLoadComplete(tabId, timeoutMs) {
+function waitForTabLoadComplete(tabId, timeoutMs, timeoutErrorMessage) {
   const ms = timeoutMs == null ? 90000 : timeoutMs;
+  const timeoutMsg = timeoutErrorMessage || 'CeX tab load timed out';
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       chrome.tabs.onUpdated.removeListener(onUpdated);
-      reject(new Error('CeX tab load timed out'));
+      reject(new Error(timeoutMsg));
     }, ms);
 
     function onUpdated(updatedTabId, info) {
@@ -403,6 +468,48 @@ function waitForTabLoadComplete(tabId, timeoutMs) {
       }
     }).catch(() => {});
   });
+}
+
+importScripts('tasks/nospos-stock-category-pagination.js');
+
+/**
+ * Shared tail for Data-page imports: clear pending, run `work(tabId)` after NOSPOS_PAGE_READY,
+ * then post `{ response }` or `{ error }` to the app tab (same contract as category import).
+ */
+async function runNosposDataImportAfterLogin({ tabId, requestId, entry, failureMessageDefault, work }) {
+  const pending = await getPending();
+  delete pending[requestId];
+  await setPending(pending);
+  try {
+    const response = await work(tabId);
+    if (entry.appTabId != null) {
+      chrome.tabs
+        .sendMessage(entry.appTabId, {
+          type: 'EXTENSION_RESPONSE_TO_PAGE',
+          requestId,
+          response,
+        })
+        .catch(() => {});
+      await focusAppTab(entry.appTabId);
+    }
+  } catch (e) {
+    const msg = e?.message || failureMessageDefault || 'NoSpos import failed.';
+    console.error('[CG Suite] runNosposDataImportAfterLogin', { requestId, error: msg });
+    if (entry.appTabId != null) {
+      chrome.tabs
+        .sendMessage(entry.appTabId, {
+          type: 'EXTENSION_RESPONSE_TO_PAGE',
+          requestId,
+          error: msg,
+        })
+        .catch(() => {});
+      await focusAppTab(entry.appTabId);
+    }
+  } finally {
+    if (tabId != null) {
+      await chrome.tabs.remove(tabId).catch(() => {});
+    }
+  }
 }
 
 async function notifyAppExtensionResponse(appTabId, requestId, response) {
@@ -863,7 +970,11 @@ async function handleBridgeForward(message, sender) {
         entry.appTabId === appTabId &&
         entry.type !== 'openNospos' &&
         entry.type !== 'openNosposCustomerIntake' &&
-        entry.type !== 'openNosposCustomerIntakeWaiting'
+        entry.type !== 'openNosposCustomerIntakeWaiting' &&
+        entry.type !== 'openNosposSiteOnly' &&
+        entry.type !== 'openNosposSiteForFields' &&
+        entry.type !== 'openNosposSiteForCategoryFields' &&
+        entry.type !== 'openNosposSiteForCategoryFieldsBulk'
       ) {
         const listingTabId = entry.listingTabId;
         delete pending[reqId];
@@ -1139,6 +1250,101 @@ async function handleBridgeForward(message, sender) {
     await setPending(pending);
 
     console.log('[CG Suite] openNosposForCustomerIntake – waiting for user to land on nospos.com', { requestId, listingTabId: newTab.id });
+    return { ok: true };
+  }
+
+  // Open nospos.com only: same session / forced-login checks as customer intake; after NOSPOS_PAGE_READY,
+  // navigate to /stock/category (no /customers flow).
+  if (payload.action === 'openNosposSiteOnly') {
+    const url = 'https://nospos.com';
+    const newTab = await chrome.tabs.create({ url });
+    await putTabInYellowGroup(newTab.id);
+
+    const pending = await getPending();
+    pending[requestId] = { appTabId: appTabId || null, listingTabId: newTab.id, type: 'openNosposSiteOnly' };
+    await setPending(pending);
+
+    console.log('[CG Suite] openNosposSiteOnly – waiting for user to land on nospos.com', { requestId, listingTabId: newTab.id });
+    return { ok: true };
+  }
+
+  if (payload.action === 'openNosposSiteForFields') {
+    const url = 'https://nospos.com';
+    const newTab = await chrome.tabs.create({ url });
+    await putTabInYellowGroup(newTab.id);
+
+    const pending = await getPending();
+    pending[requestId] = {
+      appTabId: appTabId || null,
+      listingTabId: newTab.id,
+      type: 'openNosposSiteForFields',
+    };
+    await setPending(pending);
+
+    console.log('[CG Suite] openNosposSiteForFields – waiting for user to land on nospos.com', {
+      requestId,
+      listingTabId: newTab.id,
+    });
+    return { ok: true };
+  }
+
+  if (payload.action === 'openNosposSiteForCategoryFields') {
+    const nosposCategoryId = Math.floor(Number(payload.nosposCategoryId));
+    if (!Number.isFinite(nosposCategoryId) || nosposCategoryId <= 0) {
+      return { ok: false, error: 'Invalid nosposCategoryId' };
+    }
+    const url = 'https://nospos.com';
+    const newTab = await chrome.tabs.create({ url });
+    await putTabInYellowGroup(newTab.id);
+
+    const pending = await getPending();
+    pending[requestId] = {
+      appTabId: appTabId || null,
+      listingTabId: newTab.id,
+      type: 'openNosposSiteForCategoryFields',
+      nosposCategoryId,
+    };
+    await setPending(pending);
+
+    console.log('[CG Suite] openNosposSiteForCategoryFields – waiting for user to land on nospos.com', {
+      requestId,
+      listingTabId: newTab.id,
+      nosposCategoryId,
+    });
+    return { ok: true };
+  }
+
+  if (payload.action === 'openNosposSiteForCategoryFieldsBulk') {
+    const rawIds = Array.isArray(payload.nosposCategoryIds) ? payload.nosposCategoryIds : [];
+    const nosposCategoryIds = [];
+    const seen = new Set();
+    for (const x of rawIds) {
+      const n = Math.floor(Number(x));
+      if (!Number.isFinite(n) || n <= 0 || seen.has(n)) continue;
+      seen.add(n);
+      nosposCategoryIds.push(n);
+    }
+    if (nosposCategoryIds.length === 0) {
+      return { ok: false, error: 'nosposCategoryIds must be a non-empty array of positive integers' };
+    }
+    const url = 'https://nospos.com';
+    const newTab = await chrome.tabs.create({ url });
+    await putTabInYellowGroup(newTab.id);
+
+    const pending = await getPending();
+    pending[requestId] = {
+      appTabId: appTabId || null,
+      listingTabId: newTab.id,
+      type: 'openNosposSiteForCategoryFieldsBulk',
+      nosposCategoryIds,
+    };
+    await setPending(pending);
+
+    console.log('[CG Suite] openNosposSiteForCategoryFieldsBulk – waiting for nospos.com', {
+      requestId,
+      listingTabId: newTab.id,
+      count: nosposCategoryIds.length,
+    });
     return { ok: true };
   }
 
@@ -1422,6 +1628,222 @@ async function handleNosposPageReady(message, sender) {
       console.log('[CG Suite] NOSPOS_PAGE_READY – re-navigating to /customers after post-login redirect', { requestId });
       return;
     }
+    if (entry.type === 'openNosposSiteOnly') {
+      await runNosposDataImportAfterLogin({
+        tabId,
+        requestId,
+        entry,
+        failureMessageDefault: 'NoSpos category pages did not finish loading.',
+        work: async (tid) => {
+          const pagesEnd = NOSPOS_STOCK_CATEGORY_PAGINATION.endPage;
+          const scrapedByNosposId = new Map();
+          await runNosposStockCategoryPageLoop(tid, {
+            loadTimeoutMs: 90000,
+            onPage: (page, url) => {
+              console.log('[CG Suite] openNosposSiteOnly category page', { requestId, page, url });
+            },
+            afterPageLoad: async () => {
+              const pack = await scrapeNosposStockCategoryTab(tid);
+              if (!pack.ok) {
+                console.warn('[CG Suite] openNosposSiteOnly scrape', pack.error);
+              }
+              for (const row of pack.rows || []) {
+                if (row && row.nosposId != null) scrapedByNosposId.set(row.nosposId, row);
+              }
+            },
+          });
+          const categories = Array.from(scrapedByNosposId.values());
+          console.log('[CG Suite] NOSPOS_PAGE_READY – openNosposSiteOnly: done', {
+            requestId,
+            rows: categories.length,
+          });
+          return {
+            ok: true,
+            pagesVisited: pagesEnd - NOSPOS_STOCK_CATEGORY_PAGINATION.startPage + 1,
+            lastUrl: buildNosposStockCategoryIndexUrl(pagesEnd),
+            categories,
+          };
+        },
+      });
+      return;
+    }
+    if (entry.type === 'openNosposSiteForFields') {
+      await runNosposDataImportAfterLogin({
+        tabId,
+        requestId,
+        entry,
+        failureMessageDefault: 'NoSpos category modify page did not finish loading.',
+        work: async (tid) => {
+          const targetUrl = buildNosposStockCategoryModifyUrl(1);
+          await chrome.tabs.update(tid, { url: targetUrl });
+          await waitForTabLoadComplete(
+            tid,
+            90000,
+            'NoSpos category modify page did not finish loading in time.'
+          );
+          const pack = await scrapeNosposStockCategoryModifyTab(tid);
+          if (!pack.ok) {
+            console.warn('[CG Suite] openNosposSiteForFields scrape', pack.error);
+          }
+          const byFieldId = new Map();
+          for (const row of pack.rows || []) {
+            if (row && row.nosposFieldId != null) byFieldId.set(row.nosposFieldId, row);
+          }
+          const fields = Array.from(byFieldId.values());
+          const buybackRatePercent =
+            pack.buybackRatePercent != null && Number.isFinite(Number(pack.buybackRatePercent))
+              ? Number(pack.buybackRatePercent)
+              : null;
+          const offerRatePercent =
+            pack.offerRatePercent != null && Number.isFinite(Number(pack.offerRatePercent))
+              ? Number(pack.offerRatePercent)
+              : null;
+          console.log('[CG Suite] NOSPOS_PAGE_READY – openNosposSiteForFields: done', {
+            requestId,
+            rows: fields.length,
+            buybackRatePercent,
+            offerRatePercent,
+          });
+          return {
+            ok: true,
+            pagesVisited: 1,
+            lastUrl: targetUrl,
+            fields,
+            buybackRatePercent,
+            offerRatePercent,
+          };
+        },
+      });
+      return;
+    }
+    if (entry.type === 'openNosposSiteForCategoryFields') {
+      await runNosposDataImportAfterLogin({
+        tabId,
+        requestId,
+        entry,
+        failureMessageDefault: 'NoSpos category modify page did not finish loading.',
+        work: async (tid) => {
+          const targetUrl = buildNosposStockCategoryModifyUrl(entry.nosposCategoryId);
+          await chrome.tabs.update(tid, { url: targetUrl });
+          await waitForTabLoadComplete(
+            tid,
+            90000,
+            'NoSpos category modify page did not finish loading in time.'
+          );
+          const pack = await scrapeNosposStockCategoryModifyTab(tid);
+          if (!pack.ok) {
+            console.warn('[CG Suite] openNosposSiteForCategoryFields scrape', pack.error);
+          }
+          const byFieldId = new Map();
+          for (const row of pack.rows || []) {
+            if (row && row.nosposFieldId != null) byFieldId.set(row.nosposFieldId, row);
+          }
+          const fields = Array.from(byFieldId.values());
+          const buybackRatePercent =
+            pack.buybackRatePercent != null && Number.isFinite(Number(pack.buybackRatePercent))
+              ? Number(pack.buybackRatePercent)
+              : null;
+          const offerRatePercent =
+            pack.offerRatePercent != null && Number.isFinite(Number(pack.offerRatePercent))
+              ? Number(pack.offerRatePercent)
+              : null;
+          console.log('[CG Suite] NOSPOS_PAGE_READY – openNosposSiteForCategoryFields: done', {
+            requestId,
+            categoryNosposId: entry.nosposCategoryId,
+            rows: fields.length,
+            buybackRatePercent,
+            offerRatePercent,
+          });
+          return {
+            ok: true,
+            pagesVisited: 1,
+            lastUrl: targetUrl,
+            categoryNosposId: entry.nosposCategoryId,
+            fields,
+            buybackRatePercent,
+            offerRatePercent,
+          };
+        },
+      });
+      return;
+    }
+    if (entry.type === 'openNosposSiteForCategoryFieldsBulk') {
+      await runNosposDataImportAfterLogin({
+        tabId,
+        requestId,
+        entry,
+        failureMessageDefault: 'NoSpos category modify bulk scrape failed.',
+        work: async (tid) => {
+          const ids = entry.nosposCategoryIds || [];
+          const results = [];
+          for (let i = 0; i < ids.length; i += 1) {
+            const categoryNosposId = ids[i];
+            const targetUrl = buildNosposStockCategoryModifyUrl(categoryNosposId);
+            await chrome.tabs.update(tid, { url: targetUrl });
+            await waitForTabLoadComplete(
+              tid,
+              90000,
+              `NoSpos category modify page did not finish loading (id=${categoryNosposId}).`
+            );
+            const pack = await scrapeNosposStockCategoryModifyTab(tid);
+            if (!pack.ok) {
+              console.warn('[CG Suite] openNosposSiteForCategoryFieldsBulk scrape', categoryNosposId, pack.error);
+            }
+            const byFieldId = new Map();
+            for (const row of pack.rows || []) {
+              if (row && row.nosposFieldId != null) byFieldId.set(row.nosposFieldId, row);
+            }
+            const fields = Array.from(byFieldId.values());
+            const buybackRatePercent =
+              pack.buybackRatePercent != null && Number.isFinite(Number(pack.buybackRatePercent))
+                ? Number(pack.buybackRatePercent)
+                : null;
+            const offerRatePercent =
+              pack.offerRatePercent != null && Number.isFinite(Number(pack.offerRatePercent))
+                ? Number(pack.offerRatePercent)
+                : null;
+            if (entry.appTabId != null) {
+              chrome.tabs
+                .sendMessage(entry.appTabId, {
+                  type: 'EXTENSION_PROGRESS_TO_PAGE',
+                  requestId,
+                  payload: {
+                    kind: 'nosposCategoryFields',
+                    index: i + 1,
+                    total: ids.length,
+                    categoryNosposId,
+                    fields,
+                    buybackRatePercent,
+                    offerRatePercent,
+                    scrapeOk: pack.ok === true,
+                    scrapeError: pack.error || null,
+                  },
+                })
+                .catch(() => {});
+            }
+            results.push({
+              categoryNosposId,
+              fields,
+              buybackRatePercent,
+              offerRatePercent,
+              ok: pack.ok === true,
+              error: pack.error || null,
+            });
+          }
+          console.log('[CG Suite] NOSPOS_PAGE_READY – openNosposSiteForCategoryFieldsBulk: done', {
+            requestId,
+            categories: results.length,
+          });
+          return {
+            ok: true,
+            bulk: true,
+            results,
+            total: ids.length,
+          };
+        },
+      });
+      return;
+    }
   }
   console.log('[CG Suite] NOSPOS_PAGE_READY – no matching pending request for tab', tabId);
 }
@@ -1458,7 +1880,16 @@ async function handleNosposLoginRequired(message, sender) {
 
   for (const [requestId, entry] of Object.entries(pending)) {
     if (entry.listingTabId !== tabId) continue;
-    if (entry.type !== 'openNospos' && entry.type !== 'openNosposCustomerIntake' && entry.type !== 'openNosposCustomerIntakeWaiting' && entry.type !== 'openNosposCustomerIntakeSaveFailed') {
+    if (
+      entry.type !== 'openNospos' &&
+      entry.type !== 'openNosposCustomerIntake' &&
+      entry.type !== 'openNosposCustomerIntakeWaiting' &&
+      entry.type !== 'openNosposCustomerIntakeSaveFailed' &&
+      entry.type !== 'openNosposSiteOnly' &&
+      entry.type !== 'openNosposSiteForFields' &&
+      entry.type !== 'openNosposSiteForCategoryFields' &&
+      entry.type !== 'openNosposSiteForCategoryFieldsBulk'
+    ) {
       continue;
     }
 

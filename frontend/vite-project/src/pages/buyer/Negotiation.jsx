@@ -141,7 +141,6 @@ const Negotiation = ({ mode }) => {
   /** BOOKED_FOR_TESTING | COMPLETE | QUOTE | null — used for research sandbox in view mode. */
   const [viewRequestStatus, setViewRequestStatus] = useState(null);
   const [passedTestingSubmitting, setPassedTestingSubmitting] = useState(false);
-  const [nosposProfileOpening, setNosposProfileOpening] = useState(false);
   const [showJewelleryReferenceModal, setShowJewelleryReferenceModal] = useState(false);
   const [agreementMirrorSessionActive, setAgreementMirrorSessionActive] = useState(false);
   const [agreementMirrorModalState, setAgreementMirrorModalState] = useState(null);
@@ -221,7 +220,7 @@ const Negotiation = ({ mode }) => {
     mode === 'view' && viewRequestStatus === 'BOOKED_FOR_TESTING';
   const researchFormReadOnly = mode === 'view' && !researchSandboxBookedView;
   const researchEphemeralNotice = researchSandboxBookedView
-    ? 'Research you run in this panel is not saved. Use Complete testing on each line in order (pass or fail), then use the Park agreement link to NoSpos when it appears.'
+    ? 'Research you run in this panel is not saved. Use Complete testing on each line in order (pass or fail), then use View parked agreement when it appears.'
     : null;
 
   /** Negotiated lines only (matches backend complete-testing eligible items). */
@@ -591,7 +590,7 @@ const Negotiation = ({ mode }) => {
   }, []);
 
   const syncJewelleryWorkspaceLinesToNegotiation = useCallback(
-    (lines) => {
+    (lines, changedLineIds = null) => {
       setItems((prev) =>
         prev.map((item) => {
           if (!item.isJewelleryItem || !item.request_item_id) return item;
@@ -618,35 +617,45 @@ const Negotiation = ({ mode }) => {
         })
       );
 
-      for (const line of lines) {
-        if (!line.request_item_id) continue;
-        const d = getJewelleryWorkspaceDerivedState(line, useVoucherOffers, customerOfferRulesData?.settings);
-        const itemName = line.itemName || line.categoryLabel || line.variantTitle || null;
-        const payload = {
-          selected_offer_id: d.selectedOfferId,
-          manual_offer_used: d.selectedOfferId === 'manual',
-          manual_offer_gbp:
-            d.selectedOfferId === 'manual' && d.manualOffer
-              ? normalizeExplicitSalePrice(parseFloat(String(d.manualOffer).replace(/[£,]/g, '')))
-              : null,
-          senior_mgmt_approved_by: line.selectedOfferTierAuthBy || line.manualOfferAuthBy || null,
-          our_sale_price_at_negotiation:
-            d.ourSalePrice != null && d.ourSalePrice > 0 ? d.ourSalePrice : null,
-          cash_offers_json: normalizeOffersForApi(d.cashOffers),
-          voucher_offers_json: normalizeOffersForApi(d.voucherOffers),
-        };
-        updateRequestItemOffer(line.request_item_id, payload).catch(() => {});
-        updateRequestItemRawData(line.request_item_id, {
-          raw_data: {
-            referenceData: {
-              ...d.referenceData,
-              item_name: itemName,
-              category_label: line.categoryLabel || d.referenceData?.line_title || null,
+      // Only persist lines that actually changed. When changedLineIds is null
+      // (e.g. final flush on workspace close) every line is saved.
+      const linesToPersist = changedLineIds
+        ? lines.filter((l) => changedLineIds.has(l.id))
+        : lines;
+
+      // SQLite (dev) allows only one writer at a time. Parallel update-offer + update-raw
+      // for every line (especially on workspace close) causes "database is locked" 500s.
+      void (async () => {
+        for (const line of linesToPersist) {
+          if (!line.request_item_id) continue;
+          const d = getJewelleryWorkspaceDerivedState(line, useVoucherOffers, customerOfferRulesData?.settings);
+          const itemName = line.itemName || line.categoryLabel || line.variantTitle || null;
+          const payload = {
+            selected_offer_id: d.selectedOfferId,
+            manual_offer_used: d.selectedOfferId === 'manual',
+            manual_offer_gbp:
+              d.selectedOfferId === 'manual' && d.manualOffer
+                ? normalizeExplicitSalePrice(parseFloat(String(d.manualOffer).replace(/[£,]/g, '')))
+                : null,
+            senior_mgmt_approved_by: line.selectedOfferTierAuthBy || line.manualOfferAuthBy || null,
+            our_sale_price_at_negotiation:
+              d.ourSalePrice != null && d.ourSalePrice > 0 ? d.ourSalePrice : null,
+            cash_offers_json: normalizeOffersForApi(d.cashOffers),
+            voucher_offers_json: normalizeOffersForApi(d.voucherOffers),
+          };
+          await updateRequestItemOffer(line.request_item_id, payload).catch(() => {});
+          await updateRequestItemRawData(line.request_item_id, {
+            raw_data: {
+              referenceData: {
+                ...d.referenceData,
+                item_name: itemName,
+                category_label: line.categoryLabel || d.referenceData?.line_title || null,
+              },
+              authorisedOfferSlots: Array.isArray(line.authorisedOfferSlots) ? line.authorisedOfferSlots : [],
             },
-            authorisedOfferSlots: Array.isArray(line.authorisedOfferSlots) ? line.authorisedOfferSlots : [],
-          },
-        }).catch(() => {});
-      }
+          }).catch(() => {});
+        }
+      })();
     },
     [customerOfferRulesData?.settings, normalizeOffersForApi, useVoucherOffers]
   );
@@ -655,7 +664,17 @@ const Negotiation = ({ mode }) => {
     (updater) => {
       setJewelleryWorkspaceLines((prev) => {
         const next = typeof updater === 'function' ? updater(prev) : updater;
-        Promise.resolve().then(() => syncJewelleryWorkspaceLinesToNegotiation(next));
+
+        // Identify which lines actually changed so we only hit the DB for those.
+        const changedIds = new Set();
+        for (const nextLine of next) {
+          const prevLine = prev.find((l) => l.id === nextLine.id);
+          if (!prevLine || prevLine !== nextLine) changedIds.add(nextLine.id);
+        }
+
+        if (changedIds.size > 0) {
+          Promise.resolve().then(() => syncJewelleryWorkspaceLinesToNegotiation(next, changedIds));
+        }
         return next;
       });
     },
@@ -832,48 +851,6 @@ const Negotiation = ({ mode }) => {
     doFinishRequest,
     navigate,
     showNotification,
-  ]);
-
-  const handleOpenNosposCustomerProfile = useCallback(async () => {
-    const nid = customerData?.nospos_customer_id;
-    if (nid == null || !customerData?.id) return;
-    setNosposProfileOpening(true);
-    try {
-      const result = await withExtensionCallTimeout(
-        openNosposCustomerProfile(nid, nosposOpenOptions)
-      );
-      if (result?.warning) {
-        showNotification(result.warning, 'warning');
-      }
-      if (result?.loginRequired) {
-        endAgreementMirrorSession({ fromTabClosedEvent: true });
-        showNotification(
-          'You must be logged in to NoSpos. Sign in at nospos.com, then press Open in NoSpos again.',
-          'error'
-        );
-        return;
-      }
-      if (!result?.ok) {
-        showNotification(result?.error || 'Could not open NoSpos.', 'error');
-      } else {
-        openAgreementMirrorSession();
-      }
-    } catch (e) {
-      showNotification(
-        e?.message ||
-          'Chrome extension is required to open NoSpos, or the request timed out — try again.',
-        'warning'
-      );
-    } finally {
-      setNosposProfileOpening(false);
-    }
-  }, [
-    customerData?.id,
-    customerData?.nospos_customer_id,
-    nosposOpenOptions,
-    showNotification,
-    openAgreementMirrorSession,
-    endAgreementMirrorSession,
   ]);
 
   const handleNewCustomerDetailsSubmit = useCallback(async (formData) => {
@@ -1812,7 +1789,7 @@ const Negotiation = ({ mode }) => {
                   researchSandboxBookedView ? (
                     <p className="mt-1 inline-flex items-center justify-end gap-1 text-[10px] font-bold uppercase tracking-widest text-amber-800">
                       <span className="material-symbols-outlined text-[12px]">science</span>
-                      In-store testing — complete each line in NoSpos in order, then use the Park agreement link
+                      In-store testing — complete each line in NoSpos in order, then use View parked agreement
                     </p>
                   ) : (
                     <p className="mt-1 inline-flex items-center justify-end gap-1 text-[10px] font-bold uppercase tracking-widest text-red-600">
@@ -1825,14 +1802,17 @@ const Negotiation = ({ mode }) => {
             </div>
           </div>
 
-          {/* Tables: jewellery first (full width like items table), then main items */}
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          {/* Tables: one scroll for jewellery + items; tables grow to full content height */}
+          <div className="min-h-0 flex-1 overflow-auto">
             {jewelleryNegotiationItems.length > 0 ? (
               <div
-                className="max-h-[min(40vh,420px)] shrink-0 overflow-auto border-b-2 bg-white"
+                className="border-b-2 bg-white"
                 style={{ borderColor: 'rgba(20, 69, 132, 0.2)' }}
               >
-                <div className="sticky top-0 z-[5] border-b bg-white px-6 py-3" style={{ borderColor: 'var(--ui-border)' }}>
+                <div
+                  className="sticky top-0 z-[5] border-b bg-white px-6 py-3"
+                  style={{ borderColor: 'var(--ui-border)' }}
+                >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <h3 className="text-sm font-black uppercase tracking-wider text-brand-blue">Jewellery</h3>
                     {mode === 'view' && jewelleryReferenceScrape?.sections?.length ? (
@@ -1870,8 +1850,8 @@ const Negotiation = ({ mode }) => {
                 />
               </div>
             ) : null}
-            <div className="min-h-0 flex-1 overflow-auto">
-              <div className="px-6 pt-4 pb-2">
+            <div className="px-6 pt-4 pb-6">
+              <div className="pb-2">
                 <h3 className="text-sm font-black uppercase tracking-wider text-brand-blue">Items</h3>
                 <p className="text-[11px] text-gray-600">Phones, CeX, eBay, and other catalogue lines.</p>
               </div>
@@ -1946,15 +1926,6 @@ const Negotiation = ({ mode }) => {
               setStoreTransactionType(nextType);
             }}
             readOnly={mode === 'view'}
-            nosposCustomerId={customerData?.id ? customerData.nospos_customer_id : null}
-            onOpenNosposProfile={
-              mode === 'view' && viewRequestStatus === 'BOOKED_FOR_TESTING'
-                ? undefined
-                : customerData?.id && customerData?.nospos_customer_id != null
-                  ? handleOpenNosposCustomerProfile
-                  : undefined
-            }
-            nosposProfileOpening={nosposProfileOpening}
           />
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
             <button
@@ -2050,7 +2021,7 @@ const Negotiation = ({ mode }) => {
                     <span className="material-symbols-outlined text-xl" aria-hidden>
                       task_alt
                     </span>
-                    <span className="text-base uppercase tracking-tight">Park agreement</span>
+                    <span className="text-base uppercase tracking-tight">View parked agreement</span>
                     <span className="material-symbols-outlined text-lg opacity-80" aria-hidden>
                       open_in_new
                     </span>
@@ -2082,7 +2053,7 @@ const Negotiation = ({ mode }) => {
                       task_alt
                     </span>
                     <span className="text-base uppercase tracking-tight">
-                      {passedTestingSubmitting ? 'Working…' : 'Park agreement'}
+                      {passedTestingSubmitting ? 'Working…' : 'View parked agreement'}
                     </span>
                   </div>
                 )}
@@ -2093,7 +2064,7 @@ const Negotiation = ({ mode }) => {
                 )}
                 {hasEligibleTestingLines && !passedTestingSubmitting && !agreementMirrorSessionActive && (
                   <p className="text-[10px] text-center font-medium" style={{ color: 'var(--text-muted)' }}>
-                    Use Complete testing on each line in order. The Park agreement link appears when every line is processed (passed or failed) and NoSpos has loaded the items page.
+                    Use Complete testing on each line in order. View parked agreement appears when every line is processed (passed or failed) and NoSpos has loaded the items page.
                   </p>
                 )}
                 {hasEligibleTestingLines && agreementMirrorSessionActive && !agreementMirrorSnapshot && (
@@ -2103,14 +2074,14 @@ const Negotiation = ({ mode }) => {
                 )}
                 {hasEligibleTestingLines && agreementMirrorSessionActive && agreementMirrorSnapshot && !allAgreementMirrorItemsProcessed && (
                   <p className="text-[10px] text-center font-medium" style={{ color: 'var(--text-muted)' }}>
-                    Finish Complete testing on each line that is still open. The next row unlocks when the line above is processed; Park needs all lines processed.
+                    Finish Complete testing on each line that is still open. The next row unlocks when the line above is processed; all lines must be processed before View parked agreement is available.
                   </p>
                 )}
                 {hasEligibleTestingLines && agreementMirrorSessionActive && allAgreementMirrorItemsProcessed && (
                   <p className="text-[10px] text-center font-medium" style={{ color: 'var(--text-muted)' }}>
                     {parkAgreementNosposHref
-                      ? 'Every line is processed. Park agreement opens your NoSpos items page in a new tab.'
-                      : 'Every line is processed. The Park agreement link appears once NoSpos sends the items page URL.'}
+                      ? 'Every line is processed. View parked agreement opens your NoSpos items page in a new tab.'
+                      : 'Every line is processed. View parked agreement appears once NoSpos sends the items page URL.'}
                   </p>
                 )}
               </>

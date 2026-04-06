@@ -30,6 +30,8 @@
   const STOCK_EDIT_PAGE_PATTERN = /^\/stock\/\d+\/edit\/?$/i;
   const CUSTOMER_SEARCH_PAGE_PATTERN = /^\/customers(?:\/|\?|$)/i;
   const CUSTOMER_DETAIL_PAGE_PATTERN = /^\/customer\/\d+\/(?:view|buying)\/?/i;
+  const STOCK_CATEGORY_INDEX_PATTERN = /^\/stock\/category\/index\/?$/i;
+  const STOCK_CATEGORY_MODIFY_PATTERN = /^\/stock\/category\/modify\/?$/i;
   const FORCED_LOGIN_PATHS = new Set(['/site/standard-login', '/twofactor/authenticate']);
 
   function isOnLoginPage() {
@@ -97,6 +99,197 @@
     } catch (e) {
       return false;
     }
+  }
+
+  function isOnStockCategoryIndexPage() {
+    try {
+      return STOCK_CATEGORY_INDEX_PATTERN.test(window.location.pathname || '/');
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function isOnStockCategoryModifyPage() {
+    try {
+      return STOCK_CATEGORY_MODIFY_PATTERN.test(window.location.pathname || '/');
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /**
+   * Parse grid rows from /stock/category/index (see Data page scrape → Django nosposcategory).
+   */
+  function scrapeStockCategoryIndexTable() {
+    var table =
+      document.querySelector('#w2 table.table-hover') ||
+      document.querySelector('.table-responsive table.table-hover') ||
+      document.querySelector('table.table.table-hover');
+    if (!table) return [];
+    var tbody = table.querySelector('tbody');
+    if (!tbody) return [];
+    var out = [];
+    tbody.querySelectorAll('tr[data-key]').forEach(function (tr) {
+      var key = tr.getAttribute('data-key');
+      var nosposId = parseInt(key, 10);
+      if (!nosposId) return;
+      var tds = tr.querySelectorAll('td');
+      if (tds.length < 5) return;
+      var idText = (tds[1].textContent || '').trim();
+      var levelText = (tds[2].textContent || '').trim();
+      var fullName = (tds[3].textContent || '').replace(/\s+/g, ' ').trim();
+      var statusEl = tds[4].querySelector('.label');
+      var status = statusEl ? (statusEl.textContent || '').trim() : (tds[4].textContent || '').trim();
+      var viewLink = tds[5] && tds[5].querySelector('a[href]');
+      var viewHref = viewLink ? String(viewLink.getAttribute('href') || '').trim() : '';
+      var level = parseInt(levelText, 10);
+      if (isNaN(level)) level = 0;
+      out.push({
+        nosposId: nosposId,
+        idDisplay: idText,
+        level: level,
+        fullName: fullName,
+        status: status,
+        viewHref: viewHref,
+      });
+    });
+    return out;
+  }
+
+  /**
+   * Field rows from /stock/category/modify — `.card-content.fields` rows:
+   * CategoryFieldForm[id][checked|editable|sensitive|required] checkboxes + label in first column.
+   */
+  function scrapeStockCategoryModifyFields() {
+    var container = document.querySelector('.card-content.fields');
+    if (!container) return [];
+    var seen = Object.create(null);
+    var out = [];
+    var children = container.children;
+    for (var i = 0; i < children.length; i++) {
+      var row = children[i];
+      if (!row.classList || !row.classList.contains('row')) continue;
+      var inputs = row.querySelectorAll('input[type="checkbox"][name^="CategoryFieldForm["]');
+      if (!inputs.length) continue;
+      var fid = null;
+      var active = false;
+      var editable = false;
+      var sensitive = false;
+      var required = false;
+      for (var k = 0; k < inputs.length; k++) {
+        var nm = inputs[k].name || '';
+        var m = /CategoryFieldForm\[(\d+)\]\[(checked|editable|sensitive|required)\]/.exec(nm);
+        if (!m) continue;
+        var idPart = parseInt(m[1], 10);
+        if (!idPart) continue;
+        if (fid == null) fid = idPart;
+        if (fid !== idPart) continue;
+        var key = m[2];
+        var on = !!inputs[k].checked;
+        if (key === 'checked') active = on;
+        else if (key === 'editable') editable = on;
+        else if (key === 'sensitive') sensitive = on;
+        else if (key === 'required') required = on;
+      }
+      if (!fid || seen[fid]) continue;
+      var firstCol = row.querySelector('.col');
+      if (!firstCol) continue;
+      var group = firstCol.querySelector('[class*="field-categoryfieldform-"][class*="-checked"]');
+      if (!group) continue;
+      var labelEl = group.querySelector('label');
+      if (!labelEl) continue;
+      var clone = labelEl.cloneNode(true);
+      var junk = clone.querySelectorAll('input, .checkbox-material');
+      for (var j = 0; j < junk.length; j++) {
+        junk[j].remove();
+      }
+      var labelText = (clone.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!labelText) continue;
+      if (/^(Editable|Sensitive|Required)$/i.test(labelText)) continue;
+      seen[fid] = true;
+      out.push({
+        nosposFieldId: fid,
+        name: labelText,
+        active: active,
+        editable: editable,
+        sensitive: sensitive,
+        required: required,
+      });
+    }
+    return out;
+  }
+
+  /**
+   * Buyback rate (%) on /stock/category/modify: input[name="rate"][data-prefix="buyback"], else
+   * "Buyback Rates" card line `Default: 35%`.
+   */
+  function scrapeStockCategoryModifyBuybackRate() {
+    var input = document.querySelector('input[name="rate"][data-prefix="buyback"]');
+    if (input) {
+      var v = String(input.value || '').trim();
+      if (v !== '') {
+        var n = parseFloat(v);
+        if (isFinite(n)) return n;
+      }
+    }
+    var headers = document.querySelectorAll('.card-header.card-header-tabs h4.card-title');
+    for (var h = 0; h < headers.length; h++) {
+      var title = (headers[h].textContent || '').replace(/\s+/g, ' ').trim();
+      if (!/buyback\s+rates/i.test(title)) continue;
+      var card = headers[h].closest('.card');
+      if (!card) continue;
+      var p = card.querySelector('p.category');
+      if (p) {
+        var t = (p.textContent || '').replace(/\s+/g, ' ').trim();
+        var m = /Default:\s*([\d.]+)\s*%/i.exec(t);
+        if (m) {
+          var n2 = parseFloat(m[1]);
+          if (isFinite(n2)) return n2;
+        }
+      }
+    }
+    var ps = document.querySelectorAll('p.category');
+    for (var i = 0; i < ps.length; i++) {
+      var t2 = (ps[i].textContent || '').replace(/\s+/g, ' ').trim();
+      var m2 = /Default:\s*([\d.]+)\s*%/i.exec(t2);
+      if (m2) {
+        var n3 = parseFloat(m2[1]);
+        if (isFinite(n3)) return n3;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Offer rate (%) on /stock/category/modify: input[name="rate"][data-prefix="offer"], else
+   * "Offer Rates" card `Default: 50%`. If still empty, 50 (NosPos default).
+   */
+  function scrapeStockCategoryModifyOfferRate() {
+    var input = document.querySelector('input[name="rate"][data-prefix="offer"]');
+    if (input) {
+      var v = String(input.value || '').trim();
+      if (v !== '') {
+        var n = parseFloat(v);
+        if (isFinite(n)) return n;
+      }
+    }
+    var headers = document.querySelectorAll('.card-header.card-header-tabs h4.card-title');
+    for (var h = 0; h < headers.length; h++) {
+      var title = (headers[h].textContent || '').replace(/\s+/g, ' ').trim();
+      if (!/offer\s+rates/i.test(title)) continue;
+      var card = headers[h].closest('.card');
+      if (!card) continue;
+      var p = card.querySelector('p.category');
+      if (p) {
+        var t = (p.textContent || '').replace(/\s+/g, ' ').trim();
+        var m = /Default:\s*([\d.]+)\s*%/i.exec(t);
+        if (m) {
+          var n2 = parseFloat(m[1]);
+          if (isFinite(n2)) return n2;
+        }
+      }
+    }
+    return 50;
   }
 
   /** Numeric id from /customer/{id}/view or /customer/{id}/buying */
@@ -1247,6 +1440,55 @@
     if (msg.type === 'NOSPOS_VERIFY_RETAIL_PRICE') {
       sendPageLoaded();
       sendResponse({ ok: true });
+      return true;
+    }
+    if (msg.type === 'SCRAPE_NOSPOS_STOCK_CATEGORY') {
+      try {
+        if (!isOnStockCategoryIndexPage()) {
+          sendResponse({ ok: false, rows: [], error: 'Not on stock category index' });
+        } else {
+          sendResponse({ ok: true, rows: scrapeStockCategoryIndexTable() });
+        }
+      } catch (e) {
+        sendResponse({
+          ok: false,
+          rows: [],
+          error: e && e.message ? String(e.message) : 'scrape failed',
+        });
+      }
+      return true;
+    }
+    if (msg.type === 'SCRAPE_NOSPOS_STOCK_CATEGORY_MODIFY') {
+      try {
+        if (!isOnStockCategoryModifyPage()) {
+          sendResponse({
+            ok: false,
+            rows: [],
+            buybackRatePercent: null,
+            offerRatePercent: null,
+            error: 'Not on stock category modify page',
+          });
+        } else {
+          var rows = scrapeStockCategoryModifyFields();
+          var buybackRatePercent = scrapeStockCategoryModifyBuybackRate();
+          var offerRatePercent = scrapeStockCategoryModifyOfferRate();
+          sendResponse({
+            ok: true,
+            rows: rows,
+            buybackRatePercent: buybackRatePercent,
+            offerRatePercent: offerRatePercent,
+          });
+        }
+      } catch (e) {
+        sendResponse({
+          ok: false,
+          rows: [],
+          buybackRatePercent: null,
+          offerRatePercent: null,
+          error: e && e.message ? String(e.message) : 'scrape failed',
+        });
+      }
+      return true;
     }
     return true;
   });
@@ -1267,6 +1509,10 @@
         onCustomerDetailPageLoad();
       } else if (isOnCustomerSearchPage()) {
         onCustomerSearchPageLoad();
+      } else if (isOnStockCategoryIndexPage()) {
+        // Data / category pagination — do not emit NOSPOS_PAGE_READY here.
+      } else if (isOnStockCategoryModifyPage()) {
+        // Data / category modify scrape — do not emit NOSPOS_PAGE_READY here.
       } else {
         sendPageReady();
       }

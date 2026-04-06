@@ -436,6 +436,24 @@ export const createNosposCategoryMapping = (data) => apiFetch('/nospos-category-
 export const updateNosposCategoryMapping = (id, data) => apiFetch(`/nospos-category-mappings/${id}/`, { method: 'PATCH', body: data });
 export const deleteNosposCategoryMapping = (id) => apiFetch(`/nospos-category-mappings/${id}/`, { method: 'DELETE' });
 
+/** Upsert rows scraped from NosPos stock category index (Data page / extension). */
+export const syncNosposCategories = (categories) =>
+  apiFetch('/nospos-categories/sync/', { method: 'POST', body: { categories } });
+
+export const fetchNosposCategoriesCount = () => apiFetch('/nospos-categories/?count_only=1');
+
+export const fetchNosposCategories = () => apiFetch('/nospos-categories/');
+
+/** Upsert category field rows from NosPos /stock/category/modify (Data page / extension). */
+export const syncNosposFields = (body) =>
+  apiFetch('/nospos-fields/sync/', { method: 'POST', body });
+
+/** Body: { categoryNosposId, fields: [{ nosposFieldId, name, active, editable, sensitive, required }] } */
+export const syncNosposCategoryFields = (body) =>
+  apiFetch('/nospos-category-fields/sync/', { method: 'POST', body });
+
+export const fetchNosposFields = () => apiFetch('/nospos-fields/');
+
 // ─── Categories ────────────────────────────────────────────────────────────────
 
 export const fetchAllCategoriesFlat = () => apiFetch('/all-categories/');

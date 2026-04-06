@@ -103,7 +103,7 @@ WSGI_APPLICATION = 'cashgen.wsgi.application'
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",  # SQLite database file
+        "NAME": BASE_DIR / "db.sqlite3",
     }
 }
 
@@ -174,4 +174,8 @@ GROQ_API_KEY = os.getenv('GROQ_API_KEY', '')
 # Gemini API key (fallback when Groq fails)
 # Set GEMINI_API_KEY in .env - get a free key at https://aistudio.google.com/app/apikey
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
+
+# Optional: require X-CG-Nospos-Sync-Secret header for POST /api/nospos-categories/sync/
+# When unset and DEBUG is True, sync is allowed without the header (localhost + extension flow).
+NOSPOS_CATEGORY_SYNC_SECRET = os.getenv('NOSPOS_CATEGORY_SYNC_SECRET', '')
 

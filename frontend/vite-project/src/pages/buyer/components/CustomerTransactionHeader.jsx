@@ -8,10 +8,6 @@ const CustomerTransactionHeader = ({
   onTransactionChange,
   containerClassName = '',
   readOnly = false, // Add readOnly prop with default false
-  /** Saved NosPos profile id — shows “Open in NoSpos” when set */
-  nosposCustomerId = null,
-  onOpenNosposProfile = null,
-  nosposProfileOpening = false,
 }) => {
   const transaction = TRANSACTION_META[transactionType] || {
     label: 'Unknown',
@@ -49,23 +45,9 @@ const CustomerTransactionHeader = ({
 
   return (
     <div className={`bg-white p-6 ${containerClassName}`}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <h1 className="text-3xl font-extrabold tracking-tight text-brand-blue">
-          {customer.name}
-        </h1>
-        {nosposCustomerId != null && onOpenNosposProfile ? (
-          <button
-            type="button"
-            onClick={onOpenNosposProfile}
-            disabled={nosposProfileOpening}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-brand-blue/25 bg-brand-blue/5 px-3 py-2 text-xs font-extrabold uppercase tracking-wide text-brand-blue transition-colors hover:bg-brand-blue/10 disabled:cursor-not-allowed disabled:opacity-50"
-            title="Opens NoSpos agreement create in a minimized background window (requires extension)"
-          >
-            <span className="material-symbols-outlined text-base leading-none">open_in_new</span>
-            {nosposProfileOpening ? 'Opening…' : 'Open in NoSpos'}
-          </button>
-        ) : null}
-      </div>
+      <h1 className="text-3xl font-extrabold tracking-tight text-brand-blue">
+        {customer.name}
+      </h1>
 
       <div className="flex items-center gap-2 mt-2">
         <div className={transaction.className}>

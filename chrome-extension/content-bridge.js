@@ -14,6 +14,17 @@
   const JEWELLERY_SCRAP_WINDOW = 'JEWELLERY_SCRAP_PRICES';
 
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    if (msg.type === 'EXTENSION_PROGRESS_TO_PAGE') {
+      window.postMessage(
+        {
+          type: 'EXTENSION_PROGRESS',
+          requestId: msg.requestId,
+          payload: msg.payload,
+        },
+        '*'
+      );
+      sendResponse({ ok: true });
+    }
     if (msg.type === 'EXTENSION_RESPONSE_TO_PAGE') {
       if (typeof console !== 'undefined') {
         console.log('[CG Suite content-bridge] EXTENSION_RESPONSE_TO_PAGE received, requestId=', msg.requestId);
@@ -80,7 +91,7 @@
       payload: message
     }, (bridgeResponse) => {
       // For these actions we don't resolve here; the target page will send data/ready later and background will send EXTENSION_RESPONSE_TO_PAGE to this tab.
-      if (message.action === 'startWaitingForData' || message.action === 'startRefine' || message.action === 'openNosposAndWait' || message.action === 'openNosposForCustomerIntake' || message.action === 'scrapeCexSuperCategories') {
+      if (message.action === 'startWaitingForData' || message.action === 'startRefine' || message.action === 'openNosposAndWait' || message.action === 'openNosposForCustomerIntake' || message.action === 'openNosposSiteOnly' || message.action === 'openNosposSiteForFields' || message.action === 'openNosposSiteForCategoryFields' || message.action === 'openNosposSiteForCategoryFieldsBulk' || message.action === 'scrapeCexSuperCategories') {
         if (typeof console !== 'undefined') {
           console.log('[CG Suite content-bridge] deferred action – not posting response; waiting for target page', message.action);
         }

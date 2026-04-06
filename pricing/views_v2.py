@@ -1,7 +1,11 @@
+import re
+
 from django.shortcuts import render, get_object_or_404
 from django.db import transaction
 from django.http import JsonResponse
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.views.decorators.csrf import csrf_exempt
+from django.conf import settings
 
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -37,6 +41,9 @@ from .models_v2 import (
     CustomerRuleSettings,
     CustomerOfferRule,
     NosposCategoryMapping,
+    NosposCategory,
+    NosposField,
+    NosposCategoryField,
 )
 from . import research_storage
 from .offer_rows import get_selected_offer_code, sync_request_item_offer_rows_from_payload
@@ -178,8 +185,11 @@ def _round_sale_price(value):
 
 @api_view(['GET'])
 def categories_list(request):
-    # Fetch top-level categories only (parent_category is None)
-    categories = ProductCategory.objects.filter(parent_category__isnull=True)
+    # Top-level categories for buyer / repricing sidebars (excludes NosPos-only imports).
+    categories = ProductCategory.objects.filter(
+        parent_category__isnull=True,
+        ready_for_builder=True,
+    )
     serializer = ProductCategorySerializer(categories, many=True)
     return Response(serializer.data)
 
@@ -218,6 +228,7 @@ def all_categories_flat(request):
             'path': path,
             'depth': len(ancestors),
             'parent_category_id': cat.parent_category_id,
+            'ready_for_builder': cat.ready_for_builder,
         })
         for child in children_map.get(cat.category_id, []):
             walk(child, ancestors + [cat.name])
@@ -2522,4 +2533,437 @@ def nospos_category_mapping_detail(request, mapping_id):
     mapping.nospos_path = nospos_path
     mapping.save()
     return Response(_serialize_nospos_category_mapping(mapping))
+
+
+# ─── NosPos scraped category tree (extension → DB) ───────────────────────────
+
+def _parent_path_from_full_name(full_name):
+    parts = [p.strip() for p in re.split(r"\s*>\s*", (full_name or "").strip()) if p.strip()]
+    if len(parts) < 2:
+        return None
+    return " > ".join(parts[:-1])
+
+
+def _parse_optional_decimal(value):
+    if value is None or value == "":
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+
+
+def _normalize_nospos_category_payload_rows(raw):
+    rows = []
+    if isinstance(raw, dict):
+        raw = raw.get("categories") or raw.get("rows") or []
+    if not isinstance(raw, list):
+        return rows
+    for r in raw:
+        if not isinstance(r, dict):
+            continue
+        nid = r.get("nosposId")
+        if nid is None:
+            nid = r.get("nospos_id")
+        try:
+            nid = int(nid)
+        except (TypeError, ValueError):
+            continue
+        if nid <= 0:
+            continue
+        full_name = str(r.get("fullName") or r.get("full_name") or "").strip()
+        if not full_name:
+            continue
+        level = r.get("level")
+        try:
+            level = int(level)
+        except (TypeError, ValueError):
+            level = 0
+        if level < 0:
+            level = 0
+        status = str(r.get("status") or "").strip()
+        rows.append({
+            "nospos_id": nid,
+            "level": level,
+            "full_name": full_name,
+            "status": status,
+            "buyback_rate": _parse_optional_decimal(r.get("buyback_rate") or r.get("buybackRate")),
+            "offer_rate": _parse_optional_decimal(r.get("offer_rate") or r.get("offerRate")),
+        })
+    return rows
+
+
+@api_view(["GET"])
+def nospos_categories_list(request):
+    """List NosPos categories mirrored in the DB, or `{ count }` only with `?count_only=1`."""
+    if request.query_params.get("count_only") in ("1", "true", "yes"):
+        return Response({"count": NosposCategory.objects.count()})
+
+    field_link_qs = NosposCategoryField.objects.select_related("field").order_by("field__name")
+    qs = (
+        NosposCategory.objects.select_related("parent")
+        .prefetch_related(Prefetch("field_links", queryset=field_link_qs))
+        .order_by("level", "full_name", "nospos_id")
+    )
+    results = []
+    for c in qs:
+        linked_fields = []
+        for link in c.field_links.all():
+            linked_fields.append({
+                "nosposFieldId": link.field.nospos_field_id,
+                "name": link.field.name,
+                "active": link.active,
+                "editable": link.editable,
+                "sensitive": link.sensitive,
+                "required": link.required,
+            })
+        results.append({
+            "id": c.id,
+            "nosposId": c.nospos_id,
+            "level": c.level,
+            "fullName": c.full_name,
+            "status": c.status or "",
+            "parentNosposId": c.parent.nospos_id if c.parent_id else None,
+            "parentFullName": c.parent.full_name if c.parent_id else None,
+            "buybackRate": str(c.buyback_rate) if c.buyback_rate is not None else None,
+            "offerRate": str(c.offer_rate) if c.offer_rate is not None else None,
+            "updatedAt": c.updated_at.isoformat() if c.updated_at else None,
+            "linkedFields": linked_fields,
+        })
+    return Response({"count": len(results), "results": results})
+
+
+@csrf_exempt
+@api_view(["POST"])
+def nospos_categories_sync(request):
+    """
+    Upsert rows scraped from NosPos /stock/category/index.
+    Extension returns data to the app; the React client POSTs here with CSRF.
+    Optional header X-CG-Nospos-Sync-Secret must match NOSPOS_CATEGORY_SYNC_SECRET when that env var is set.
+    """
+    secret = getattr(settings, "NOSPOS_CATEGORY_SYNC_SECRET", "") or ""
+    if secret:
+        if (request.headers.get("X-CG-Nospos-Sync-Secret") or "") != secret:
+            return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
+    elif not settings.DEBUG:
+        return Response(
+            {"error": "NOSPOS_CATEGORY_SYNC_SECRET must be set when DEBUG is False"},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    rows = _normalize_nospos_category_payload_rows(request.data)
+    if not rows:
+        return Response({"error": "No valid category rows in body"}, status=status.HTTP_400_BAD_REQUEST)
+
+    rows.sort(key=lambda x: (x["level"], x["nospos_id"]))
+    created = 0
+    updated = 0
+
+    with transaction.atomic():
+        for item in rows:
+            parent = None
+            if item["level"] > 0:
+                parent_path = _parent_path_from_full_name(item["full_name"])
+                if parent_path:
+                    parent = NosposCategory.objects.filter(full_name=parent_path).first()
+
+            obj, was_created = NosposCategory.objects.update_or_create(
+                nospos_id=item["nospos_id"],
+                defaults={
+                    "parent": parent,
+                    "level": item["level"],
+                    "full_name": item["full_name"],
+                    "status": item["status"],
+                    "buyback_rate": item["buyback_rate"],
+                    "offer_rate": item["offer_rate"],
+                },
+            )
+            if was_created:
+                created += 1
+            else:
+                updated += 1
+
+        for obj in NosposCategory.objects.filter(level__gt=0, parent__isnull=True):
+            parent_path = _parent_path_from_full_name(obj.full_name)
+            if not parent_path:
+                continue
+            p = NosposCategory.objects.filter(full_name=parent_path).first()
+            if p and p.id != obj.id:
+                obj.parent = p
+                obj.save(update_fields=["parent"])
+
+    return Response({"ok": True, "created": created, "updated": updated, "total_received": len(rows)})
+
+
+def _normalize_nospos_field_payload_rows(data):
+    """Accept body `{ fields: [{ nosposFieldId, name }] }` or a bare list."""
+    if isinstance(data, dict):
+        raw = data.get("fields") or data.get("rows") or []
+    elif isinstance(data, list):
+        raw = data
+    else:
+        return []
+    if not isinstance(raw, list):
+        return []
+    rows = []
+    for r in raw:
+        if not isinstance(r, dict):
+            continue
+        fid = r.get("nosposFieldId")
+        if fid is None:
+            fid = r.get("fieldId") or r.get("nospos_field_id")
+        try:
+            fid = int(fid)
+        except (TypeError, ValueError):
+            continue
+        if fid <= 0:
+            continue
+        name = str(r.get("name") or "").strip()
+        if not name:
+            continue
+        rows.append({"nospos_field_id": fid, "name": name})
+    return rows
+
+
+@api_view(["GET"])
+def nospos_fields_list(request):
+    """List NosPos fields from /stock/category/modify scrape, or `{ count }` with `?count_only=1`."""
+    if request.query_params.get("count_only") in ("1", "true", "yes"):
+        return Response({"count": NosposField.objects.count()})
+
+    qs = NosposField.objects.order_by("nospos_field_id")
+    results = []
+    for a in qs:
+        results.append({
+            "id": a.id,
+            "nosposFieldId": a.nospos_field_id,
+            "name": a.name,
+            "updatedAt": a.updated_at.isoformat() if a.updated_at else None,
+        })
+    return Response({"count": len(results), "results": results})
+
+
+@csrf_exempt
+@api_view(["POST"])
+def nospos_fields_sync(request):
+    """
+    Upsert field rows scraped from NosPos /stock/category/modify (CategoryFieldForm checkboxes).
+    Same auth as nospos_categories_sync (NOSPOS_CATEGORY_SYNC_SECRET / DEBUG).
+    """
+    secret = getattr(settings, "NOSPOS_CATEGORY_SYNC_SECRET", "") or ""
+    if secret:
+        if (request.headers.get("X-CG-Nospos-Sync-Secret") or "") != secret:
+            return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
+    elif not settings.DEBUG:
+        return Response(
+            {"error": "NOSPOS_CATEGORY_SYNC_SECRET must be set when DEBUG is False"},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    rows = _normalize_nospos_field_payload_rows(request.data)
+    if not rows:
+        return Response({"error": "No valid field rows in body"}, status=status.HTTP_400_BAD_REQUEST)
+
+    created = 0
+    updated = 0
+    with transaction.atomic():
+        for item in rows:
+            obj, was_created = NosposField.objects.update_or_create(
+                nospos_field_id=item["nospos_field_id"],
+                defaults={"name": item["name"]},
+            )
+            if was_created:
+                created += 1
+            else:
+                updated += 1
+
+    return Response({"ok": True, "created": created, "updated": updated, "total_received": len(rows)})
+
+
+def _coerce_bool(val, default=False):
+    if val is None:
+        return default
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, (int, float)):
+        return bool(val) and val != 0
+    s = str(val).strip().lower()
+    if s in ("1", "true", "yes", "on"):
+        return True
+    if s in ("0", "false", "no", "off", ""):
+        return False
+    return default
+
+
+def _normalize_nospos_category_field_sync_payload(data):
+    """
+    Body `{ categoryNosposId, fields: [...], buybackRatePercent?, offerRatePercent? }`.
+    Returns `(category_nospos_id | None, list of normalized field dicts, buyback_dec | None, offer_dec | None)`.
+    """
+    if not isinstance(data, dict):
+        return None, [], None, None
+    raw_cat = data.get("categoryNosposId")
+    if raw_cat is None:
+        raw_cat = data.get("category_nospos_id")
+    try:
+        category_nospos_id = int(raw_cat)
+    except (TypeError, ValueError):
+        return None, [], None, None
+    if category_nospos_id <= 0:
+        return None, [], None, None
+
+    br_raw = data.get("buybackRatePercent")
+    if br_raw is None:
+        br_raw = data.get("buyback_rate_percent")
+    buyback_dec = _parse_optional_decimal(br_raw)
+
+    offer_raw = data.get("offerRatePercent")
+    if offer_raw is None:
+        offer_raw = data.get("offer_rate_percent")
+    offer_dec = _parse_optional_decimal(offer_raw)
+
+    raw_fields = data.get("fields")
+    if raw_fields is None:
+        raw_fields = []
+    if not isinstance(raw_fields, list):
+        return category_nospos_id, [], buyback_dec, offer_dec
+
+    rows = []
+    for r in raw_fields:
+        if not isinstance(r, dict):
+            continue
+        fid = r.get("nosposFieldId")
+        if fid is None:
+            fid = r.get("fieldId") or r.get("nospos_field_id")
+        try:
+            fid = int(fid)
+        except (TypeError, ValueError):
+            continue
+        if fid <= 0:
+            continue
+        name = str(r.get("name") or "").strip()
+        if not name:
+            continue
+        rows.append({
+            "nospos_field_id": fid,
+            "name": name,
+            "active": _coerce_bool(r.get("active"), False),
+            "editable": _coerce_bool(r.get("editable"), False),
+            "sensitive": _coerce_bool(r.get("sensitive"), False),
+            "required": _coerce_bool(r.get("required"), False),
+        })
+    return category_nospos_id, rows, buyback_dec, offer_dec
+
+
+@csrf_exempt
+@api_view(["POST"])
+def nospos_category_fields_sync(request):
+    """
+    Upsert global NosposField rows and per-category NosposCategoryField links from
+    a /stock/category/modify scrape (one category). Only rows with `active: true` get a
+    NosposCategoryField link; others only update the global NosposField name if present.
+    Removes any existing link for this category whose field is not in that active set.
+    Optional `buybackRatePercent` / `offerRatePercent` update `NosposCategory.buyback_rate` /
+    `NosposCategory.offer_rate` (percentages as on NosPos).
+    Same auth as nospos_categories_sync.
+    """
+    secret = getattr(settings, "NOSPOS_CATEGORY_SYNC_SECRET", "") or ""
+    if secret:
+        if (request.headers.get("X-CG-Nospos-Sync-Secret") or "") != secret:
+            return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
+    elif not settings.DEBUG:
+        return Response(
+            {"error": "NOSPOS_CATEGORY_SYNC_SECRET must be set when DEBUG is False"},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    category_nospos_id, rows, buyback_dec, offer_dec = _normalize_nospos_category_field_sync_payload(
+        request.data
+    )
+    if category_nospos_id is None:
+        return Response({"error": "Invalid or missing categoryNosposId"}, status=status.HTTP_400_BAD_REQUEST)
+    if not rows and buyback_dec is None and offer_dec is None:
+        return Response(
+            {"error": "No valid field rows and no buybackRatePercent/offerRatePercent in body"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    category = NosposCategory.objects.filter(nospos_id=category_nospos_id).first()
+    if not category:
+        return Response(
+            {
+                "error": (
+                    f"No NosposCategory with nospos_id={category_nospos_id}. "
+                    "Run “Update from NoSpos” on the categories page first."
+                ),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    active_fids = {item["nospos_field_id"] for item in rows if item["active"]}
+    field_created = 0
+    field_updated = 0
+    link_created = 0
+    link_updated = 0
+    deleted_count = 0
+
+    with transaction.atomic():
+        rate_updates = []
+        if buyback_dec is not None:
+            category.buyback_rate = buyback_dec
+            rate_updates.append("buyback_rate")
+        if offer_dec is not None:
+            category.offer_rate = offer_dec
+            rate_updates.append("offer_rate")
+        if rate_updates:
+            category.save(update_fields=rate_updates)
+
+        if rows:
+            for item in rows:
+                _f, f_was_created = NosposField.objects.update_or_create(
+                    nospos_field_id=item["nospos_field_id"],
+                    defaults={"name": item["name"]},
+                )
+                if f_was_created:
+                    field_created += 1
+                else:
+                    field_updated += 1
+
+            for item in rows:
+                if not item["active"]:
+                    continue
+                field = NosposField.objects.get(nospos_field_id=item["nospos_field_id"])
+                _link, l_was_created = NosposCategoryField.objects.update_or_create(
+                    category=category,
+                    field=field,
+                    defaults={
+                        "active": True,
+                        "editable": item["editable"],
+                        "sensitive": item["sensitive"],
+                        "required": item["required"],
+                    },
+                )
+                if l_was_created:
+                    link_created += 1
+                else:
+                    link_updated += 1
+
+            deleted_count, _ = NosposCategoryField.objects.filter(category=category).exclude(
+                field__nospos_field_id__in=active_fids
+            ).delete()
+
+    category.refresh_from_db()
+    return Response({
+        "ok": True,
+        "categoryNosposId": category_nospos_id,
+        "total_received": len(rows),
+        "links_for_active_fields": len(active_fids),
+        "fields_created": field_created,
+        "fields_updated": field_updated,
+        "field_links_created": link_created,
+        "field_links_updated": link_updated,
+        "field_links_removed": deleted_count,
+        "buybackRate": str(category.buyback_rate) if category.buyback_rate is not None else None,
+        "offerRate": str(category.offer_rate) if category.offer_rate is not None else None,
+    })
 

@@ -93,6 +93,28 @@ function partitionCardFields(fields = []) {
   return { categoryFields, coreFields, otherFields };
 }
 
+function getCardFieldValue(card, fieldName) {
+  if (!card || !fieldName) return '';
+  const field = (card.fields || []).find((entry) => entry?.name === fieldName);
+  return field?.value != null ? String(field.value) : '';
+}
+
+function buildCardFieldSignature(card) {
+  return JSON.stringify((card?.fields || []).map((field) => ({
+    name: String(field?.name || ''),
+    label: String(field?.label || ''),
+    control: String(field?.control || ''),
+    required: Boolean(field?.required),
+    value: field?.value != null ? String(field.value) : '',
+    options: Array.isArray(field?.options)
+      ? field.options.map((option) => ({
+        value: String(option?.value ?? ''),
+        text: String(option?.text ?? option?.value ?? ''),
+      }))
+      : [],
+  })));
+}
+
 // ---------------------------------------------------------------------------
 // Item summariser
 // ---------------------------------------------------------------------------
@@ -200,16 +222,26 @@ const onEnterAdvance = (e) => { if (e.key === 'Enter') { e.preventDefault(); foc
 // ---------------------------------------------------------------------------
 
 function SpinnerOverlay({ message, sub, className = '' }) {
+  const hasText = Boolean((message && String(message).trim()) || (sub && String(sub).trim()));
   return (
     <div
       className={cx('absolute inset-0 z-20 flex flex-col items-center justify-center gap-3', className)}
       role="status"
       aria-live="polite"
       aria-busy="true"
+      aria-label="Loading"
     >
       <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-[var(--brand-blue-alpha-15)] border-t-[var(--brand-blue)]" aria-hidden />
-      <p className="text-sm font-bold text-[var(--brand-blue)]">{message}</p>
-      {sub && <p className="text-xs text-[var(--text-muted)]">{sub}</p>}
+      {hasText ? (
+        <>
+          {message && String(message).trim() ? (
+            <p className="text-sm font-bold text-[var(--brand-blue)]">{message}</p>
+          ) : null}
+          {sub && String(sub).trim() ? (
+            <p className="text-xs text-[var(--text-muted)]">{sub}</p>
+          ) : null}
+        </>
+      ) : null}
     </div>
   );
 }
@@ -271,7 +303,7 @@ function CategoryCascadeField({ field, tree, value, onChange, required, showErro
         const levelIndex = currentPath.length;
         const availableOptions = [...node.children.keys()].sort((a, b) => a.localeCompare(b));
         const result = await suggestNosposCategory({ item: itemSummary, levelIndex, availableOptions, previousPath: currentPath });
-        console.info('[CG Suite] Category AI reasoning', { level: levelIndex + 1, selected: result.suggested, confidence: result.confidence, reasoning: result.reasoning || '' });
+        console.info('[CG Suite] Category level suggestion', { level: levelIndex + 1, selected: result.suggested, confidence: result.confidence, reasoning: result.reasoning || '' });
         const nextNode = node.children.get(result.suggested);
         if (!nextNode) break;
         currentPath = [...currentPath, result.suggested];
@@ -279,7 +311,7 @@ function CategoryCascadeField({ field, tree, value, onChange, required, showErro
       }
       succeeded = true;
     } catch (err) {
-      console.error('[CG Suite] AI Category error:', err.message);
+      console.error('[CG Suite] Category cascade error:', err.message);
       setManualFallback(true);
     } finally {
       // Apply the full path in one shot — one render, one onChange call
@@ -304,7 +336,7 @@ function CategoryCascadeField({ field, tree, value, onChange, required, showErro
   // Priority order:
   //   1. User-configured NoSpos category mapping (Config page)
   //   2. Item's saved DB category path
-  //   3. Full AI
+  //   3. Automatic category cascade
   useEffect(() => {
     if (!tree || tree.children.size === 0 || categorySelected || aiRunning || manualFallback || autoAttemptedRef.current) return;
     autoAttemptedRef.current = true;
@@ -313,10 +345,10 @@ function CategoryCascadeField({ field, tree, value, onChange, required, showErro
       let node = tree;
       for (const seg of matchedPath) { node = node.children.get(seg); if (!node) break; }
       if (!node || node.children.size === 0) {
-        console.info(`[CG Suite] Category: ${label} — full match, applying directly (no AI)`, matchedPath);
+        console.info(`[CG Suite] Category: ${label} — full match, applying directly`, matchedPath);
         updatePath(matchedPath);
       } else {
-        console.info(`[CG Suite] Category: ${label} — partial match, AI filling remainder from prefix`, matchedPath);
+        console.info(`[CG Suite] Category: ${label} — partial match, completing remainder from prefix`, matchedPath);
         runCascade(matchedPath);
       }
     }
@@ -332,7 +364,9 @@ function CategoryCascadeField({ field, tree, value, onChange, required, showErro
         applyPath(matchedUser, 'user-configured mapping');
         return;
       }
-      console.info('[CG Suite] Category: user mapping found but path not in nospos tree, trying DB path', { nosposPath: userMapping.nosposPath });
+      console.info('[CG Suite] Category: user mapping found but path not in nospos tree, trying DB path', { nosposPath: userMapping.nosposPath, categoryId, categoryName });
+    } else {
+      console.info('[CG Suite] Category: no user mapping configured for this category, trying DB path', { categoryId, categoryName });
     }
 
     // 2. Check item's DB category path
@@ -343,8 +377,8 @@ function CategoryCascadeField({ field, tree, value, onChange, required, showErro
       return;
     }
 
-    // 3. Full AI
-    console.info('[CG Suite] Category: no mapping/DB path match in nospos tree, falling back to full AI', { dbCategoryPath, userMapping: userMapping?.nosposPath ?? null });
+    // 3. Automatic cascade for full path
+    console.info('[CG Suite] Category: no mapping/DB path match in nospos tree, using automatic category completion', { dbCategoryPath, categoryId, categoryName });
     handlePrefill();
   }, [tree, categorySelected, aiRunning, manualFallback, handlePrefill, item, runCascade, updatePath, nosposMappings]);
 
@@ -412,18 +446,18 @@ function CategoryCascadeField({ field, tree, value, onChange, required, showErro
             type="button"
             disabled={aiRunning}
             onClick={handlePrefill}
-            className="inline-flex items-center gap-1.5 rounded-md border border-[var(--brand-blue)] bg-[var(--brand-blue-alpha-05)] px-3 py-1.5 text-xs font-bold text-[var(--brand-blue)] transition hover:bg-[var(--brand-blue)] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+            aria-label={aiRunning ? 'Loading' : 'Suggest category'}
+            className="inline-flex min-h-[2rem] min-w-[2rem] items-center justify-center gap-1.5 rounded-md border border-[var(--brand-blue)] bg-[var(--brand-blue-alpha-05)] px-3 py-1.5 text-xs font-bold text-[var(--brand-blue)] transition hover:bg-[var(--brand-blue)] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
           >
             {aiRunning
-              ? <><div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />Calculating…</>
-              : <><span className="material-symbols-outlined text-[14px] leading-none">auto_awesome</span>Prefill using AI</>}
+              ? <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden />
+              : 'Suggest category'}
           </button>
-          {aiRunning && <span className="text-[10px] font-semibold text-[var(--text-muted)]">AI calculating category…</span>}
         </div>
       )}
       {manualFallback && (
         <p className="text-xs font-medium text-amber-800">
-          Category AI stopped early. Choose each level manually using the dropdowns — they stay fully editable.
+          Automatic suggestions stopped. Choose each level manually using the dropdowns — they stay fully editable.
         </p>
       )}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">{levelBlocks}</div>
@@ -520,10 +554,11 @@ export default function NosposAgreementMirrorModal({
   const [touched, setTouched] = useState(false);
   const [expandedRows, setExpandedRows] = useState(new Set());
 
-  // --- Card/AI state ---
+  // --- Card / automatic suggestion state ---
   const [aiFillingCards, setAiFillingCards] = useState(new Set());
   const [applyingCards, setApplyingCards] = useState(new Set());
   const [updatingCategoryCards, setUpdatingCategoryCards] = useState(new Set());
+  const [settlingCategoryCards, setSettlingCategoryCards] = useState(new Set());
   const [addingItem, setAddingItem] = useState(false);
   const [addingItemIndex, setAddingItemIndex] = useState(null);
   const [categoryAiBlocking, setCategoryAiBlocking] = useState(false);
@@ -546,6 +581,7 @@ export default function NosposAgreementMirrorModal({
   const snapshotRef = useRef(snapshot);
   const categoryAiDepthRef = useRef(0);
   const attrPrefillDoneRef = useRef(new Set());
+  const applyAttributePrefillForCardRef = useRef(null);
   const userOverriddenRef = useRef(new Set());
   const preservedRef = useRef(new Set());
   const prevOpenRef = useRef(false);
@@ -557,7 +593,7 @@ export default function NosposAgreementMirrorModal({
   useEffect(() => { valuesRef.current = values; });
   useEffect(() => { snapshotRef.current = snapshot; });
 
-  const { applyInFlightRef, queueFieldApply, flushQueuedFieldApplies, resetQueuedApplies } =
+  const { pendingFieldApplyRef, applyFlushTimerRef, applyInFlightRef, queueFieldApply, flushQueuedFieldApplies, resetQueuedApplies } =
     useNosposMirrorQueuedApplies({ snapshotRef, setApplyingCards, setFormError });
 
   const notifyCategoryAiRunning = useCallback((running) => {
@@ -599,6 +635,7 @@ export default function NosposAgreementMirrorModal({
     resetQueuedApplies();
     setApplyingCards(new Set());
     setUpdatingCategoryCards(new Set());
+    setSettlingCategoryCards(new Set());
     setAddingItem(false);
     setAddingItemIndex(null);
     setTouched(false);
@@ -719,6 +756,90 @@ export default function NosposAgreementMirrorModal({
     });
   }, []);
 
+  const waitForSnapshotStable = useCallback((prevPageId, { minCardCount = 0, stableMs = 600, timeoutMs = 20000, actionLabel = 'NoSpos' } = {}) => {
+    return new Promise((resolve, reject) => {
+      const t0 = Date.now();
+      let lastChangeAt = Date.now();
+      let lastPageId = prevPageId;
+      let lastCardCount = minCardCount;
+  
+      (function check() {
+        const next = snapshotRef.current;
+        const currentPageId = next?.pageInstanceId;
+        const currentCardCount = next?.cards?.length || 0;
+  
+        // Detect any change in the snapshot
+        const changed = currentPageId !== lastPageId || currentCardCount !== lastCardCount;
+        if (changed) {
+          lastChangeAt = Date.now();
+          lastPageId = currentPageId;
+          lastCardCount = currentCardCount;
+        }
+  
+        const hasReloadedAtLeastOnce = currentPageId != null && currentPageId !== prevPageId && currentCardCount >= minCardCount;
+        const isStable = hasReloadedAtLeastOnce && (Date.now() - lastChangeAt) >= stableMs;
+  
+        if (isStable) return resolve(next);
+        if (Date.now() - t0 >= timeoutMs) return reject(new Error(`${actionLabel} did not stabilise in time.`));
+        setTimeout(check, 100);
+      })();
+    });
+  }, []);
+
+  const waitForCategorySnapshotReady = useCallback((
+    prevPageId,
+    {
+      cardIdx,
+      fieldName,
+      fieldValue,
+      minCardCount = 0,
+      stableMs = 600,
+      timeoutMs = 20000,
+      actionLabel = 'Updating the category',
+    } = {},
+  ) => {
+    return new Promise((resolve, reject) => {
+      const t0 = Date.now();
+      let lastChangeAt = Date.now();
+      let lastPageId = prevPageId;
+      let lastCardCount = minCardCount;
+      let lastFieldValue = '';
+      let lastCardSignature = '';
+
+      (function check() {
+        const next = snapshotRef.current;
+        const currentPageId = next?.pageInstanceId;
+        const currentCardCount = next?.cards?.length || 0;
+        const currentCard = Number.isInteger(cardIdx) ? next?.cards?.[cardIdx] || null : null;
+        const currentFieldValue = getCardFieldValue(currentCard, fieldName);
+        const currentCardSignature = buildCardFieldSignature(currentCard);
+
+        const changed = (
+          currentPageId !== lastPageId ||
+          currentCardCount !== lastCardCount ||
+          currentFieldValue !== lastFieldValue ||
+          currentCardSignature !== lastCardSignature
+        );
+
+        if (changed) {
+          lastChangeAt = Date.now();
+          lastPageId = currentPageId;
+          lastCardCount = currentCardCount;
+          lastFieldValue = currentFieldValue;
+          lastCardSignature = currentCardSignature;
+        }
+
+        const hasReloadedAtLeastOnce = currentPageId != null && currentPageId !== prevPageId && currentCardCount >= minCardCount;
+        const categoryValueApplied = !fieldName || currentFieldValue === fieldValue;
+        const isStable = hasReloadedAtLeastOnce && categoryValueApplied && (Date.now() - lastChangeAt) >= stableMs;
+
+        if (isStable) return resolve(next);
+        if (Date.now() - t0 >= timeoutMs) return reject(new Error(`${actionLabel} did not stabilise in time.`));
+        setTimeout(check, 100);
+      })();
+    });
+  }, []);
+
   const waitForCardCount = useCallback((target, timeoutMs = 12000) => {
     return new Promise((resolve, reject) => {
       const t0 = Date.now();
@@ -752,12 +873,34 @@ export default function NosposAgreementMirrorModal({
       try {
         setFormError(null);
         setUpdatingCategoryCards((prev) => new Set([...prev, cardIdx]));
+        setSettlingCategoryCards((prev) => new Set([...prev, cardIdx]));
         const prevPageId = snapshotRef.current?.pageInstanceId || null;
         const r = await nosposAgreementApplyFields([{ name, value: str, cardIndex: cardIdx, cardId: cardId || null }]);
         if (!r?.ok) {
           setFormError(r?.error || 'Could not update category on NosPos. Check the agreement tab is still open.');
         } else {
-          await waitForSnapshotReload(prevPageId, { minCardCount: snapshotRef.current?.cards?.length || 0, actionLabel: 'Updating the category' });
+          // Wait until the snapshot has STOPPED changing for 600ms — not just until
+          // the first reload event.  NoSpos often fires a quick interim snapshot
+          // right after a category change (with the old or partial field set) before
+          // sending the real one, so waitForSnapshotReload was clearing the spinner
+          // too early and showing stale fields.
+          await waitForCategorySnapshotReady(prevPageId, {
+            cardIdx,
+            fieldName: name,
+            fieldValue: str,
+            minCardCount: snapshotRef.current?.cards?.length || 0,
+            actionLabel: 'Updating the category',
+          });
+          // Re-run attribute prefill for this card against the new category's fields
+          // before clearing the spinner.  We must do this here (not rely on the
+          // prefill effect) because React won't re-run that effect unless snapshot
+          // or values have changed *since its last run*, which they may not have by
+          // the time waitForSnapshotStable resolves.  Marking attrPrefillDoneRef
+          // here means the auto-suggestion effect (which fires when updatingCategoryCards clears)
+          // sees the card as "prefill done" and runs immediately.
+          attrPrefillDoneRef.current.delete(cardIdx);
+          applyAttributePrefillForCardRef.current?.(cardIdx);
+          attrPrefillDoneRef.current.add(cardIdx);
         }
       } catch (e) {
         setFormError(e?.message || 'Could not update category on NosPos.');
@@ -765,7 +908,7 @@ export default function NosposAgreementMirrorModal({
         setUpdatingCategoryCards((prev) => { const next = new Set(prev); next.delete(cardIdx); return next; });
       }
     })();
-  }, [waitForSnapshotReload]);
+  }, [waitForCategorySnapshotReady]);
 
   // ---------------------------------------------------------------------------
   // Attribute prefill
@@ -788,6 +931,14 @@ export default function NosposAgreementMirrorModal({
       toApply.push({ name: field.name, value: String(resolved) });
     }
     if (!toApply.length) return;
+    // Negotiation prefill only — clear any mistaken auto-fill indicator on these fields.
+    setAiFilledFieldKeys((prev) => {
+      const next = new Set(prev);
+      for (const { name } of toApply) {
+        next.delete(buildCardFieldKey(cardIdx, name));
+      }
+      return next;
+    });
     setValues((prev) => { const next = { ...prev }; for (const { name, value } of toApply) next[name] = value; return next; });
     for (const { name, value } of toApply) {
       preservedRef.current.add(name);
@@ -796,8 +947,45 @@ export default function NosposAgreementMirrorModal({
     setFormError(null);
   }, [attributePrefill, queueFieldApply]);
 
+  useEffect(() => { applyAttributePrefillForCardRef.current = applyAttributePrefillForCard; });
+
+  useEffect(() => {
+    if (!settlingCategoryCards.size) return;
+
+    setSettlingCategoryCards((prev) => {
+      const next = new Set(prev);
+      let changed = false;
+      for (const cardIdx of prev) {
+        const hasPendingQueuedApply = [...pendingFieldApplyRef.current.values()].some(
+          (field) => field?.cardIndex === cardIdx
+        );
+        const rowStillBusy = (
+          updatingCategoryCards.has(cardIdx) ||
+          applyingCards.has(cardIdx) ||
+          aiFillingCards.has(cardIdx) ||
+          hasPendingQueuedApply
+        );
+
+        if (!rowStillBusy) {
+          next.delete(cardIdx);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [
+    settlingCategoryCards,
+    updatingCategoryCards,
+    applyingCards,
+    aiFillingCards,
+    values,
+    snapshot,
+    prefillStepVersion,
+    pendingFieldApplyRef,
+  ]);
+
   // ---------------------------------------------------------------------------
-  // AI fill
+  // Suggested field values (empty required fields)
   // ---------------------------------------------------------------------------
 
   const aiFillForCard = useCallback((cardIdx) => {
@@ -819,7 +1007,7 @@ export default function NosposAgreementMirrorModal({
     });
 
     if (!fieldsForAi.length) {
-      setFormError('Nothing left for AI to suggest for required fields on this item. Fill any empty required fields manually.');
+      setFormError('Nothing left to suggest for required fields on this item. Fill any empty required fields manually.');
       setAiManualFallbackCards((prev) => new Set([...prev, cardIdx]));
       return;
     }
@@ -836,8 +1024,12 @@ export default function NosposAgreementMirrorModal({
     })
       .then((result) => {
         const normalized = normalizeAiFieldResponseKeys(result.fields, fieldsForAi);
+        const allowedNames = new Set(fieldsForAi.map((f) => f.name));
         const toApply = {};
         for (const [fieldName, aiRaw] of Object.entries(normalized)) {
+          if (!allowedNames.has(fieldName)) continue;
+          const fieldMeta = fieldsForAi.find((f) => f.name === fieldName);
+          if (!fieldMeta || shouldSkipAiFill(fieldMeta)) continue;
           if (userOverriddenRef.current.has(fieldName) || !aiRaw || !String(aiRaw).trim()) continue;
           const resolved = resolveOptionValue(fieldOptionsMap[fieldName] || [], String(aiRaw));
           if (resolved && String(resolved).trim()) toApply[fieldName] = String(resolved);
@@ -855,13 +1047,13 @@ export default function NosposAgreementMirrorModal({
           }
           setFormError(null);
         } else if (fieldsForAi.length) {
-          setFormError('AI did not return usable values for the empty fields. Please complete them manually — all fields below stay editable.');
+          setFormError('No usable values were returned for the empty fields. Please complete them manually — all fields below stay editable.');
           setAiManualFallbackCards((prev) => new Set([...prev, cardIdx]));
         }
       })
       .catch((err) => {
-        console.error('[CG Suite] AI fill failed', { cardIdx, error: err?.message });
-        setFormError(`${err?.message || 'AI fill failed.'} You can fill every field manually below; nothing is locked.`);
+        console.error('[CG Suite] Field suggestions failed', { cardIdx, error: err?.message });
+        setFormError(`${err?.message || 'Could not apply suggested field values.'} You can fill every field manually below; nothing is locked.`);
         setAiManualFallbackCards((prev) => new Set([...prev, cardIdx]));
       })
       .finally(() => {
@@ -951,7 +1143,7 @@ export default function NosposAgreementMirrorModal({
   }, [open, snapshot, values, applyAttributePrefillForCard]);
 
   // ---------------------------------------------------------------------------
-  // Auto AI fill when attribute prefill done and fields still missing
+  // Auto suggested values when attribute prefill is done and fields are still missing
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
@@ -1083,14 +1275,14 @@ export default function NosposAgreementMirrorModal({
   const effectiveExpectedCount = mirrorFirstLineOnly ? 1 : expectedMirrorCardCount;
   const missingCardCount = Math.max(0, effectiveExpectedCount - addedCardCount);
   const parkingErrors = getValidationErrorsForParking(values);
-  const nosposReloading = updatingCategoryCards.size > 0 || addingItem;
+  const nosposReloading = updatingCategoryCards.size > 0 || settlingCategoryCards.size > 0 || addingItem;
 
   const selectedRowBusy = singleItemMode && Number.isInteger(selectedCardIdx) && (
     addingItemIndex === selectedCardIdx || aiFillingCards.has(selectedCardIdx) ||
-    applyingCards.has(selectedCardIdx) || updatingCategoryCards.has(selectedCardIdx)
+    applyingCards.has(selectedCardIdx) || updatingCategoryCards.has(selectedCardIdx) || settlingCategoryCards.has(selectedCardIdx)
   );
   const canDoneSelectedItem = singleItemMode && selectedCard && !busy && !selectedRowBusy && !applyInFlightRef.current && !selectedValidationErrors.size;
-  const canProceed = !busy && !addingItem && !aiFillingCards.size && !applyingCards.size && !updatingCategoryCards.size && showForm && snapshot?.hasNext !== false && !parkingErrors.size && !missingCardCount;
+  const canProceed = !busy && !addingItem && !aiFillingCards.size && !applyingCards.size && !updatingCategoryCards.size && !settlingCategoryCards.size && showForm && snapshot?.hasNext !== false && !parkingErrors.size && !missingCardCount;
 
   // ---------------------------------------------------------------------------
   // Render
@@ -1103,12 +1295,10 @@ export default function NosposAgreementMirrorModal({
 
       <div className="cg-animate-modal-panel relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--ui-card)]" onClick={(e) => e.stopPropagation()}>
 
-        {/* Category AI blocking overlay */}
+        {/* Category suggestion blocking overlay — spinner only */}
         {categoryAiBlocking && !nosposReloading && (
-          <div className="absolute inset-0 z-[50] flex flex-col items-center justify-center gap-3 bg-white/92" role="status" aria-live="polite" aria-busy="true">
+          <div className="absolute inset-0 z-[50] flex flex-col items-center justify-center bg-white/92" role="status" aria-live="polite" aria-busy="true" aria-label="Loading">
             <div className="h-10 w-10 animate-spin rounded-full border-[3px] border-[var(--brand-blue-alpha-15)] border-t-[var(--brand-blue)]" aria-hidden />
-            <p className="text-base font-bold text-[var(--brand-blue)]">Calculating category with AI…</p>
-            <p className="max-w-xs px-4 text-center text-xs text-[var(--text-muted)]">Choosing category levels — please wait</p>
           </div>
         )}
 
@@ -1120,7 +1310,7 @@ export default function NosposAgreementMirrorModal({
             </h2>
             <p className="mt-2 max-w-4xl text-sm leading-relaxed text-white/70 xl:max-w-5xl">
               {singleItemMode
-                ? 'Add this item to NoSpos if needed, then finish its category and required fields using AI help or manual entry.'
+                ? 'Add this item to NoSpos if needed, then finish its category and required fields below.'
                 : mirrorFirstLineOnly
                   ? 'Only the first line is tested in NoSpos. Complete it below, then park the agreement. Other lines are shown for reference only.'
                   : 'Each negotiation item appears as its own row here. Expand a row and add it to NoSpos when you want that item created.'}
@@ -1134,13 +1324,7 @@ export default function NosposAgreementMirrorModal({
 
         {/* Scrollable body + overlays */}
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-          {nosposReloading && (
-            <SpinnerOverlay
-              className="bg-white/90 z-20"
-              message={addingItem ? 'Adding item on NoSpos…' : 'Waiting for NoSpos to update…'}
-              sub="NosPos is reloading the items page"
-            />
-          )}
+          {nosposReloading && <SpinnerOverlay className="bg-white/90 z-20" />}
 
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
             {showForm ? (
@@ -1173,8 +1357,8 @@ export default function NosposAgreementMirrorModal({
 
                   const isAdded = rowState?.isAdded ?? Boolean(card);
                   const isExpanded = expandedRows.has(rowIdx);
-                  const rowBusy = Number.isInteger(compactCardIdx) && (addingItemIndex === compactCardIdx || aiFillingCards.has(compactCardIdx) || applyingCards.has(compactCardIdx) || updatingCategoryCards.has(compactCardIdx));
-                  const canAddThisRow = showForm && !isAdded && rowIdx === nextRowToAdd && !(mirrorFirstLineOnly && rowIdx > 0) && !validationErrors.size && !busy && !addingItem && !aiFillingCards.size && !applyingCards.size && !updatingCategoryCards.size && !applyInFlightRef.current && snapshot?.hasNext !== false;
+                  const rowBusy = Number.isInteger(compactCardIdx) && (addingItemIndex === compactCardIdx || aiFillingCards.has(compactCardIdx) || applyingCards.has(compactCardIdx) || updatingCategoryCards.has(compactCardIdx) || settlingCategoryCards.has(compactCardIdx));
+                  const canAddThisRow = showForm && !isAdded && rowIdx === nextRowToAdd && !(mirrorFirstLineOnly && rowIdx > 0) && !validationErrors.size && !busy && !addingItem && !aiFillingCards.size && !applyingCards.size && !updatingCategoryCards.size && !settlingCategoryCards.size && !applyInFlightRef.current && snapshot?.hasNext !== false;
 
                   const reqCat = categoryFields.filter((f) => f.required);
                   const hasRequiredCategoryComplete = !reqCat.length || reqCat.every((f) => String(values[f.name] ?? '').trim());
@@ -1202,11 +1386,12 @@ export default function NosposAgreementMirrorModal({
                       compactCardIdx={compactCardIdx}
                       requiredCategoryFields={reqCat}
                       requiredOtherFields={otherFields.filter((f) => f.required)}
+                      optionalOtherFields={otherFields.filter((f) => !f.required)}
                       isAdded={isAdded}
                       isExpanded={isExpanded}
                       canAddThisRow={canAddThisRow}
                       rowBusy={rowBusy}
-                      categoryReloading={Number.isInteger(compactCardIdx) && updatingCategoryCards.has(compactCardIdx)}
+                      categoryReloading={Number.isInteger(compactCardIdx) && (updatingCategoryCards.has(compactCardIdx) || settlingCategoryCards.has(compactCardIdx))}
                       hasRequiredCategoryComplete={hasRequiredCategoryComplete}
                       rowTitle={getItemDisplayName(cardItem, card?.title || `Item ${rowIdx + 1}`)}
                       rowMeta={getItemDisplayMeta(cardItem)}

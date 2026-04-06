@@ -2,7 +2,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import TinyModal from '@/components/ui/TinyModal';
 import NegotiationRowContextMenu from '@/pages/buyer/components/NegotiationRowContextMenu';
 import { NEGOTIATION_ROW_CONTEXT } from '@/pages/buyer/rowContextZones';
-import { SPREADSHEET_TABLE_STYLES } from '@/pages/buyer/spreadsheetTableStyles';
+import {
+  SPREADSHEET_TABLE_STYLES,
+  SPREADSHEET_TABLE_WORKSPACE_PERF_STYLES,
+} from '@/pages/buyer/spreadsheetTableStyles';
 import { formatOfferPrice, roundOfferPrice } from '@/utils/helpers';
 import {
   tierOfferGbpFromReference,
@@ -711,7 +714,7 @@ export default function JewelleryLineItems({
 
   return (
     <div className="min-w-0 rounded-lg border border-gray-200 bg-white shadow-sm">
-      <style>{SPREADSHEET_TABLE_STYLES}</style>
+      <style>{`${SPREADSHEET_TABLE_STYLES}\n${SPREADSHEET_TABLE_WORKSPACE_PERF_STYLES}`}</style>
       <div className="border-b border-gray-200 px-3 py-3">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <h3 className="text-sm font-semibold text-brand-blue">Your items</h3>
@@ -742,7 +745,7 @@ export default function JewelleryLineItems({
         </p>
       ) : (
         <div className="min-w-0">
-          <table className="w-full table-fixed spreadsheet-table spreadsheet-table--static-header border-collapse text-left">
+          <table className="w-full table-fixed spreadsheet-table spreadsheet-table--static-header spreadsheet-table--workspace border-collapse text-left">
             <thead>
               <tr>
                 <th scope="col" className="w-40">

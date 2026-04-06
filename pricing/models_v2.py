@@ -25,6 +25,15 @@ class ProductCategory(models.Model):
         help_text="Parent category. Root categories have this empty."
     )
     name = models.CharField(max_length=255, db_index=True)
+    ready_for_builder = models.BooleanField(
+        default=True,
+        db_index=True,
+        help_text=(
+            "If False, hide this category (and use only where full tree is needed, e.g. "
+            "NosPos mapping / data tools). Buyer and repricing sidebars only show "
+            "categories with this True."
+        ),
+    )
 
     class Meta:
         db_table = 'pricing_product_category'
@@ -1876,3 +1885,117 @@ class NosposCategoryMapping(models.Model):
 
     def __str__(self):
         return f"{self.category.name} → {self.nospos_path}"
+
+
+class NosposCategory(models.Model):
+    """
+    Stock category row mirrored from NosPos /stock/category/index (extension scrape).
+    Parent is derived from full_name hierarchy (… > parent > child); roots have parent=None.
+    """
+
+    nospos_id = models.PositiveIntegerField(
+        unique=True,
+        db_index=True,
+        help_text="Category id from NosPos (grid data-key / #column).",
+    )
+    parent = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="children",
+    )
+    level = models.PositiveSmallIntegerField(
+        help_text="Depth from NosPos (0 = root, 1 = child, …).",
+    )
+    full_name = models.CharField(
+        max_length=1024,
+        help_text="Full path as shown in NosPos, using ' > ' between segments.",
+    )
+    status = models.CharField(max_length=32, blank=True, help_text="e.g. Active / Inactive")
+    buyback_rate = models.DecimalField(
+        max_digits=8,
+        decimal_places=4,
+        null=True,
+        blank=True,
+        help_text="Optional buy-back rate (populated when available).",
+    )
+    offer_rate = models.DecimalField(
+        max_digits=8,
+        decimal_places=4,
+        null=True,
+        blank=True,
+        help_text="Optional offer rate (populated when available).",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "nosposcategory"
+        verbose_name = "NosPos category"
+        verbose_name_plural = "NosPos categories"
+        ordering = ["level", "full_name"]
+
+    def __str__(self):
+        return f"{self.full_name} (#{self.nospos_id})"
+
+
+class NosposField(models.Model):
+    """
+    Global NosPos stock field label from CategoryFieldForm (scraped via /stock/category/modify for convenience).
+    """
+
+    nospos_field_id = models.PositiveIntegerField(
+        unique=True,
+        db_index=True,
+        help_text="Field id from CategoryFieldForm[X] in the form.",
+    )
+    name = models.CharField(max_length=512)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "nosposfield"
+        verbose_name = "NosPos field"
+        verbose_name_plural = "NosPos fields"
+        ordering = ["nospos_field_id"]
+
+    def __str__(self):
+        return f"{self.name} (#{self.nospos_field_id})"
+
+
+class NosposCategoryField(models.Model):
+    """
+    Per-category assignment of a global NosPos field with checkbox flags from /stock/category/modify.
+    """
+
+    category = models.ForeignKey(
+        NosposCategory,
+        on_delete=models.CASCADE,
+        related_name="field_links",
+    )
+    field = models.ForeignKey(
+        NosposField,
+        on_delete=models.CASCADE,
+        related_name="category_links",
+    )
+    active = models.BooleanField(default=False, help_text="CategoryFieldForm [checked] — field enabled for category.")
+    editable = models.BooleanField(default=False)
+    sensitive = models.BooleanField(default=False)
+    required = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "nosposcategoryfield"
+        verbose_name = "NosPos category field"
+        verbose_name_plural = "NosPos category fields"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["category", "field"],
+                name="nosposcategoryfield_category_field_unique",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.category_id}:{self.field_id} active={self.active}"

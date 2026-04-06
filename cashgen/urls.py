@@ -48,6 +48,11 @@ urlpatterns = [
     path('api/customer-offer-rules/<str:customer_type>/', v2.customer_offer_rule_detail, name='customer_offer_rule_detail'),
     path('api/nospos-category-mappings/', v2.nospos_category_mappings_view, name='nospos_category_mappings'),
     path('api/nospos-category-mappings/<int:mapping_id>/', v2.nospos_category_mapping_detail, name='nospos_category_mapping_detail'),
+    path('api/nospos-categories/sync/', v2.nospos_categories_sync, name='nospos_categories_sync'),
+    path('api/nospos-categories/', v2.nospos_categories_list, name='nospos_categories_list'),
+    path('api/nospos-fields/sync/', v2.nospos_fields_sync, name='nospos_fields_sync'),
+    path('api/nospos-fields/', v2.nospos_fields_list, name='nospos_fields_list'),
+    path('api/nospos-category-fields/sync/', v2.nospos_category_fields_sync, name='nospos_category_fields_sync'),
     path('api/address-lookup/<str:postcode>/', v2.address_lookup, name='address_lookup'),
 
     # AI

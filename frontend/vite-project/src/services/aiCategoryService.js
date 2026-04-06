@@ -70,7 +70,7 @@ const FIELDS_ENDPOINT = '/api/ai/suggest-fields/';
  * The AI should never attempt to fill these.
  */
 const SKIP_PATTERN =
-  /description|serial|imei|barcode|ean|isbn|upc|location|address|postcode|post.?code|notes?|comments?|memo|remarks?|condition|password|\bpin\b|\brate\b/i;
+  /description|serial|imei|barcode|ean|isbn|upc|location|address|postcode|post.?code|notes?|comments?|memo|remarks?|condition|password|\bpin\b|\brate\b|carat\s*\/\s*hallmark/i;
 
 /**
  * Returns true if the field should be excluded from AI auto-fill.

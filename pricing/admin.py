@@ -31,6 +31,9 @@ from .models_v2 import (
     RequestItemJewellery,
     RequestItemJewelleryValuation,
     InventoryUnitJewellery,
+    NosposCategory,
+    NosposField,
+    NosposCategoryField,
 )
 
 
@@ -38,10 +41,43 @@ from .models_v2 import (
 # Category, Manufacturer & Product
 # --------------------------------
 
+@admin.register(NosposCategory)
+class NosposCategoryAdmin(admin.ModelAdmin):
+    list_display = (
+        "nospos_id",
+        "level",
+        "full_name",
+        "parent",
+        "status",
+        "buyback_rate",
+        "offer_rate",
+        "updated_at",
+    )
+    list_filter = ("level", "status")
+    search_fields = ("full_name", "nospos_id")
+    ordering = ("level", "full_name")
+    raw_id_fields = ("parent",)
+
+
+@admin.register(NosposField)
+class NosposFieldAdmin(admin.ModelAdmin):
+    list_display = ("nospos_field_id", "name", "updated_at")
+    search_fields = ("name", "nospos_field_id")
+    ordering = ("nospos_field_id",)
+
+
+@admin.register(NosposCategoryField)
+class NosposCategoryFieldAdmin(admin.ModelAdmin):
+    list_display = ("category", "field", "active", "editable", "sensitive", "required", "updated_at")
+    list_filter = ("active", "editable", "sensitive", "required")
+    search_fields = ("category__full_name", "category__nospos_id", "field__name", "field__nospos_field_id")
+    raw_id_fields = ("category", "field")
+
+
 @admin.register(ProductCategory)
 class ProductCategoryAdmin(admin.ModelAdmin):
-    list_display = ("name", "parent_category")
-    list_filter = ("parent_category",)
+    list_display = ("name", "parent_category", "ready_for_builder")
+    list_filter = ("parent_category", "ready_for_builder")
     search_fields = ("name",)
     ordering = ("name",)
 

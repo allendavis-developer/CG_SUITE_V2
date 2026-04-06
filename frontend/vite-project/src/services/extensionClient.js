@@ -58,6 +58,60 @@ export async function openNosposForCustomerIntake() {
   });
 }
 
+/**
+ * Open nospos.com via the extension and wait until the browser shows a logged-in session
+ * (same content-script flow as customer intake: NOSPOS_PAGE_READY, NOSPOS_LOGIN_REQUIRED closes the tab and rejects).
+ * Does not use the /customers intake flow. After login, the extension walks stock category index pages 1–12
+ * (see chrome-extension/tasks/nospos-stock-category-pagination.js). Resolves with `{ ok: true, pagesVisited, lastUrl, categories }`.
+ */
+export async function openNosposSiteOnly() {
+  return sendMessage({ action: 'openNosposSiteOnly' });
+}
+
+/**
+ * Same session flow as openNosposSiteOnly (login, NOSPOS_PAGE_READY); then opens
+ * /stock/category/modify?id=… and scrapes `.card-content.fields` (field names only).
+ */
+export async function openNosposSiteForFields() {
+  return sendMessage({ action: 'openNosposSiteForFields' });
+}
+
+/**
+ * Same session flow as `openNosposSiteForFields`, but opens `/stock/category/modify?id=<nosposCategoryId>`
+ * and returns scraped rows including active / editable / sensitive / required flags per field.
+ */
+export async function openNosposSiteForCategoryFields(nosposCategoryId) {
+  return sendMessage({
+    action: 'openNosposSiteForCategoryFields',
+    nosposCategoryId: Number(nosposCategoryId),
+  });
+}
+
+/** Use with `openNosposSiteOnly`: login plus up to 12 full page loads (extension allows 90s each). */
+export const OPEN_NOSPOS_SITE_CATEGORY_TIMEOUT_MS = 12 * 95000;
+
+/** Use with `openNosposSiteForFields` (login + one modify page). */
+export const OPEN_NOSPOS_SITE_FIELD_TIMEOUT_MS = 12 * 95000;
+
+/** Bulk field scrape: many modify pages × ~90s load cap each (2h default). */
+export const OPEN_NOSPOS_BULK_CATEGORY_FIELDS_TIMEOUT_MS = 120 * 60 * 1000;
+
+/**
+ * One NoSpos tab: after login, visits each `/stock/category/modify?id=` in sequence.
+ * Calls `onProgress` after each category with `{ kind, index, total, categoryNosposId, fields, scrapeOk, scrapeError }`.
+ * Resolves with `{ ok, bulk, results, total }`.
+ */
+export async function openNosposSiteForCategoryFieldsBulk(nosposCategoryIds, onProgress) {
+  const ids = Array.isArray(nosposCategoryIds) ? nosposCategoryIds : [];
+  return sendMessage(
+    {
+      action: 'openNosposSiteForCategoryFieldsBulk',
+      nosposCategoryIds: ids,
+    },
+    { onProgress, timeoutMs: OPEN_NOSPOS_BULK_CATEGORY_FIELDS_TIMEOUT_MS }
+  );
+}
+
 /** Max time to wait for the extension + NosPos session check before we fail open and reset UI. */
 export const OPEN_NOSPOS_PROFILE_CLIENT_TIMEOUT_MS = 28000;
 

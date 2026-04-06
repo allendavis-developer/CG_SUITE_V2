@@ -20,7 +20,7 @@ const TinyModal = ({
     onClick={(e) => e.stopPropagation()}
   >
     <div
-      className="cg-animate-modal-backdrop absolute inset-0 bg-black/50 backdrop-blur-sm"
+      className="cg-animate-modal-backdrop absolute inset-0 bg-black/55"
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => {
         e.stopPropagation();

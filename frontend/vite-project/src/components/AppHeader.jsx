@@ -828,7 +828,7 @@ const AppHeader = ({
                       }`}
                     >
                     {workspaceMode === 'jewellery' ? (
-                      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+                      <div className="min-h-0 flex-1 overflow-y-auto p-4 [contain:paint]">
                         {jewelleryPanelLoading ? (
                           <div
                             className="flex min-h-[200px] flex-col items-center justify-center gap-3 text-brand-blue"

@@ -1,6 +1,9 @@
 import React, { useEffect, useId, useMemo, useState } from 'react';
 import { formatOfferPrice } from '@/utils/helpers';
-import { SPREADSHEET_TABLE_STYLES } from '@/pages/buyer/spreadsheetTableStyles';
+import {
+  SPREADSHEET_TABLE_STYLES,
+  SPREADSHEET_TABLE_WORKSPACE_PERF_STYLES,
+} from '@/pages/buyer/spreadsheetTableStyles';
 import JewelleryLineItems from '@/components/jewellery/JewelleryLineItems';
 
 const TROY_OZ_GRAMS = 31.1034768;
@@ -105,7 +108,7 @@ export default function JewelleryReferencePricesTable({
   return (
     <div className="flex min-w-0 flex-col gap-3">
     <div className="min-w-0 rounded-lg border border-gray-200 bg-white shadow-sm">
-      <style>{SPREADSHEET_TABLE_STYLES}</style>
+      <style>{`${SPREADSHEET_TABLE_STYLES}\n${SPREADSHEET_TABLE_WORKSPACE_PERF_STYLES}`}</style>
       <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 px-2 py-2 sm:px-3">
         {hideToggle ? (
           <div className="flex min-w-0 flex-1 items-center gap-2 py-1">
@@ -171,7 +174,7 @@ export default function JewelleryReferencePricesTable({
           aria-labelledby={toggleId}
           className="border-t border-gray-200"
         >
-          <table className="w-full spreadsheet-table spreadsheet-table--static-header border-collapse text-left">
+          <table className="w-full spreadsheet-table spreadsheet-table--static-header spreadsheet-table--workspace border-collapse text-left">
             <thead>
               <tr>
                 <th scope="col" className="min-w-[140px]">
@@ -264,7 +267,7 @@ export default function JewelleryReferencePricesTable({
       ) : null}
       {hasSections && staticSnapshotMode ? (
         <div id={panelId} role="region" aria-labelledby={toggleId} className="border-t border-gray-200">
-          <table className="w-full spreadsheet-table spreadsheet-table--static-header border-collapse text-left">
+          <table className="w-full spreadsheet-table spreadsheet-table--static-header spreadsheet-table--workspace border-collapse text-left">
             <thead>
               <tr>
                 <th scope="col" className="min-w-[140px]">

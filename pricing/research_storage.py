@@ -11,6 +11,8 @@ from copy import deepcopy
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from django.db import transaction
+
 from .models_v2 import (
     AttributeValue,
     JewelleryMeasurementSource,
@@ -183,22 +185,41 @@ def _upsert_jewellery_from_reference_payload(item: RequestItem, ref: dict) -> No
     if total is None:
         return
 
-    val, created = RequestItemJewelleryValuation.objects.get_or_create(
-        request_item_jewellery=req_jew,
-        valuation_source="LEGACY_IMPORT",
-        computed_total_gbp=total,
-        defaults={
-            "rate_per_gram_gbp": _dec(ref.get("rate_per_gram")),
-            "unit_price_gbp": _dec(ref.get("unit_price")),
-            "basis_weight_grams": gross_grams,
-            "valuation_payload_json": ref,
-            "is_selected": True,
-        },
-    )
-    if created:
+    # Only one valuation may be selected per line (DB unique constraint). Creating a new
+    # row with is_selected=True would fail if another row is still selected — which
+    # happens whenever computed_total_gbp changes (e.g. jewellery workspace weight edit).
+    with transaction.atomic():
         RequestItemJewelleryValuation.objects.filter(
-            request_item_jewellery=req_jew
-        ).exclude(pk=val.pk).update(is_selected=False)
+            request_item_jewellery=req_jew,
+        ).update(is_selected=False)
+
+        val, created = RequestItemJewelleryValuation.objects.get_or_create(
+            request_item_jewellery=req_jew,
+            valuation_source="LEGACY_IMPORT",
+            computed_total_gbp=total,
+            defaults={
+                "rate_per_gram_gbp": _dec(ref.get("rate_per_gram")),
+                "unit_price_gbp": _dec(ref.get("unit_price")),
+                "basis_weight_grams": gross_grams,
+                "valuation_payload_json": ref,
+                "is_selected": True,
+            },
+        )
+        if not created:
+            val.rate_per_gram_gbp = _dec(ref.get("rate_per_gram"))
+            val.unit_price_gbp = _dec(ref.get("unit_price"))
+            val.basis_weight_grams = gross_grams
+            val.valuation_payload_json = ref
+            val.is_selected = True
+            val.save(
+                update_fields=[
+                    "rate_per_gram_gbp",
+                    "unit_price_gbp",
+                    "basis_weight_grams",
+                    "valuation_payload_json",
+                    "is_selected",
+                ]
+            )
 
 
 def _replace_market_research(

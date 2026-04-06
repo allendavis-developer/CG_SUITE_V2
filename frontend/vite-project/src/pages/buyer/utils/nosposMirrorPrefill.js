@@ -7,12 +7,23 @@ import {
   getDisplayOffers,
   resolveOurSalePrice,
 } from './negotiationHelpers';
+import { nosposCaratHallmarkValueForMaterialGrade } from './jewelleryNosposMaterialGradeMap';
 
 const TROY_OZ_GRAMS = 31.1034768;
 const AV_OZ_GRAMS = 28.3495;
 
 function isNosposCategoryField(f) {
   return /\[category\]/i.test(f?.name || '') || String(f?.label || '').toLowerCase() === 'category';
+}
+
+/**
+ * NoSpos jewellery spec label "Carat / Hallmark" (or similar).
+ * Prefill uses negotiation `referenceData.material_grade` only — not `carat`, not AI.
+ */
+export function isCaratHallmarkNosposField(field) {
+  const lab = String(field?.label || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!lab) return false;
+  return lab.includes('carat') && lab.includes('hallmark');
 }
 
 function normalizeMatchKey(s) {
@@ -351,6 +362,38 @@ function buildPrefillForCard(item, card, useVoucherOffers) {
   }
 
   const attrEntries = buildAttributeEntriesForMatching(item);
+
+  // Jewellery: "Carat / Hallmark" maps only from material_grade (DB carat/fineness), never generic Carat attr or AI.
+  if (item?.isJewelleryItem) {
+    for (const f of fields) {
+      if (!f?.name || coreFilled.has(f.name)) continue;
+      if (isNosposCategoryField(f)) continue;
+      if (!isCaratHallmarkNosposField(f)) continue;
+      coreFilled.add(f.name);
+      const mg = item.referenceData?.material_grade;
+      if (mg == null || !String(mg).trim()) continue;
+      const raw = String(mg).trim();
+      const mappedNospos = nosposCaratHallmarkValueForMaterialGrade(raw);
+      let resolved = mappedNospos
+        ? resolvePrefillValueForField(f, mappedNospos)
+        : resolvePrefillValueForField(f, raw);
+      if (
+        mappedNospos &&
+        f.control === 'select' &&
+        Array.isArray(f.options) &&
+        f.options.length &&
+        !f.options.some((o) => String(o.value ?? '') === String(resolved ?? ''))
+      ) {
+        resolved = resolvePrefillValueForField(f, raw);
+      }
+      if (!String(resolved).trim()) continue;
+      if (f.control === 'select' && Array.isArray(f.options) && f.options.length) {
+        const ok = f.options.some((o) => String(o.value ?? '') === String(resolved ?? ''));
+        if (!ok) continue;
+      }
+      out[f.name] = String(resolved);
+    }
+  }
 
   for (const f of fields) {
     if (!f?.name) continue;

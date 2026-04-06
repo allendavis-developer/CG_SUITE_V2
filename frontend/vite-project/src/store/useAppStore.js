@@ -605,7 +605,8 @@ const useAppStore = create(
               : null;
             try {
               const flat = await fetchAllCategoriesFlat();
-              const matched = matchCexCategoryNameToDb(product?.category, flat);
+              const flatBuilder = flat.filter((c) => c.ready_for_builder !== false);
+              const matched = matchCexCategoryNameToDb(product?.category, flatBuilder);
               if (matched) categoryObject = matched;
             } catch (_) {
               // best effort: keep category text-only object

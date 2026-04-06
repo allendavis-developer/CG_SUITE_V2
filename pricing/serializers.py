@@ -34,8 +34,7 @@ class ProductCategorySerializer(serializers.ModelSerializer):
         fields = ['category_id', 'name', 'children']
 
     def get_children(self, obj):
-        # Recursively include child categories
-        children = obj.children.all()
+        children = obj.children.filter(ready_for_builder=True)
         serializer = ProductCategorySerializer(children, many=True)
         return serializer.data
 

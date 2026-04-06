@@ -10,6 +10,8 @@ import LaunchpadPage from "./pages/launchpad/LaunchpadPage";
 import ReportsPage from "./pages/reports/ReportsPage";
 import PricingRulesPage from "./pages/pricing/PricingRulesPage";
 import DataPage from "./pages/data/DataPage";
+import NosposCategoriesTablePage from "./pages/data/NosposCategoriesTablePage";
+import NosposFieldsPage from "./pages/data/NosposFieldsPage";
 import useAppStore from "./store/useAppStore";
 
 const FRESH_CUSTOMER = {
@@ -161,6 +163,9 @@ export default function App() {
         <Route path="/repricing" element={<RepricingWorkspaceRoute />} />
         <Route path="/reports" element={<ReportsPage />} />
         <Route path="/data" element={<DataPage />} />
+        <Route path="/data/nospos-categories" element={<NosposCategoriesTablePage />} />
+        <Route path="/data/nospos-fields" element={<NosposFieldsPage />} />
+        <Route path="/data/nospos-attributes" element={<Navigate to="/data/nospos-fields" replace />} />
         <Route path="/scrape" element={<Navigate to="/data" replace />} />
         {/* Route for new negotiations. When navigating from /buyer, state will be passed. */}
         <Route path="/negotiation" element={<BuyerNegotiationRoute />} />
