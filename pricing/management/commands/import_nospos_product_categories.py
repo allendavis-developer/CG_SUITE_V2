@@ -30,10 +30,11 @@ from pricing.models_v2 import NosposCategory, ProductCategory
 _PATH_SPLIT = re.compile(r"\s*>\s*")
 
 # If any segment of `full_name` (split on " > ") equals one of these, the row and its subtree
-# are excluded (not only when the name appears as the first segment).
-_EXCLUDED_ROOTS = frozenset(
+# are excluded. Include spelling variants if NosPos strings differ.
+_EXCLUDED_SEGMENTS = frozenset(
     {
         "Computers/Tablets & Networking",
+        "Mobile Phones & Communication",
         "Mobile Phones & Communications",
         "Video Games & Consoles",
     }
