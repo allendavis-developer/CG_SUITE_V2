@@ -2,7 +2,8 @@
 Mirror NosPos category rows from `NosposCategory` into internal `ProductCategory` trees.
 
 Rules:
-- Skip entire subtrees rooted at:
+- Skip entire subtrees for these NosPos category names: any row whose path contains one of
+  them as a segment (root or deeper) is excluded, with all descendants:
   - Computers/Tablets & Networking
   - Mobile Phones & Communications
 - Under "Jewellery & Watches", only import "Watches" and its descendants (not other jewellery branches).
@@ -25,7 +26,8 @@ from pricing.models_v2 import NosposCategory, ProductCategory
 
 _PATH_SPLIT = re.compile(r"\s*>\s*")
 
-# Root `full_name` first segment on NosPos (must match `NosposCategory.full_name` segments).
+# If any segment of `full_name` (split on " > ") equals one of these, the row and its subtree
+# are excluded (not only when the name appears as the first segment).
 _EXCLUDED_ROOTS = frozenset(
     {
         "Computers/Tablets & Networking",
@@ -45,9 +47,9 @@ def _allowed_nospos_full_name(full_name: str) -> bool:
     parts = _parts(full_name)
     if not parts:
         return False
-    root = parts[0]
-    if root in _EXCLUDED_ROOTS:
+    if any(segment in _EXCLUDED_ROOTS for segment in parts):
         return False
+    root = parts[0]
     if root == _JEWELLERY_WATCHES_ROOT:
         if len(parts) < 2:
             return False
