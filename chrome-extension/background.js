@@ -111,6 +111,91 @@ async function openBackgroundNosposTab(url, appTabId = null) {
   return { tabId: fallbackTab.id, windowId: fallbackTab.windowId || null };
 }
 
+/**
+ * Park agreement: open NosPos in a normal tab (same window as the app when possible), not a minimized window.
+ */
+async function openNosposParkAgreementTab(url, appTabId = null) {
+  let windowId = null;
+  if (appTabId) {
+    try {
+      const t = await chrome.tabs.get(appTabId);
+      windowId = t.windowId;
+    } catch (_) {}
+  }
+  if (windowId == null) {
+    try {
+      const w = await chrome.windows.getLastFocused({ populate: false });
+      windowId = w?.id ?? null;
+    } catch (_) {}
+  }
+  const createOpts = { url, active: false };
+  if (windowId != null) createOpts.windowId = windowId;
+  const newTab = await chrome.tabs.create(createOpts);
+  await putTabInYellowGroup(newTab.id);
+  if (appTabId) {
+    await focusAppTab(appTabId);
+  }
+  console.log('[CG Suite] NosPos park agreement: opened tab', { tabId: newTab.id, windowId: newTab.windowId });
+  return { tabId: newTab.id, windowId: newTab.windowId || null };
+}
+
+/**
+ * Bring the parked NoSpos tab to the foreground; if it was closed, open fallbackCreateUrl (new agreement).
+ */
+async function focusOrOpenNosposParkTabImpl({ tabId, fallbackCreateUrl, appTabId = null }) {
+  const id = parseInt(String(tabId ?? '').trim(), 10);
+  const fallback = String(fallbackCreateUrl || '').trim();
+  if (Number.isFinite(id) && id > 0) {
+    try {
+      const tab = await chrome.tabs.get(id);
+      if (tab?.id) {
+        await chrome.tabs.update(id, { active: true });
+        if (tab.windowId != null) {
+          await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+        }
+        return { ok: true, tabId: id, mode: 'focused' };
+      }
+    } catch (_) {}
+  }
+  let okUrl = false;
+  try {
+    const u = new URL(fallback);
+    const host = u.hostname.replace(/^www\./i, '').toLowerCase();
+    okUrl =
+      (host === 'nospos.com' || host.endsWith('.nospos.com')) &&
+      u.protocol === 'https:' &&
+      /^\/newagreement\//i.test(u.pathname || '');
+  } catch (_) {
+    okUrl = false;
+  }
+  if (!okUrl) {
+    return {
+      ok: false,
+      error:
+        'NoSpos tab not found. It may have been closed — run Park agreement again or open NoSpos manually.',
+    };
+  }
+  let windowId = null;
+  if (appTabId) {
+    try {
+      const t = await chrome.tabs.get(appTabId);
+      windowId = t.windowId;
+    } catch (_) {}
+  }
+  if (windowId == null) {
+    try {
+      const w = await chrome.windows.getLastFocused({ populate: false });
+      windowId = w?.id ?? null;
+    } catch (_) {}
+  }
+  const opts = { url: fallback, active: true };
+  if (windowId != null) opts.windowId = windowId;
+  const newTab = await chrome.tabs.create(opts);
+  await putTabInYellowGroup(newTab.id);
+  console.log('[CG Suite] NosPos park: opened fallback agreement tab', { tabId: newTab.id });
+  return { ok: true, tabId: newTab.id, mode: 'opened' };
+}
+
 // ── Storage helpers ────────────────────────────────────────────────────────────
 
 async function getPending() {
@@ -129,7 +214,21 @@ function isNosposSearchPath(path) {
 function isNosposAgreementItemsUrl(url) {
   try {
     const u = new URL(url || '');
+    const host = u.hostname.replace(/^www\./i, '').toLowerCase();
+    if (host !== 'nospos.com' && !host.endsWith('.nospos.com')) return false;
     return /\/newagreement\/\d+\/items\/?$/i.test(u.pathname || '');
+  } catch (e) {
+    return false;
+  }
+}
+
+/** Any step under /newagreement/{id}/… (items, next wizard step, etc.). */
+function isNosposNewAgreementWorkflowUrl(url) {
+  try {
+    const u = new URL(url || '');
+    const host = u.hostname.replace(/^www\./i, '').toLowerCase();
+    if (host !== 'nospos.com' && !host.endsWith('.nospos.com')) return false;
+    return /\/newagreement\/\d+\//i.test(u.pathname || '');
   } catch (e) {
     return false;
   }
@@ -138,6 +237,9 @@ function isNosposAgreementItemsUrl(url) {
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+/** Max time to wait for a NosPos full tab reload after Add or category change (user can retry after). */
+const NOSPOS_RELOAD_WAIT_MS = 20000;
 
 async function sendMessageToTabWithRetries(tabId, message, retries, delayMs) {
   let lastErr = null;
@@ -169,6 +271,905 @@ async function scrapeNosposGridMessage(tabId, messageType) {
 
 async function scrapeNosposStockCategoryTab(tabId) {
   return scrapeNosposGridMessage(tabId, 'SCRAPE_NOSPOS_STOCK_CATEGORY');
+}
+
+/**
+ * Wait for a full navigation cycle (loading → complete) on the agreement items page.
+ */
+async function waitForAgreementItemsPageReload(tabId, reasonTag, maxWaitMs = NOSPOS_RELOAD_WAIT_MS) {
+  await new Promise((resolve) => {
+    let sawLoading = false;
+    let done = false;
+    const listener = (tid, change, tab) => {
+      if (tid !== tabId || done) return;
+      if (change.status === 'loading') sawLoading = true;
+      if (
+        sawLoading &&
+        change.status === 'complete' &&
+        isNosposAgreementItemsUrl(tab?.url || '')
+      ) {
+        done = true;
+        chrome.tabs.onUpdated.removeListener(listener);
+        console.log('[CG Suite] NosPos agreement fill: reload complete —', reasonTag);
+        resolve();
+      }
+    };
+    chrome.tabs.onUpdated.addListener(listener);
+    setTimeout(() => {
+      if (done) return;
+      chrome.tabs.onUpdated.removeListener(listener);
+      console.log(
+        '[CG Suite] NosPos agreement fill: no reload within',
+        maxWaitMs,
+        'ms —',
+        reasonTag
+      );
+      resolve();
+    }, maxWaitMs);
+  });
+  await sleep(500);
+}
+
+/**
+ * After changing category, NosPos often full-reloads the items page. Wait for navigation
+ * (loading → complete) and/or until the content script reports the form + stock controls exist.
+ */
+async function waitForAgreementItemsReadyAfterCategory(
+  tabId,
+  expectStockFieldLabels = [],
+  lineIndex = 0
+) {
+  const labels = Array.isArray(expectStockFieldLabels)
+    ? expectStockFieldLabels.map((x) => String(x || '').trim()).filter(Boolean)
+    : [];
+  const start = Date.now();
+  const maxTotalMs = 40000;
+
+  await new Promise((resolve) => {
+    let sawLoading = false;
+    let done = false;
+    const listener = (tid, change, tab) => {
+      if (tid !== tabId || done) return;
+      if (change.status === 'loading') sawLoading = true;
+      if (
+        sawLoading &&
+        change.status === 'complete' &&
+        isNosposAgreementItemsUrl(tab?.url || '')
+      ) {
+        done = true;
+        chrome.tabs.onUpdated.removeListener(listener);
+        console.log(
+          '[CG Suite] NosPos agreement fill: tab finished reloading after category change'
+        );
+        resolve();
+      }
+    };
+    chrome.tabs.onUpdated.addListener(listener);
+    setTimeout(() => {
+      if (done) return;
+      chrome.tabs.onUpdated.removeListener(listener);
+      console.log(
+        '[CG Suite] NosPos agreement fill: no reload cycle detected within',
+        NOSPOS_RELOAD_WAIT_MS,
+        'ms (may be in-place update)'
+      );
+      resolve();
+    }, NOSPOS_RELOAD_WAIT_MS);
+  });
+
+  await sleep(400);
+
+  let lastProbe = null;
+  while (Date.now() - start < maxTotalMs) {
+    const t = await chrome.tabs.get(tabId).catch(() => null);
+    if (!t) {
+      return { ok: false, error: 'The NoSpos tab was closed', probe: lastProbe };
+    }
+    if (!isNosposAgreementItemsUrl(t.url || '')) {
+      await sleep(400);
+      continue;
+    }
+    if (t.status !== 'complete') {
+      await sleep(350);
+      continue;
+    }
+    try {
+      lastProbe = await sendMessageToTabWithRetries(
+        tabId,
+        {
+          type: 'NOSPOS_AGREEMENT_FILL_PHASE',
+          phase: 'probe_rest_ready',
+          expectStockFieldLabels: labels,
+          lineIndex,
+        },
+        10,
+        500
+      );
+    } catch (e) {
+      lastProbe = { ready: false, error: String(e?.message || e) };
+      console.log('[CG Suite] NosPos agreement fill: probe send failed', lastProbe.error);
+    }
+    if (lastProbe?.ready) {
+      console.log('[CG Suite] NosPos agreement fill: form probe OK', lastProbe.debug || {});
+      await sleep(600);
+      return { ok: true, probe: lastProbe };
+    }
+    if (lastProbe?.debug) {
+      console.log('[CG Suite] NosPos agreement fill: probe waiting…', lastProbe.debug);
+    }
+    await sleep(500);
+  }
+  return {
+    ok: false,
+    error: 'Timed out waiting for NosPos form after category change',
+    probe: lastProbe,
+  };
+}
+
+async function countNosposAgreementItemLines(tabId) {
+  try {
+    const r = await sendMessageToTabWithRetries(
+      tabId,
+      { type: 'NOSPOS_AGREEMENT_FILL_PHASE', phase: 'count_lines' },
+      10,
+      400
+    );
+    return typeof r?.count === 'number' ? r.count : 0;
+  } catch (_) {
+    return 0;
+  }
+}
+
+/** 0-based line index whose item description contains the marker, or null if not found. */
+async function findNosposLineIndexForMarker(tabId, marker) {
+  const m = String(marker || '').trim();
+  if (!m) return null;
+  try {
+    const r = await sendMessageToTabWithRetries(
+      tabId,
+      { type: 'NOSPOS_AGREEMENT_FILL_PHASE', phase: 'find_line_marker', marker: m },
+      10,
+      400
+    );
+    if (!r?.ok) return null;
+    const idx = parseInt(String(r.lineIndex), 10);
+    if (!Number.isFinite(idx) || idx < 0) return null;
+    return idx;
+  } catch (_) {
+    return null;
+  }
+}
+
+function requestItemMarkerTokenFromCgMarker(marker) {
+  const m = String(marker || '').trim();
+  if (!m) return '';
+  const hit = m.match(/-RI-([A-Za-z0-9_-]+)-L\d+\]?$/i) || m.match(/-RI-([A-Za-z0-9_-]+)/i);
+  if (!hit || !hit[1]) return '';
+  return `RI-${String(hit[1]).trim()}`;
+}
+
+/** Match CG marker segment `-RI-{id}-` so `RI-12` does not match `RI-1274` or `RI-12740`. */
+function findMarkerSearchNeedleForPark(marker) {
+  const m = String(marker || '').trim();
+  if (!m) return '';
+  const bracket = m.match(/-RI-([A-Za-z0-9_-]+)-/i);
+  if (bracket && bracket[1]) return `-RI-${String(bracket[1]).trim()}-`;
+  const riTok = requestItemMarkerTokenFromCgMarker(m);
+  if (riTok) {
+    const id = riTok.match(/^RI-(.+)$/i);
+    if (id && id[1]) return `-RI-${String(id[1]).trim()}-`;
+  }
+  return m;
+}
+
+async function findNosposLineIndexForMarkerWithFallback(tabId, marker) {
+  const riNeedle = findMarkerSearchNeedleForPark(marker);
+  if (riNeedle && riNeedle !== String(marker || '').trim()) {
+    const byRi = await findNosposLineIndexForMarker(tabId, riNeedle);
+    if (byRi != null && byRi >= 0) {
+      console.log('[CG Suite] NosPos park: matched by request-item needle in description', {
+        marker,
+        riNeedle,
+        lineIndex: byRi,
+      });
+      return byRi;
+    }
+  }
+  const exact = await findNosposLineIndexForMarker(tabId, marker);
+  if (exact != null && exact >= 0) {
+    console.log('[CG Suite] NosPos park: matched by full marker substring', {
+      marker,
+      lineIndex: exact,
+    });
+    return exact;
+  }
+  console.log('[CG Suite] NosPos park: no row found by description marker', {
+    marker,
+    riNeedle,
+    lineIndex: null,
+  });
+  return null;
+}
+
+async function readNosposAgreementLineSnapshot(tabId, lineIndex) {
+  const lineIdx = Math.max(0, parseInt(String(lineIndex ?? '0'), 10) || 0);
+  try {
+    return await sendMessageToTabWithRetries(
+      tabId,
+      { type: 'NOSPOS_AGREEMENT_FILL_PHASE', phase: 'read_line_snapshot', lineIndex: lineIdx },
+      8,
+      350
+    );
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+}
+
+/**
+ * Remove NosPos draft rows that match skipped CG lines: description contains `-RI-{requestItemId}-`.
+ * One delete at a time; waits for items page reload after each (same as Add flow).
+ */
+async function deleteExcludedNosposAgreementLinesImpl(payload) {
+  const tabId = parseInt(String(payload.tabId ?? '').trim(), 10);
+  if (!Number.isFinite(tabId) || tabId <= 0) {
+    return { ok: false, error: 'Invalid tab', deleted: [] };
+  }
+  const raw = Array.isArray(payload.requestItemIds) ? payload.requestItemIds : [];
+  const ids = [
+    ...new Set(
+      raw
+        .map((x) => String(x ?? '').trim())
+        .filter((x) => x.length > 0 && /^\d+$/.test(x))
+    ),
+  ];
+  if (!ids.length) {
+    return { ok: true, deleted: [], skipped: true };
+  }
+  const tabCheck = await ensureNosposAgreementItemsTab(tabId, 120000);
+  if (!tabCheck.ok) {
+    return { ...tabCheck, deleted: [] };
+  }
+  const deleted = [];
+  for (let ii = 0; ii < ids.length; ii += 1) {
+    const rid = ids[ii];
+    try {
+      const r = await sendMessageToTabWithRetries(
+        tabId,
+        {
+          type: 'NOSPOS_AGREEMENT_FILL_PHASE',
+          phase: 'delete_line_by_request_item_id',
+          requestItemId: rid,
+        },
+        18,
+        450
+      );
+      if (!r || r.ok === false) {
+        console.warn('[CG Suite] NosPos park: delete excluded line failed', rid, r?.error);
+        continue;
+      }
+      if (r.skipped) {
+        console.log('[CG Suite] NosPos park: delete excluded skipped (no row)', rid, r.reason);
+        continue;
+      }
+      if (r.deleted) {
+        deleted.push(String(rid));
+        await waitForAgreementItemsPageReload(
+          tabId,
+          `after delete excluded RI-${rid}`,
+          NOSPOS_RELOAD_WAIT_MS
+        );
+        await sleep(600);
+      }
+    } catch (e) {
+      console.warn('[CG Suite] NosPos park: delete excluded error', rid, e?.message || e);
+    }
+  }
+  return { ok: true, deleted };
+}
+
+/**
+ * After clicking Items "Next", wait until the tab is off the /items step (wizard advances; often full reload).
+ */
+async function waitAfterAgreementItemsNextClick(tabId, maxWaitMs = NOSPOS_RELOAD_WAIT_MS) {
+  const deadline = Date.now() + maxWaitMs;
+  while (Date.now() < deadline) {
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    if (!tab) {
+      return { ok: false, error: 'The NoSpos tab was closed' };
+    }
+    const url = tab.url || '';
+    if (
+      tab.status === 'complete' &&
+      isNosposNewAgreementWorkflowUrl(url) &&
+      !isNosposAgreementItemsUrl(url)
+    ) {
+      await sleep(500);
+      return { ok: true };
+    }
+    await sleep(250);
+  }
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (
+    tab?.status === 'complete' &&
+    isNosposNewAgreementWorkflowUrl(tab.url || '') &&
+    !isNosposAgreementItemsUrl(tab.url || '')
+  ) {
+    await sleep(500);
+    return { ok: true };
+  }
+  return {
+    ok: false,
+    error:
+      'NoSpos did not leave the items step after Next — click Next manually, wait for the page, then Park Agreement.',
+  };
+}
+
+/** Items page Next → wait for reload → Agreement card Actions → Park Agreement → SweetAlert OK. */
+async function clickNosposSidebarParkAgreementImpl(payload) {
+  const tabId = parseInt(String(payload.tabId ?? '').trim(), 10);
+  if (!Number.isFinite(tabId) || tabId <= 0) {
+    return { ok: false, error: 'Invalid tab' };
+  }
+  const tabCheck = await ensureNosposAgreementItemsTab(tabId, 120000);
+  if (!tabCheck.ok) {
+    return tabCheck;
+  }
+  try {
+    const rNext = await sendMessageToTabWithRetries(
+      tabId,
+      { type: 'NOSPOS_AGREEMENT_FILL_PHASE', phase: 'click_items_form_next' },
+      18,
+      450
+    );
+    if (!rNext || rNext.ok === false) {
+      return {
+        ok: false,
+        error: rNext?.error || 'Could not press Next on the NoSpos items page',
+      };
+    }
+    const waitNav = await waitAfterAgreementItemsNextClick(tabId, NOSPOS_RELOAD_WAIT_MS);
+    if (!waitNav.ok) {
+      return waitNav;
+    }
+    const r = await sendMessageToTabWithRetries(
+      tabId,
+      { type: 'NOSPOS_AGREEMENT_FILL_PHASE', phase: 'sidebar_park_agreement' },
+      22,
+      450
+    );
+    if (!r || r.ok === false) {
+      return {
+        ok: false,
+        error: r?.error || 'NoSpos did not complete sidebar Park Agreement',
+      };
+    }
+    await sleep(1400);
+    return { ok: true, parked: true };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) || 'Sidebar park failed' };
+  }
+}
+
+async function clickNosposAgreementAddItem(tabId) {
+  return sendMessageToTabWithRetries(
+    tabId,
+    { type: 'NOSPOS_AGREEMENT_FILL_PHASE', phase: 'click_add' },
+    10,
+    400
+  );
+}
+
+/** After clicking Add: wait for reload, then confirm line count increased (fallback if reload is soft). */
+async function waitForNewAgreementLineAfterAdd(tabId, countBefore) {
+  await waitForAgreementItemsPageReload(tabId, 'after Add', NOSPOS_RELOAD_WAIT_MS);
+  await sleep(600);
+  const want = countBefore + 1;
+  const start = Date.now();
+  const lineWaitMs = NOSPOS_RELOAD_WAIT_MS;
+  while (Date.now() - start < lineWaitMs) {
+    // Only count lines once the page is fully loaded — counting during a mid-render
+    // state can return a stale count and cause the rest phase to target the wrong row.
+    const t = await chrome.tabs.get(tabId).catch(() => null);
+    if (!t) {
+      return { ok: false, error: 'The NoSpos tab was closed' };
+    }
+    if (!isNosposAgreementItemsUrl(t.url || '') || t.status !== 'complete') {
+      await sleep(350);
+      continue;
+    }
+    const n = await countNosposAgreementItemLines(tabId);
+    if (n >= want) return { ok: true, count: n };
+    await sleep(500);
+  }
+  return {
+    ok: false,
+    error:
+      'NoSpos did not show a new item row after Add within the wait window (reload or new row timed out). Use Retry on that line or check the NoSpos tab.',
+  };
+}
+
+async function ensureNosposAgreementItemsTab(tabId, deadlineMs = 90000) {
+  const deadline = Date.now() + deadlineMs;
+  while (Date.now() < deadline) {
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    if (!tab) {
+      return { ok: false, error: 'The NoSpos tab was closed' };
+    }
+    // Require both the items URL AND a fully-loaded page — otherwise the DOM
+    // may still be mid-render and the content script might not be ready yet.
+    if (isNosposAgreementItemsUrl(tab.url || '') && tab.status === 'complete') {
+      return { ok: true };
+    }
+    await sleep(350);
+  }
+  return {
+    ok: false,
+    error:
+      'Items page did not load in time. Finish opening the agreement in the NoSpos window, then try again.',
+  };
+}
+
+/**
+ * Set category and wait for NosPos reload / form (up to {@link NOSPOS_RELOAD_WAIT_MS} for reload detection).
+ */
+async function applyNosposAgreementCategoryPhaseImpl(tabId, payload) {
+  const lineIndex = Math.max(0, parseInt(String(payload.lineIndex ?? '0'), 10) || 0);
+  const categoryId = String(payload.categoryId ?? '').trim();
+  let categoryLabel = null;
+  const stockLabelsForWait = Array.isArray(payload.stockFields)
+    ? payload.stockFields.map((r) => r && r.label).filter(Boolean)
+    : [];
+  if (!categoryId) {
+    return { ok: true, categoryLabel: null, waitForm: { ok: true }, lineIndex };
+  }
+  try {
+    const r1 = await sendMessageToTabWithRetries(
+      tabId,
+      { type: 'NOSPOS_AGREEMENT_FILL_PHASE', phase: 'category', categoryId, lineIndex },
+      8,
+      500
+    );
+    if (!r1?.ok) {
+      return { ok: false, error: r1?.error || 'Could not set category', lineIndex, ...r1 };
+    }
+    categoryLabel = r1.label || null;
+    console.log('[CG Suite] NosPos agreement fill: category set, waiting for page/form…', {
+      lineIndex,
+      categoryLabel,
+      expectStockLabels: stockLabelsForWait,
+    });
+    const waitForm = await waitForAgreementItemsReadyAfterCategory(
+      tabId,
+      stockLabelsForWait,
+      lineIndex
+    );
+    if (!waitForm.ok) {
+      console.warn('[CG Suite] NosPos agreement fill: post-category wait failed', waitForm);
+    }
+    return { ok: true, categoryLabel, waitForm, lineIndex };
+  } catch (e) {
+    return { ok: false, error: e?.message || 'Could not set category on NoSpos', lineIndex };
+  }
+}
+
+/**
+ * Fill name, description, qty, prices, stock fields on an agreement line (retries when DOM not ready).
+ */
+async function applyNosposAgreementRestPhaseImpl(tabId, payload, categoryLabel) {
+  const lineIndex = Math.max(0, parseInt(String(payload.lineIndex ?? '0'), 10) || 0);
+  const restPayload = {
+    type: 'NOSPOS_AGREEMENT_FILL_PHASE',
+    phase: 'rest',
+    lineIndex,
+    name: payload.name ?? '',
+    itemDescription: payload.itemDescription ?? '',
+    quantity: payload.quantity ?? '',
+    retailPrice: payload.retailPrice ?? '',
+    boughtFor: payload.boughtFor ?? '',
+    stockFields: Array.isArray(payload.stockFields) ? payload.stockFields : [],
+    categoryOurDisplay: String(payload.categoryOurDisplay ?? '').trim(),
+  };
+
+  let last = null;
+  try {
+    for (let i = 0; i < 28; i += 1) {
+      last = await sendMessageToTabWithRetries(tabId, restPayload, 6, 350);
+      if (last?.ok) {
+        return {
+          ok: true,
+          categoryLabel,
+          lineIndex,
+          ...last,
+        };
+      }
+      if (!last?.notReady) {
+        return {
+          ok: false,
+          categoryLabel,
+          lineIndex,
+          error: last?.error || 'Could not fill agreement line',
+          ...last,
+        };
+      }
+      await sleep(500);
+    }
+    return {
+      ok: false,
+      categoryLabel,
+      lineIndex,
+      error: last?.error || 'Agreement line form did not become ready in time',
+      ...last,
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      categoryLabel,
+      lineIndex,
+      error: e?.message || 'Could not fill agreement line on NoSpos',
+    };
+  }
+}
+
+/**
+ * Fill one agreement line by index (0-based). Caller must ensure tab is already on the items page.
+ */
+async function fillNosposAgreementOneLineImpl(tabId, payload) {
+  const cat = await applyNosposAgreementCategoryPhaseImpl(tabId, payload);
+  if (!cat.ok) {
+    return {
+      ok: false,
+      error: cat.error,
+      lineIndex: cat.lineIndex ?? payload.lineIndex,
+    };
+  }
+  let restPayload = { ...payload };
+  const marker = String(payload.cgParkLineMarker || '').trim();
+  if (marker) {
+    const found = await findNosposLineIndexForMarkerWithFallback(tabId, marker);
+    if (found != null && found >= 0) {
+      restPayload = { ...restPayload, lineIndex: found };
+      console.log('[CG Suite] NosPos park: re-resolved line index after category', {
+        marker,
+        lineIndex: found,
+      });
+    }
+  }
+  return applyNosposAgreementRestPhaseImpl(tabId, restPayload, cat.categoryLabel);
+}
+
+async function fillNosposParkAgreementCategoryImpl(payload) {
+  const tabId = parseInt(String(payload.tabId ?? '').trim(), 10);
+  if (!Number.isFinite(tabId) || tabId <= 0) {
+    return { ok: false, error: 'Invalid tab' };
+  }
+  const item = payload.item && typeof payload.item === 'object' ? payload.item : {};
+  const lineIndex = Math.max(
+    0,
+    parseInt(String(payload.lineIndex ?? item.lineIndex ?? '0'), 10) || 0
+  );
+  const merged = { ...item, lineIndex };
+  const result = await applyNosposAgreementCategoryPhaseImpl(tabId, merged);
+  if (!result.ok) {
+    return {
+      ok: false,
+      error: result.error,
+      lineIndex: result.lineIndex ?? lineIndex,
+    };
+  }
+  let restLineIndex = lineIndex;
+  const marker = String(item.cgParkLineMarker || '').trim();
+  if (marker) {
+    const found = await findNosposLineIndexForMarkerWithFallback(tabId, marker);
+    if (found != null && found >= 0) {
+      restLineIndex = found;
+      console.log('[CG Suite] NosPos park: rest line index after category (split step)', {
+        marker,
+        restLineIndex,
+      });
+    } else {
+      // Brand-new row: description/marker not written yet, so the marker scan
+      // comes up empty. After the category-triggered reload the row order may
+      // have shifted, so use the current last-row count rather than the
+      // pre-reload lineIndex.
+      const count = await countNosposAgreementItemLines(tabId);
+      if (count > 0) {
+        const lastIdx = count - 1;
+        if (lastIdx !== lineIndex) {
+          console.log('[CG Suite] NosPos park: marker not found after category reload — using last row index', {
+            lineIndex,
+            lastIdx,
+          });
+        }
+        restLineIndex = lastIdx;
+      }
+    }
+  }
+  return {
+    ok: true,
+    categoryLabel: result.categoryLabel,
+    waitForm: result.waitForm,
+    lineIndex: result.lineIndex ?? lineIndex,
+    restLineIndex,
+  };
+}
+
+async function fillNosposParkAgreementRestImpl(payload) {
+  const tabId = parseInt(String(payload.tabId ?? '').trim(), 10);
+  if (!Number.isFinite(tabId) || tabId <= 0) {
+    return { ok: false, error: 'Invalid tab' };
+  }
+  const item = payload.item && typeof payload.item === 'object' ? payload.item : {};
+  const lineIndex = Math.max(
+    0,
+    parseInt(String(payload.lineIndex ?? item.lineIndex ?? '0'), 10) || 0
+  );
+  const categoryLabel =
+    payload.categoryLabel !== undefined && payload.categoryLabel !== ''
+      ? payload.categoryLabel
+      : null;
+  return applyNosposAgreementRestPhaseImpl(
+    tabId,
+    { ...item, lineIndex },
+    categoryLabel
+  );
+}
+
+/**
+ * Wait for agreement items URL, optionally set category, then fill name/qty/prices/stock (with retries after category DOM refresh).
+ */
+async function fillNosposAgreementFirstItemImpl(payload) {
+  const tabId = parseInt(String(payload.tabId ?? '').trim(), 10);
+  if (!Number.isFinite(tabId) || tabId <= 0) {
+    return { ok: false, error: 'Invalid tab' };
+  }
+  const tabCheck = await ensureNosposAgreementItemsTab(tabId, 90000);
+  if (!tabCheck.ok) return tabCheck;
+  return fillNosposAgreementOneLineImpl(tabId, {
+    ...payload,
+    lineIndex: payload.lineIndex ?? 0,
+  });
+}
+
+/**
+ * stepIndex = index among *included* lines only. negotiationLineIndex = index in parkNegotiationLines.
+ * After a full park, NosPos row i ↔ line i even if some lines are later "excluded" in CG (rows remain).
+ * When row count matches negotiation count, prefer negotiationLineIndex; else stepIndex (compressed layout).
+ */
+function pickParkFallbackLineIndex(stepIndex, negotiationLineIndex, countBefore, parkNegotiationLineCount) {
+  const n = Math.max(0, parseInt(String(countBefore ?? '0'), 10) || 0);
+  const step = Math.max(0, parseInt(String(stepIndex ?? '0'), 10) || 0);
+  const plc = Math.max(0, parseInt(String(parkNegotiationLineCount ?? '0'), 10) || 0);
+  let nl = null;
+  if (negotiationLineIndex != null && negotiationLineIndex !== '') {
+    const parsed = parseInt(String(negotiationLineIndex), 10);
+    if (Number.isFinite(parsed) && parsed >= 0) nl = parsed;
+  }
+  if (plc > 0 && nl != null && n >= plc && n > nl) {
+    return nl;
+  }
+  return step;
+}
+
+/**
+ * Find row by description marker, or use row 0, or click Add and wait for new row.
+ */
+async function resolveNosposParkAgreementLineImpl(tabId, stepIndex, item, opts = {}) {
+  const noAdd = opts.noAdd === true;
+  const alwaysEnsureTab = opts.ensureTab === true;
+  const marker = String(item.cgParkLineMarker || '').trim();
+  const parkNegotiationLineCount = opts.parkNegotiationLineCount;
+  const negotiationLineIndex = opts.negotiationLineIndex;
+
+  if (stepIndex === 0 || alwaysEnsureTab) {
+    const tabCheck = await ensureNosposAgreementItemsTab(tabId, 120000);
+    if (!tabCheck.ok) return { ...tabCheck, targetLineIndex: undefined };
+  }
+
+  let targetLineIndex = null;
+  let reusedExistingRow = false;
+  let didClickAdd = false;
+
+  if (marker) {
+    const found = await findNosposLineIndexForMarkerWithFallback(tabId, marker);
+    if (found != null && found >= 0) {
+      targetLineIndex = found;
+      reusedExistingRow = true;
+      const expCat = String(item.categoryId || '').trim();
+      const snap = await readNosposAgreementLineSnapshot(tabId, targetLineIndex);
+      if (snap?.ok) {
+        console.log('[CG Suite] NosPos park: reusing row with CG marker (skip Add)', {
+          marker,
+          targetLineIndex,
+          stepIndex,
+          nosposName: snap.name,
+          nosposItemDescription: snap.description,
+          nosposCategoryId: snap.categoryId,
+        });
+        if (expCat && snap.categoryId && expCat !== snap.categoryId) {
+          console.warn(
+            '[CG Suite] NosPos park: category differs on reused row (fill will overwrite)',
+            { expectedCategoryId: expCat, nosposCategoryId: snap.categoryId }
+          );
+        }
+        if (!String(snap.description || '').includes(marker)) {
+          console.warn(
+            '[CG Suite] NosPos park: marker missing in Nospos item description before fill',
+            { marker, description: snap.description }
+          );
+        }
+      }
+    }
+  }
+
+  if (targetLineIndex == null) {
+    const countBefore = await countNosposAgreementItemLines(tabId);
+    const fallbackIdx = pickParkFallbackLineIndex(
+      stepIndex,
+      negotiationLineIndex,
+      countBefore,
+      parkNegotiationLineCount
+    );
+
+    if (stepIndex === 0 || noAdd) {
+      targetLineIndex = fallbackIdx;
+      // Only rows found by description marker skip category / "reuse" path. Positional fallback may
+      // target an empty or wrong card — keep reusedExistingRow false so the UI runs category + fill.
+      if (noAdd && stepIndex > 0) {
+        console.log('[CG Suite] NosPos park: noAdd — marker not found, using fallback line index', {
+          stepIndex,
+          negotiationLineIndex,
+          fallbackIdx,
+          lineCount: countBefore,
+          parkNegotiationLineCount,
+          reusedExistingRow,
+        });
+      }
+    } else if (countBefore > fallbackIdx) {
+      targetLineIndex = fallbackIdx;
+      console.log('[CG Suite] NosPos park: marker not found; using existing row at fallback index (skip Add)', {
+        stepIndex,
+        negotiationLineIndex,
+        fallbackIdx,
+        lineCount: countBefore,
+        parkNegotiationLineCount,
+        marker,
+      });
+    } else {
+      const clickR = await clickNosposAgreementAddItem(tabId);
+      if (!clickR?.ok) {
+        return { ok: false, error: clickR?.error || 'Could not click Add on NoSpos' };
+      }
+      didClickAdd = true;
+      const waitNew = await waitForNewAgreementLineAfterAdd(tabId, countBefore);
+      if (!waitNew.ok) {
+        return { ok: false, error: waitNew.error };
+      }
+      const countAfter = await countNosposAgreementItemLines(tabId);
+      targetLineIndex = Math.max(0, countAfter - 1);
+    }
+  }
+
+  return { ok: true, targetLineIndex, reusedExistingRow, didClickAdd };
+}
+
+/**
+ * One step of the park flow: optional Add+wait (stepIndex &gt; 0), then fill that line.
+ * Lets the app refresh UI between lines.
+ */
+async function fillNosposAgreementItemStepImpl(payload) {
+  const tabId = parseInt(String(payload.tabId ?? '').trim(), 10);
+  const stepIndex = Math.max(0, parseInt(String(payload.stepIndex ?? '0'), 10) || 0);
+  if (!Number.isFinite(tabId) || tabId <= 0) {
+    return { ok: false, error: 'Invalid tab' };
+  }
+
+  const item = payload.item && typeof payload.item === 'object' ? payload.item : {};
+  const resolved = await resolveNosposParkAgreementLineImpl(tabId, stepIndex, item, {
+    negotiationLineIndex: payload.negotiationLineIndex,
+    parkNegotiationLineCount: payload.parkNegotiationLineCount,
+  });
+  if (!resolved.ok) return resolved;
+
+  const fillRes = await fillNosposAgreementOneLineImpl(tabId, {
+    ...item,
+    lineIndex: resolved.targetLineIndex,
+  });
+  if (!fillRes?.ok) return fillRes;
+  return {
+    ...fillRes,
+    reusedExistingRow: resolved.reusedExistingRow,
+    targetLineIndex: resolved.targetLineIndex,
+    didClickAdd: resolved.didClickAdd,
+  };
+}
+
+async function fillNosposAgreementItemsSequentialImpl(payload) {
+  const tabId = parseInt(String(payload.tabId ?? '').trim(), 10);
+  if (!Number.isFinite(tabId) || tabId <= 0) {
+    return { ok: false, error: 'Invalid tab' };
+  }
+  const items = Array.isArray(payload.items) ? payload.items : [];
+  if (!items.length) {
+    return { ok: false, error: 'No items to add' };
+  }
+
+  const tabCheck = await ensureNosposAgreementItemsTab(tabId, 120000);
+  if (!tabCheck.ok) return tabCheck;
+
+  const perItem = [];
+  for (let i = 0; i < items.length; i += 1) {
+    const marker = String(items[i].cgParkLineMarker || '').trim();
+    let targetLineIndex = null;
+    if (marker) {
+      const found = await findNosposLineIndexForMarkerWithFallback(tabId, marker);
+      if (found != null && found >= 0) {
+        targetLineIndex = found;
+        const snap = await readNosposAgreementLineSnapshot(tabId, targetLineIndex);
+        if (snap?.ok) {
+          console.log('[CG Suite] NosPos sequential: reusing row with CG marker (skip Add)', {
+            itemIndex: i,
+            marker,
+            targetLineIndex,
+            nosposName: snap.name,
+            nosposItemDescription: snap.description,
+            nosposCategoryId: snap.categoryId,
+          });
+        }
+      }
+    }
+    if (targetLineIndex == null) {
+      if (i > 0) {
+        const countBefore = await countNosposAgreementItemLines(tabId);
+        const clickR = await clickNosposAgreementAddItem(tabId);
+        if (!clickR?.ok) {
+          return {
+            ok: false,
+            error: clickR?.error || 'Could not click Add on NoSpos',
+            perItem,
+            filledUpToIndex: i - 1,
+          };
+        }
+        const waitNew = await waitForNewAgreementLineAfterAdd(tabId, countBefore);
+        if (!waitNew.ok) {
+          return {
+            ok: false,
+            error: waitNew.error,
+            perItem,
+            filledUpToIndex: i - 1,
+          };
+        }
+        const countAfter = await countNosposAgreementItemLines(tabId);
+        targetLineIndex = Math.max(0, countAfter - 1);
+      } else {
+        targetLineIndex = 0;
+      }
+    }
+    const one = await fillNosposAgreementOneLineImpl(tabId, {
+      ...items[i],
+      lineIndex: targetLineIndex,
+    });
+    if (!one?.ok) {
+      return {
+        ok: false,
+        error: one?.error || `Could not fill agreement line ${i + 1}`,
+        perItem,
+        filledUpToIndex: i - 1,
+        ...one,
+      };
+    }
+    perItem.push(one);
+  }
+
+  const last = perItem[perItem.length - 1];
+  return {
+    ok: true,
+    perItem,
+    categoryLabel: last?.categoryLabel,
+    fieldRows: last?.fieldRows,
+    applied: last?.applied,
+    missingRequired: last?.missingRequired,
+    warnings: last?.warnings,
+  };
 }
 
 async function scrapeNosposStockCategoryModifyTab(tabId) {
@@ -757,13 +1758,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message.type === 'NOSPOS_ITEMS_FORM_SNAPSHOT') {
-    forwardNosposAgreementItemsSnapshot(message.payload, sender.tab?.id)
-      .then(() => sendResponse({ ok: true }))
-      .catch(() => sendResponse({ ok: false }));
-    return true;
-  }
-
   if (message.type === 'BRIDGE_FORWARD') {
     handleBridgeForward(message, sender)
       .then((r) => sendResponse(r))
@@ -777,24 +1771,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === 'CG_APP_PAGE_UNLOADING') {
-    const appTabId = sender.tab?.id;
-    if (appTabId == null) {
-      sendResponse({ ok: false });
-      return false;
-    }
-    (async () => {
-      try {
-        const { cgNosposCustomerProfileWatch: watch } = await chrome.storage.session.get(
-          'cgNosposCustomerProfileWatch'
-        );
-        if (watch?.appTabId === appTabId && watch?.profileTabId != null) {
-          await chrome.storage.session.remove('cgNosposCustomerProfileWatch').catch(() => {});
-          await chrome.tabs.remove(watch.profileTabId).catch(() => {});
-        }
-      } finally {
-        sendResponse({ ok: true });
-      }
-    })();
+    sendResponse({ ok: true });
     return true;
   }
 
@@ -900,22 +1877,6 @@ function nosposHtmlFetchIndicatesNotLoggedIn(response, finalUrl) {
 
 // ── Handlers ───────────────────────────────────────────────────────────────────
 
-/** NosPos items form snapshot → CG Suite tab (mirror modal). Only from the tracked profile tab. */
-async function forwardNosposAgreementItemsSnapshot(payload, nosposTabId) {
-  if (nosposTabId == null || !payload) return;
-  const { cgNosposCustomerProfileWatch: watch } = await chrome.storage.session.get(
-    'cgNosposCustomerProfileWatch'
-  );
-  if (!watch?.appTabId) return;
-  if (watch.profileTabId != null && watch.profileTabId !== nosposTabId) return;
-  await chrome.tabs
-    .sendMessage(watch.appTabId, {
-      type: 'NOSPOS_AGREEMENT_ITEMS_SNAPSHOT_TO_PAGE',
-      payload,
-    })
-    .catch(() => {});
-}
-
 async function handleBridgeForward(message, sender) {
   const { requestId, payload } = message;
   const appTabId = sender.tab?.id;
@@ -1019,43 +1980,23 @@ async function handleBridgeForward(message, sender) {
     }
   }
 
-  // Open NosPos “Create agreement” for this customer: session-check on /customer/{id}/buying, then
-  // load newagreement/create in a minimized window (same as repricing openNosposAndWait; CG Suite stays focused).
-  // agreementType: PA = Buy Back Agreement, DP = Buy Agreement (direct sale / store credit).
-  if (payload.action === 'openNosposCustomerProfile') {
-    const id = parseInt(String(payload.nosposCustomerId ?? '').trim(), 10);
+  async function nosposCancelResponseBody(response) {
+    try {
+      await response.body?.cancel?.();
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  async function nosposFetchCustomerBuyingSession(customerId, sessionCheckMs = 12000) {
+    const id = parseInt(String(customerId ?? '').trim(), 10);
     if (!Number.isFinite(id) || id <= 0) {
       return { ok: false, error: 'Invalid NosPos customer id' };
     }
-    const rawType = String(
-      payload.agreementType ?? payload.nosposAgreementType ?? 'DP'
-    ).toUpperCase();
-    const agreementType = rawType === 'PA' ? 'PA' : 'DP';
     const buyingPageUrl = `https://nospos.com/customer/${id}/buying`;
-    const createUrl = `https://nospos.com/newagreement/agreement/create?type=${agreementType}&customer_id=${id}`;
-    const SESSION_CHECK_MS = 12000;
-
-    async function cancelResponseBody(response) {
-      try {
-        await response.body?.cancel?.();
-      } catch (_) {
-        /* ignore */
-      }
-    }
-
-    async function openAgreementMinimizedWindow() {
-      const { tabId } = await openBackgroundNosposTab(createUrl, appTabId);
-      if (appTabId != null && tabId != null) {
-        await chrome.storage.session.set({
-          cgNosposCustomerProfileWatch: { appTabId, profileTabId: tabId },
-        });
-      }
-      return tabId;
-    }
-
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), SESSION_CHECK_MS);
+      const timer = setTimeout(() => controller.abort(), sessionCheckMs);
       let response;
       try {
         response = await fetch(buyingPageUrl, {
@@ -1066,176 +2007,157 @@ async function handleBridgeForward(message, sender) {
       } finally {
         clearTimeout(timer);
       }
-
       const finalUrl = response.url || '';
-      await cancelResponseBody(response);
-
+      await nosposCancelResponseBody(response);
       if (nosposHtmlFetchIndicatesNotLoggedIn(response, finalUrl)) {
-        // Do not open an agreement tab — same idea as repricing / openNospos: fail fast and keep CG Suite focused.
-        if (appTabId != null) {
-          await focusAppTab(appTabId);
-        }
         return { ok: false, loginRequired: true };
       }
-
-      await openAgreementMinimizedWindow();
-      return { ok: true };
+      return { ok: true, customerId: id };
     } catch (e) {
       const isAbort = e?.name === 'AbortError';
-      try {
-        await openAgreementMinimizedWindow();
-        return {
-          ok: true,
-          sessionUnchecked: true,
-          warning: isAbort
-            ? 'NoSpos was slow to respond; a minimized NoSpos window was opened without a full session check. Restore that window to sign in if needed.'
-            : 'Could not verify your NoSpos session; a minimized NoSpos window was opened anyway. Restore that window to sign in if needed.',
-        };
-      } catch (createErr) {
-        return {
-          ok: false,
-          error: createErr?.message || e?.message || 'Failed to open NosPos',
-        };
-      }
+      return {
+        ok: false,
+        error: isAbort
+          ? 'NoSpos did not respond in time. Check your connection, sign in at nospos.com in Chrome, and try again.'
+          : e?.message || 'Could not verify NoSpos session',
+      };
     }
   }
 
-  // Apply mirrored field values to the NosPos #items-form (tracked profile tab).
-  if (payload.action === 'nosposAgreementApplyFields') {
-    const { cgNosposCustomerProfileWatch: watch } = await chrome.storage.session.get(
-      'cgNosposCustomerProfileWatch'
-    );
-    if (watch?.profileTabId == null) {
-      return { ok: false, error: 'No NosPos agreement tab is tracked. Open agreement from CG Suite first.' };
+  // Park agreement (step 1): session only — same probe as searchNosposBarcode path.
+  if (payload.action === 'checkNosposCustomerBuyingSession') {
+    return nosposFetchCustomerBuyingSession(payload.nosposCustomerId);
+  }
+
+  // Park agreement (step 2): open create URL in background; call after checkNosposCustomerBuyingSession succeeds.
+  if (payload.action === 'openNosposNewAgreementCreateBackground') {
+    const id = parseInt(String(payload.nosposCustomerId ?? '').trim(), 10);
+    if (!Number.isFinite(id) || id <= 0) {
+      return { ok: false, error: 'Invalid NosPos customer id' };
+    }
+    const rawType = String(
+      payload.agreementType ?? payload.nosposAgreementType ?? 'DP'
+    ).toUpperCase();
+    const agreementType = rawType === 'PA' ? 'PA' : 'DP';
+    const createUrl = `https://nospos.com/newagreement/agreement/create?type=${agreementType}&customer_id=${id}`;
+    try {
+      const { tabId } = await openNosposParkAgreementTab(createUrl, appTabId);
+      if (tabId == null) return { ok: false, error: 'Could not open NoSpos tab' };
+      return { ok: true, tabId };
+    } catch (e) {
+      return { ok: false, error: e?.message || 'Could not open NoSpos' };
+    }
+  }
+
+  // Park agreement (step 3): wait for items page, set category, then fill first line (name, qty, prices, stock fields).
+  if (payload.action === 'fillNosposAgreementFirstItem') {
+    return fillNosposAgreementFirstItemImpl(payload);
+  }
+
+  // Park agreement: add each negotiation line sequentially (Add → wait reload → category → fill).
+  if (payload.action === 'fillNosposAgreementItems') {
+    return fillNosposAgreementItemsSequentialImpl(payload);
+  }
+
+  // Park agreement: single line step (UI updates between calls).
+  if (payload.action === 'fillNosposAgreementItemStep') {
+    return fillNosposAgreementItemStepImpl(payload);
+  }
+
+  if (payload.action === 'resolveNosposParkAgreementLine') {
+    const tabId = parseInt(String(payload.tabId ?? '').trim(), 10);
+    const stepIndex = Math.max(0, parseInt(String(payload.stepIndex ?? '0'), 10) || 0);
+    const item = payload.item && typeof payload.item === 'object' ? payload.item : {};
+    if (!Number.isFinite(tabId) || tabId <= 0) {
+      return { ok: false, error: 'Invalid tab' };
+    }
+    return resolveNosposParkAgreementLineImpl(tabId, stepIndex, item, {
+      noAdd: payload.noAdd === true,
+      ensureTab: payload.ensureTab === true,
+      negotiationLineIndex: payload.negotiationLineIndex,
+      parkNegotiationLineCount: payload.parkNegotiationLineCount,
+    });
+  }
+
+  if (payload.action === 'deleteExcludedNosposAgreementLines') {
+    return deleteExcludedNosposAgreementLinesImpl(payload);
+  }
+
+  if (payload.action === 'clickNosposSidebarParkAgreement') {
+    return clickNosposSidebarParkAgreementImpl(payload);
+  }
+
+  if (payload.action === 'focusOrOpenNosposParkTab') {
+    return focusOrOpenNosposParkTabImpl({
+      tabId: payload.tabId,
+      fallbackCreateUrl: payload.fallbackCreateUrl,
+      appTabId,
+    });
+  }
+
+  if (payload.action === 'getNosposTabUrl') {
+    const tid = parseInt(String(payload.tabId ?? '').trim(), 10);
+    if (!Number.isFinite(tid) || tid <= 0) return { ok: false, error: 'Invalid tabId' };
+    try {
+      const tab = await chrome.tabs.get(tid);
+      return { ok: true, url: tab?.url ?? null };
+    } catch (_) {
+      return { ok: false, error: 'Tab not found' };
+    }
+  }
+
+  if (payload.action === 'fillNosposParkAgreementCategory') {
+    return fillNosposParkAgreementCategoryImpl(payload);
+  }
+
+  if (payload.action === 'fillNosposParkAgreementRest') {
+    return fillNosposParkAgreementRestImpl(payload);
+  }
+
+  // Park agreement: user edits a field in the progress modal → patch NosPos tab DOM.
+  if (payload.action === 'patchNosposAgreementField') {
+    const tabId = parseInt(String(payload.tabId ?? '').trim(), 10);
+    if (!Number.isFinite(tabId) || tabId <= 0) {
+      return { ok: false, error: 'Invalid tab' };
     }
     try {
-      const r = await sendMessageToTabWithRetries(watch.profileTabId, {
-        type: 'NOSPOS_ITEMS_FORM_APPLY',
-        fields: payload.fields || [],
-      }, 2, 180);
-      return r && typeof r === 'object' ? r : { ok: false };
+      const r = await sendMessageToTabWithRetries(
+        tabId,
+        {
+          type: 'NOSPOS_AGREEMENT_PATCH_FIELD',
+          lineIndex: payload.lineIndex ?? 0,
+          patchKind: payload.patchKind,
+          fieldLabel: payload.fieldLabel ?? '',
+          value: payload.value ?? '',
+        },
+        10,
+        450
+      );
+      return r && typeof r === 'object' ? r : { ok: false, error: 'No response from NoSpos page' };
     } catch (e) {
-      return { ok: false, error: e?.message || 'Could not reach the NosPos tab' };
+      return { ok: false, error: e?.message || 'Could not update NoSpos' };
     }
   }
 
-  if (payload.action === 'nosposAgreementClickNext') {
-    const { cgNosposCustomerProfileWatch: watch } = await chrome.storage.session.get(
-      'cgNosposCustomerProfileWatch'
-    );
-    if (watch?.profileTabId == null) {
-      return { ok: false, error: 'No NosPos agreement tab is tracked.' };
+  // Legacy: category only (same pipeline; rest phase sends empty strings).
+  if (payload.action === 'fillNosposAgreementFirstItemCategory') {
+    const categoryId = String(payload.categoryId ?? '').trim();
+    if (!categoryId) {
+      return { ok: false, error: 'No category id' };
     }
-    try {
-      const r = await sendMessageToTabWithRetries(watch.profileTabId, {
-        type: 'NOSPOS_ITEMS_FORM_NEXT',
-      }, 1, 160);
-
-      // Give NosPos a moment to navigate. Success means we are no longer on /newagreement/{id}/items.
-      await sleep(700);
-      const tab = await chrome.tabs.get(watch.profileTabId).catch(() => null);
-      const stillOnItems = isNosposAgreementItemsUrl(tab?.url || '');
-      if (stillOnItems) {
-        return {
-          ok: false,
-          error: 'NosPos blocked Next. Please check any required fields on the items page.',
-        };
-      }
-      return r && typeof r === 'object' ? { ok: true } : { ok: true };
-    } catch (e) {
-      // If the tab navigated during submit, message channel can close; verify URL before failing.
-      await sleep(500);
-      const tab = await chrome.tabs.get(watch.profileTabId).catch(() => null);
-      const stillOnItems = isNosposAgreementItemsUrl(tab?.url || '');
-      if (!stillOnItems && tab?.url) {
-        return { ok: true };
-      }
-      return { ok: false, error: e?.message || 'Could not reach the NosPos tab' };
+    const r = await fillNosposAgreementFirstItemImpl({
+      tabId: payload.tabId,
+      categoryId,
+      name: '',
+      quantity: '',
+      retailPrice: '',
+      boughtFor: '',
+      stockFields: [],
+    });
+    if (r?.ok) {
+      return { ok: true, label: r.categoryLabel || r.label };
     }
-  }
-
-  /** Actions → Park Agreement (POST + confirm), instead of form Next — leaves /newagreement/{id}/items */
-  if (payload.action === 'nosposAgreementParkAgreement') {
-    const { cgNosposCustomerProfileWatch: watch } = await chrome.storage.session.get(
-      'cgNosposCustomerProfileWatch'
-    );
-    if (watch?.profileTabId == null) {
-      return { ok: false, error: 'No NosPos agreement tab is tracked.' };
-    }
-    try {
-      await sendMessageToTabWithRetries(watch.profileTabId, {
-        type: 'NOSPOS_AGREEMENT_PARK',
-      }, 2, 200);
-    } catch (e) {
-      await sleep(600);
-      const tabEarly = await chrome.tabs.get(watch.profileTabId).catch(() => null);
-      if (!isNosposAgreementItemsUrl(tabEarly?.url || '') && tabEarly?.url) {
-        return { ok: true };
-      }
-      return { ok: false, error: e?.message || 'Could not reach the NosPos tab' };
-    }
-    for (let attempt = 0; attempt < 12; attempt += 1) {
-      await sleep(450);
-      const tab = await chrome.tabs.get(watch.profileTabId).catch(() => null);
-      const stillOnItems = isNosposAgreementItemsUrl(tab?.url || '');
-      if (!stillOnItems && tab?.url) {
-        return { ok: true };
-      }
-    }
-    return {
-      ok: false,
-      error:
-        'Park Agreement did not leave the items page. Open Actions → Park Agreement on NoSpos, or check the confirmation dialog.',
-    };
-  }
-
-  if (payload.action === 'nosposAgreementAddItem') {
-    const { cgNosposCustomerProfileWatch: watch } = await chrome.storage.session.get(
-      'cgNosposCustomerProfileWatch'
-    );
-    if (watch?.profileTabId == null) {
-      return { ok: false, error: 'No NosPos agreement tab is tracked.' };
-    }
-    try {
-      const r = await sendMessageToTabWithRetries(watch.profileTabId, {
-        type: 'NOSPOS_ITEMS_FORM_ADD',
-      }, 1, 160);
-      return r && typeof r === 'object' ? r : { ok: true };
-    } catch (e) {
-      return { ok: false, error: e?.message || 'Could not reach the NosPos tab' };
-    }
-  }
-
-  if (payload.action === 'focusNosposAgreementTab') {
-    const { cgNosposCustomerProfileWatch: watch } = await chrome.storage.session.get(
-      'cgNosposCustomerProfileWatch'
-    );
-    if (watch?.profileTabId == null) {
-      return { ok: false, error: 'No NosPos agreement tab is tracked.' };
-    }
-    try {
-      const tab = await chrome.tabs.get(watch.profileTabId);
-      await chrome.tabs.update(watch.profileTabId, { active: true });
-      if (tab?.windowId != null) {
-        await chrome.windows.update(tab.windowId, { focused: true, state: 'normal' });
-      }
-      return { ok: true };
-    } catch (e) {
-      return { ok: false, error: e?.message || 'Could not focus the NosPos tab' };
-    }
-  }
-
-  // Close the NosPos agreement tab opened from CG Suite (Park / Open in NoSpos mirror).
-  // Clear session storage before removing the tab so tabs.onRemoved does not post TAB_CLOSED to the app.
-  if (payload.action === 'closeNosposAgreementTab') {
-    const { cgNosposCustomerProfileWatch: watch } = await chrome.storage.session.get(
-      'cgNosposCustomerProfileWatch'
-    );
-    await chrome.storage.session.remove('cgNosposCustomerProfileWatch').catch(() => {});
-    if (watch?.profileTabId != null) {
-      await chrome.tabs.remove(watch.profileTabId).catch(() => {});
-    }
-    return { ok: true };
+    return r;
   }
 
   // Open nospos.com for customer intake – same flow as openNosposAndWait (waits for user to log in)
@@ -1854,27 +2776,6 @@ async function handleNosposLoginRequired(message, sender) {
 
   const loginUrl = message?.url || '';
   const errorMessage = 'You must be logged into NoSpos to continue.';
-
-  const { cgNosposCustomerProfileWatch: profileWatch } = await chrome.storage.session.get(
-    'cgNosposCustomerProfileWatch'
-  );
-  if (profileWatch?.profileTabId === tabId && profileWatch?.appTabId != null) {
-    await chrome.storage.session.remove('cgNosposCustomerProfileWatch').catch(() => {});
-    chrome.tabs
-      .sendMessage(profileWatch.appTabId, {
-        type: 'NOSPOS_CUSTOMER_PROFILE_TAB_CLOSED',
-        message:
-          'You must be logged in to NoSpos. Sign in at nospos.com, then try opening the agreement again.',
-      })
-      .catch(() => {});
-    await focusAppTab(profileWatch.appTabId);
-    await chrome.tabs.remove(tabId).catch(() => {});
-    console.log('[CG Suite] NOSPOS_LOGIN_REQUIRED – closed agreement profile tab', {
-      tabId,
-      loginUrl,
-    });
-    return;
-  }
 
   const pending = await getPending();
 
@@ -2522,36 +3423,7 @@ async function handleScrapedData(message) {
   return { ok: false };
 }
 
-// ── Tab close: only the single tab we opened is tracked; closing it notifies the app ─────────────
-
 chrome.tabs.onRemoved.addListener(async (removedTabId) => {
-  const profileWatch = (await chrome.storage.session.get('cgNosposCustomerProfileWatch'))
-    .cgNosposCustomerProfileWatch;
-
-  if (
-    profileWatch &&
-    profileWatch.appTabId === removedTabId &&
-    profileWatch.profileTabId != null
-  ) {
-    await chrome.storage.session.remove('cgNosposCustomerProfileWatch').catch(() => {});
-    await chrome.tabs.remove(profileWatch.profileTabId).catch(() => {});
-    return;
-  }
-
-  if (
-    profileWatch &&
-    profileWatch.profileTabId === removedTabId &&
-    profileWatch.appTabId != null
-  ) {
-    await chrome.storage.session.remove('cgNosposCustomerProfileWatch');
-    chrome.tabs
-      .sendMessage(profileWatch.appTabId, {
-        type: 'NOSPOS_CUSTOMER_PROFILE_TAB_CLOSED',
-        message: 'NoSpos agreement window was closed. You can try again when ready.',
-      })
-      .catch(() => {});
-  }
-
   const nosposData = (await chrome.storage.session.get('cgNosposRepricingData')).cgNosposRepricingData;
   const progress = (await chrome.storage.local.get('cgNosposRepricingProgress')).cgNosposRepricingProgress;
   if (nosposData?.nosposTabId === removedTabId) {

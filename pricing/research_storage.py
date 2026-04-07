@@ -419,6 +419,8 @@ def compose_raw_data_for_request_item(item: RequestItem) -> dict | None:
     _META_PASSTHROUGH = (
         "display_title", "display_subtitle", "rrpOffersSource", "authorisedOfferSlots",
         "resolvedCategory", "categoryObject", "category",
+        "aiSuggestedNosposStockCategory",
+        "aiSuggestedNosposStockFieldValues",
     )
 
     if snap:
@@ -529,6 +531,21 @@ def sync_merged_raw_into_request_item(item: RequestItem, raw: dict | None) -> No
         meta["category"] = cat_name.strip()
     elif "category" in raw and not raw["category"]:
         meta.pop("category", None)
+    # AI-matched NosPos stock path from extension research (internal category root ready_for_builder).
+    nospos_ai = raw.get("aiSuggestedNosposStockCategory")
+    if isinstance(nospos_ai, dict) and (
+        nospos_ai.get("fullName")
+        or nospos_ai.get("nosposId") is not None
+        or (isinstance(nospos_ai.get("pathSegments"), list) and len(nospos_ai.get("pathSegments") or []) > 0)
+    ):
+        meta["aiSuggestedNosposStockCategory"] = nospos_ai
+    elif "aiSuggestedNosposStockCategory" in raw and raw["aiSuggestedNosposStockCategory"] is None:
+        meta.pop("aiSuggestedNosposStockCategory", None)
+    nospos_fields_ai = raw.get("aiSuggestedNosposStockFieldValues")
+    if isinstance(nospos_fields_ai, dict) and isinstance(nospos_fields_ai.get("byNosposFieldId"), dict):
+        meta["aiSuggestedNosposStockFieldValues"] = nospos_fields_ai
+    elif "aiSuggestedNosposStockFieldValues" in raw and raw["aiSuggestedNosposStockFieldValues"] is None:
+        meta.pop("aiSuggestedNosposStockFieldValues", None)
     item.line_metadata_json = meta if meta else None
 
     ebay_src = None

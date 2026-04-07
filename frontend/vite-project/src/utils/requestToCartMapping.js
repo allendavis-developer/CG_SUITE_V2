@@ -73,6 +73,16 @@ export function mapRequestItemsToCartItems(items, transactionType) {
         (ebayResearchBlob.stats && typeof ebayResearchBlob.stats === 'object')
       )
     );
+    const nosposHintTop = rawData?.aiSuggestedNosposStockCategory;
+    if (
+      nosposHintTop &&
+      typeof nosposHintTop === 'object' &&
+      ebayResearchBlob &&
+      typeof ebayResearchBlob === 'object' &&
+      !ebayResearchBlob.aiSuggestedNosposStockCategory
+    ) {
+      ebayResearchBlob = { ...ebayResearchBlob, aiSuggestedNosposStockCategory: nosposHintTop };
+    }
     const cashConvertersResearchData = item.cash_converters_data || rawData?.cashConvertersResearchData || null;
 
     let savedCashOffers = item.cash_offers_json || [];
@@ -328,6 +338,10 @@ export function mapRequestItemsToCartItems(items, transactionType) {
       id: item.request_item_id,
       request_item_id: item.request_item_id,
       rawData,
+      aiSuggestedNosposStockCategory:
+        rawData?.aiSuggestedNosposStockCategory ?? ebayResearchBlob?.aiSuggestedNosposStockCategory ?? null,
+      aiSuggestedNosposStockFieldValues:
+        rawData?.aiSuggestedNosposStockFieldValues ?? ebayResearchBlob?.aiSuggestedNosposStockFieldValues ?? null,
       authorisedOfferSlots: Array.isArray(rawData?.authorisedOfferSlots) ? rawData.authorisedOfferSlots : [],
       title,
       subtitle,

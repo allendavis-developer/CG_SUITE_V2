@@ -554,6 +554,7 @@ export default function JewelleryLineItems({
       {
         id,
         request_item_id: null,
+        jewelleryDbCategoryId: dbCatalog?.category_id ?? null,
         variantId: v.variant_id,
         variantTitle: v.title,
         categoryLabel: v.title,

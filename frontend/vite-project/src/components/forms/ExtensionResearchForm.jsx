@@ -6,15 +6,71 @@ import { calculateStats, calculateBuyOffers } from './researchStats';
 import { buildOtherResearchChannelsSummaries } from './researchOtherChannelsSummary';
 import { Icon } from '../ui/components';
 import useAppStore, { useEbayOfferMargins } from '@/store/useAppStore';
-import { fetchProductCategories, fetchAllCategoriesFlat } from '@/services/api';
+import { fetchAllCategoriesFlat } from '@/services/api';
 import { matchCexCategoryNameToDb } from '@/utils/cexCategoryMatch';
+import {
+  summariseNegotiationItemForAi,
+  runAiCategoryCascadeArrayTree,
+  isProductCategoryRootReadyForBuilder,
+  runNosposStockCategoryAiMatchBackground,
+} from '@/services/aiCategoryPathCascade';
 
-// ─── Category Picker (hierarchical, JewelleryPickerList-style) ───────────────
+// ─── Category Picker (hierarchical; all DB categories including ready_for_builder=false) ──
 
-/** DB may have a leaf named "eBay" for default/skip behaviour — show "Skip" in the picker only. */
+/** Build nested `{ category_id, name, children }` from `/all-categories/` (flat) for eBay/CC pickers. */
+function flatCategoriesToNestedRoots(flat) {
+  if (!Array.isArray(flat) || flat.length === 0) return [];
+  const byId = new Map();
+  for (const row of flat) {
+    const id = row.category_id;
+    if (id == null) continue;
+    byId.set(id, {
+      category_id: id,
+      name: row.name,
+      parent_category_id: row.parent_category_id ?? null,
+      children: [],
+    });
+  }
+  const roots = [];
+  for (const node of byId.values()) {
+    const pid = node.parent_category_id;
+    if (pid == null || !byId.has(pid)) {
+      roots.push(node);
+    } else {
+      byId.get(pid).children.push(node);
+    }
+  }
+  const sortName = (a, b) =>
+    String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' });
+  function sortRec(n) {
+    n.children.sort(sortName);
+    n.children.forEach(sortRec);
+  }
+  roots.sort(sortName);
+  roots.forEach(sortRec);
+  return roots;
+}
+
+/** Placeholder DB row named "eBay" — used for skip/default margins; not listed in the table. */
+function withoutEbayPickerPlaceholder(nodes) {
+  return (nodes || []).filter((c) => String(c.name || '').trim().toLowerCase() !== 'ebay');
+}
+
+function resolveSkipCategoryFromFlat(flat) {
+  const row = flat.find((c) => String(c.name || '').trim().toLowerCase() === 'ebay');
+  if (!row) return null;
+  const pathArr = String(row.path || row.name || 'eBay')
+    .split(' > ')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return {
+    id: row.category_id,
+    name: row.name || 'eBay',
+    path: pathArr.length ? pathArr : ['eBay'],
+  };
+}
+
 function categoryPickerDisplayName(cat) {
-  const n = String(cat?.name ?? '').trim().toLowerCase();
-  if (n === 'ebay') return 'Skip';
   return cat?.name ?? '';
 }
 
@@ -130,27 +186,133 @@ function CategoryPickerList({ items, isLoading, onSelect, query, setQuery, stats
  * Hierarchical category picker shown as a step inside the research form
  * when the item doesn't already have a known category id.
  */
-function CategoryPickerStep({ onSelect }) {
+function CategoryPickerStep({
+  onSelect,
+  onAiNosposStockCategoryReady,
+  onClearAiNosposStockCategory,
+  lineItemForAi = null,
+  initialSearchQuery = null,
+  categoryHint = null,
+}) {
   const [allCategories, setAllCategories] = useState([]);
+  const [skipCategoryPayload, setSkipCategoryPayload] = useState(null);
   const [loadError, setLoadError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [path, setPath] = useState([]); // stack of category nodes
   const [query, setQuery] = useState('');
+  /** AI slot: space reserved in header so layout does not jump when the suggestion appears. */
+  const [aiSlotPhase, setAiSlotPhase] = useState('waiting');
+  const [aiBreadcrumb, setAiBreadcrumb] = useState('');
+  const [aiAutoError, setAiAutoError] = useState(null);
+  const onSelectRef = useRef(onSelect);
+  const aiPendingSelectRef = useRef(null);
+  const allCategoriesFlatRef = useRef([]);
+
+  useEffect(() => {
+    onSelectRef.current = onSelect;
+  }, [onSelect]);
+
+  const itemSummaryForAi = useMemo(() => {
+    if (lineItemForAi) return summariseNegotiationItemForAi(lineItemForAi);
+    const q = initialSearchQuery != null && String(initialSearchQuery).trim();
+    const name =
+      (q && String(q).trim()) || categoryHint?.name || 'Unknown item';
+    const dbCategory = Array.isArray(categoryHint?.path)
+      ? categoryHint.path.join(' > ')
+      : categoryHint?.name || null;
+    const summary = {
+      name: String(name).trim(),
+      dbCategory: dbCategory != null && String(dbCategory).trim() !== '' ? String(dbCategory).trim() : null,
+      attributes: {},
+    };
+    console.log('[CG Suite][AiCategory][Picker] fallback summary', { summary, initialSearchQuery, categoryHint });
+    return summary;
+  }, [lineItemForAi, initialSearchQuery, categoryHint]);
 
   useEffect(() => {
     let cancelled = false;
-    fetchProductCategories().then((data) => {
-      if (cancelled) return;
-      setLoading(false);
-      if (Array.isArray(data) && data.length > 0) setAllCategories(data);
-      else setLoadError('Could not load categories.');
-    }).catch(() => {
-      if (!cancelled) { setLoading(false); setLoadError('Could not load categories.'); }
-    });
-    return () => { cancelled = true; };
+    fetchAllCategoriesFlat()
+      .then((flat) => {
+        if (cancelled) return;
+        setLoading(false);
+        if (!Array.isArray(flat) || flat.length === 0) {
+          setLoadError('Could not load categories.');
+          return;
+        }
+        allCategoriesFlatRef.current = flat;
+        setSkipCategoryPayload(resolveSkipCategoryFromFlat(flat));
+        setAllCategories(flatCategoriesToNestedRoots(flat));
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLoading(false);
+          setLoadError('Could not load categories.');
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const currentLevelItems = path.length === 0 ? allCategories : (path[path.length - 1].children || []);
+  useEffect(() => {
+    if (loading || loadError || !allCategories.length) return;
+
+    let cancelled = false;
+    aiPendingSelectRef.current = null;
+    setAiSlotPhase('running');
+    setAiAutoError(null);
+    setAiBreadcrumb('');
+
+    console.log('[CG Suite][AiCategory][Picker] auto-running cascade', {
+      itemSummaryForAi,
+      rootCount: allCategories.length,
+    });
+
+    (async () => {
+      try {
+        const res = await runAiCategoryCascadeArrayTree({
+          rootNodes: allCategories,
+          itemSummary: itemSummaryForAi,
+          startPath: [],
+          logTag: '[CG Suite][AiCategory][ExtensionPicker-auto]',
+        });
+        console.log('[CG Suite][AiCategory][Picker] auto cascade result', res);
+        if (cancelled) return;
+        if (!res.success || !res.leaf) {
+          setAiSlotPhase('error');
+          setAiAutoError(res.error?.message || 'Could not suggest a category. Choose below or use Skip.');
+          return;
+        }
+        const crumb = res.path.join(' › ');
+        aiPendingSelectRef.current = {
+          id: res.leaf.category_id,
+          name: res.leaf.name,
+          path: res.path,
+        };
+        setAiBreadcrumb(crumb);
+        setAiSlotPhase('ready');
+        console.log('[CG Suite][AiCategory][Picker] suggestion ready — click blue bar to use', {
+          breadcrumb: crumb,
+          payload: aiPendingSelectRef.current,
+        });
+      } catch (e) {
+        console.log('[CG Suite][AiCategory][Picker] auto cascade exception', e);
+        if (cancelled) return;
+        setAiSlotPhase('error');
+        setAiAutoError(e?.message || 'AI request failed. Choose below or use Skip.');
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, loadError, allCategories, itemSummaryForAi]);
+
+  const currentLevelItems = useMemo(() => {
+    const raw =
+      path.length === 0 ? allCategories : path[path.length - 1]?.children || [];
+    return withoutEbayPickerPlaceholder(raw);
+  }, [path, allCategories]);
   const currentCategory = path.length > 0 ? path[path.length - 1] : null;
 
   const handleSelectItem = (cat) => {
@@ -175,6 +337,107 @@ function CategoryPickerStep({ onSelect }) {
 
   return (
     <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col gap-3 overflow-hidden p-4">
+      <div className="shrink-0 space-y-3 rounded-xl border border-brand-blue/25 bg-white px-4 py-5 shadow-sm">
+        <p className="text-center text-xl font-extrabold leading-tight tracking-tight text-brand-blue sm:text-2xl">
+          What category does this item belong to?
+        </p>
+        <p className="mx-auto max-w-md text-center text-xs text-gray-600 sm:text-sm">
+          Choosing a category applies offer margins from pricing rules. All internal categories are listed below,
+          including those hidden from the main buyer sidebar.
+        </p>
+
+        {/* Fixed-height slot: empty while waiting, spinner while AI runs, then clickable blue bar with full breadcrumb. */}
+        <div
+          className="flex min-h-[3.25rem] w-full items-center justify-center rounded-xl border border-transparent px-1"
+          aria-live="polite"
+        >
+          {loadError ? null : loading ? (
+            <span className="text-xs font-medium text-gray-400">Loading categories…</span>
+          ) : aiSlotPhase === 'running' ? (
+            <span className="inline-flex items-center justify-center gap-2 text-sm font-semibold text-brand-blue">
+              <span
+                className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-brand-blue border-t-transparent"
+                aria-hidden
+              />
+              Finding category…
+            </span>
+          ) : aiSlotPhase === 'ready' && aiBreadcrumb ? (
+            <button
+              type="button"
+              onClick={() => {
+                const payload = aiPendingSelectRef.current;
+                if (!payload) {
+                  console.log('[CG Suite][AiCategory][Picker] click but no pending payload');
+                  return;
+                }
+                console.log('[CG Suite][AiCategory][Picker] user confirmed AI category', payload);
+
+                onClearAiNosposStockCategory?.();
+                onSelect(payload, { awaitingAiNosposMatch: true });
+
+                // Background-only: match Nospos stock path when internal tree root is ready_for_builder.
+                // Does not block the form or show UI; safe if the picker unmounts after onSelect.
+                const flat = allCategoriesFlatRef.current;
+                if (!isProductCategoryRootReadyForBuilder(flat, payload.id)) {
+                  console.log(
+                    '[CG Suite][NosposPathMatch] skip — internal category root is not ready_for_builder'
+                  );
+                  return;
+                }
+                void (async () => {
+                  const match = await runNosposStockCategoryAiMatchBackground({
+                    internalCategoryId: payload.id,
+                    itemSummary: itemSummaryForAi,
+                    allCategoriesFlat: flat,
+                    skipReadyForBuilderCheck: true,
+                    logTag: '[CG Suite][NosposPathMatch]',
+                  });
+                  if (match) {
+                    onAiNosposStockCategoryReady?.({
+                      nosposId: match.nosposId,
+                      fullName: match.fullName,
+                      pathSegments: match.pathSegments,
+                    });
+                    console.log('[CG Suite][NosposPathMatch] ✅ suggested Nospos category (extension picker, background)', {
+                      internalProductCategory: {
+                        id: payload.id,
+                        name: payload.name,
+                        path: payload.path,
+                      },
+                      nosposCategory: {
+                        nosposId: match.nosposId,
+                        fullName: match.fullName,
+                        aiPathSegments: match.pathSegments,
+                      },
+                    });
+                  }
+                })();
+              }}
+              className="w-full cursor-pointer rounded-xl bg-brand-blue px-4 py-3 text-center text-sm font-bold leading-snug text-white shadow-md transition-opacity hover:opacity-95 active:opacity-90"
+              aria-label={`Use suggested category: ${aiBreadcrumb}`}
+            >
+              {aiBreadcrumb}
+            </button>
+          ) : aiSlotPhase === 'error' && aiAutoError ? (
+            <p className="px-2 text-center text-xs font-medium text-amber-900">{aiAutoError}</p>
+          ) : (
+            <span className="pointer-events-none select-none text-transparent" aria-hidden="true">
+              &nbsp;
+            </span>
+          )}
+        </div>
+
+        {skipCategoryPayload ? (
+          <button
+            type="button"
+            onClick={() => onSelect(skipCategoryPayload)}
+            className="w-full rounded-xl border-2 border-gray-300 bg-white px-4 py-3.5 text-center text-sm font-bold text-gray-800 shadow-sm transition-colors hover:border-brand-blue hover:bg-brand-blue/5 hover:text-brand-blue"
+          >
+            Skip — use default margins
+          </button>
+        ) : null}
+      </div>
+
       {/* Breadcrumb navigation */}
       {path.length > 0 && (
         <div className="shrink-0 flex flex-wrap items-center gap-1 text-xs font-medium">
@@ -374,6 +637,11 @@ function ExtensionResearchForm({
     if (needsCategoryPick) return 'category';
     return 'get-data';
   });
+
+  const aiNosposInit = savedState?.aiSuggestedNosposStockCategory;
+  const aiNosposStockCategoryRef = useRef(
+    aiNosposInit && typeof aiNosposInit === 'object' ? { ...aiNosposInit } : null
+  );
 
   // ─── Auto-resolve CeX category name to DB category ─────────────────────
   // Runs once when we land on the 'category' step with a named (non-id) category.
@@ -700,6 +968,16 @@ function ExtensionResearchForm({
     setDrillHistory(prev => prev.slice(0, targetLevel));
   }, []);
 
+  const handleAiNosposStockCategoryReady = useCallback((payload) => {
+    if (payload && typeof payload === 'object') {
+      aiNosposStockCategoryRef.current = payload;
+    }
+  }, []);
+
+  const handleClearAiNosposStockCategory = useCallback(() => {
+    aiNosposStockCategoryRef.current = null;
+  }, []);
+
   // ─── Completion helpers ─────────────────────────────────────────────────
   const buildPayload = useCallback((extras = {}) => {
     const prevAdv = advancedFilterStateRef.current;
@@ -716,6 +994,23 @@ function ExtensionResearchForm({
             : {}),
         }
       : prevAdv;
+    const n = aiNosposStockCategoryRef.current;
+    let aiSuggestedNosposStockCategory = null;
+    if (
+      n &&
+      typeof n === 'object' &&
+      (n.nosposId != null ||
+        (n.fullName != null && String(n.fullName).trim()) ||
+        (Array.isArray(n.pathSegments) && n.pathSegments.length > 0))
+    ) {
+      aiSuggestedNosposStockCategory = {
+        nosposId: n.nosposId != null ? Number(n.nosposId) : null,
+        fullName: n.fullName != null ? String(n.fullName).trim() || null : null,
+        pathSegments: Array.isArray(n.pathSegments) ? n.pathSegments : null,
+        source: n.source || 'extension_research_ai',
+        savedAt: new Date().toISOString(),
+      };
+    }
     return {
       listings,
       showHistogram,
@@ -730,6 +1025,7 @@ function ExtensionResearchForm({
       advancedFilterState,
       // Pass along any category that was resolved during this research session
       resolvedCategory: resolvedCategory || null,
+      ...(aiSuggestedNosposStockCategory ? { aiSuggestedNosposStockCategory } : {}),
       ...extras,
     };
   }, [listings, showHistogram, drillHistory, displayedStats, buyOffers, searchTerm, listingPageUrl, manualOffer, isEbay, includeEbayBroadMatchListings, resolvedCategory]);
@@ -785,12 +1081,16 @@ function ExtensionResearchForm({
     setManualOffer('');
     setError(null);
     setLoading(false);
+    aiNosposStockCategoryRef.current = null;
     setStep('get-data');
   }, [isEbay, loading, initialHistogramState, mode]);
 
   // ─── Category-pick step ─────────────────────────────────────────────────
   if (step === 'category') {
-    const handleCategorySelected = (cat) => {
+    const handleCategorySelected = (cat, opts) => {
+      if (!opts?.awaitingAiNosposMatch) {
+        aiNosposStockCategoryRef.current = null;
+      }
       setResolvedCategory(cat);
       if (typeof console !== 'undefined') {
         console.log('[CG Suite][CategoryRule]', {
@@ -807,21 +1107,20 @@ function ExtensionResearchForm({
     };
     const categoryBody = (
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div className="shrink-0 border-b border-gray-200 bg-brand-blue/5 px-4 py-3">
-          <p className="text-xs font-semibold text-brand-blue">
-            What category does this item belong to?
-          </p>
-          <p className="mt-0.5 text-[11px] text-gray-500">
-            Selecting a category applies the correct offer margins from the pricing rules config.
-          </p>
-        </div>
         {autoResolvingCategory ? (
           <div className="shrink-0 mx-4 mt-3 rounded-lg border border-brand-blue/20 bg-brand-blue/5 px-3 py-2 text-xs text-brand-blue">
             Matching category from scraped data...
           </div>
         ) : null}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <CategoryPickerStep onSelect={handleCategorySelected} />
+          <CategoryPickerStep
+            onSelect={handleCategorySelected}
+            onAiNosposStockCategoryReady={handleAiNosposStockCategoryReady}
+            onClearAiNosposStockCategory={handleClearAiNosposStockCategory}
+            lineItemForAi={lineItemContext}
+            initialSearchQuery={initialSearchQuery}
+            categoryHint={category}
+          />
         </div>
       </div>
     );

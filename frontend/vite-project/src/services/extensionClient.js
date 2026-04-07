@@ -112,16 +112,11 @@ export async function openNosposSiteForCategoryFieldsBulk(nosposCategoryIds, onP
   );
 }
 
-/** Max time to wait for the extension + NosPos session check before we fail open and reset UI. */
+/** Default cap for extension calls that should not leave the UI stuck (e.g. open NosPos site flows). */
 export const OPEN_NOSPOS_PROFILE_CLIENT_TIMEOUT_MS = 28000;
 
 /**
- * Race an extension call so the UI never stays in "Opening…" forever if the bridge or fetch hangs.
- *
- * @param {Promise<T>} promise
- * @param {number} [ms]
- * @param {string} [timeoutMessage]
- * @returns {Promise<T>}
+ * Race an extension call so the UI never stays in a loading state forever if the bridge hangs.
  */
 export function withExtensionCallTimeout(
   promise,
@@ -135,62 +130,6 @@ export function withExtensionCallTimeout(
     promise,
     new Promise((_, reject) => setTimeout(() => reject(new Error(msg)), ms)),
   ]);
-}
-
-/**
- * Opens NosPos agreement creation in a minimized browser window (same path as repricing), after a
- * session check on `/customer/{id}/buying`. CG Suite stays focused until the mirror flow finishes and
- * calls focus (see focusNosposAgreementTab).
- *
- * @param {number|string} nosposCustomerId
- * @param {{ agreementType?: 'PA' | 'DP' }} [options] - PA = Buy Back agreement, DP = Buy agreement (direct sale / store credit)
- * @returns {Promise<{ ok: true, warning?: string, sessionUnchecked?: boolean } | { ok: false, loginRequired?: boolean, error?: string }>}
- */
-export async function openNosposCustomerProfile(nosposCustomerId, options = {}) {
-  const agreementType = options.agreementType === 'PA' ? 'PA' : 'DP';
-  return sendMessage({
-    action: 'openNosposCustomerProfile',
-    nosposCustomerId,
-    agreementType,
-  });
-}
-
-/**
- * Push field values to the NosPos draft agreement items form (mirrored from CG Suite modal).
- * @param {Array<{ name: string, value: string }>} fields
- */
-export async function nosposAgreementApplyFields(fields) {
-  return sendMessage({
-    action: 'nosposAgreementApplyFields',
-    fields: fields || [],
-  });
-}
-
-/** Clicks the real "Next" submit button on NosPos `#items-form`. */
-export async function nosposAgreementClickNext() {
-  return sendMessage({ action: 'nosposAgreementClickNext' });
-}
-
-/** Opens Actions menu and triggers Park Agreement (POST), without using form Next. */
-export async function nosposAgreementParkAgreement() {
-  return sendMessage({ action: 'nosposAgreementParkAgreement' });
-}
-
-/** Clicks the real "Add" action on NosPos `#items-form` to create another item card. */
-export async function nosposAgreementAddItem() {
-  return sendMessage({ action: 'nosposAgreementAddItem' });
-}
-
-/** Brings the NosPos agreement tab to the foreground (call after mirror Next succeeds). */
-export async function focusNosposAgreementTab() {
-  return sendMessage({ action: 'focusNosposAgreementTab' });
-}
-
-/**
- * Close the NosPos agreement window tracked from openNosposCustomerProfile (mirror abandoned / page unload).
- */
-export async function closeNosposAgreementTab() {
-  return sendMessage({ action: 'closeNosposAgreementTab' });
 }
 
 /**
@@ -224,6 +163,139 @@ export async function searchNosposBarcode(barcode) {
   return sendMessage({
     action: 'searchNosposBarcode',
     barcode: barcode || ''
+  });
+}
+
+/**
+ * Step 1 — Park agreement: credentialed fetch to `/customer/{id}/buying` with the same login detection as stock search.
+ * @returns {Promise<{ ok: true } | { ok: false, loginRequired?: boolean, error?: string }>}
+ */
+export async function checkNosposCustomerBuyingSession(nosposCustomerId) {
+  return sendMessage({
+    action: 'checkNosposCustomerBuyingSession',
+    nosposCustomerId,
+  });
+}
+
+/**
+ * Step 2 — Open new-agreement create in a new browser tab (same window when possible; tab is not focused). Returns NosPos tab id.
+ * @returns {Promise<{ ok: true, tabId: number } | { ok: false, error?: string }>}
+ */
+export async function openNosposNewAgreementCreateBackground(nosposCustomerId, options = {}) {
+  const agreementType = options.agreementType === 'PA' ? 'PA' : 'DP';
+  return sendMessage({
+    action: 'openNosposNewAgreementCreateBackground',
+    nosposCustomerId,
+    agreementType,
+  });
+}
+
+/**
+ * Step 3 — Wait for items page, set category (if provided), then fill name, quantity, retail, offer, and stock fields.
+ * @param {{ tabId: number, categoryId?: string, name?: string, quantity?: string, retailPrice?: string|null, boughtFor?: string|null, stockFields?: Array<{ label: string, value: string }> }} payload
+ */
+export async function fillNosposAgreementFirstItem(payload) {
+  return sendMessage({
+    action: 'fillNosposAgreementFirstItem',
+    ...payload,
+  });
+}
+
+/**
+ * Park agreement: for each negotiation line, click NoSpos Add (except the first), wait for reload,
+ * then set category and fill fields on that line. Each entry matches the per-line shape of
+ * {@link fillNosposAgreementFirstItem} without `tabId`.
+ */
+export async function fillNosposAgreementItems(payload) {
+  return sendMessage({
+    action: 'fillNosposAgreementItems',
+    ...payload,
+  });
+}
+
+/**
+ * Park one agreement line: step 0 = fill first row (items page must be open); step N &gt; 0 = Add + wait reload + fill row N.
+ */
+export async function fillNosposAgreementItemStep(payload) {
+  return sendMessage({
+    action: 'fillNosposAgreementItemStep',
+    ...payload,
+  });
+}
+
+/** Find marker row / Add+wait — UI can call before category+rest for progress text. */
+export async function resolveNosposParkAgreementLine(payload) {
+  return sendMessage({
+    action: 'resolveNosposParkAgreementLine',
+    ...payload,
+  });
+}
+
+/**
+ * Park flow: delete NosPos agreement rows whose description contains `-RI-{id}-` for each requestItemId
+ * (skipped / excluded lines from CG Suite).
+ */
+export async function deleteExcludedNosposAgreementLines(payload) {
+  return sendMessage({
+    action: 'deleteExcludedNosposAgreementLines',
+    ...payload,
+  });
+}
+
+/** Items page: Agreement card → Actions → Park Agreement → confirm SweetAlert (NosPos POST /newagreement/{id}/park). */
+export async function clickNosposSidebarParkAgreement(payload) {
+  return sendMessage({
+    action: 'clickNosposSidebarParkAgreement',
+    ...payload,
+  });
+}
+
+/** Focus the NosPos park tab; if it was closed, open fallbackCreateUrl (validated agreement URL). */
+export async function focusOrOpenNosposParkTab(payload) {
+  return sendMessage({
+    action: 'focusOrOpenNosposParkTab',
+    ...payload,
+  });
+}
+
+/** Get the current URL of a browser tab by tabId (returns { ok, url }). */
+export async function getNosposTabUrl(tabId) {
+  return sendMessage({ action: 'getNosposTabUrl', tabId });
+}
+
+export async function fillNosposParkAgreementCategory(payload) {
+  return sendMessage({
+    action: 'fillNosposParkAgreementCategory',
+    ...payload,
+  });
+}
+
+export async function fillNosposParkAgreementRest(payload) {
+  return sendMessage({
+    action: 'fillNosposParkAgreementRest',
+    ...payload,
+  });
+}
+
+/**
+ * Update a single field on the NosPos agreement items page (same tab as park flow).
+ */
+export async function patchNosposAgreementField(payload) {
+  return sendMessage({
+    action: 'patchNosposAgreementField',
+    ...payload,
+  });
+}
+
+/**
+ * @deprecated Prefer fillNosposAgreementFirstItem — kept for callers that only set category.
+ * @returns {Promise<{ ok: true, label?: string } | { ok: false, error?: string }>}
+ */
+export async function fillNosposAgreementFirstItemCategory({ tabId, categoryId }) {
+  return sendMessage({
+    action: 'fillNosposAgreementFirstItemCategory',
+    tabId,
+    categoryId,
   });
 }
 

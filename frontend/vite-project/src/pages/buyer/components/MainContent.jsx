@@ -715,6 +715,7 @@ const MainContent = ({ mode = 'buyer' }) => {
               initialHistogramState={false} showManualOffer={false}
               addActionLabel={isRepricing ? 'Add to Reprice List' : 'Add to Cart'} hideOfferCards={isRepricing}
               useVoucherOffers={useVoucherOffers}
+              lineItemContext={selectedCartItem?.isCustomEbayItem ? selectedCartItem : null}
             />
           </div>
         </div>
@@ -784,6 +785,7 @@ const MainContent = ({ mode = 'buyer' }) => {
               hideOfferCards={isRepricing}
               hideAddAction={Boolean(selectedCartItem)}
               useVoucherOffers={useVoucherOffers}
+              lineItemContext={selectedCartItem?.isCustomEbayItem ? selectedCartItem : null}
             />
           )}
 

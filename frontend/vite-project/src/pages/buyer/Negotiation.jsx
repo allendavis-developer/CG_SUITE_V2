@@ -9,7 +9,6 @@ import {
   remapJewelleryWorkspaceLines,
 } from '@/components/jewellery/jewelleryScrapeRemap';
 import CustomerTransactionHeader from './components/CustomerTransactionHeader';
-import NosposAgreementMirrorModal from './components/NosposAgreementMirrorModal';
 import CustomerIntakeModal from '@/components/modals/CustomerIntakeModal.jsx';
 import NegotiationItemRow from './components/NegotiationItemRow';
 import JewelleryReferencePricesTable from '@/components/jewellery/JewelleryReferencePricesTable';
@@ -25,10 +24,13 @@ import {
   fetchRequestDetail,
   updateCustomer,
   saveQuoteDraft,
+  saveParkAgreementState,
   deleteRequestItem,
   updateRequestItemOffer,
   updateRequestItemRawData,
   fetchCustomerOfferRules,
+  fetchNosposCategories,
+  fetchJewelleryCatalog,
 } from '@/services/api';
 import { normalizeExplicitSalePrice, formatOfferPrice } from '@/utils/helpers';
 import { titleForEbayCcOfferIndex } from '@/components/forms/researchStats';
@@ -37,12 +39,18 @@ import { useNotification } from '@/contexts/NotificationContext';
 import useAppStore from '@/store/useAppStore';
 import { useResearchOverlay, makeSalePriceBlurHandler } from './hooks/useResearchOverlay';
 import { useRefreshCexRowData } from './hooks/useRefreshCexRowData';
-import useNosposMirrorRowCardMap from './hooks/useNosposMirrorRowCardMap';
 import { mapRequestToCustomerData } from '@/utils/requestToCartMapping';
 import {
-  openNosposCustomerProfile,
+  checkNosposCustomerBuyingSession,
+  openNosposNewAgreementCreateBackground,
+  resolveNosposParkAgreementLine,
+  deleteExcludedNosposAgreementLines,
+  clickNosposSidebarParkAgreement,
+  fillNosposParkAgreementCategory,
+  fillNosposParkAgreementRest,
+  patchNosposAgreementField,
   withExtensionCallTimeout,
-  closeNosposAgreementTab,
+  getNosposTabUrl,
 } from '@/services/extensionClient';
 import { getBlockedOfferSlots, revokeManualOfferAuthorisationIfSwitchingAway } from '@/utils/customerOfferRules';
 import { mapTransactionTypeToIntent } from '@/utils/transactionConstants';
@@ -61,20 +69,102 @@ import {
   resolveSuggestedRetailFromResearchStats,
   logCategoryRuleDecision,
 } from './utils/negotiationHelpers';
+import {
+  summariseNegotiationItemForAi,
+  runNosposStockCategoryAiMatchBackground,
+} from '@/services/aiCategoryPathCascade';
+import {
+  getAiSuggestedNosposStockCategoryFromItem,
+  getAiSuggestedNosposStockFieldValuesFromItem,
+  getNosposCategoryHierarchyLabelFromItem,
+  resolveNosposLeafCategoryIdForAgreementItem,
+} from '@/utils/nosposCategoryMappings';
+import { buildNosposAgreementFirstItemFillPayload } from './utils/nosposAgreementFirstItemFill';
+import {
+  buildParkAgreementSystemSteps,
+  buildParkItemTablesFromFill,
+} from './utils/parkAgreementProgressTables';
+import { buildNosposStockFieldAiPayload } from './utils/nosposFieldAiAtAdd';
 import { EBAY_TOP_LEVEL_CATEGORY } from './constants';
 import { SPREADSHEET_TABLE_STYLES } from './spreadsheetTableStyles';
+import ParkAgreementProgressModal from './components/ParkAgreementProgressModal';
 
-/** NosPos draft agreement items step — matches extension content script snapshot `pageUrl`. */
-function isNosposAgreementItemsPageUrl(raw) {
-  if (!raw || typeof raw !== 'string') return false;
-  try {
-    const u = new URL(raw);
-    const host = u.hostname.replace(/^www\./i, '').toLowerCase();
-    if (host !== 'nospos.com') return false;
-    return /\/newagreement\/\d+\/items\/?$/i.test(u.pathname || '');
-  } catch {
-    return false;
+/** NosPos “create agreement” — PA = buyback, DP = direct sale / store credit. */
+function buildNosposNewAgreementCreateUrl(nosposCustomerId, transactionType) {
+  const id = parseInt(String(nosposCustomerId ?? '').trim(), 10);
+  if (!Number.isFinite(id) || id <= 0) return null;
+  const agreementType = transactionType === 'buyback' ? 'PA' : 'DP';
+  return `https://nospos.com/newagreement/agreement/create?type=${agreementType}&customer_id=${id}`;
+}
+
+function parkNegotiationLines(items) {
+  if (!Array.isArray(items)) return [];
+  return [
+    ...items.filter((i) => i.isJewelleryItem && !i.isRemoved),
+    ...items.filter((i) => !i.isJewelleryItem && !i.isRemoved),
+  ];
+}
+
+/**
+ * NosPos park “sequence index” for a line: count of non-excluded lines strictly before this
+ * negotiation index. First included line → 0 (use row 0, no Add). Second included → 1 (one Add), etc.
+ * Using the raw negotiation index breaks when leading lines are excluded (would click Add instead of filling row 0).
+ */
+function parkIncludedSequentialStepIndex(lines, excludedIds, negotiationIndex) {
+  const ex = excludedIds && excludedIds.size ? excludedIds : null;
+  let n = 0;
+  for (let j = 0; j < negotiationIndex; j++) {
+    const id = lines[j]?.id;
+    if (ex && id && ex.has(id)) continue;
+    n += 1;
   }
+  return n;
+}
+
+function buildParkExtensionItemPayload(line, negotiationIdx, opts) {
+  const { useVoucherOffers, categoriesResults, requestId, parkSequentialIndex } = opts || {};
+  const fp = buildNosposAgreementFirstItemFillPayload(line, negotiationIdx, {
+    useVoucherOffers,
+    categoriesResults,
+    requestId,
+    parkSequentialIndex:
+      parkSequentialIndex != null ? parkSequentialIndex : negotiationIdx,
+  });
+  const hint =
+    getNosposCategoryHierarchyLabelFromItem(line) || (fp?.categoryId ? String(fp.categoryId) : '');
+  return {
+    categoryId: fp?.categoryId ?? '',
+    categoryOurDisplay: hint,
+    name: fp?.name ?? '',
+    itemDescription: fp?.itemDescription ?? '',
+    cgParkLineMarker: fp?.cgParkLineMarker ?? '',
+    quantity: fp?.quantity ?? '1',
+    retailPrice: fp?.retailPrice ?? null,
+    boughtFor: fp?.boughtFor ?? null,
+    stockFields: fp?.stockFields ?? [],
+  };
+}
+
+function agreementParkLineTitle(item, index) {
+  if (!item) return `Item ${index + 1}`;
+  const ref = item.referenceData || {};
+  if (item.isJewelleryItem) {
+    return (
+      String(
+        ref.item_name ||
+          ref.line_title ||
+          ref.reference_display_name ||
+          ref.product_name ||
+          item.variantName ||
+          item.title ||
+          'Jewellery'
+      ).trim() || 'Jewellery'
+    );
+  }
+  return (
+    String(item.variantName || item.title || ref.product_name || `Item ${index + 1}`).trim() ||
+    `Item ${index + 1}`
+  );
 }
 
 // ─── Component ─────────────────────────────────────────────────────────────
@@ -140,20 +230,21 @@ const Negotiation = ({ mode }) => {
   const [isCustomerModalOpen, setCustomerModalOpen] = useState(false);
   /** BOOKED_FOR_TESTING | COMPLETE | QUOTE | null — used for research sandbox in view mode. */
   const [viewRequestStatus, setViewRequestStatus] = useState(null);
-  const [passedTestingSubmitting, setPassedTestingSubmitting] = useState(false);
   const [showJewelleryReferenceModal, setShowJewelleryReferenceModal] = useState(false);
-  const [agreementMirrorSessionActive, setAgreementMirrorSessionActive] = useState(false);
-  const [agreementMirrorModalState, setAgreementMirrorModalState] = useState(null);
-  const [agreementMirrorSnapshot, setAgreementMirrorSnapshot] = useState(null);
-  /** From NosPos items-form snapshots; cleared when mirror session ends. */
-  const [nosposAgreementItemsParkUrl, setNosposAgreementItemsParkUrl] = useState(null);
-  const [agreementMirrorWaitExpired, setAgreementMirrorWaitExpired] = useState(false);
-  /** Before opening NoSpos: confirm in-store testing passed, or capture failure reason. */
-  const [completeTestingGateModal, setCompleteTestingGateModal] = useState(null);
-  const [completeTestingFailureReason, setCompleteTestingFailureReason] = useState('');
-  /** Per-row in-store testing outcome for BOOKED_FOR_TESTING flow: 'passed' | 'failed'. */
-  const [testingOutcomeByRow, setTestingOutcomeByRow] = useState({});
-
+  /** @type {[null | { systemSteps: object[], itemTables: object[]|null, footerError: string|null, allowClose: boolean }, function]} */
+  const [parkProgressModal, setParkProgressModal] = useState(null);
+  const parkNosposTabRef = useRef(null);
+  const parkFlowCategoriesRef = useRef([]);
+  const parkFieldRowsByIndexRef = useRef({});
+  /** NosPos DOM row index per negotiation line (may differ from item index after reloads). */
+  const parkNosposDomLineByItemRef = useRef({});
+  const parkRetryInFlightRef = useRef(false);
+  const [parkRetryBusyUi, setParkRetryBusyUi] = useState(false);
+  /** Indices of negotiation lines excluded from the NosPos park run (persists across runs). */
+  const [parkExcludedItems, setParkExcludedItems] = useState(new Set());
+  /** Persisted NosPos agreement URL for the current request (null = never parked). */
+  const [persistedNosposUrl, setPersistedNosposUrl] = useState(null);
+  const parkStateSaveTimerRef = useRef(null);
   // Refs
   const hasInitializedNegotiateRef = useRef(false);
   const completedRef = useRef(false);
@@ -161,49 +252,7 @@ const Negotiation = ({ mode }) => {
   const prevTransactionTypeRef = useRef(transactionType);
   /** Only clear jewellery reference when switching to a different request, not on undefined→id (avoids wiping hydrated scrape). */
   const prevNegotiationRequestIdRef = useRef(null);
-  const agreementMirrorSnapshotRef = useRef(null);
-  /** Park / Open mirror flow: NosPos tab should be closed if user abandons (modal dismiss, refresh, unmount). */
-  const agreementMirrorSessionActiveRef = useRef(false);
-
   const useVoucherOffers = transactionType === 'store_credit';
-
-  /** NosPos newagreement type: PA = Buy Back, DP = Buy (direct sale + store credit). */
-  const nosposOpenOptions = useMemo(
-    () => ({ agreementType: transactionType === 'buyback' ? 'PA' : 'DP' }),
-    [transactionType]
-  );
-
-  const endAgreementMirrorSession = useCallback((opts = {}) => {
-    const completed = opts.completed === true;
-    const fromTabClosedEvent = opts.fromTabClosedEvent === true;
-    agreementMirrorSessionActiveRef.current = false;
-    setAgreementMirrorSessionActive(false);
-    setAgreementMirrorModalState(null);
-    setAgreementMirrorSnapshot(null);
-    setNosposAgreementItemsParkUrl(null);
-    setAgreementMirrorWaitExpired(false);
-    if (!completed && !fromTabClosedEvent) {
-      void closeNosposAgreementTab();
-    }
-  }, []);
-
-  const openAgreementMirrorSession = useCallback(() => {
-    agreementMirrorSessionActiveRef.current = true;
-    setAgreementMirrorSessionActive(true);
-    setAgreementMirrorModalState(null);
-    setAgreementMirrorSnapshot(null);
-    setNosposAgreementItemsParkUrl(null);
-    setAgreementMirrorWaitExpired(false);
-  }, []);
-
-  const openAgreementMirrorItemModal = useCallback((itemIndex) => {
-    if (!Number.isInteger(itemIndex)) return;
-    setAgreementMirrorModalState({ kind: 'item', index: itemIndex });
-  }, []);
-
-  const closeAgreementMirrorModal = useCallback(() => {
-    setAgreementMirrorModalState(null);
-  }, []);
 
   const blockedOfferSlots = useMemo(() => {
     if (!customerOfferRulesData) return new Set();
@@ -220,19 +269,8 @@ const Negotiation = ({ mode }) => {
     mode === 'view' && viewRequestStatus === 'BOOKED_FOR_TESTING';
   const researchFormReadOnly = mode === 'view' && !researchSandboxBookedView;
   const researchEphemeralNotice = researchSandboxBookedView
-    ? 'Research you run in this panel is not saved. Use Complete testing on each line in order (pass or fail), then use View parked agreement when it appears.'
+    ? 'Research you run in this panel is not saved.'
     : null;
-
-  /** Negotiated lines only (matches backend complete-testing eligible items). */
-  const eligibleTestingLines = useMemo(
-    () => items.filter((i) => !i.isRemoved),
-    [items]
-  );
-  const hasEligibleTestingLines = eligibleTestingLines.length > 0;
-
-  useEffect(() => {
-    setTestingOutcomeByRow({});
-  }, [actualRequestId, viewRequestStatus]);
 
   // ─── Research overlay (shared hook) ─────────────────────────────────────
   const applyEbay = useCallback((item, state) => applyEbayResearchToItem(item, state, useVoucherOffers), [useVoucherOffers]);
@@ -296,231 +334,866 @@ const Negotiation = ({ mode }) => {
     () => items.filter((i) => i.isJewelleryItem === true),
     [items]
   );
-  /** NosPos mirror cards align with jewellery rows first, then main negotiation rows. */
-  const agreementMirrorSourceLines = useMemo(
-    () => [
-      ...jewelleryNegotiationItems.filter((i) => !i.isRemoved),
-      ...mainNegotiationItems.filter((i) => !i.isRemoved),
-    ],
-    [jewelleryNegotiationItems, mainNegotiationItems]
-  );
-  const agreementMirrorIndexByItemId = useMemo(() => {
-    const map = new Map();
-    agreementMirrorSourceLines.forEach((item, index) => {
-      if (item?.id != null) map.set(item.id, index);
-    });
-    return map;
-  }, [agreementMirrorSourceLines]);
-  const {
-    rowStateByIndex: agreementMirrorRowStateByIndex,
-    allRowsProcessed: allAgreementMirrorItemsProcessed,
-  } = useNosposMirrorRowCardMap(
-    agreementMirrorSourceLines,
-    agreementMirrorSnapshot,
-    testingOutcomeByRow,
-    actualRequestId
-  );
-  const parkAgreementNosposHref = useMemo(() => {
-    if (!hasEligibleTestingLines || !allAgreementMirrorItemsProcessed || passedTestingSubmitting) return null;
-    return nosposAgreementItemsParkUrl || null;
-  }, [
-    hasEligibleTestingLines,
-    allAgreementMirrorItemsProcessed,
-    passedTestingSubmitting,
-    nosposAgreementItemsParkUrl,
-  ]);
-  useEffect(() => {
-    setTestingOutcomeByRow((prev) => {
-      const maxIndex = Math.max(0, agreementMirrorSourceLines.length - 1);
-      let changed = false;
-      const next = {};
-      for (const [rawIdx, outcome] of Object.entries(prev || {})) {
-        const idx = Number(rawIdx);
-        if (!Number.isInteger(idx) || idx < 0 || idx > maxIndex) {
-          changed = true;
-          continue;
-        }
-        next[idx] = outcome;
-      }
-      return changed ? next : prev;
-    });
-  }, [agreementMirrorSourceLines.length]);
-  const isAgreementMirrorRowProcessed = useCallback((rowIndex) => {
-    return Boolean(agreementMirrorRowStateByIndex.get(rowIndex)?.isProcessed);
-  }, [agreementMirrorRowStateByIndex]);
-  const showNosposRowActions = researchSandboxBookedView;
-  const openNosposAgreementFlow = useCallback(async ({ openItemIndex = null } = {}) => {
-    if (!actualRequestId || viewRequestStatus !== 'BOOKED_FOR_TESTING') return false;
-    setPassedTestingSubmitting(true);
-    try {
-      const nid = customerData?.nospos_customer_id;
-      if (nid != null && customerData?.id) {
-        try {
-          const openResult = await withExtensionCallTimeout(
-            openNosposCustomerProfile(nid, nosposOpenOptions)
-          );
-          if (openResult?.warning) {
-            showNotification(openResult.warning, 'warning');
-          }
-          if (openResult?.loginRequired) {
-            endAgreementMirrorSession({ fromTabClosedEvent: true });
-            showNotification(
-              'You must be logged in to NoSpos. Sign in at nospos.com, then use Complete testing again.',
-              'error'
-            );
-            return false;
-          } else if (!openResult?.ok) {
-            showNotification(openResult?.error || 'Could not open NoSpos.', 'warning');
-            return false;
-          }
-          const openMirror =
-            openResult?.ok === true || openResult?.sessionUnchecked === true;
-          if (openMirror) {
-            openAgreementMirrorSession();
-            if (Number.isInteger(openItemIndex)) {
-              openAgreementMirrorItemModal(openItemIndex);
-            }
-            showNotification(
-              'NoSpos agreement opened in the background. Use Complete testing on each line in order.',
-              'success'
-            );
-            return true;
-          }
-        } catch (openErr) {
-          showNotification(
-            openErr?.message ||
-              'Chrome extension is required to open NoSpos, or the request timed out — try again.',
-            'warning'
-          );
-          return false;
-        }
-      } else {
-        showNotification('No NoSpos customer id on file for this request.', 'warning');
-        return false;
-      }
-    } catch (err) {
-      console.error('openNosposAgreementFlow:', err);
-      showNotification(err?.message || 'Something went wrong opening NoSpos.', 'error');
-      return false;
-    } finally {
-      setPassedTestingSubmitting(false);
-    }
-    return false;
-  }, [
-    actualRequestId,
-    viewRequestStatus,
-    customerData?.id,
-    customerData?.nospos_customer_id,
-    nosposOpenOptions,
-    showNotification,
-    openAgreementMirrorSession,
-    openAgreementMirrorItemModal,
-    endAgreementMirrorSession,
-  ]);
 
-  const proceedMirrorAfterInStorePass = useCallback(
-    async (rowIndex) => {
-      if (!Number.isInteger(rowIndex)) return;
-      if (!agreementMirrorSessionActive) {
-        await openNosposAgreementFlow({ openItemIndex: rowIndex });
-      } else {
-        openAgreementMirrorItemModal(rowIndex);
+  const handleParkFieldPatch = useCallback(
+    async ({ lineIndex, rowId, patchKind, fieldLabel, value }) => {
+      const tabId = parkNosposTabRef.current;
+      if (tabId == null) return;
+      const domLine =
+        parkNosposDomLineByItemRef.current[lineIndex] != null
+          ? parkNosposDomLineByItemRef.current[lineIndex]
+          : lineIndex;
+      try {
+        const r = await patchNosposAgreementField({
+          tabId,
+          lineIndex: domLine,
+          patchKind,
+          fieldLabel: fieldLabel || '',
+          value,
+        });
+        if (!r?.ok) {
+          showNotification(r?.error || 'Could not update NoSpos', 'warning');
+          return;
+        }
+        setParkProgressModal((prev) => {
+          if (!prev?.itemTables) return prev;
+          const itemTables = prev.itemTables.map((tbl) => {
+            if (tbl.itemIndex !== lineIndex) return tbl;
+            const rows = tbl.rows.map((row) => {
+              if (row.id !== rowId) return row;
+              let display = value;
+              if (row.inputKind === 'select' && Array.isArray(row.options)) {
+                const hit = row.options.find((o) => String(o.value) === String(value));
+                if (hit) display = hit.label;
+              }
+              const nextNote = r.note != null && String(r.note).trim() !== '' ? r.note : row.note;
+              return {
+                ...row,
+                nosposValue: value,
+                nosposDisplay: display,
+                note: nextNote,
+              };
+            });
+            return { ...tbl, rows };
+          });
+          return { ...prev, itemTables };
+        });
+      } catch (e) {
+        showNotification(e?.message || 'Extension error', 'warning');
       }
     },
-    [agreementMirrorSessionActive, openNosposAgreementFlow, openAgreementMirrorItemModal]
+    [showNotification]
   );
 
-  const requestCompleteTestingGate = useCallback((rowIndex) => {
-    if (!Number.isInteger(rowIndex)) return;
-    setCompleteTestingFailureReason('');
-    setCompleteTestingGateModal({ rowIndex, step: 'pass_question' });
-  }, []);
+  const handleRetryParkLine = useCallback(
+    async (lineIndex) => {
+      if (parkRetryInFlightRef.current) return;
+      const tabId = parkNosposTabRef.current;
+      if (tabId == null) {
+        showNotification('Run Park Agreement first so a NoSpos tab is available.', 'warning');
+        return;
+      }
+      const lines = parkNegotiationLines(items);
+      const line = lines[lineIndex];
+      if (!line) {
+        showNotification('That line is not in the cart anymore.', 'warning');
+        return;
+      }
+      if (line.id && parkExcludedItems.has(line.id)) {
+        showNotification('This line is set to skip NosPos — uncheck Skip NosPos on the row first.', 'warning');
+        return;
+      }
+      parkRetryInFlightRef.current = true;
+      setParkRetryBusyUi(true);
 
-  const getAgreementMirrorRowAction = useCallback((item) => {
-    const rowIndex = item?.id != null ? agreementMirrorIndexByItemId.get(item.id) : undefined;
-    if (!showNosposRowActions || !Number.isInteger(rowIndex)) return null;
-    const rowStateForGate = agreementMirrorRowStateByIndex.get(rowIndex) || { isAdded: false, isComplete: false, outcome: null };
-    const rowOutcome = rowStateForGate.outcome;
-    const rowAlreadyProcessed = isAgreementMirrorRowProcessed(rowIndex);
-    const previousLineProcessed =
-      rowIndex === 0 || isAgreementMirrorRowProcessed(rowIndex - 1);
-    const canUseThisRow =
-      previousLineProcessed || rowAlreadyProcessed || rowStateForGate.isAdded;
-    if (!canUseThisRow) {
-      return {
-        label: 'Complete testing',
-        disabled: true,
-        tone: 'muted',
-        hint: 'Process the line above first (pass or fail) before continuing on this line.',
-      };
+      try {
+        let categoriesResults = parkFlowCategoriesRef.current;
+        if (!Array.isArray(categoriesResults) || categoriesResults.length === 0) {
+          const catRes = await fetchNosposCategories().catch(() => ({ results: [] }));
+          categoriesResults = catRes?.results || [];
+          parkFlowCategoriesRef.current = categoriesResults;
+        }
+
+        const lineLabels = lines.map(
+          (l, i) => `Item ${i + 1} — ${agreementParkLineTitle(l, i)}`
+        );
+        const catIdFirst = resolveNosposLeafCategoryIdForAgreementItem(lines[0]);
+        const phaseDetails = {};
+
+        const retryExcluded = new Set(parkExcludedItems);
+        const applyDetail = (text) => {
+          phaseDetails[lineIndex] = text;
+          setParkProgressModal((prev) => ({
+            ...prev,
+            footerError: null,
+            itemStepDetails: { ...phaseDetails },
+            systemSteps: buildParkAgreementSystemSteps(lineLabels, {
+              activeIndex: lineIndex,
+              loginStatus: 'done',
+              openStatus: 'done',
+              itemStepDetails: { ...phaseDetails },
+              excludedItemIds: retryExcluded,
+              lines,
+            }),
+            itemTables: buildParkItemTablesFromFill({
+              lines,
+              fieldRows: [],
+              fieldRowsByItemIndex: { ...parkFieldRowsByIndexRef.current },
+              progressive: { currentLineIndex: lineIndex },
+              categoryId: catIdFirst,
+              categoriesResults,
+              agreementParkLineTitle,
+              excludedItemIds: retryExcluded,
+            }),
+            allowClose: true,
+          }));
+        };
+
+        const parkStepIndex = parkIncludedSequentialStepIndex(lines, retryExcluded, lineIndex);
+        const itemPayload = buildParkExtensionItemPayload(line, lineIndex, {
+          useVoucherOffers,
+          categoriesResults,
+          requestId: actualRequestId,
+          parkSequentialIndex: parkStepIndex,
+        });
+
+        applyDetail(
+          'Checking NoSpos item descriptions for this line (marker: request + item id)…'
+        );
+        const r1 = await withExtensionCallTimeout(
+          resolveNosposParkAgreementLine({
+            tabId,
+            stepIndex: parkStepIndex,
+            negotiationLineIndex: lineIndex,
+            parkNegotiationLineCount: lines.length,
+            item: itemPayload,
+            // Retry must never click Add — find the existing row (by marker or
+            // expected position) and always ensure we are on the items page.
+            noAdd: true,
+            ensureTab: true,
+          }),
+          55000,
+          'Finding or adding the line on NoSpos timed out — check the NoSpos tab and retry.'
+        );
+        if (!r1?.ok) {
+          setParkProgressModal((prev) => ({
+            ...prev,
+            footerError: r1?.error || 'Could not resolve this line on NoSpos.',
+            systemSteps: buildParkAgreementSystemSteps(lineLabels, {
+              errorIndex: lineIndex,
+              loginStatus: 'done',
+              openStatus: 'done',
+              itemStepDetails: { ...phaseDetails },
+            }),
+            itemTables: buildParkItemTablesFromFill({
+              lines,
+              fieldRows: [],
+              fieldRowsByItemIndex: { ...parkFieldRowsByIndexRef.current },
+              progressive: undefined,
+              categoryId: catIdFirst,
+              categoriesResults,
+              agreementParkLineTitle,
+            }),
+            allowClose: true,
+          }));
+          showNotification(r1?.error || 'Retry failed.', 'warning');
+          return;
+        }
+
+        const targetIdx = r1.targetLineIndex;
+        parkNosposDomLineByItemRef.current[lineIndex] = targetIdx;
+
+        if (r1.reusedExistingRow) {
+          applyDetail(
+            'Found this line on NoSpos by marker — checking and filling missing fields only (no Add / no category reset)…'
+          );
+        } else if (r1.didClickAdd) {
+          applyDetail(
+            'Pressed Add item — waited for NosPos to reload (up to 20s). Setting category…'
+          );
+        } else {
+          applyDetail('Using the target row — setting category…');
+        }
+
+        let rCat = { ok: true, categoryLabel: null, restLineIndex: targetIdx };
+        if (!r1.reusedExistingRow) {
+          rCat = await withExtensionCallTimeout(
+            fillNosposParkAgreementCategory({
+              tabId,
+              lineIndex: targetIdx,
+              item: itemPayload,
+            }),
+            90000,
+            'Setting category on NoSpos timed out.'
+          );
+          if (!rCat?.ok) {
+            setParkProgressModal((prev) => ({
+              ...prev,
+              footerError: rCat?.error || 'Could not set category on NoSpos.',
+              systemSteps: buildParkAgreementSystemSteps(lineLabels, {
+                errorIndex: lineIndex,
+                loginStatus: 'done',
+                openStatus: 'done',
+                itemStepDetails: { ...phaseDetails },
+              }),
+              itemTables: buildParkItemTablesFromFill({
+                lines,
+                fieldRows: [],
+                fieldRowsByItemIndex: { ...parkFieldRowsByIndexRef.current },
+                progressive: undefined,
+                categoryId: catIdFirst,
+                categoriesResults,
+                agreementParkLineTitle,
+              }),
+              allowClose: true,
+            }));
+            showNotification(rCat?.error || 'Category step failed.', 'warning');
+            return;
+          }
+        }
+
+        applyDetail(
+          'Category set — NosPos may have reloaded (up to 20s). Filling name, description, prices, quantity, and stock fields…'
+        );
+
+        const lineForRestRetry =
+          rCat.restLineIndex != null && rCat.restLineIndex >= 0
+            ? rCat.restLineIndex
+            : targetIdx;
+        parkNosposDomLineByItemRef.current[lineIndex] = lineForRestRetry;
+
+        const rRest = await withExtensionCallTimeout(
+          fillNosposParkAgreementRest({
+            tabId,
+            lineIndex: lineForRestRetry,
+            item: itemPayload,
+            categoryLabel: rCat.categoryLabel ?? null,
+          }),
+          120000,
+          'Filling fields on NoSpos timed out.'
+        );
+        if (!rRest?.ok) {
+          setParkProgressModal((prev) => ({
+            ...prev,
+            footerError: rRest?.error || 'Could not fill fields on NoSpos.',
+            systemSteps: buildParkAgreementSystemSteps(lineLabels, {
+              errorIndex: lineIndex,
+              loginStatus: 'done',
+              openStatus: 'done',
+              itemStepDetails: { ...phaseDetails },
+            }),
+            itemTables: buildParkItemTablesFromFill({
+              lines,
+              fieldRows: [],
+              fieldRowsByItemIndex: { ...parkFieldRowsByIndexRef.current },
+              progressive: undefined,
+              categoryId: catIdFirst,
+              categoriesResults,
+              agreementParkLineTitle,
+            }),
+            allowClose: true,
+          }));
+          showNotification(rRest?.error || 'Fill step failed.', 'warning');
+          return;
+        }
+
+        if (Array.isArray(rRest.fieldRows) && rRest.fieldRows.length > 0) {
+          parkFieldRowsByIndexRef.current = {
+            ...parkFieldRowsByIndexRef.current,
+            [lineIndex]: rRest.fieldRows,
+          };
+        }
+        phaseDetails[lineIndex] = 'Filled all fields on NoSpos for this line.';
+        setParkProgressModal((prev) => ({
+          ...prev,
+          footerError: null,
+          itemStepDetails: { ...phaseDetails },
+          systemSteps: buildParkAgreementSystemSteps(lineLabels, {
+            allDone: true,
+            loginStatus: 'done',
+            openStatus: 'done',
+            itemStepDetails: { ...phaseDetails },
+            excludedItemIds: retryExcluded,
+            lines,
+          }),
+          itemTables: buildParkItemTablesFromFill({
+            lines,
+            fieldRows: [],
+            fieldRowsByItemIndex: { ...parkFieldRowsByIndexRef.current },
+            progressive: undefined,
+            categoryId: catIdFirst,
+            categoriesResults,
+            agreementParkLineTitle,
+            excludedItemIds: retryExcluded,
+          }),
+          allowClose: true,
+        }));
+        showNotification(`Item ${lineIndex + 1} re-synced on NoSpos.`, 'success');
+      } catch (e) {
+        showNotification(e?.message || 'Retry failed.', 'error');
+      } finally {
+        parkRetryInFlightRef.current = false;
+        setParkRetryBusyUi(false);
+      }
+    },
+    [items, useVoucherOffers, actualRequestId, showNotification, parkExcludedItems]
+  );
+
+  /** Debounced persist of park state (excluded items + parked URL) to the DB. */
+  const scheduleParkStateSave = useCallback((url, excludedSet) => {
+    if (!actualRequestId || !researchSandboxBookedView) return;
+    if (parkStateSaveTimerRef.current) clearTimeout(parkStateSaveTimerRef.current);
+    parkStateSaveTimerRef.current = setTimeout(() => {
+      const excludedItemIds = items
+        .filter((item) => excludedSet.has(item.id))
+        .map((item) => String(item.request_item_id ?? item.id))
+        .filter((s) => s && s !== 'undefined' && s !== 'null');
+      saveParkAgreementState(actualRequestId, {
+        nosposAgreementUrl: url ?? null,
+        excludedItemIds,
+      }).catch(() => {});
+    }, 800);
+  }, [actualRequestId, researchSandboxBookedView, items]);
+
+  /** Opens the saved NosPos agreement items URL in a new browser tab only (no extension). */
+  const handleViewParkedAgreement = useCallback(() => {
+    const urlToOpen = persistedNosposUrl;
+    if (!urlToOpen || typeof urlToOpen !== 'string') {
+      showNotification(
+        'No parked agreement link saved yet. Finish a park run so the items URL is stored, then try again.',
+        'warning'
+      );
+      return;
     }
-    // Outcome checks come first — outcome is set regardless of whether NoSpos is open.
-    if (rowOutcome === 'failed') {
-      return {
-        label: 'Testing failed',
-        disabled: false,
-        tone: 'danger',
-        hint: 'This line failed in-store testing. Click to retest and mark as passed when ready.',
-        onClick: () => requestCompleteTestingGate(rowIndex),
-      };
+    window.open(urlToOpen, '_blank', 'noopener,noreferrer');
+  }, [persistedNosposUrl, showNotification]);
+
+  const handleToggleParkExcludeItem = useCallback((itemIndex) => {
+    setParkExcludedItems((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemIndex)) {
+        next.delete(itemIndex);
+      } else {
+        next.add(itemIndex);
+      }
+      scheduleParkStateSave(persistedNosposUrl, next);
+      return next;
+    });
+  }, [scheduleParkStateSave, persistedNosposUrl]);
+
+  const handleParkAgreementOpenNospos = useCallback(() => {
+    if (!researchSandboxBookedView) return;
+    const nid = customerData?.nospos_customer_id;
+    if (!buildNosposNewAgreementCreateUrl(nid, transactionType)) {
+      showNotification('No NoSpos customer id on file for this request.', 'warning');
+      return;
     }
-    const rowState = rowStateForGate;
-    if (rowState.isComplete) {
-      return {
-        label: 'Added to NoSpos',
-        disabled: false,
-        tone: 'done',
-        hint: 'This line is ready in NoSpos. Click to reopen and edit if needed.',
-        onClick: () => { void proceedMirrorAfterInStorePass(rowIndex); },
-      };
-    }
-    if (rowOutcome === 'passed') {
-      return {
-        label: 'Open NoSpos',
-        disabled: passedTestingSubmitting,
-        tone: 'primary',
-        hint: rowState.isAdded
-          ? 'Testing passed — finish the required NoSpos fields for this line.'
-          : 'Testing passed — open NoSpos to create and complete this line.',
-        onClick: () => { void proceedMirrorAfterInStorePass(rowIndex); },
-      };
-    }
-    if (!agreementMirrorSessionActive) {
-      return {
-        label: 'Complete testing',
-        disabled: passedTestingSubmitting,
-        tone: 'primary',
-        hint: 'Confirm in-store testing passed, then open NoSpos for this line.',
-        onClick: () => requestCompleteTestingGate(rowIndex),
-      };
-    }
-    if (!agreementMirrorSnapshot) {
-      return {
-        label: 'Waiting…',
-        disabled: true,
-        tone: 'muted',
-        hint: 'Waiting for the NoSpos items page to load.',
-      };
-    }
-    return {
-      label: 'Complete testing',
-      disabled: false,
-      tone: 'primary',
-      hint: rowState.isAdded
-        ? 'Confirm in-store testing passed, then finish required NoSpos fields.'
-        : 'Confirm in-store testing passed, then create this line in NoSpos.',
-      onClick: () => requestCompleteTestingGate(rowIndex),
-    };
+    const agreementType = transactionType === 'buyback' ? 'PA' : 'DP';
+    const lines = parkNegotiationLines(items);
+    const firstLine = lines[0];
+    const lineLabels = lines.map(
+      (l, i) => `Item ${i + 1} — ${agreementParkLineTitle(l, i)}`
+    );
+
+    parkNosposTabRef.current = null;
+    // Keep field rows from previous run so the modal shows existing data immediately.
+    // Only reset the DOM-line map since it is tab-specific.
+    parkNosposDomLineByItemRef.current = {};
+    const prevFieldRowsByIndex = { ...parkFieldRowsByIndexRef.current };
+    const catIdForSeed = lines[0] ? resolveNosposLeafCategoryIdForAgreementItem(lines[0]) : null;
+    const catResultsForSeed = parkFlowCategoriesRef.current || [];
+    const currentExcluded = new Set(parkExcludedItems);
+    setParkProgressModal({
+      systemSteps: buildParkAgreementSystemSteps(lineLabels, {
+        activeIndex: null,
+        loginStatus: 'running',
+        openStatus: 'pending',
+        excludedItemIds: currentExcluded,
+        lines,
+      }),
+      itemTables: Object.keys(prevFieldRowsByIndex).length > 0
+        ? buildParkItemTablesFromFill({
+            lines,
+            fieldRows: [],
+            fieldRowsByItemIndex: prevFieldRowsByIndex,
+            progressive: undefined,
+            categoryId: catIdForSeed,
+            categoriesResults: catResultsForSeed,
+            agreementParkLineTitle,
+            excludedItemIds: currentExcluded,
+          })
+        : null,
+      footerError: null,
+      allowClose: false,
+      itemStepDetails: {},
+    });
+
+    void (async () => {
+      try {
+        const check = await withExtensionCallTimeout(
+          checkNosposCustomerBuyingSession(nid),
+          undefined,
+          'NoSpos did not respond in time — make sure the Chrome extension is active and try again.'
+        );
+        if (check?.loginRequired) {
+          setParkProgressModal({
+            systemSteps: buildParkAgreementSystemSteps(lineLabels, {
+              activeIndex: null,
+              loginStatus: 'error',
+              openStatus: 'pending',
+            }),
+            itemTables: null,
+            footerError: 'Sign in at nospos.com in this browser, then try Park Agreement again.',
+            allowClose: true,
+          });
+          showNotification(
+            'NosPos needs you to be logged in first. Sign in at nospos.com in Chrome, then try Park Agreement again.',
+            'error'
+          );
+          return;
+        }
+        if (!check?.ok) {
+          setParkProgressModal({
+            systemSteps: buildParkAgreementSystemSteps(lineLabels, {
+              activeIndex: null,
+              loginStatus: 'error',
+              openStatus: 'pending',
+            }),
+            itemTables: null,
+            footerError: check?.error || 'Session check failed.',
+            allowClose: true,
+          });
+          showNotification(check?.error || 'Could not verify NoSpos.', 'warning');
+          return;
+        }
+
+        setParkProgressModal({
+          systemSteps: buildParkAgreementSystemSteps(lineLabels, {
+            activeIndex: null,
+            loginStatus: 'done',
+            openStatus: 'running',
+          }),
+          itemTables: null,
+          footerError: null,
+          allowClose: false,
+        });
+
+        const opened = await withExtensionCallTimeout(
+          openNosposNewAgreementCreateBackground(nid, { agreementType }),
+          undefined,
+          'NoSpos did not respond in time — make sure the Chrome extension is active and try again.'
+        );
+        if (!opened?.ok || opened.tabId == null) {
+          setParkProgressModal({
+            systemSteps: buildParkAgreementSystemSteps(lineLabels, {
+              activeIndex: null,
+              loginStatus: 'done',
+              openStatus: 'error',
+            }),
+            itemTables: null,
+            footerError: opened?.error || 'Could not open NoSpos.',
+            allowClose: true,
+          });
+          showNotification(opened?.error || 'Could not open NoSpos.', 'warning');
+          return;
+        }
+        const { tabId } = opened;
+
+        const catRes = await fetchNosposCategories().catch(() => ({ results: [] }));
+        const categoriesResults = catRes?.results || [];
+        parkFlowCategoriesRef.current = categoriesResults;
+        const itemPayloads = lines.map((line, idx) =>
+          buildParkExtensionItemPayload(line, idx, {
+            useVoucherOffers,
+            categoriesResults,
+            requestId: actualRequestId,
+            parkSequentialIndex: parkIncludedSequentialStepIndex(lines, currentExcluded, idx),
+          })
+        );
+
+        if (!firstLine) {
+          parkNosposTabRef.current = tabId;
+          setParkProgressModal({
+            systemSteps: buildParkAgreementSystemSteps([], { allDone: true }),
+            itemTables: buildParkItemTablesFromFill({
+              lines,
+              fieldRows: [],
+              categoryId: null,
+              categoriesResults,
+              agreementParkLineTitle,
+            }),
+            footerError: null,
+            allowClose: true,
+          });
+          return;
+        }
+
+        const catIdFirst = resolveNosposLeafCategoryIdForAgreementItem(firstLine);
+        const itemStepDetails = {};
+        /** Shown as its own Progress step (spinner while running). */
+        let nosposCleanupStep = null;
+
+        const excludedRequestItemIds = [
+          ...new Set(
+            lines
+              .filter((line) => line?.id && currentExcluded.has(line.id))
+              .map((line) => {
+                const rid = line.request_item_id;
+                if (rid == null || String(rid).trim() === '') return null;
+                const s = String(rid).trim();
+                return /^\d+$/.test(s) ? s : null;
+              })
+              .filter(Boolean)
+          ),
+        ];
+        if (excludedRequestItemIds.length > 0) {
+          const nDel = excludedRequestItemIds.length;
+          nosposCleanupStep = {
+            status: 'running',
+            detail: `Deleting ${nDel} skipped line(s) on NoSpos (match \`-RI-{id}-\` in item description, then Actions → Delete). Waiting for reloads after each removal (~20s each). Keep the NoSpos tab open.`,
+          };
+          setParkProgressModal({
+            systemSteps: buildParkAgreementSystemSteps(lineLabels, {
+              activeIndex: null,
+              loginStatus: 'done',
+              openStatus: 'done',
+              nosposCleanup: nosposCleanupStep,
+              itemStepDetails: { ...itemStepDetails },
+              excludedItemIds: currentExcluded,
+              lines,
+            }),
+            itemTables: buildParkItemTablesFromFill({
+              lines,
+              fieldRows: [],
+              fieldRowsByItemIndex: { ...parkFieldRowsByIndexRef.current },
+              progressive: undefined,
+              categoryId: catIdFirst,
+              categoriesResults,
+              agreementParkLineTitle,
+              excludedItemIds: currentExcluded,
+            }),
+            footerError: null,
+            allowClose: false,
+          });
+          const cleanupBudgetMs = 90000 + excludedRequestItemIds.length * 28000;
+          try {
+            const delRes = await withExtensionCallTimeout(
+              deleteExcludedNosposAgreementLines({
+                tabId,
+                requestItemIds: excludedRequestItemIds,
+              }),
+              cleanupBudgetMs,
+              'Removing skipped items on NoSpos took too long — finish deletes in the NoSpos tab if needed.'
+            );
+            nosposCleanupStep = {
+              status: 'done',
+              detail:
+                delRes?.deleted?.length > 0
+                  ? `Done — removed ${delRes.deleted.length} row(s) on NoSpos. Continuing with included lines…`
+                  : 'Done — no matching rows on NoSpos (already deleted or never parked). Continuing…',
+            };
+            if (delRes?.deleted?.length) {
+              showNotification(
+                `Removed ${delRes.deleted.length} skipped item(s) from the NoSpos agreement.`,
+                'success'
+              );
+            }
+          } catch (e) {
+            nosposCleanupStep = {
+              status: 'error',
+              detail: String(
+                e?.message ||
+                  'Cleanup timed out or failed — remove skipped rows manually on NoSpos if needed. Continuing with included lines…'
+              ),
+            };
+            showNotification(
+              e?.message ||
+                'Could not remove all skipped rows from NoSpos — delete them manually if they still appear.',
+              'warning'
+            );
+          }
+          parkNosposDomLineByItemRef.current = {};
+          setParkProgressModal({
+            systemSteps: buildParkAgreementSystemSteps(lineLabels, {
+              activeIndex: null,
+              loginStatus: 'done',
+              openStatus: 'done',
+              nosposCleanup: nosposCleanupStep,
+              itemStepDetails: { ...itemStepDetails },
+              excludedItemIds: currentExcluded,
+              lines,
+            }),
+            itemTables: buildParkItemTablesFromFill({
+              lines,
+              fieldRows: [],
+              fieldRowsByItemIndex: { ...parkFieldRowsByIndexRef.current },
+              progressive: undefined,
+              categoryId: catIdFirst,
+              categoriesResults,
+              agreementParkLineTitle,
+              excludedItemIds: currentExcluded,
+            }),
+            footerError: null,
+            allowClose: false,
+          });
+        }
+
+        const refreshModal = (i, patch = {}) => {
+          setParkProgressModal({
+            systemSteps: buildParkAgreementSystemSteps(lineLabels, {
+              activeIndex: patch.errorIndex != null ? null : i,
+              loginStatus: 'done',
+              openStatus: 'done',
+              errorIndex: patch.errorIndex,
+              allDone: patch.allDone,
+              itemStepDetails: { ...itemStepDetails },
+              excludedItemIds: currentExcluded,
+              lines,
+              nosposCleanup: nosposCleanupStep,
+            }),
+            itemTables: buildParkItemTablesFromFill({
+              lines,
+              fieldRows: [],
+              fieldRowsByItemIndex: { ...parkFieldRowsByIndexRef.current },
+              progressive: patch.progressive,
+              categoryId: catIdFirst,
+              categoriesResults,
+              agreementParkLineTitle,
+              excludedItemIds: currentExcluded,
+            }),
+            footerError: patch.footerError ?? null,
+            allowClose: patch.allowClose ?? false,
+            itemStepDetails: { ...itemStepDetails },
+          });
+        };
+
+        for (let i = 0; i < itemPayloads.length; i++) {
+          // Skip items the user has chosen to exclude from this run (matched by item ID).
+          if (lines[i]?.id && currentExcluded.has(lines[i].id)) {
+            itemStepDetails[i] = 'Excluded from this run — skipped on NoSpos.';
+            refreshModal(i + 1, { progressive: { currentLineIndex: i + 1 } });
+            continue;
+          }
+
+          const setLineDetail = (text) => {
+            itemStepDetails[i] = text;
+            refreshModal(i, { progressive: { currentLineIndex: i } });
+          };
+
+          setLineDetail(
+            'Checking NoSpos item descriptions for this line (marker: request + item id)…'
+          );
+
+          const parkStepIndex = parkIncludedSequentialStepIndex(lines, currentExcluded, i);
+          const resolveTimeoutMs = 55000;
+          const r1 = await withExtensionCallTimeout(
+            resolveNosposParkAgreementLine({
+              tabId,
+              stepIndex: parkStepIndex,
+              negotiationLineIndex: i,
+              parkNegotiationLineCount: lines.length,
+              item: itemPayloads[i],
+            }),
+            resolveTimeoutMs,
+            `Item ${i + 1}: finding or adding the line on NoSpos timed out.`
+          );
+
+          if (!r1?.ok) {
+            parkNosposTabRef.current = tabId;
+            refreshModal(i, {
+              progressive: undefined,
+              footerError: r1?.error || `Could not complete item ${i + 1} on NoSpos.`,
+              allowClose: true,
+              errorIndex: i,
+            });
+            showNotification(
+              r1?.error || `Could not complete item ${i + 1} on NoSpos.`,
+              'warning'
+            );
+            return;
+          }
+
+          const targetIdx = r1.targetLineIndex;
+          parkNosposDomLineByItemRef.current[i] = targetIdx;
+
+          if (r1.reusedExistingRow) {
+            setLineDetail(
+              'Found this line on NoSpos by marker — checking and filling missing fields only (no Add / no category reset)…'
+            );
+          } else if (r1.didClickAdd) {
+            setLineDetail(
+              'Pressed Add item — waited for NosPos to reload (up to 20s). Setting category…'
+            );
+          } else {
+            setLineDetail('Using the target row — setting category…');
+          }
+
+          let rCat = { ok: true, categoryLabel: null, restLineIndex: targetIdx };
+          if (!r1.reusedExistingRow) {
+            rCat = await withExtensionCallTimeout(
+              fillNosposParkAgreementCategory({
+                tabId,
+                lineIndex: targetIdx,
+                item: itemPayloads[i],
+              }),
+              90000,
+              `Item ${i + 1}: category step timed out on NoSpos.`
+            );
+
+            if (!rCat?.ok) {
+              parkNosposTabRef.current = tabId;
+              refreshModal(i, {
+                progressive: undefined,
+                footerError: rCat?.error || `Could not set category for item ${i + 1} on NoSpos.`,
+                allowClose: true,
+                errorIndex: i,
+              });
+              showNotification(
+                rCat?.error || `Could not set category for item ${i + 1} on NoSpos.`,
+                'warning'
+              );
+              return;
+            }
+          }
+
+          setLineDetail(
+            'Category set — NosPos may reload (up to 20s). Filling name, description, prices, quantity, and stock fields…'
+          );
+
+          const lineForRest =
+            rCat.restLineIndex != null && rCat.restLineIndex >= 0
+              ? rCat.restLineIndex
+              : targetIdx;
+          parkNosposDomLineByItemRef.current[i] = lineForRest;
+
+          const stepTimeoutMs = Math.min(180000, 75000 + (itemPayloads[i].stockFields?.length || 0) * 8000);
+          const rRest = await withExtensionCallTimeout(
+            fillNosposParkAgreementRest({
+              tabId,
+              lineIndex: lineForRest,
+              item: itemPayloads[i],
+              categoryLabel: rCat.categoryLabel ?? null,
+            }),
+            stepTimeoutMs,
+            `Item ${i + 1} took too long filling fields on NoSpos. Check the NoSpos tab or use Retry on that line.`
+          );
+
+          if (!rRest?.ok) {
+            parkNosposTabRef.current = tabId;
+            refreshModal(i, {
+              progressive: undefined,
+              footerError: rRest?.error || `Could not complete item ${i + 1} on NoSpos.`,
+              allowClose: true,
+              errorIndex: i,
+            });
+            showNotification(
+              rRest?.error || `Could not complete item ${i + 1} on NoSpos.`,
+              'warning'
+            );
+            return;
+          }
+
+          if (Array.isArray(rRest.fieldRows) && rRest.fieldRows.length > 0) {
+            parkFieldRowsByIndexRef.current[i] = rRest.fieldRows;
+          }
+          itemStepDetails[i] = 'Filled all fields on NoSpos for this line.';
+          refreshModal(i, { progressive: { currentLineIndex: i } });
+        }
+
+        try {
+          const parkSidebarRes = await withExtensionCallTimeout(
+            clickNosposSidebarParkAgreement({ tabId }),
+            65000,
+            'Parking the agreement on NoSpos (Next, then Actions → Park Agreement) timed out.'
+          );
+          if (!parkSidebarRes?.ok) {
+            showNotification(
+              parkSidebarRes?.error ||
+                'Could not finish Park Agreement in the NoSpos sidebar — use Actions → Park Agreement there.',
+              'warning'
+            );
+          }
+        } catch (e) {
+          showNotification(
+            e?.message ||
+              'Could not finish Park Agreement on NoSpos — use Actions → Park Agreement there.',
+            'warning'
+          );
+        }
+
+        parkNosposTabRef.current = tabId;
+        setParkProgressModal({
+          systemSteps: buildParkAgreementSystemSteps(lineLabels, {
+            allDone: true,
+            loginStatus: 'done',
+            openStatus: 'done',
+            itemStepDetails: { ...itemStepDetails },
+            excludedItemIds: currentExcluded,
+            lines,
+            nosposCleanup: nosposCleanupStep,
+          }),
+          itemTables: buildParkItemTablesFromFill({
+            lines,
+            fieldRows: [],
+            fieldRowsByItemIndex: { ...parkFieldRowsByIndexRef.current },
+            progressive: undefined,
+            categoryId: catIdFirst,
+            categoriesResults,
+            agreementParkLineTitle,
+            excludedItemIds: currentExcluded,
+          }),
+          footerError: null,
+          allowClose: true,
+          itemStepDetails: { ...itemStepDetails },
+        });
+
+        // Capture the live NosPos agreement URL and persist park state to DB
+        try {
+          const tabUrlResult = await getNosposTabUrl(tabId);
+          const capturedUrl = tabUrlResult?.ok && tabUrlResult.url ? tabUrlResult.url : null;
+          if (capturedUrl) {
+            setPersistedNosposUrl(capturedUrl);
+            scheduleParkStateSave(capturedUrl, currentExcluded);
+          }
+        } catch (_) {}
+
+        showNotification(
+          lines.length === 1
+            ? 'Line updated in NoSpos. Review the table below or edit values.'
+            : `${lines.length} lines updated in NoSpos. Review the tables below or edit values.`,
+          'success'
+        );
+      } catch (err) {
+        setParkProgressModal((prev) =>
+          prev
+            ? { ...prev, footerError: err?.message || 'Extension error', allowClose: true }
+            : {
+                systemSteps: buildParkAgreementSystemSteps(lineLabels, {
+                  activeIndex: null,
+                  loginStatus: 'error',
+                  openStatus: 'pending',
+                }),
+                itemTables: null,
+                footerError: err?.message || 'Extension error',
+                allowClose: true,
+              }
+        );
+        showNotification(
+          err?.message ||
+            'Chrome extension is required for Park Agreement, or the request timed out — try again.',
+          'error'
+        );
+      }
+    })();
   }, [
-    showNosposRowActions,
-    agreementMirrorIndexByItemId,
-    agreementMirrorSessionActive,
-    agreementMirrorSnapshot,
-    agreementMirrorRowStateByIndex,
-    isAgreementMirrorRowProcessed,
-    requestCompleteTestingGate,
-    proceedMirrorAfterInStorePass,
-    passedTestingSubmitting,
+    items,
+    researchSandboxBookedView,
+    customerData?.nospos_customer_id,
+    transactionType,
+    showNotification,
+    useVoucherOffers,
+    actualRequestId,
+    parkExcludedItems,
   ]);
 
   // Load customer offer rules once on mount
@@ -1097,7 +1770,14 @@ const Negotiation = ({ mode }) => {
 
   const handleAddNegotiationItem = useCallback(async (cartItem, options = {}) => {
     if (!cartItem) return false;
-    const { skipSuccessNotification = false } = options;
+    const {
+      skipSuccessNotification = false,
+      addedFromBuilder = false,
+      /** CeX header / jewellery workspace: run same NosPos stock category + field AI as builder */
+      runNosposCategoryAiForInternalLeaf = false,
+      /** When true, run AI even if internal category root is not `ready_for_builder` (Jewellery) */
+      nosposAiSkipReadyForBuilderCheck = false,
+    } = options;
     try {
       // CeX (and any other) flows may persist the request row before calling onAddToCart — skip a second POST.
       let reqItemId = cartItem.request_item_id;
@@ -1140,6 +1820,199 @@ const Negotiation = ({ mode }) => {
       });
       setItems((prev) => [...prev, normalizedItem]);
 
+      const scheduledFullNosposAi =
+        reqItemId &&
+        normalizedItem.categoryObject?.id != null &&
+        (addedFromBuilder || runNosposCategoryAiForInternalLeaf);
+
+      if (scheduledFullNosposAi) {
+        const lineId = normalizedItem.id;
+        const catId = normalizedItem.categoryObject.id;
+        const skipReadyForBuilderCheck =
+          addedFromBuilder || nosposAiSkipReadyForBuilderCheck === true;
+        const pathLogTag = addedFromBuilder
+          ? '[CG Suite][NosposPathMatch][builder]'
+          : normalizedItem.isJewelleryItem
+            ? '[CG Suite][NosposPathMatch][jewellery]'
+            : '[CG Suite][NosposPathMatch][cex]';
+        const categorySource = addedFromBuilder
+          ? 'builder_ai'
+          : normalizedItem.isJewelleryItem
+            ? 'jewellery_workspace_ai'
+            : 'cex_workspace_ai';
+        const fieldAiSource = categorySource;
+        const fieldAiLogLabel = addedFromBuilder
+          ? 'builder'
+          : normalizedItem.isJewelleryItem
+            ? 'jewellery'
+            : 'cex';
+        void (async () => {
+          try {
+            const itemSummary = summariseNegotiationItemForAi(normalizedItem);
+            const match = await runNosposStockCategoryAiMatchBackground({
+              internalCategoryId: catId,
+              itemSummary,
+              skipReadyForBuilderCheck,
+              logTag: pathLogTag,
+            });
+            if (!match) return;
+            const aiSuggestedNosposStockCategory = {
+              nosposId: match.nosposId != null ? Number(match.nosposId) : null,
+              fullName: match.fullName,
+              pathSegments: match.pathSegments,
+              source: categorySource,
+              savedAt: new Date().toISOString(),
+            };
+            await updateRequestItemRawData(reqItemId, {
+              raw_data: { aiSuggestedNosposStockCategory },
+            });
+            const rowWithCategoryHint = {
+              ...normalizedItem,
+              aiSuggestedNosposStockCategory,
+              rawData:
+                normalizedItem.rawData != null && typeof normalizedItem.rawData === 'object'
+                  ? { ...normalizedItem.rawData, aiSuggestedNosposStockCategory }
+                  : { aiSuggestedNosposStockCategory },
+            };
+            let aiSuggestedNosposStockFieldValues = null;
+            if (match.nosposId != null && Number(match.nosposId) > 0) {
+              try {
+                aiSuggestedNosposStockFieldValues = await buildNosposStockFieldAiPayload({
+                  nosposCategoryId: match.nosposId,
+                  negotiationItem: rowWithCategoryHint,
+                  source: fieldAiSource,
+                });
+              } catch (fe) {
+                console.log(`[CG Suite][NosposFieldAi][${fieldAiLogLabel}] error`, fe);
+              }
+              if (aiSuggestedNosposStockFieldValues) {
+                const fvSaveResult = await updateRequestItemRawData(reqItemId, {
+                  raw_data: { aiSuggestedNosposStockFieldValues },
+                });
+                if (fvSaveResult) {
+                  console.log(`[CG Suite][NosposFieldAi][${fieldAiLogLabel}] DB save OK`, {
+                    reqItemId,
+                    nosposCategoryId: aiSuggestedNosposStockFieldValues.nosposCategoryId,
+                    savedFields: Object.fromEntries(
+                      Object.entries(aiSuggestedNosposStockFieldValues.byNosposFieldId || {}).map(
+                        ([id, val]) => [id, val]
+                      )
+                    ),
+                  });
+                } else {
+                  console.error(
+                    `[CG Suite][NosposFieldAi][${fieldAiLogLabel}] DB save FAILED — updateRequestItemRawData returned null`,
+                    { reqItemId }
+                  );
+                }
+              }
+            }
+            setItems((prev) =>
+              prev.map((row) => {
+                if (row.id !== lineId) return row;
+                const nextRaw =
+                  row.rawData != null && typeof row.rawData === 'object'
+                    ? {
+                        ...row.rawData,
+                        aiSuggestedNosposStockCategory,
+                        ...(aiSuggestedNosposStockFieldValues
+                          ? { aiSuggestedNosposStockFieldValues }
+                          : {}),
+                      }
+                    : {
+                        aiSuggestedNosposStockCategory,
+                        ...(aiSuggestedNosposStockFieldValues
+                          ? { aiSuggestedNosposStockFieldValues }
+                          : {}),
+                      };
+                if (row.ebayResearchData != null && typeof row.ebayResearchData === 'object') {
+                  return {
+                    ...row,
+                    aiSuggestedNosposStockCategory,
+                    ...(aiSuggestedNosposStockFieldValues ? { aiSuggestedNosposStockFieldValues } : {}),
+                    rawData: nextRaw,
+                    ebayResearchData: {
+                      ...row.ebayResearchData,
+                      aiSuggestedNosposStockCategory,
+                      ...(aiSuggestedNosposStockFieldValues
+                        ? { aiSuggestedNosposStockFieldValues }
+                        : {}),
+                    },
+                  };
+                }
+                return {
+                  ...row,
+                  aiSuggestedNosposStockCategory,
+                  ...(aiSuggestedNosposStockFieldValues ? { aiSuggestedNosposStockFieldValues } : {}),
+                  rawData: nextRaw,
+                };
+              })
+            );
+          } catch (e) {
+            console.log(`${pathLogTag} persist error`, e);
+          }
+        })();
+      }
+
+      if (!scheduledFullNosposAi && reqItemId) {
+        const hint = getAiSuggestedNosposStockCategoryFromItem(normalizedItem);
+        const nid = hint?.nosposId != null ? Number(hint.nosposId) : null;
+        const existingFv = getAiSuggestedNosposStockFieldValuesFromItem(normalizedItem);
+        const already =
+          existingFv?.byNosposFieldId &&
+          typeof existingFv.byNosposFieldId === 'object' &&
+          Object.keys(existingFv.byNosposFieldId).length > 0 &&
+          Number(existingFv.nosposCategoryId) === nid;
+        if (nid != null && nid > 0 && !already) {
+          const lineId = normalizedItem.id;
+          void (async () => {
+            try {
+              const aiSuggestedNosposStockFieldValues = await buildNosposStockFieldAiPayload({
+                nosposCategoryId: nid,
+                negotiationItem: normalizedItem,
+                source: 'negotiation_add',
+              });
+              if (!aiSuggestedNosposStockFieldValues) return;
+              const fvSaveResult = await updateRequestItemRawData(reqItemId, {
+                raw_data: { aiSuggestedNosposStockFieldValues },
+              });
+              if (fvSaveResult) {
+                console.log('[CG Suite][NosposFieldAi][negotiation_add] DB save OK', {
+                  reqItemId,
+                  nosposCategoryId: aiSuggestedNosposStockFieldValues.nosposCategoryId,
+                  savedFields: { ...aiSuggestedNosposStockFieldValues.byNosposFieldId },
+                });
+              } else {
+                console.error('[CG Suite][NosposFieldAi][negotiation_add] DB save FAILED — updateRequestItemRawData returned null', { reqItemId });
+              }
+              setItems((prev) =>
+                prev.map((row) => {
+                  if (row.id !== lineId) return row;
+                  const nextRaw =
+                    row.rawData != null && typeof row.rawData === 'object'
+                      ? { ...row.rawData, aiSuggestedNosposStockFieldValues }
+                      : { aiSuggestedNosposStockFieldValues };
+                  if (row.ebayResearchData != null && typeof row.ebayResearchData === 'object') {
+                    return {
+                      ...row,
+                      aiSuggestedNosposStockFieldValues,
+                      rawData: nextRaw,
+                      ebayResearchData: {
+                        ...row.ebayResearchData,
+                        aiSuggestedNosposStockFieldValues,
+                      },
+                    };
+                  }
+                  return { ...row, aiSuggestedNosposStockFieldValues, rawData: nextRaw };
+                })
+              );
+            } catch (e) {
+              console.log('[CG Suite][NosposFieldAi][negotiation_add] error', e);
+            }
+          })();
+        }
+      }
+
       // Keep manual-offer safety flow consistent for builder/workspace adds:
       // trigger the same senior-management and margin dialogs used by row edits.
       if (normalizedItem.selectedOfferId === 'manual') {
@@ -1172,7 +2045,7 @@ const Negotiation = ({ mode }) => {
       showNotification(err?.message || 'Failed to add item', 'error');
       return false;
     }
-  }, [createOrAppendRequestItem, parseManualOfferValue, showNotification, useVoucherOffers]);
+  }, [createOrAppendRequestItem, parseManualOfferValue, showNotification, useVoucherOffers, updateRequestItemRawData]);
 
   const handleWorkspaceBlockedOfferAttempt = useCallback((payload) => {
     if (!payload?.slot) return;
@@ -1192,7 +2065,12 @@ const Negotiation = ({ mode }) => {
           authorisedOfferSlots,
           seniorMgmtApprovedBy: approverName,
         };
-        const ok = await handleAddNegotiationItem(nextItem);
+        const ok = await handleAddNegotiationItem(nextItem, {
+          addedFromBuilder: workspaceModeAtAttempt === 'builder',
+          runNosposCategoryAiForInternalLeaf:
+            workspaceModeAtAttempt === 'cex' || workspaceModeAtAttempt === 'jewellery',
+          nosposAiSkipReadyForBuilderCheck: workspaceModeAtAttempt === 'jewellery',
+        });
         if (ok && (workspaceModeAtAttempt === 'builder' || workspaceModeAtAttempt === 'cex')) {
           useAppStore.getState().requestCloseHeaderWorkspace();
         }
@@ -1214,10 +2092,26 @@ const Negotiation = ({ mode }) => {
         showNotification('Jewellery updates saved.', 'info');
         return;
       }
+      let fallbackJewelleryCategoryId = null;
+      try {
+        const jewCat = await fetchJewelleryCatalog();
+        fallbackJewelleryCategoryId = jewCat?.category_id ?? null;
+      } catch {
+        /* best effort — lines may still carry jewelleryDbCategoryId */
+      }
       for (const line of draftWorkspaceLines) {
         try {
-          const cartItem = buildJewelleryNegotiationCartItem(line, useVoucherOffers, customerOfferRulesData?.settings);
-          const ok = await handleAddNegotiationItem(cartItem, { skipSuccessNotification: true });
+          const cartItem = buildJewelleryNegotiationCartItem(
+            line,
+            useVoucherOffers,
+            customerOfferRulesData?.settings,
+            fallbackJewelleryCategoryId
+          );
+          const ok = await handleAddNegotiationItem(cartItem, {
+            skipSuccessNotification: true,
+            runNosposCategoryAiForInternalLeaf: true,
+            nosposAiSkipReadyForBuilderCheck: true,
+          });
           if (!ok) return;
         } catch (err) {
           console.error(err);
@@ -1364,6 +2258,29 @@ const Negotiation = ({ mode }) => {
             return { ...mapped, isRemoved };
           });
           setItems(mappedItems);
+
+          // Restore persisted park state (excluded lines, parked agreement URL)
+          const parkState = data.park_agreement_state_json;
+          if (parkState && typeof parkState === 'object') {
+            const savedUrl = typeof parkState.nosposAgreementUrl === 'string' && parkState.nosposAgreementUrl.trim()
+              ? parkState.nosposAgreementUrl.trim()
+              : null;
+            setPersistedNosposUrl(savedUrl);
+            if (Array.isArray(parkState.excludedItemIds) && parkState.excludedItemIds.length > 0) {
+              const excluded = new Set(parkState.excludedItemIds.map(String));
+              // Translate persisted item-id strings to request_item_ids matching the loaded items
+              // parkExcludedItems keyed by item.id (CG cart id). For view-mode items those are
+              // request_item_id values cast to strings. We match against both.
+              const resolvedExcluded = new Set();
+              mappedItems.forEach((item) => {
+                const rid = String(item.request_item_id ?? '');
+                const cid = String(item.id ?? '');
+                if (excluded.has(rid) || excluded.has(cid)) resolvedExcluded.add(item.id);
+              });
+              if (resolvedExcluded.size > 0) setParkExcludedItems(resolvedExcluded);
+            }
+          }
+
           const jr = data.jewellery_reference_scrape_json;
           setJewelleryReferenceScrape(
             jr?.sections?.length
@@ -1430,83 +2347,6 @@ const Negotiation = ({ mode }) => {
   useEffect(() => {
     if (customerData?.transactionType) setTransactionType(customerData.transactionType);
   }, [customerData]);
-
-  useEffect(() => {
-    agreementMirrorSnapshotRef.current = agreementMirrorSnapshot;
-  }, [agreementMirrorSnapshot]);
-
-  // Extension: when the NoSpos background window/tab we opened is closed, mirror listing-tab UX.
-  useEffect(() => {
-    function onNosposProfileTabClosedMessage(event) {
-      if (event.source !== window || event.data?.type !== 'NOSPOS_PROFILE_TAB_CLOSED') return;
-      endAgreementMirrorSession({ fromTabClosedEvent: true });
-      showNotification(
-        event.data.message || 'NoSpos window was closed. You can try again when ready.',
-        'warning'
-      );
-    }
-    window.addEventListener('message', onNosposProfileTabClosedMessage);
-    return () => window.removeEventListener('message', onNosposProfileTabClosedMessage);
-  }, [showNotification, endAgreementMirrorSession]);
-
-  // NosPos items form snapshot → mirror modal (while open).
-  useEffect(() => {
-    function onAgreementItemsSnapshot(event) {
-      if (event.source !== window || event.data?.type !== 'NOSPOS_AGREEMENT_ITEMS_SNAPSHOT') return;
-      const payload = event.data.payload;
-      if (!payload?.cards?.length) return;
-      if (!agreementMirrorSessionActiveRef.current) return;
-      setAgreementMirrorSnapshot(payload);
-      if (payload?.pageUrl && isNosposAgreementItemsPageUrl(payload.pageUrl)) {
-        setNosposAgreementItemsParkUrl(payload.pageUrl);
-      }
-      setAgreementMirrorWaitExpired(false);
-    }
-    window.addEventListener('message', onAgreementItemsSnapshot);
-    return () => window.removeEventListener('message', onAgreementItemsSnapshot);
-  }, []);
-
-  useEffect(() => {
-    if (!agreementMirrorSessionActive || agreementMirrorSnapshot) return;
-    const t = setTimeout(() => {
-      if (agreementMirrorSessionActiveRef.current && !agreementMirrorSnapshotRef.current) {
-        setAgreementMirrorWaitExpired(true);
-        showNotification(
-          'The NosPos items step was not detected in time. Restore the minimized NosPos window or try Park / Open in NoSpos again.',
-          'warning'
-        );
-      }
-    }, 120000);
-    return () => clearTimeout(t);
-  }, [agreementMirrorSessionActive, agreementMirrorSnapshot, showNotification]);
-
-  // Full page unload / refresh / bfcache: close NosPos mirror tab (avoid unmount cleanup — Strict Mode).
-  useEffect(() => {
-    function onPageHide() {
-      if (agreementMirrorSessionActiveRef.current) {
-        void closeNosposAgreementTab();
-        agreementMirrorSessionActiveRef.current = false;
-        setAgreementMirrorSessionActive(false);
-      }
-    }
-    window.addEventListener('pagehide', onPageHide);
-    return () => window.removeEventListener('pagehide', onPageHide);
-  }, []);
-
-  const mirrorLocationPathRef = useRef(null);
-  useEffect(() => {
-    const next = `${location.pathname}${location.search}`;
-    if (mirrorLocationPathRef.current === null) {
-      mirrorLocationPathRef.current = next;
-      return;
-    }
-    if (mirrorLocationPathRef.current !== next) {
-      mirrorLocationPathRef.current = next;
-      if (agreementMirrorSessionActiveRef.current) {
-        endAgreementMirrorSession();
-      }
-    }
-  }, [location.pathname, location.search, endAgreementMirrorSession]);
 
   useEffect(() => {
     if (mode !== 'negotiate') return;
@@ -1789,7 +2629,7 @@ const Negotiation = ({ mode }) => {
                   researchSandboxBookedView ? (
                     <p className="mt-1 inline-flex items-center justify-end gap-1 text-[10px] font-bold uppercase tracking-widest text-amber-800">
                       <span className="material-symbols-outlined text-[12px]">science</span>
-                      In-store testing — complete each line in NoSpos in order, then use View parked agreement
+                      In-store testing — Park Agreement opens NoSpos and fills the first line category when CG Suite has one
                     </p>
                   ) : (
                     <p className="mt-1 inline-flex items-center justify-end gap-1 text-[10px] font-bold uppercase tracking-widest text-red-600">
@@ -1845,8 +2685,8 @@ const Negotiation = ({ mode }) => {
                   blockedOfferSlots={blockedOfferSlots}
                   onBlockedOfferClick={(slot, offer, bItem) => handleBlockedOfferClick(slot, offer, bItem)}
                   testingPassedColumnMode={null}
-                  showNosposAction={showNosposRowActions}
-                  getNosposAction={getAgreementMirrorRowAction}
+                  parkExcludedItems={researchSandboxBookedView ? parkExcludedItems : null}
+                  onToggleParkExcludeItem={researchSandboxBookedView ? handleToggleParkExcludeItem : null}
                 />
               </div>
             ) : null}
@@ -1873,7 +2713,11 @@ const Negotiation = ({ mode }) => {
                     <th className="w-24">Our RRP</th>
                     <th className="w-36">eBay Price</th>
                     <th className="w-36">Cash Converters</th>
-                    {showNosposRowActions ? <th className="w-40">NoSpos</th> : null}
+                    {researchSandboxBookedView ? (
+                      <th className="w-16 text-center text-[10px] font-bold uppercase tracking-wide text-amber-600">
+                        Skip NosPos
+                      </th>
+                    ) : null}
                   </tr>
                 </thead>
                 <tbody className="text-xs">
@@ -1900,15 +2744,15 @@ const Negotiation = ({ mode }) => {
                       blockedOfferSlots={blockedOfferSlots}
                       onBlockedOfferClick={(slot, offer) => handleBlockedOfferClick(slot, offer, item)}
                       testingPassedColumnMode={null}
-                      showNosposAction={showNosposRowActions}
-                      nosposAction={getAgreementMirrorRowAction(item)}
+                      parkExcluded={researchSandboxBookedView ? parkExcludedItems.has(item.id) : false}
+                      onToggleParkExclude={researchSandboxBookedView ? () => handleToggleParkExcludeItem(item.id) : null}
                     />
                   ))}
                   <tr className="h-10 opacity-50">
-                    <td colSpan={(showNosposRowActions ? 16 : 15)}></td>
+                    <td colSpan={researchSandboxBookedView ? 16 : 15}></td>
                   </tr>
                   <tr className="h-10 opacity-50">
-                    <td colSpan={(showNosposRowActions ? 16 : 15)}></td>
+                    <td colSpan={researchSandboxBookedView ? 16 : 15}></td>
                   </tr>
                 </tbody>
               </table>
@@ -2002,89 +2846,39 @@ const Negotiation = ({ mode }) => {
             )}
 
             {researchSandboxBookedView ? (
-              <>
-                {parkAgreementNosposHref ? (
-                  <a
-                    href={parkAgreementNosposHref}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title="Opens your NoSpos draft items page in a new tab"
-                    className="w-full font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 group active:scale-[0.98] text-center no-underline hover:opacity-95"
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  className="w-full font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 group active:scale-[0.98]"
+                  style={{
+                    background: 'var(--brand-orange)',
+                    color: 'var(--brand-blue)',
+                    boxShadow: '0 10px 15px -3px rgba(247, 185, 24, 0.3)',
+                  }}
+                  onClick={handleParkAgreementOpenNospos}
+                >
+                  <span className="material-symbols-outlined text-xl" aria-hidden>task_alt</span>
+                  <span className="text-base uppercase tracking-tight">
+                    {persistedNosposUrl ? 'Rerun Park Agreement' : 'Park Agreement'}
+                  </span>
+                  <span className="material-symbols-outlined text-xl group-hover:translate-x-1 transition-transform" aria-hidden>arrow_forward</span>
+                </button>
+                {persistedNosposUrl && (
+                  <button
+                    type="button"
+                    className="w-full font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 group active:scale-[0.98]"
                     style={{
-                      background: 'var(--brand-orange)',
-                      color: 'var(--brand-blue)',
-                      boxShadow: hasEligibleTestingLines
-                        ? '0 10px 15px -3px rgba(247, 185, 24, 0.3)'
-                        : 'none',
+                      background: 'var(--brand-blue)',
+                      color: '#fff',
+                      boxShadow: '0 6px 15px -3px rgba(0,0,0,0.25)',
                     }}
+                    onClick={handleViewParkedAgreement}
                   >
-                    <span className="material-symbols-outlined text-xl" aria-hidden>
-                      task_alt
-                    </span>
-                    <span className="text-base uppercase tracking-tight">View parked agreement</span>
-                    <span className="material-symbols-outlined text-lg opacity-80" aria-hidden>
-                      open_in_new
-                    </span>
-                  </a>
-                ) : (
-                  <div
-                    className={`w-full font-bold py-4 rounded-xl flex items-center justify-center gap-2 select-none ${
-                      !hasEligibleTestingLines || !allAgreementMirrorItemsProcessed || passedTestingSubmitting
-                        ? 'opacity-50 cursor-not-allowed'
-                        : 'opacity-50 cursor-default'
-                    }`}
-                    style={{
-                      background: 'var(--brand-orange)',
-                      color: 'var(--brand-blue)',
-                      boxShadow: hasEligibleTestingLines
-                        ? '0 10px 15px -3px rgba(247, 185, 24, 0.3)'
-                        : 'none',
-                    }}
-                    aria-disabled="true"
-                    title={
-                      !hasEligibleTestingLines || !allAgreementMirrorItemsProcessed
-                        ? 'Complete every line first'
-                        : passedTestingSubmitting
-                          ? undefined
-                          : 'Opens when the NoSpos items page URL is available from your session'
-                    }
-                  >
-                    <span className="material-symbols-outlined text-xl" aria-hidden>
-                      task_alt
-                    </span>
-                    <span className="text-base uppercase tracking-tight">
-                      {passedTestingSubmitting ? 'Working…' : 'View parked agreement'}
-                    </span>
-                  </div>
+                    <span className="material-symbols-outlined text-xl" aria-hidden>open_in_new</span>
+                    <span className="text-base uppercase tracking-tight">View Parked Agreement</span>
+                  </button>
                 )}
-                {eligibleTestingLines.length === 0 && (
-                  <p className="text-[10px] text-center font-medium text-amber-800">
-                    This request has no negotiated lines — add offers before booking, or contact support.
-                  </p>
-                )}
-                {hasEligibleTestingLines && !passedTestingSubmitting && !agreementMirrorSessionActive && (
-                  <p className="text-[10px] text-center font-medium" style={{ color: 'var(--text-muted)' }}>
-                    Use Complete testing on each line in order. View parked agreement appears when every line is processed (passed or failed) and NoSpos has loaded the items page.
-                  </p>
-                )}
-                {hasEligibleTestingLines && agreementMirrorSessionActive && !agreementMirrorSnapshot && (
-                  <p className="text-[10px] text-center font-medium" style={{ color: 'var(--text-muted)' }}>
-                    Waiting for the NoSpos items page to load.
-                  </p>
-                )}
-                {hasEligibleTestingLines && agreementMirrorSessionActive && agreementMirrorSnapshot && !allAgreementMirrorItemsProcessed && (
-                  <p className="text-[10px] text-center font-medium" style={{ color: 'var(--text-muted)' }}>
-                    Finish Complete testing on each line that is still open. The next row unlocks when the line above is processed; all lines must be processed before View parked agreement is available.
-                  </p>
-                )}
-                {hasEligibleTestingLines && agreementMirrorSessionActive && allAgreementMirrorItemsProcessed && (
-                  <p className="text-[10px] text-center font-medium" style={{ color: 'var(--text-muted)' }}>
-                    {parkAgreementNosposHref
-                      ? 'Every line is processed. View parked agreement opens your NoSpos items page in a new tab.'
-                      : 'Every line is processed. View parked agreement appears once NoSpos sends the items page URL.'}
-                  </p>
-                )}
-              </>
+              </div>
             ) : (
               <>
                 <button
@@ -2249,113 +3043,6 @@ const Negotiation = ({ mode }) => {
         initialName={customerData?.name || ""}
       />
 
-      <NosposAgreementMirrorModal
-        open={agreementMirrorModalState != null}
-        snapshot={agreementMirrorSnapshot}
-        loading={agreementMirrorSessionActive && !agreementMirrorSnapshot}
-        waitExpired={agreementMirrorWaitExpired}
-        requestId={actualRequestId}
-        sourceLines={agreementMirrorSourceLines}
-        useVoucherOffers={useVoucherOffers}
-        selectedIndex={agreementMirrorModalState?.kind === 'item' ? agreementMirrorModalState.index : null}
-        autoAddSelectedIfMissing={agreementMirrorModalState?.kind === 'item'}
-        testingOutcomeByRow={testingOutcomeByRow}
-        onClose={(opts) => {
-          if (opts?.completed === true) {
-            showNotification('Agreement parked on NoSpos successfully.', 'success');
-            endAgreementMirrorSession(opts);
-            return;
-          }
-          closeAgreementMirrorModal();
-        }}
-      />
-
-      {completeTestingGateModal ? (
-        <TinyModal
-          title="In-store testing"
-          zClass="z-[125]"
-          onClose={() => {
-            setCompleteTestingGateModal(null);
-            setCompleteTestingFailureReason('');
-          }}
-        >
-          {completeTestingGateModal.step === 'pass_question' ? (
-            <>
-              <p className="text-xs text-slate-600 mb-4">
-                Did in-store testing pass for this line? You can only continue to NoSpos if testing passed.
-              </p>
-              <div className="flex flex-col gap-2">
-                <button
-                  type="button"
-                  className="px-4 py-2 rounded-lg text-sm font-bold transition-colors hover:opacity-90"
-                  style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
-                  onClick={() => {
-                    const idx = completeTestingGateModal.rowIndex;
-                    setTestingOutcomeByRow((prev) => ({ ...prev, [idx]: 'passed' }));
-                    setCompleteTestingGateModal(null);
-                    void proceedMirrorAfterInStorePass(idx);
-                  }}
-                >
-                  Yes, testing passed
-                </button>
-                <button
-                  type="button"
-                  className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
-                  style={{ background: 'white', color: 'var(--text-muted)', border: '1px solid var(--ui-border)' }}
-                  onClick={() =>
-                    setCompleteTestingGateModal((m) => (m ? { ...m, step: 'failure_reason' } : m))
-                  }
-                >
-                  No, testing failed
-                </button>
-              </div>
-            </>
-          ) : (
-            <>
-              <p className="text-xs text-slate-600 mb-2">
-                What went wrong? (Required — NoSpos will not open until you pass testing on a later attempt.)
-              </p>
-              <textarea
-                className="w-full min-h-[88px] rounded-lg border border-[var(--ui-border)] p-2 text-sm text-[var(--text-main)]"
-                value={completeTestingFailureReason}
-                onChange={(e) => setCompleteTestingFailureReason(e.target.value)}
-                placeholder="Describe the failure…"
-              />
-              <div className="flex items-center justify-end gap-3 mt-4">
-                <button
-                  type="button"
-                  className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
-                  style={{ background: 'white', color: 'var(--text-muted)', border: '1px solid var(--ui-border)' }}
-                  onClick={() =>
-                    setCompleteTestingGateModal((m) => (m ? { ...m, step: 'pass_question' } : m))
-                  }
-                >
-                  Back
-                </button>
-                <button
-                  type="button"
-                  className="px-4 py-2 rounded-lg text-sm font-bold transition-colors hover:opacity-90 disabled:opacity-50"
-                  style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
-                  disabled={!completeTestingFailureReason.trim()}
-                  onClick={() => {
-                    const idx = completeTestingGateModal.rowIndex;
-                    const reason = completeTestingFailureReason.trim();
-                    console.info('[CG Suite] In-store testing reported failed', { rowIndex: idx, reason });
-                    setTestingOutcomeByRow((prev) => ({ ...prev, [idx]: 'failed' }));
-                    const short = reason.length > 140 ? `${reason.slice(0, 140)}…` : reason;
-                    showNotification(`Testing failed — recorded: ${short}`, 'warning');
-                    setCompleteTestingGateModal(null);
-                    setCompleteTestingFailureReason('');
-                  }}
-                >
-                  Submit
-                </button>
-              </div>
-            </>
-          )}
-        </TinyModal>
-      ) : null}
-
       {showNewBuyConfirm && (
         <TinyModal
           title="Start a new buy?"
@@ -2384,6 +3071,27 @@ const Negotiation = ({ mode }) => {
           </div>
         </TinyModal>
       )}
+
+      {parkProgressModal ? (
+        <ParkAgreementProgressModal
+          open
+          onClose={() => {
+            parkNosposTabRef.current = null;
+            setParkProgressModal(null);
+          }}
+          systemSteps={parkProgressModal.systemSteps}
+          itemTables={parkProgressModal.itemTables}
+          footerError={parkProgressModal.footerError}
+          allowClose={parkProgressModal.allowClose}
+          onPatchField={handleParkFieldPatch}
+          onRetryParkLine={handleRetryParkLine}
+          parkRetryBusy={parkRetryBusyUi}
+          parkLineRetryEnabled={
+            parkProgressModal.allowClose === true || Boolean(parkProgressModal.footerError)
+          }
+          onViewParkedAgreement={handleViewParkedAgreement}
+        />
+      ) : null}
 
       {showJewelleryReferenceModal ? (
         <TinyModal

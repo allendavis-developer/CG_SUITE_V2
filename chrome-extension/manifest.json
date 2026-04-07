@@ -65,7 +65,7 @@
     },
     {
       "matches": ["https://nospos.com/newagreement/*", "https://*.nospos.com/newagreement/*"],
-      "js": ["content-nospos-agreement-items.js"],
+      "js": ["content-nospos-agreement-fill.js"],
       "run_at": "document_idle"
     }
   ]

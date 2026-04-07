@@ -33,6 +33,7 @@ urlpatterns = [
     ),
     path('api/requests/<int:request_id>/cancel/', v2.cancel_request, name='cancel_request'),
     path('api/requests/<int:request_id>/update-intent/', v2.update_request_intent, name='update_request_intent'),
+    path('api/requests/<int:request_id>/park-state/', v2.update_park_agreement_state, name='update_park_agreement_state'),
     path('api/request-items/<int:request_item_id>/update-raw/', v2.update_request_item_raw_data, name='update_request_item_raw_data'),
     path('api/request-items/<int:request_item_id>/update-offer/', v2.update_request_item, name='update_request_item'),
     path('api/request-items/<int:request_item_id>/', v2.delete_request_item, name='delete_request_item'),

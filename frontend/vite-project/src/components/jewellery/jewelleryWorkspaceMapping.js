@@ -48,6 +48,10 @@ export function negotiationJewelleryItemToWorkspaceLine(item) {
   return {
     id: item.id,
     request_item_id: item.request_item_id ?? null,
+    jewelleryDbCategoryId:
+      item.categoryObject?.id != null && Number(item.categoryObject.id) > 0
+        ? Number(item.categoryObject.id)
+        : null,
     variantId: ref.variant_id,
     variantTitle: ref.line_title || item.variantName || item.title,
     categoryLabel: ref.category_label || ref.line_title || item.variantName || item.title,

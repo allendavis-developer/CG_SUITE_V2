@@ -117,6 +117,9 @@ export default function NegotiationItemRow({
   testingPassedColumnMode = null,
   onTestingPassedChange = null,
   testingPassedSavingId = null,
+  /** When provided, shows a "Skip NosPos" checkbox column. */
+  parkExcluded = false,
+  onToggleParkExclude = null,
 }) {
   const quantity = item.quantity || 1;
   const displayOffers = getDisplayOffers(item, useVoucherOffers);
@@ -579,6 +582,22 @@ export default function NegotiationItemRow({
           onToggle={onTestingPassedChange}
           saving={testingPassedSavingId}
         />
+      ) : null}
+
+      {onToggleParkExclude != null ? (
+        <td className="align-top text-center">
+          <label className="inline-flex cursor-pointer items-center gap-1 select-none" title={parkExcluded ? 'Re-include in NosPos park run' : 'Skip this item when parking to NosPos'}>
+            <input
+              type="checkbox"
+              checked={parkExcluded}
+              onChange={onToggleParkExclude}
+              className="h-3.5 w-3.5 rounded border-gray-300 accent-[var(--brand-blue)]"
+            />
+            {parkExcluded ? (
+              <span className="text-[10px] font-semibold text-amber-600">Skip</span>
+            ) : null}
+          </label>
+        </td>
       ) : null}
     </tr>
   );

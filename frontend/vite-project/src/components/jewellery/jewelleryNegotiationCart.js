@@ -215,8 +215,14 @@ export function getJewelleryWorkspaceDerivedState(line, useVoucherOffers, jewell
  * One workspace row → cart item for {@link handleAddNegotiationItem}.
  * Tier selection is optional: all four offers are still attached; `selectedOfferId` is set only when a tier was chosen.
  * @throws {Error} if reference total is not positive
+ * @param {number|null} [fallbackJewelleryCategoryId] - DB leaf id for "Jewellery" from `/all-categories/` when line has no `jewelleryDbCategoryId`
  */
-export function buildJewelleryNegotiationCartItem(line, useVoucherOffers, jewelleryRuleSettings = null) {
+export function buildJewelleryNegotiationCartItem(
+  line,
+  useVoucherOffers,
+  jewelleryRuleSettings = null,
+  fallbackJewelleryCategoryId = null
+) {
   const total = computeWorkspaceLineTotal(line);
   if (!Number.isFinite(total) || total <= 0) {
     throw new Error('Each jewellery item needs a positive reference total.');
@@ -230,6 +236,16 @@ export function buildJewelleryNegotiationCartItem(line, useVoucherOffers, jewell
     : isJewelleryCoinLine(line)
       ? '1 coin'
       : `${line.weight}${line.weightUnit === 'each' ? ' ea' : line.weightUnit}`;
+  const jewInternalId =
+    line.jewelleryDbCategoryId != null && Number(line.jewelleryDbCategoryId) > 0
+      ? Number(line.jewelleryDbCategoryId)
+      : fallbackJewelleryCategoryId != null && Number(fallbackJewelleryCategoryId) > 0
+        ? Number(fallbackJewelleryCategoryId)
+        : null;
+  const categoryObject =
+    jewInternalId != null
+      ? { id: jewInternalId, name: 'Jewellery', path: ['Jewellery'] }
+      : { name: 'Jewellery', path: ['Jewellery'] };
   return {
     id: crypto.randomUUID?.() ?? `jew-neg-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     title: itemName,
@@ -249,11 +265,18 @@ export function buildJewelleryNegotiationCartItem(line, useVoucherOffers, jewell
     ourSalePrice: derived.ourSalePrice ?? Number(formatOfferPrice(total)),
     seniorMgmtApprovedBy: line.selectedOfferTierAuthBy || line.manualOfferAuthBy || undefined,
     category: 'Jewellery',
-    categoryObject: { name: 'Jewellery', path: ['Jewellery'] },
+    categoryObject,
     request_item_id: null,
   };
 }
 
-export function buildJewelleryNegotiationCartItems(lines, useVoucherOffers, jewelleryRuleSettings = null) {
-  return lines.map((line) => buildJewelleryNegotiationCartItem(line, useVoucherOffers, jewelleryRuleSettings));
+export function buildJewelleryNegotiationCartItems(
+  lines,
+  useVoucherOffers,
+  jewelleryRuleSettings = null,
+  fallbackJewelleryCategoryId = null
+) {
+  return lines.map((line) =>
+    buildJewelleryNegotiationCartItem(line, useVoucherOffers, jewelleryRuleSettings, fallbackJewelleryCategoryId)
+  );
 }

@@ -508,7 +508,9 @@ const AppHeader = ({
     if (!buyerControls?.onAddNegotiationItem) return;
     const payload = buildWorkspaceNegotiationItem(offerArg);
     if (!payload) return;
-    await buyerControls.onAddNegotiationItem(payload);
+    await buyerControls.onAddNegotiationItem(payload, {
+      addedFromBuilder: workspaceMode === 'builder',
+    });
     resetHeaderWorkspaceChrome();
   };
 
@@ -884,7 +886,12 @@ const AppHeader = ({
                             isRepricing={isRepricingWorkspace}
                             useVoucherOffers={useVoucherOffers}
                             customerData={buyerControls?.customerData}
-                            onAddToCart={(item) => buyerControls?.onAddNegotiationItem?.(item)}
+                            onAddToCart={(item, opts) =>
+                              buyerControls?.onAddNegotiationItem?.(item, {
+                                ...opts,
+                                runNosposCategoryAiForInternalLeaf: true,
+                              })
+                            }
                             createOrAppendRequestItem={buyerControls?.createOrAppendRequestItem}
                             onClearCeXProduct={resetHeaderWorkspaceChrome}
                             cartItems={buyerControls?.existingItems || []}

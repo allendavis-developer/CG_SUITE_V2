@@ -267,6 +267,16 @@ export const markRequestPassedTesting = async (requestId) => {
   return apiFetch(`/requests/${requestId}/complete-testing/`, { method: 'POST', body: {} });
 };
 
+/**
+ * Persist park agreement state for a request.
+ * @param {string|number} requestId
+ * @param {{ nosposAgreementUrl?: string|null, excludedItemIds?: string[] }} state
+ */
+export const saveParkAgreementState = async (requestId, state) => {
+  if (!requestId) return null;
+  return apiFetch(`/requests/${requestId}/park-state/`, { method: 'PATCH', body: state });
+};
+
 export const saveQuoteDraft = async (requestId, payload, { keepalive = false } = {}) => {
   if (!requestId || !payload) return null;
   return apiFetch(`/requests/${requestId}/finish/`, {
@@ -300,9 +310,14 @@ export const setRequestItemTestingPassed = async (requestItemId, testingPassed) 
 export const updateRequestItemRawData = async (requestItemId, data) => {
   if (!requestItemId || !data) return null;
   try {
-    return await apiFetch(`/request-items/${requestItemId}/update-raw/`, { method: 'POST', body: data });
+    const result = await apiFetch(`/request-items/${requestItemId}/update-raw/`, { method: 'POST', body: data });
+    if (result == null) {
+      console.error('[CG Suite][api] updateRequestItemRawData: empty response (possible auth/404)', { requestItemId });
+      return null;
+    }
+    return result;
   } catch (err) {
-    console.error('Error updating request item raw data:', err);
+    console.error('[CG Suite][api] updateRequestItemRawData failed:', err?.message || err, { requestItemId });
     return null;
   }
 };

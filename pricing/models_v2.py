@@ -805,6 +805,12 @@ class Request(models.Model):
         help_text="Currently selected jewellery reference snapshot for this request",
     )
 
+    park_agreement_state_json = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Park agreement: NosPos items URL, excluded line ids, progress modal snapshot (in-store testing)",
+    )
+
     def __str__(self):
         # This will show "Request #101 - John Doe (BUYBACK)"
         return f"Request #{self.request_id} - {self.customer.name} ({self.intent})"

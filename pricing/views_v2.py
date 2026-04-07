@@ -511,6 +511,39 @@ def request_detail(request, request_id):
     return Response(serializer.data)
 
 
+@api_view(['PATCH'])
+def update_park_agreement_state(request, request_id):
+    """
+    PATCH: Persist park agreement state (NosPos URL, excluded item ids) for a request.
+    Body: { nosposAgreementUrl?: str|null, excludedItemIds?: list[str|int] }
+    Merges into existing park_agreement_state_json rather than replacing entirely.
+    """
+    existing_request = get_object_or_404(Request, request_id=request_id)
+    current = existing_request.park_agreement_state_json or {}
+
+    url = request.data.get('nosposAgreementUrl', current.get('nosposAgreementUrl'))
+    excl = request.data.get('excludedItemIds', current.get('excludedItemIds'))
+
+    # Normalise types
+    if url is not None:
+        url = str(url).strip() or None
+    if excl is not None:
+        if isinstance(excl, (list, tuple)):
+            excl = [str(x) for x in excl]
+        else:
+            excl = []
+
+    updated = {**current}
+    if 'nosposAgreementUrl' in request.data or url != current.get('nosposAgreementUrl'):
+        updated['nosposAgreementUrl'] = url
+    if 'excludedItemIds' in request.data:
+        updated['excludedItemIds'] = excl
+
+    existing_request.park_agreement_state_json = updated
+    existing_request.save(update_fields=['park_agreement_state_json'])
+    return Response({'ok': True, 'park_agreement_state_json': updated})
+
+
 @api_view(['POST'])
 def update_request_intent(request, request_id):
     """

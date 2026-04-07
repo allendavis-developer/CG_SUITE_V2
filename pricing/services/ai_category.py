@@ -99,8 +99,9 @@ Strict rules:
 - The JSON object must have a single key "fields" whose value is an object
   mapping fieldName → suggestedValue.
 - CRITICAL: Each key in "fields" MUST be the exact "name" string shown for that
-  field in FIELDS TO FILL (e.g. DraftAgreementItem[123][grade]). Never use the
-  human label (e.g. "Grade") or a short slug (e.g. "grade") as the key.
+  field in FIELDS TO FILL. Names may look like DraftAgreementItem[123][grade] or
+  synthetic ids such as cg_nf_45678 — copy the name= value verbatim. Do not use
+  only the human label as the JSON key (labels are still used to match if you slip).
 - For SELECT fields, "suggestedValue" MUST be one of the exact strings
   listed in that field's options array (copy it verbatim).
 - For TEXT/NUMBER fields, provide the most accurate value you can derive

@@ -106,7 +106,11 @@ export default function JewelleryNegotiationSlimTable({
   testingPassedColumnMode = null,
   onTestingPassedChange = null,
   testingPassedSavingId = null,
+  /** Set<string> of excluded item IDs — shows a Skip NosPos checkbox column. */
+  parkExcludedItems = null,
+  onToggleParkExcludeItem = null,
 }) {
+  const showParkExclude = parkExcludedItems != null && typeof onToggleParkExcludeItem === 'function';
   const isView = mode === 'view';
 
   const openRowContext = (e, item, zone) => {
@@ -168,6 +172,11 @@ export default function JewelleryNegotiationSlimTable({
               </th>
             ) : null}
             {testingPassedColumnMode ? <TestingPassedColumnHeader /> : null}
+            {showParkExclude ? (
+              <th scope="col" className="w-16 text-center text-[10px] font-bold uppercase tracking-wide text-amber-600">
+                Skip NosPos
+              </th>
+            ) : null}
           </tr>
         </thead>
         <tbody className="text-xs">
@@ -519,11 +528,29 @@ export default function JewelleryNegotiationSlimTable({
                     saving={testingPassedSavingId}
                   />
                 ) : null}
+                {showParkExclude ? (
+                  <td className="align-top text-center">
+                    <label
+                      className="inline-flex cursor-pointer items-center gap-1 select-none"
+                      title={parkExcludedItems.has(item.id) ? 'Re-include in NosPos park run' : 'Skip this item when parking to NosPos'}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={parkExcludedItems.has(item.id)}
+                        onChange={() => onToggleParkExcludeItem(item.id)}
+                        className="h-3.5 w-3.5 rounded border-gray-300 accent-[var(--brand-blue)]"
+                      />
+                      {parkExcludedItems.has(item.id) ? (
+                        <span className="text-[10px] font-semibold text-amber-600">Skip</span>
+                      ) : null}
+                    </label>
+                  </td>
+                ) : null}
               </tr>
             );
           })}
           <tr className="h-10 opacity-50">
-            <td colSpan={12 + (showNosposAction ? 1 : 0) + (testingPassedColumnMode ? 1 : 0)} />
+            <td colSpan={12 + (showNosposAction ? 1 : 0) + (testingPassedColumnMode ? 1 : 0) + (showParkExclude ? 1 : 0)} />
           </tr>
         </tbody>
       </table>
