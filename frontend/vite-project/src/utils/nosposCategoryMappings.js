@@ -111,8 +111,50 @@ export function getAiSuggestedNosposStockFieldValuesFromItem(item) {
   return null;
 }
 
-/** Leaf NosPos stock category id for agreement item dropdown (matches option value). */
-export function resolveNosposLeafCategoryIdForAgreementItem(item) {
+/**
+ * Match a configured mapping path (`nosposPath` from API) to a row in `GET /nospos-categories/` results.
+ *
+ * @param {string|null|undefined} nosposPath
+ * @param {Array<{ fullName?: string, nosposId?: number }>} categoriesResults
+ * @returns {number|null}
+ */
+export function matchNosposPathToLeafNosposId(nosposPath, categoriesResults) {
+  if (!Array.isArray(categoriesResults) || categoriesResults.length === 0) return null;
+  const raw = String(nosposPath || '').trim();
+  if (!raw) return null;
+
+  const canonical = (s) =>
+    String(s || '')
+      .replace(/\u00a0/g, ' ')
+      .split(/\s*>\s*/)
+      .map((p) => p.trim())
+      .filter(Boolean)
+      .join(' > ');
+
+  const target = canonical(raw);
+  const targetLower = target.toLowerCase();
+
+  for (const r of categoriesResults) {
+    const fn = canonical(r.fullName || '');
+    if (!fn) continue;
+    if (fn === target || fn.toLowerCase() === targetLower) {
+      const id = Number(r.nosposId ?? r.nospos_id);
+      if (Number.isFinite(id) && id > 0) return id;
+    }
+  }
+  return null;
+}
+
+/**
+ * Leaf NosPos stock category id for agreement / park / fill (matches option value).
+ *
+ * @param {object|null|undefined} item
+ * @param {{
+ *   categoryMappings?: Array<{ internalCategoryId?: number, internalCategoryName?: string, nosposPath?: string }>|null,
+ *   nosposCategoriesResults?: Array<{ fullName?: string, nosposId?: number }>|null,
+ * }} [extras] - When set, falls back to internal `categoryObject` → DB NosPos path mapping.
+ */
+export function resolveNosposLeafCategoryIdForAgreementItem(item, extras = {}) {
   if (!item || typeof item !== 'object') return null;
   const fv = getAiSuggestedNosposStockFieldValuesFromItem(item);
   const fromFv = fv?.nosposCategoryId;
@@ -120,6 +162,27 @@ export function resolveNosposLeafCategoryIdForAgreementItem(item) {
   const hint = getAiSuggestedNosposStockCategoryFromItem(item);
   const fromHint = hint?.nosposId ?? hint?.category_id;
   if (fromHint != null && Number(fromHint) > 0) return Number(fromHint);
+
+  const { categoryMappings = null, nosposCategoriesResults = null } = extras;
+  if (
+    Array.isArray(categoryMappings) &&
+    categoryMappings.length > 0 &&
+    Array.isArray(nosposCategoriesResults) &&
+    nosposCategoriesResults.length > 0
+  ) {
+    const internalId = item.categoryObject?.id ?? null;
+    const pathLeaf =
+      Array.isArray(item.categoryObject?.path) && item.categoryObject.path.length > 0
+        ? item.categoryObject.path[item.categoryObject.path.length - 1]
+        : null;
+    const internalName = item.categoryObject?.name ?? pathLeaf ?? item.category ?? null;
+    const map = findNosposMappingForCategory(internalId, internalName, categoryMappings);
+    if (map?.nosposPath) {
+      const fromPath = matchNosposPathToLeafNosposId(map.nosposPath, nosposCategoriesResults);
+      if (fromPath != null && Number(fromPath) > 0) return fromPath;
+    }
+  }
+
   return null;
 }
 

@@ -117,7 +117,7 @@ function resolveLineOfferPerUnit(item, useVoucherOffers) {
  *
  * @param {object} item - negotiation line
  * @param {number} negotiationIndex - 0-based index in `parkNegotiationLines` order (UI / progress labels)
- * @param {{ useVoucherOffers: boolean, categoriesResults?: object[], requestId?: string|number|null, parkSequentialIndex?: number }} options
+ * @param {{ useVoucherOffers: boolean, categoriesResults?: object[], categoryMappings?: object[], requestId?: string|number|null, parkSequentialIndex?: number }} options
  * `parkSequentialIndex`: 0-based count among non-excluded lines up to this row — must match `stepIndex` in
  * `resolveNosposParkAgreementLine` so description markers line up with Add vs fill-row behaviour.
  * (Marker in description uses `item.request_item_id` when set.)
@@ -125,12 +125,16 @@ function resolveLineOfferPerUnit(item, useVoucherOffers) {
 export function buildNosposAgreementFirstItemFillPayload(item, negotiationIndex, options) {
   const useVoucherOffers = options?.useVoucherOffers === true;
   const categoriesResults = Array.isArray(options?.categoriesResults) ? options.categoriesResults : [];
+  const categoryMappings = Array.isArray(options?.categoryMappings) ? options.categoryMappings : null;
   const markerSeqIndex =
     options?.parkSequentialIndex != null && Number.isFinite(Number(options.parkSequentialIndex))
       ? Math.max(0, parseInt(String(options.parkSequentialIndex), 10) || 0)
       : negotiationIndex;
 
-  const categoryId = resolveNosposLeafCategoryIdForAgreementItem(item);
+  const categoryId = resolveNosposLeafCategoryIdForAgreementItem(item, {
+    categoryMappings,
+    nosposCategoriesResults: categoriesResults,
+  });
   const baseName = agreementItemNameForNosposPark(item, negotiationIndex);
   const cgParkLineMarker = nosposParkLineMarker(options?.requestId, markerSeqIndex, item?.request_item_id);
   const name = String(baseName || '').trim();

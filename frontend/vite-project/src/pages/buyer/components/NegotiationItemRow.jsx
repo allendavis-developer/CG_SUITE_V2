@@ -1,5 +1,6 @@
 import React from 'react';
 import { normalizeExplicitSalePrice, roundSalePrice } from '@/utils/helpers';
+import { getNosposCategoryHierarchyLabelFromItem } from '@/utils/nosposCategoryMappings';
 import { resolveOurSalePrice, getDisplayOffers } from '../utils/negotiationHelpers';
 import { NEGOTIATION_ROW_CONTEXT, RRP_SOURCE_CELL_CLASS } from '../rowContextZones';
 import { isBlockedForItem, offerIdToSlot, manualSlotCommitRequiresAuthorisation } from '@/utils/customerOfferRules';
@@ -182,6 +183,7 @@ export default function NegotiationItemRow({
     item.categoryObject?.name ||
     item.category ||
     '—';
+  const nosposCategoryBreadcrumb = getNosposCategoryHierarchyLabelFromItem(item);
 
   return (
     <tr
@@ -211,6 +213,13 @@ export default function NegotiationItemRow({
       <td className="align-top" onContextMenu={ctxRemoveOnly}>
         <div className="text-[11px] font-semibold leading-snug" style={{ color: 'var(--text-muted)' }}>
           {resolvedLeafCategory}
+        </div>
+      </td>
+
+      {/* AI-resolved NosPos stock category (breadcrumb) */}
+      <td className="align-top max-w-[220px]" onContextMenu={ctxRemoveOnly} title={nosposCategoryBreadcrumb || undefined}>
+        <div className="text-[10px] font-medium leading-snug break-words" style={{ color: 'var(--text-muted)' }}>
+          {nosposCategoryBreadcrumb || '—'}
         </div>
       </td>
 

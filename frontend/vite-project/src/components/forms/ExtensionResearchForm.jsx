@@ -11,7 +11,6 @@ import { matchCexCategoryNameToDb } from '@/utils/cexCategoryMatch';
 import {
   summariseNegotiationItemForAi,
   runAiCategoryCascadeArrayTree,
-  isProductCategoryRootReadyForBuilder,
   runNosposStockCategoryAiMatchBackground,
 } from '@/services/aiCategoryPathCascade';
 
@@ -190,6 +189,7 @@ function CategoryPickerStep({
   onSelect,
   onAiNosposStockCategoryReady,
   onClearAiNosposStockCategory,
+  registerNosposBackgroundMatch,
   lineItemForAi = null,
   initialSearchQuery = null,
   categoryHint = null,
@@ -375,16 +375,11 @@ function CategoryPickerStep({
                 onClearAiNosposStockCategory?.();
                 onSelect(payload, { awaitingAiNosposMatch: true });
 
-                // Background-only: match Nospos stock path when internal tree root is ready_for_builder.
-                // Does not block the form or show UI; safe if the picker unmounts after onSelect.
+                // Background NosPos stock path (same cascade as builder). Must not be gated on
+                // ready_for_builder — e.g. Watches/Seiko still needs a NosPos breadcrumb for the table.
+                // Completion awaits this via registerNosposBackgroundMatch so save payload includes the hint.
                 const flat = allCategoriesFlatRef.current;
-                if (!isProductCategoryRootReadyForBuilder(flat, payload.id)) {
-                  console.log(
-                    '[CG Suite][NosposPathMatch] skip — internal category root is not ready_for_builder'
-                  );
-                  return;
-                }
-                void (async () => {
+                const run = (async () => {
                   const match = await runNosposStockCategoryAiMatchBackground({
                     internalCategoryId: payload.id,
                     itemSummary: itemSummaryForAi,
@@ -412,6 +407,7 @@ function CategoryPickerStep({
                     });
                   }
                 })();
+                registerNosposBackgroundMatch?.(run);
               }}
               className="w-full cursor-pointer rounded-xl bg-brand-blue px-4 py-3 text-center text-sm font-bold leading-snug text-white shadow-md transition-opacity hover:opacity-95 active:opacity-90"
               aria-label={`Use suggested category: ${aiBreadcrumb}`}
@@ -642,6 +638,27 @@ function ExtensionResearchForm({
   const aiNosposStockCategoryRef = useRef(
     aiNosposInit && typeof aiNosposInit === 'object' ? { ...aiNosposInit } : null
   );
+
+  /** In-flight {@link runNosposStockCategoryAiMatchBackground} from category step — await before OK/save. */
+  const nosposBackgroundMatchRef = useRef(null);
+  const registerNosposBackgroundMatch = useCallback((promise) => {
+    if (!promise || typeof promise.then !== 'function') return;
+    nosposBackgroundMatchRef.current = promise;
+    promise.finally(() => {
+      if (nosposBackgroundMatchRef.current === promise) {
+        nosposBackgroundMatchRef.current = null;
+      }
+    });
+  }, []);
+  const awaitPendingNosposBackgroundMatch = useCallback(async () => {
+    const p = nosposBackgroundMatchRef.current;
+    if (!p) return;
+    try {
+      await p;
+    } catch {
+      /* errors logged in cascade */
+    }
+  }, []);
 
   // ─── Auto-resolve CeX category name to DB category ─────────────────────
   // Runs once when we land on the 'category' step with a named (non-id) category.
@@ -1030,23 +1047,25 @@ function ExtensionResearchForm({
     };
   }, [listings, showHistogram, drillHistory, displayedStats, buyOffers, searchTerm, listingPageUrl, manualOffer, isEbay, includeEbayBroadMatchListings, resolvedCategory]);
 
-  const handleComplete = useCallback(() => {
+  const handleComplete = useCallback(async () => {
+    await awaitPendingNosposBackgroundMatch();
     onComplete?.(buildPayload());
-  }, [onComplete, buildPayload]);
+  }, [onComplete, buildPayload, awaitPendingNosposBackgroundMatch]);
 
   /** Shell footer OK: view-only overlays close with cancel (no save). */
-  const handleShellOnComplete = useCallback(() => {
+  const handleShellOnComplete = useCallback(async () => {
     if (readOnly) onComplete?.({ cancel: true });
-    else handleComplete();
+    else await handleComplete();
   }, [readOnly, onComplete, handleComplete]);
 
-  const handleCompleteWithSelection = useCallback((selectedOfferIndex, overrideManualOffer) => {
+  const handleCompleteWithSelection = useCallback(async (selectedOfferIndex, overrideManualOffer) => {
+    await awaitPendingNosposBackgroundMatch();
     const state = buildPayload({ manualOffer: overrideManualOffer ?? manualOffer });
     if (showManualOffer) state.selectedOfferIndex = selectedOfferIndex;
     onComplete?.(state);
-  }, [onComplete, buildPayload, manualOffer, showManualOffer]);
+  }, [onComplete, buildPayload, manualOffer, showManualOffer, awaitPendingNosposBackgroundMatch]);
 
-  const handleAddToCartWithOffer = useCallback((offerArg) => {
+  const handleAddToCartWithOffer = useCallback(async (offerArg) => {
     let selectedOfferIndex = offerArg;
     let nextManualOffer = manualOffer;
     if (offerArg && typeof offerArg === 'object' && offerArg.type === 'manual') {
@@ -1060,8 +1079,9 @@ function ExtensionResearchForm({
       selectedOfferIndex = offerArg;
       nextManualOffer = '';
     }
+    await awaitPendingNosposBackgroundMatch();
     onComplete?.(buildPayload({ manualOffer: nextManualOffer, selectedOfferIndex }));
-  }, [onComplete, buildPayload, manualOffer]);
+  }, [onComplete, buildPayload, manualOffer, awaitPendingNosposBackgroundMatch]);
 
   const handleOfferSelect = useCallback((offerArg) => {
     onOfferSelect?.(offerArg);
@@ -1082,6 +1102,7 @@ function ExtensionResearchForm({
     setError(null);
     setLoading(false);
     aiNosposStockCategoryRef.current = null;
+    nosposBackgroundMatchRef.current = null;
     setStep('get-data');
   }, [isEbay, loading, initialHistogramState, mode]);
 
@@ -1117,6 +1138,7 @@ function ExtensionResearchForm({
             onSelect={handleCategorySelected}
             onAiNosposStockCategoryReady={handleAiNosposStockCategoryReady}
             onClearAiNosposStockCategory={handleClearAiNosposStockCategory}
+            registerNosposBackgroundMatch={registerNosposBackgroundMatch}
             lineItemForAi={lineItemContext}
             initialSearchQuery={initialSearchQuery}
             categoryHint={category}

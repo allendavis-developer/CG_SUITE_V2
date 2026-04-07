@@ -13,6 +13,7 @@ import {
 import { isBlockedForItem, offerIdToSlot } from '@/utils/customerOfferRules';
 import TestingPassedCell from '@/pages/buyer/components/TestingPassedCell';
 import TestingPassedColumnHeader from '@/pages/buyer/components/TestingPassedColumnHeader';
+import { getNosposCategoryHierarchyLabelFromItem } from '@/utils/nosposCategoryMappings';
 
 function SlimOfferCell({
   offer,
@@ -133,6 +134,9 @@ export default function JewelleryNegotiationSlimTable({
             <th scope="col" className="w-40">
               Category
             </th>
+            <th scope="col" className="min-w-[140px] max-w-[220px]">
+              NosPos category
+            </th>
             <th scope="col" className="min-w-[120px]">
               Item Name
             </th>
@@ -222,6 +226,7 @@ export default function JewelleryNegotiationSlimTable({
             const manualExceedsSale =
               ourSalePrice && manualValue != null && !Number.isNaN(manualValue) && manualValue > ourSalePrice;
             const nosposAction = getNosposAction?.(item) || null;
+            const nosposCategoryBreadcrumb = getNosposCategoryHierarchyLabelFromItem(item);
 
             return (
               <tr
@@ -236,6 +241,13 @@ export default function JewelleryNegotiationSlimTable({
                       Click manual offer to set
                     </div>
                   )}
+                </td>
+                <td
+                  className="align-top max-w-[220px] break-words text-[10px] font-medium text-gray-600"
+                  onContextMenu={ctxRemoveOnly(item)}
+                  title={nosposCategoryBreadcrumb || undefined}
+                >
+                  {nosposCategoryBreadcrumb || '—'}
                 </td>
                 <td className="break-words text-gray-600" onContextMenu={ctxRemoveOnly(item)}>
                   {isView ? (

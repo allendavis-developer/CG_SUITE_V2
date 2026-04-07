@@ -1,6 +1,8 @@
 /**
  * One-shot NosPos stock field AI at negotiation add time: load linked fields for a
  * NosPos category, call suggest-fields once, persist under raw_data for mirror view.
+ *
+ * Gated by `ENABLE_NOSPOS_STOCK_FIELD_AI` in `@/config/cgSuiteFeatureFlags`.
  */
 import { fetchNosposCategories } from '@/services/api';
 import {

@@ -782,6 +782,14 @@ export function applyEbayResearchToItem(item, updatedState, useVoucherOffers) {
     if (prevIdx >= 0 && displayOffers[prevIdx]) newSelectedOfferId = displayOffers[prevIdx].id;
   }
 
+  const aiNos = updatedState?.aiSuggestedNosposStockCategory;
+  const hasAiNosposHint =
+    aiNos &&
+    typeof aiNos === 'object' &&
+    (aiNos.nosposId != null ||
+      (aiNos.fullName != null && String(aiNos.fullName).trim() !== '') ||
+      (Array.isArray(aiNos.pathSegments) && aiNos.pathSegments.length > 0));
+
   const nextItem = {
     ...item,
     ebayResearchData: updatedState,
@@ -793,6 +801,15 @@ export function applyEbayResearchToItem(item, updatedState, useVoucherOffers) {
     // If the user picked a category during this research session, persist it onto the item
     // so subsequent research panels don't ask again.
     ...(updatedState.resolvedCategory ? { categoryObject: updatedState.resolvedCategory } : {}),
+    ...(hasAiNosposHint
+      ? {
+          aiSuggestedNosposStockCategory: aiNos,
+          rawData:
+            item.rawData != null && typeof item.rawData === 'object'
+              ? { ...item.rawData, aiSuggestedNosposStockCategory: aiNos }
+              : { aiSuggestedNosposStockCategory: aiNos },
+        }
+      : {}),
   };
   logCategoryRuleDecision({
     context: 'ebay-research-complete',
