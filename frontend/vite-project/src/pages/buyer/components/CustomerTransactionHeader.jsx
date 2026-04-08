@@ -56,18 +56,55 @@ const CustomerTransactionHeader = ({
 
     const pillCls = `flex shrink-0 ${rowMinH} items-center gap-2 whitespace-nowrap rounded-md border border-amber-200/60 bg-transparent px-3 text-sm`;
 
+    const joinedRow = detailRows.find((r) => r.label === 'Joined');
+    const stripRows = detailRows.filter((r) => r.label !== 'Joined');
+
+    const joinedTitle =
+      joinedRow?.value && typeof joinedRow.value === 'object' && joinedRow.value.base
+        ? `${joinedRow.label}: ${joinedRow.value.base}`
+        : joinedRow
+          ? `${joinedRow.label}: ${joinedRow.value}`
+          : '';
+
     return (
       <div
-        className={`shrink-0 border-t-4 border-t-amber-400 bg-white px-6 pt-2 pb-1 md:px-10 ${containerClassName}`}
+        className={`shrink-0 border-t-4 border-t-amber-400 bg-white px-6 pt-2 pb-1 ${containerClassName}`}
       >
         <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-amber-300/80">
-          <h2
-            className={`shrink-0 ${rowMinH} flex items-center text-base font-extrabold leading-tight tracking-tight text-brand-blue md:text-lg`}
+          <div
+            className={`flex shrink-0 ${rowMinH} max-w-full min-w-0 overflow-hidden rounded-md border border-amber-200/60 bg-transparent ${joinedRow ? '' : 'pl-1.5 pr-3'}`}
           >
-            {customer.name}
-          </h2>
-          {detailRows.length > 0 &&
-            detailRows.map((row) => (
+            <div
+              className={`flex min-w-0 flex-1 items-center ${joinedRow ? 'border-r border-amber-200/60 pl-1.5 pr-3' : ''}`}
+            >
+              <h2 className="min-w-0 truncate text-base font-extrabold leading-tight tracking-tight text-brand-blue md:text-lg">
+                {customer.name}
+              </h2>
+            </div>
+            {joinedRow && (
+              <div
+                className="flex shrink-0 items-center gap-2 whitespace-nowrap px-3 text-sm"
+                title={joinedTitle}
+              >
+                <span className="font-semibold text-gray-600">{joinedRow.label}</span>
+                <span className="font-bold text-brand-blue">
+                  {joinedRow.value &&
+                  typeof joinedRow.value === 'object' &&
+                  joinedRow.value.base &&
+                  joinedRow.value.age ? (
+                    <>
+                      <span>{joinedRow.value.base}</span>
+                      <span className="text-amber-700"> ({joinedRow.value.age})</span>
+                    </>
+                  ) : (
+                    joinedRow.value
+                  )}
+                </span>
+              </div>
+            )}
+          </div>
+          {stripRows.length > 0 &&
+            stripRows.map((row) => (
               <div key={row.label} className={pillCls} title={`${row.label}: ${row.value && typeof row.value === 'object' && row.value.base ? row.value.base : row.value}`}>
                 <span className="font-semibold text-gray-600">{row.label}</span>
                 <span className="font-bold text-brand-blue">

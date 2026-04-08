@@ -246,6 +246,9 @@ const AppHeader = ({
       ) {
         return;
       }
+      if (buyerControlsRef.current?.workspaceOverlayBottomRef?.current?.contains?.(target)) {
+        return;
+      }
       if (!popupRef.current?.contains(event.target)) {
         setActiveTopLevelId(null);
       }
@@ -372,7 +375,12 @@ const AppHeader = ({
     if (!isFilteringCategories || !visibleActiveTopLevelCategory) return [];
     return collectLeaves([visibleActiveTopLevelCategory], []);
   }, [isFilteringCategories, visibleActiveTopLevelCategory]);
-  const showMountedWorkspace = showNegotiationItemBuilder && (Boolean(activeTopLevelCategory) || workspaceMode !== 'builder');
+  /** Keep builder mounted after a leaf category is chosen, even if the left-tree popup loses `activeTopLevelId` (e.g. mousedown on negotiation customer/metrics strip). */
+  const hasBuilderLeafCategory =
+    buyerControls?.selectedCategory?.id != null && String(buyerControls.selectedCategory.id).trim() !== '';
+  const showMountedWorkspace =
+    showNegotiationItemBuilder &&
+    (Boolean(activeTopLevelCategory) || workspaceMode !== 'builder' || hasBuilderLeafCategory);
 
   // Expose workspace-open state to the rest of the app (e.g. disable finalize buttons)
   useEffect(() => {
@@ -477,6 +485,31 @@ const AppHeader = ({
     setOurSalePrice('');
   };
 
+  /** Close current overlay/workspace state before launching another header-driven flow. */
+  const prepareHeaderMarketplaceLaunch = useCallback(() => {
+    buyerControlsRef.current?.onCloseTransientPanels?.();
+    clearHeaderBuilderState();
+    setActiveTopLevelId(null);
+    setMarketplaceSearchDialog(null);
+  }, [clearHeaderBuilderState]);
+
+  const openHeaderEbayResearch = useCallback((rawQuery) => {
+    if (!ebayTopLevelCategory) return;
+    prepareHeaderMarketplaceLaunch();
+    handleCategorySelect(ebayTopLevelCategory);
+    beginHeaderEbayResearchSession(rawQuery);
+    setHeaderSearch('');
+    setWorkspaceMode('ebay');
+  }, [ebayTopLevelCategory, prepareHeaderMarketplaceLaunch, beginHeaderEbayResearchSession, categories, buyerControls]);
+
+  const openHeaderCexWorkspace = useCallback(async (rawQuery) => {
+    prepareHeaderMarketplaceLaunch();
+    setWorkspaceMode('cex');
+    const q = String(rawQuery ?? '').trim();
+    const loaded = await buyerControlsRef.current?.onAddFromCeX?.(q ? { searchQuery: q } : undefined);
+    if (loaded) setHeaderSearch('');
+  }, [prepareHeaderMarketplaceLaunch]);
+
   /** Back to model list without changing leaf category (fixes wrong model pick). */
   const handleBackToModelList = useCallback(() => {
     setSelectedModel(null);
@@ -571,6 +604,19 @@ const AppHeader = ({
     buyerControls?.selectedCategory,
     buildWorkspaceNegotiationItem,
   ]);
+
+  /** Negotiation: drive Offer min/max from the builder’s loaded tier rows only (same idea as header eBay live offers). */
+  useEffect(() => {
+    if (!showNegotiationItemBuilder || workspaceMode !== 'builder') return;
+    if (isRepricingWorkspace) return;
+    const cb = buyerControlsRef.current?.onNegotiationBuilderOffersLiveChange;
+    if (typeof cb !== 'function') return;
+    if (!variant || !Array.isArray(offers) || offers.length === 0 || isLoadingOffers) {
+      cb(null);
+      return;
+    }
+    cb(offers);
+  }, [showNegotiationItemBuilder, workspaceMode, isRepricingWorkspace, variant, offers, isLoadingOffers]);
 
   useEffect(() => {
     if (!showNegotiationItemBuilder || workspaceMode !== 'cex') return;
@@ -781,14 +827,17 @@ const AppHeader = ({
                         prev.includes(category.category_id) ? prev : [...prev, category.category_id]
                       );
                     }}
-                    className={`min-h-11 inline-flex items-center gap-2 px-2.5 py-2 text-left text-sm font-bold transition-colors ${
-                      isHighlighted
-                        ? 'text-brand-orange/90 underline decoration-brand-orange/80 decoration-2 underline-offset-4'
-                        : 'text-white/90 hover:text-white'
+                    className={`min-h-11 inline-flex items-center gap-2 px-2.5 py-2 text-left text-sm font-bold no-underline transition-colors ${
+                      isHighlighted ? 'text-brand-orange/90' : 'text-white/90 hover:text-white'
                     }`}
                   >
-                    <span className="material-symbols-outlined text-[18px] opacity-85">folder</span>
-                    <span className="truncate">{category.name}</span>
+                    <span className="inline-flex flex-col items-center gap-1 leading-none">
+                      <span className="material-symbols-outlined text-[18px] opacity-85">folder</span>
+                      {isHighlighted ? (
+                        <span className="h-0.5 w-[1.125rem] shrink-0 rounded-full bg-brand-orange/85" />
+                      ) : null}
+                    </span>
+                    <span className="truncate no-underline">{category.name}</span>
                   </button>
                 );
               })}
@@ -811,12 +860,7 @@ const AppHeader = ({
                 <button
                   type="button"
                   onClick={() => {
-                    if (!ebayTopLevelCategory) return;
-                    handleCategorySelect(ebayTopLevelCategory);
-                    beginHeaderEbayResearchSession(headerSearch);
-                    setHeaderSearch('');
-                    setWorkspaceMode('ebay');
-                    setActiveTopLevelId(null);
+                    void openHeaderEbayResearch(headerSearch);
                   }}
                   className={`h-full min-w-[3rem] shrink-0 border-l-2 border-slate-200 px-3.5 text-sm font-extrabold uppercase tracking-wide transition-colors ${
                     workspaceMode === 'ebay'
@@ -829,12 +873,8 @@ const AppHeader = ({
                 </button>
                 <button
                   type="button"
-                  onClick={async () => {
-                    setWorkspaceMode('cex');
-                    const q = headerSearch.trim();
-                    const loaded = await buyerControls?.onAddFromCeX?.(q ? { searchQuery: q } : undefined);
-                    if (loaded) setHeaderSearch('');
-                    setActiveTopLevelId(null);
+                  onClick={() => {
+                    void openHeaderCexWorkspace(headerSearch);
                   }}
                   disabled={buyerControls?.isCeXLoading}
                   className={`h-full min-w-[3rem] shrink-0 border-l-2 border-slate-200 px-3.5 text-sm font-extrabold uppercase tracking-wide transition-colors ${
@@ -860,14 +900,17 @@ const AppHeader = ({
                       startJewelleryScrapeSession();
                     }
                   }}
-                  className={`min-h-11 inline-flex items-center gap-2 px-2.5 py-2 text-left text-sm font-bold transition-colors ${
-                    workspaceMode === 'jewellery'
-                      ? 'text-brand-orange/90 underline decoration-brand-orange/80 decoration-2 underline-offset-4'
-                      : 'text-white/90 hover:text-white'
+                  className={`min-h-11 inline-flex items-center gap-2 px-2.5 py-2 text-left text-sm font-bold no-underline transition-colors ${
+                    workspaceMode === 'jewellery' ? 'text-brand-orange/90' : 'text-white/90 hover:text-white'
                   }`}
                 >
-                  <span className="material-symbols-outlined text-[18px] opacity-85">diamond</span>
-                  <span className="truncate">Jewellery</span>
+                  <span className="inline-flex flex-col items-center gap-1 leading-none">
+                    <span className="material-symbols-outlined text-[18px] opacity-85">diamond</span>
+                    {workspaceMode === 'jewellery' ? (
+                      <span className="h-0.5 w-[1.125rem] shrink-0 rounded-full bg-brand-orange/85" />
+                    ) : null}
+                  </span>
+                  <span className="truncate no-underline">Jewellery</span>
                 </button>
               )}
               {buyerControls?.onQuickReprice && (
@@ -944,21 +987,23 @@ const AppHeader = ({
                 )}
                 {showNegotiationItemBuilder && (
                   <div className="flex h-full min-h-0 flex-1 flex-col border-l-0 border-gray-200 bg-white">
-                    {(workspaceMode === 'builder' || workspaceMode === 'jewellery') && (
+                    {workspaceMode === 'builder' ? (
                       <div className="flex shrink-0 items-center justify-end border-b border-gray-200 bg-gray-50 px-3 py-2">
                         <WorkspaceCloseButton
                           title="Close workspace"
                           onClick={resetHeaderWorkspaceChrome}
                         />
                       </div>
-                    )}
+                    ) : null}
                     <div
                       className={`min-h-0 flex-1 flex flex-col ${
-                        workspaceMode === 'ebay' ? 'overflow-hidden p-0' : 'overflow-y-auto'
+                        workspaceMode === 'ebay' || workspaceMode === 'jewellery'
+                          ? 'overflow-hidden p-0'
+                          : 'overflow-y-auto'
                       }`}
                     >
                     {workspaceMode === 'jewellery' ? (
-                      <div className="min-h-0 flex-1 overflow-y-auto p-4 [contain:paint]">
+                      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-4 [contain:paint]">
                         {jewelleryPanelLoading ? (
                           <div
                             className="flex min-h-[200px] flex-col items-center justify-center gap-3 text-brand-blue"
@@ -971,14 +1016,14 @@ const AppHeader = ({
                         ) : (
                           <JewelleryReferencePricesTable
                             sections={jewellerySectionsForPanel}
+                            showReferenceCard={false}
                             useVoucherOffers={useVoucherOffers}
                             onAddJewelleryToNegotiation={buyerControls?.onAddJewelleryToNegotiation}
                             showNotification={buyerControls?.showNotification}
                             workspaceLines={buyerControls?.jewelleryWorkspaceLines}
                             onWorkspaceLinesChange={buyerControls?.setJewelleryWorkspaceLines}
                             onRemoveJewelleryWorkspaceRow={buyerControls?.onRemoveJewelleryWorkspaceRow}
-                            onUpdateReferenceRequest={() => startJewelleryScrapeSession()}
-                            updateReferenceLoading={jewelleryScrapeLoading}
+                            onCloseWorkspace={resetHeaderWorkspaceChrome}
                           />
                         )}
                       </div>
@@ -1003,6 +1048,7 @@ const AppHeader = ({
                           addActionLabel={isRepricingWorkspace ? 'Add to reprice list' : 'Add to Cart'}
                           hideOfferCards={isRepricingWorkspace}
                           useVoucherOffers={useVoucherOffers}
+                          onOffersChange={buyerControls?.onHeaderEbayResearchOffersLiveChange}
                         />
                       </div>
                     ) : workspaceMode === 'cex' ? (
@@ -1099,22 +1145,29 @@ const AppHeader = ({
                       />
                     ) : (
                       <div className="space-y-4 p-4">
-                        <button
-                          type="button"
-                          onClick={handleBackToModelList}
-                          title="Return to the model list for this category"
-                          className="inline-flex w-full sm:w-auto items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-brand-blue shadow-sm transition-colors hover:bg-gray-50"
-                        >
-                          <span className="material-symbols-outlined text-[18px]">arrow_back</span>
-                          Change model
-                        </button>
-                        <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Selected model</p>
-                          <p className="text-sm font-semibold text-gray-900">{selectedModel.name}</p>
-                          <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-gray-500">Category</p>
-                          <p className="text-xs font-medium text-gray-700">
-                            {(buyerControls.selectedCategory.path || []).join(' / ')}
-                          </p>
+                        <div className="flex flex-wrap items-stretch gap-2">
+                          <div className="flex min-w-[12rem] flex-1 flex-col justify-center gap-0.5 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Selected model</p>
+                            <p className="truncate text-sm font-semibold text-gray-900" title={selectedModel.name}>
+                              {selectedModel.name}
+                            </p>
+                            <p className="pt-1 text-[10px] font-bold uppercase tracking-wider text-gray-500">Category</p>
+                            <p
+                              className="text-xs font-medium leading-snug text-gray-700"
+                              title={(buyerControls.selectedCategory.path || []).join(' / ')}
+                            >
+                              {(buyerControls.selectedCategory.path || []).join(' / ')}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleBackToModelList}
+                            title="Return to the model list for this category"
+                            className="inline-flex shrink-0 items-center justify-center gap-1.5 self-center rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-brand-blue shadow-sm transition-colors hover:bg-gray-50"
+                          >
+                            <span className="material-symbols-outlined text-[18px]">arrow_back</span>
+                            Change model
+                          </button>
                         </div>
                         <AttributeConfiguration
                           attributes={attributes}
@@ -1239,13 +1292,7 @@ const AppHeader = ({
                 disabled={!ebayTopLevelCategory}
                 className="rounded-lg border-2 border-emerald-700 bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={() => {
-                  if (!ebayTopLevelCategory) return;
-                  handleCategorySelect(ebayTopLevelCategory);
-                  beginHeaderEbayResearchSession(marketplaceSearchDialog);
-                  setHeaderSearch('');
-                  setWorkspaceMode('ebay');
-                  setActiveTopLevelId(null);
-                  setMarketplaceSearchDialog(null);
+                  void openHeaderEbayResearch(marketplaceSearchDialog);
                 }}
               >
                 eBay research
@@ -1254,12 +1301,8 @@ const AppHeader = ({
                 type="button"
                 disabled={buyerControls?.isCeXLoading}
                 className="rounded-lg border-2 border-red-800 bg-red-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
-                onClick={async () => {
-                  setWorkspaceMode('cex');
-                  const loaded = await buyerControls?.onAddFromCeX?.({ searchQuery: marketplaceSearchDialog });
-                  if (loaded) setHeaderSearch('');
-                  setActiveTopLevelId(null);
-                  setMarketplaceSearchDialog(null);
+                onClick={() => {
+                  void openHeaderCexWorkspace(marketplaceSearchDialog);
                 }}
               >
                 CeX

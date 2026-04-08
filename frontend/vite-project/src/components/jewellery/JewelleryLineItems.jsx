@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import TinyModal from '@/components/ui/TinyModal';
+import WorkspaceCloseButton from '@/components/ui/WorkspaceCloseButton';
 import NegotiationRowContextMenu from '@/pages/buyer/components/NegotiationRowContextMenu';
 import { NEGOTIATION_ROW_CONTEXT } from '@/pages/buyer/rowContextZones';
 import {
@@ -469,6 +470,7 @@ export default function JewelleryLineItems({
   lines: linesProp = null,
   onLinesChange = null,
   onRemoveJewelleryWorkspaceRow = null,
+  onCloseWorkspace = null,
 }) {
   const scrapSectionsCatalog = useMemo(() => buildCatalog(sections), [sections]);
   const [dbCatalog, setDbCatalog] = useState(null);
@@ -714,38 +716,122 @@ export default function JewelleryLineItems({
   }
 
   return (
-    <div className="min-w-0 rounded-lg border border-gray-200 bg-white shadow-sm">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col rounded-lg border border-gray-200 bg-white shadow-sm">
       <style>{`${SPREADSHEET_TABLE_STYLES}\n${SPREADSHEET_TABLE_WORKSPACE_PERF_STYLES}`}</style>
-      <div className="border-b border-gray-200 px-3 py-3">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <div className="shrink-0 border-b border-gray-200 px-3 py-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h3 className="text-sm font-semibold text-brand-blue">Your items</h3>
-          <button
-            type="button"
-            onClick={openModal}
-            disabled={!scrapSectionsCatalog.length || !dbCatalog?.products?.length}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-extrabold uppercase tracking-wide text-brand-blue shadow-md transition-all hover:brightness-95 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-45 sm:w-auto sm:min-w-[200px]"
-            style={{
-              background: 'var(--brand-orange)',
-              boxShadow: '0 8px 20px -6px rgba(247, 185, 24, 0.45)',
-            }}
-            title="Add a jewellery item"
-          >
-            <span className="material-symbols-outlined text-[24px] leading-none">add_circle</span>
-            Add jewellery item
-          </button>
+          <div className="flex w-full flex-wrap items-stretch justify-end gap-4 sm:w-auto sm:items-center sm:gap-6">
+            {!modalOpen ? (
+              <button
+                type="button"
+                onClick={openModal}
+                disabled={!scrapSectionsCatalog.length || !dbCatalog?.products?.length}
+                className="inline-flex min-h-[2.75rem] w-full flex-1 items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-extrabold uppercase tracking-wide text-brand-blue shadow-md transition-all hover:brightness-95 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-45 sm:w-auto sm:min-w-[200px] sm:flex-initial"
+                style={{
+                  background: 'var(--brand-orange)',
+                  boxShadow: '0 8px 20px -6px rgba(247, 185, 24, 0.45)',
+                }}
+                title="Add a jewellery item"
+              >
+                <span className="material-symbols-outlined text-[24px] leading-none">add_circle</span>
+                Add jewellery item
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setModalOpen(false);
+                  setStep('product');
+                  setSelectedProductId(null);
+                }}
+                className="inline-flex min-h-[2.75rem] w-full flex-1 items-center justify-center gap-2 rounded-xl border-2 border-gray-300 bg-white px-4 py-3 text-sm font-extrabold uppercase tracking-wide text-gray-800 shadow-sm transition-all hover:bg-gray-50 sm:w-auto sm:min-w-[200px] sm:flex-initial"
+              >
+                <span className="material-symbols-outlined text-[24px] leading-none">close</span>
+                Close picker
+              </button>
+            )}
+            {onCloseWorkspace ? (
+              <div className="flex shrink-0 items-center justify-center border-t border-gray-200 pt-4 sm:border-l sm:border-t-0 sm:pl-6 sm:pt-0">
+                <WorkspaceCloseButton title="Close workspace" onClick={onCloseWorkspace} />
+              </div>
+            ) : null}
+          </div>
         </div>
         {catalogError ? <p className="mt-2 text-xs text-red-600">{catalogError}</p> : null}
       </div>
 
-      {lines.length === 0 ? (
+      {modalOpen ? (
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 px-3 pb-3 pt-2">
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-gray-100 pb-2">
+            <p className="text-xs font-black uppercase tracking-wider text-brand-blue">Add jewellery item</p>
+            {step === 'variant' ? (
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 text-xs font-bold text-brand-blue hover:underline"
+                onClick={() => {
+                  setStep('product');
+                  setSelectedProductId(null);
+                }}
+              >
+                <span className="material-symbols-outlined text-[16px]">arrow_back</span>
+                Back to types
+              </button>
+            ) : (
+              <span className="text-[11px] font-medium text-gray-500">Step 1 of 2 — choose item type</span>
+            )}
+          </div>
+          {step === 'product' ? (
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white">
+              <JewelleryPickerList
+                items={dbCatalog?.products || []}
+                isLoading={catalogLoading}
+                onSelect={pickProduct}
+                getLabel={(p) => p.name}
+                getKey={(p) => p.product_id}
+                searchPlaceholder="Search types…"
+                statsHeading="Types in catalogue"
+                entitySingular="type"
+                entityPlural="types"
+              />
+            </div>
+          ) : null}
+          {step === 'variant' ? (
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white">
+              <div className="shrink-0 border-b border-gray-100 bg-gray-50/80 px-4 py-2">
+                <p className="text-[11px] font-semibold text-gray-600">
+                  Step 2 of 2 — <span className="text-gray-900">Material / grade</span>
+                </p>
+              </div>
+              <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+                <JewelleryPickerList
+                  items={variantsForProduct}
+                  isLoading={false}
+                  onSelect={addLineForVariant}
+                  getLabel={(v) => v.material_grade}
+                  getKey={(v) => v.variant_id}
+                  searchPlaceholder="Search materials…"
+                  statsHeading="Materials for this type"
+                  entitySingular="material"
+                  entityPlural="materials"
+                />
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {!modalOpen && lines.length === 0 ? (
         <p className="px-3 py-4 text-xs text-gray-500">
           Load reference prices above, then use <span className="font-semibold text-gray-700">Add jewellery item</span> to
           choose the item type and material. Right-click a row to remove. Optionally click a tier for a pre-selected offer;
           use <span className="font-semibold text-gray-700">Complete</span> to add rows to the negotiation (tiers stay
           available there if you skip them here).
         </p>
-      ) : (
-        <div className="min-w-0">
+      ) : null}
+
+      {!modalOpen && lines.length > 0 ? (
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
           <table className="w-full table-fixed spreadsheet-table spreadsheet-table--static-header spreadsheet-table--workspace border-collapse text-left">
             <thead>
               <tr>
@@ -1025,7 +1111,7 @@ export default function JewelleryLineItems({
             </div>
           ) : null}
         </div>
-      )}
+      ) : null}
 
       {syncMarginsOpen ? (
         <TinyModal
@@ -1092,66 +1178,6 @@ export default function JewelleryLineItems({
           }}
           removeLabel="Remove jewellery item"
         />
-      ) : null}
-
-      {modalOpen ? (
-        <TinyModal
-          title="Add jewellery item"
-          zClass="z-[280]"
-          panelClassName="!max-w-xl !h-[min(96vh,960px)] !max-h-[min(96vh,960px)] flex min-w-0 flex-col overflow-hidden"
-          bodyScroll={false}
-          onClose={() => setModalOpen(false)}
-        >
-          <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col gap-3 overflow-hidden">
-            {step === 'product' ? (
-              <>
-                <p className="shrink-0 text-xs font-semibold text-gray-600">1. Choose item type</p>
-                <div className="min-h-0 flex-1 overflow-hidden rounded-lg border border-gray-200">
-                  <JewelleryPickerList
-                    items={dbCatalog?.products || []}
-                    isLoading={catalogLoading}
-                    onSelect={pickProduct}
-                    getLabel={(p) => p.name}
-                    getKey={(p) => p.product_id}
-                    searchPlaceholder="Search types…"
-                    statsHeading="Types in catalogue"
-                    entitySingular="type"
-                    entityPlural="types"
-                  />
-                </div>
-              </>
-            ) : null}
-
-            {step === 'variant' ? (
-              <>
-                <div className="flex shrink-0 flex-col gap-1">
-                  <button
-                    type="button"
-                    className="inline-flex w-fit items-center gap-1 text-xs font-bold text-brand-blue hover:underline"
-                    onClick={() => setStep('product')}
-                  >
-                    <span className="material-symbols-outlined text-[16px]">arrow_back</span>
-                    Back
-                  </button>
-                  <p className="text-xs font-semibold text-gray-600">2. Material / grade</p>
-                </div>
-                <div className="min-h-0 flex-1 overflow-hidden rounded-lg border border-gray-200">
-                  <JewelleryPickerList
-                    items={variantsForProduct}
-                    isLoading={false}
-                    onSelect={addLineForVariant}
-                    getLabel={(v) => v.material_grade}
-                    getKey={(v) => v.variant_id}
-                    searchPlaceholder="Search materials…"
-                    statsHeading="Materials for this type"
-                    entitySingular="material"
-                    entityPlural="materials"
-                  />
-                </div>
-              </>
-            ) : null}
-          </div>
-        </TinyModal>
       ) : null}
 
       {jewelleryOfferAuthModal ? (

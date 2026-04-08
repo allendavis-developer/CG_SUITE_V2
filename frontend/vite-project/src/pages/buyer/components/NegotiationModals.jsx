@@ -21,11 +21,11 @@ export function TargetOfferModal({ targetOffer, onSetTarget, onClose }) {
       <p className="text-xs text-slate-500 mb-4">
         What is the target total offer you want to achieve across all items?
       </p>
-      <div className="relative mb-4">
+      <div className="relative mb-4 min-w-0">
         <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-lg" style={{ color: 'var(--brand-blue)' }}>£</span>
         <input
           autoFocus
-          className="w-full pl-8 pr-3 py-2.5 border rounded-lg text-lg font-bold focus:outline-none focus:ring-2"
+          className="box-border w-full min-w-0 pl-8 pr-3 py-2.5 border rounded-lg text-lg font-bold focus:outline-none focus:ring-2 focus:ring-inset"
           style={{ borderColor: 'rgba(20,69,132,0.3)', color: 'var(--brand-blue)' }}
           type="number"
           step="0.01"
@@ -126,14 +126,14 @@ export function ItemOfferModal({ item, items, targetOffer, useVoucherOffers, onA
         </div>
       )}
 
-      <div className="relative mb-3">
+      <div className="relative mb-3 min-w-0">
         <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-2">
           {targetContribution !== null ? 'Or enter a specific amount (row total):' : 'Enter a specific amount (row total):'}
         </p>
         <span className="absolute left-3 bottom-[9px] font-bold text-lg" style={{ color: 'var(--brand-blue)' }}>£</span>
         <input
           autoFocus={targetContribution === null}
-          className="w-full pl-8 pr-3 py-2.5 border rounded-lg text-base font-bold focus:outline-none focus:ring-2"
+          className="box-border w-full min-w-0 pl-8 pr-3 py-2.5 border rounded-lg text-base font-bold focus:outline-none focus:ring-2 focus:ring-inset"
           style={{ borderColor: 'rgba(20,69,132,0.3)', color: 'var(--brand-blue)' }}
           type="number"
           step="0.01"

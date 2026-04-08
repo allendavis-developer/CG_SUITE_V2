@@ -34,12 +34,10 @@ export function useNegotiationLifecycle({
   setJewelleryWorkspaceLines,
   setIsLoading,
   setViewRequestStatus,
-  setTotalExpectation,
   setTargetOffer,
   setJewelleryReferenceScrape,
   setCustomerModalOpen,
   items,
-  totalExpectation,
   targetOffer,
   useVoucherOffers,
   jewelleryReferenceScrape,
@@ -161,7 +159,6 @@ export function useNegotiationLifecycle({
 
           setViewRequestStatus(status || null);
           setCustomerData(mapRequestToCustomerData(data));
-          setTotalExpectation(data.overall_expectation_gbp?.toString() || '');
           setTargetOffer(data.target_offer_gbp != null ? data.target_offer_gbp.toString() : '');
           setTransactionType(txType);
 
@@ -202,7 +199,6 @@ export function useNegotiationLifecycle({
             : 'store_credit';
         setCustomerData(mapRequestToCustomerData(openQuoteRequest));
         setTransactionType(txType);
-        setTotalExpectation(openQuoteRequest.overall_expectation_gbp?.toString() || '');
         setTargetOffer(openQuoteRequest.target_offer_gbp != null ? openQuoteRequest.target_offer_gbp.toString() : '');
         setItems((openQuoteRequest.items || []).map((apiItem) => mapApiItemToNegotiationItem(apiItem, txType, 'negotiate')));
         setRequest(openQuoteRequest);
@@ -227,7 +223,6 @@ export function useNegotiationLifecycle({
       }
       if (initialCustomerData?.id && !customerData?.id) {
         setCustomerData(initialCustomerData);
-        setTotalExpectation(initialCustomerData?.overall_expectation_gbp?.toString() || '');
         setTargetOffer(initialCustomerData?.target_offer_gbp?.toString() || '');
         setTransactionType(initialCustomerData?.transactionType || 'sale');
       }
@@ -250,7 +245,6 @@ export function useNegotiationLifecycle({
     setJewelleryReferenceScrape,
     setRequest,
     setTargetOffer,
-    setTotalExpectation,
     setTransactionType,
     setViewRequestStatus,
   ]);
@@ -307,7 +301,6 @@ export function useNegotiationLifecycle({
     const total = calculateTotalOfferPrice(items, useVoucherOffers);
     return buildFinishPayload(
       items,
-      totalExpectation,
       targetOffer,
       useVoucherOffers,
       total,
@@ -316,7 +309,6 @@ export function useNegotiationLifecycle({
     );
   }, [
     items,
-    totalExpectation,
     targetOffer,
     useVoucherOffers,
     mode,
@@ -335,17 +327,6 @@ export function useNegotiationLifecycle({
     }, 800);
     return () => clearTimeout(timer);
   }, [draftPayload, actualRequestId, completedRef, draftPayloadRef]);
-
-  useEffect(() => {
-    if (mode !== 'negotiate') return;
-    const activeItems = items.filter((i) => !i.isRemoved);
-    if (activeItems.length === 0) return;
-    const parsed = activeItems.map((i) => parseFloat(String(i.customerExpectation ?? '').replace(/[£,]/g, '').trim()));
-    if (parsed.every((v) => Number.isFinite(v) && v >= 0)) {
-      const sum = parsed.reduce((acc, v) => acc + v, 0);
-      setTotalExpectation(sum.toFixed(2));
-    }
-  }, [items, mode, setTotalExpectation]);
 
   useEffect(() => {
     if (mode !== 'negotiate' || !actualRequestId) return;

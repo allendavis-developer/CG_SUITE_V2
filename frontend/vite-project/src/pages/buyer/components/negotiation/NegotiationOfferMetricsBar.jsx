@@ -4,7 +4,7 @@ import { formatOfferPrice } from '@/utils/helpers';
 import NegotiationHeaderTransactionDropdown from './NegotiationHeaderTransactionDropdown';
 
 const LABEL_COL =
-  'flex w-[12rem] shrink-0 items-center border-r border-amber-200/80 bg-transparent px-2.5';
+  'flex shrink-0 items-center self-stretch border-r border-amber-200/80 bg-transparent px-2.5';
 
 /** One control: bordered cell, no fill (sits on white strip). */
 function StripField({
@@ -16,11 +16,11 @@ function StripField({
   return (
     <div className="inline-flex h-9 max-w-full overflow-hidden rounded-md border border-amber-200/90 bg-transparent">
       <div className={LABEL_COL} title={label}>
-        <span className="truncate text-[10px] font-black uppercase leading-tight tracking-wider text-brand-blue/80">
+        <span className="whitespace-nowrap text-left text-[10px] font-black uppercase leading-tight tracking-wider text-brand-blue/80">
           {label}
         </span>
       </div>
-      <div className={`flex min-w-0 flex-1 items-center bg-transparent ${valueJustify} ${valueClassName}`}>{children}</div>
+      <div className={`flex min-w-0 items-center bg-transparent ${valueJustify} ${valueClassName}`}>{children}</div>
     </div>
   );
 }
@@ -34,8 +34,9 @@ export default function NegotiationOfferMetricsBar({
   mode,
   transactionType,
   onTransactionChange,
-  totalExpectation,
-  setTotalExpectation,
+  customerExpectationValue,
+  onCustomerExpectationChange,
+  customerExpectationLocked = false,
   offerMin,
   offerMax,
   parsedTarget,
@@ -43,7 +44,15 @@ export default function NegotiationOfferMetricsBar({
   setShowNewBuyConfirm,
   actualRequestId,
   researchSandboxBookedView,
+  hasJewelleryReferenceData,
+  headerWorkspaceOpen = false,
+  headerWorkspaceMode = 'builder',
+  onOpenJewelleryReferenceModal,
 }) {
+  const showJewelleryReferenceCta =
+    hasJewelleryReferenceData &&
+    headerWorkspaceOpen &&
+    headerWorkspaceMode === 'jewellery';
   const transaction = TRANSACTION_META[transactionType] || {
     label: 'Unknown',
     className: 'text-gray-400',
@@ -53,7 +62,7 @@ export default function NegotiationOfferMetricsBar({
   const txLabels = TRANSACTION_OPTIONS.map((o) => o.label);
 
   return (
-    <div className="shrink-0 bg-white px-6 pb-2 pt-1 md:px-10">
+    <div className="shrink-0 bg-white px-6 pb-2 pt-1">
       <div className="flex flex-wrap items-center gap-2">
         <StripField label="Transaction type" valueClassName="px-0">
           {mode === 'view' ? (
@@ -70,18 +79,18 @@ export default function NegotiationOfferMetricsBar({
           )}
         </StripField>
 
-        <StripField label="Customer Total Expectation" valueClassName="px-0">
-          <div className="relative flex h-9 min-w-[6.75rem] flex-1 bg-transparent">
+        <StripField label="Customer expectation" valueClassName="px-0">
+          <div className="relative h-9 w-[8.25rem] min-w-[6.75rem] max-w-[11rem]">
             <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-sm font-bold text-brand-blue">
               £
             </span>
             <input
               className="h-9 w-full min-w-[5.75rem] border-0 bg-transparent py-0 pl-6 pr-2 text-sm font-bold text-brand-blue placeholder:text-brand-blue/35 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-blue/25"
               type="text"
-              value={totalExpectation}
-              onChange={(e) => setTotalExpectation(e.target.value)}
+              value={customerExpectationValue}
+              onChange={(e) => onCustomerExpectationChange?.(e.target.value)}
               onKeyDown={
-                mode === 'negotiate'
+                mode === 'negotiate' && !customerExpectationLocked
                   ? (e) => {
                       if (e.key === 'Enter') {
                         e.preventDefault();
@@ -91,7 +100,7 @@ export default function NegotiationOfferMetricsBar({
                   : undefined
               }
               placeholder="0.00"
-              readOnly={mode === 'view'}
+              readOnly={mode === 'view' || customerExpectationLocked}
             />
           </div>
         </StripField>
@@ -112,7 +121,7 @@ export default function NegotiationOfferMetricsBar({
 
         <StripField label="Target Offer">
           <div
-            className={`flex min-w-0 flex-1 items-center gap-2 ${
+            className={`flex min-w-0 max-w-[22rem] items-center gap-2 ${
               mode === 'negotiate'
                 ? 'group -mx-0.5 cursor-pointer rounded px-1.5 transition-colors hover:bg-gray-100/80'
                 : ''
@@ -135,6 +144,18 @@ export default function NegotiationOfferMetricsBar({
             </span>
           </div>
         </StripField>
+
+        {showJewelleryReferenceCta ? (
+          <button
+            type="button"
+            onClick={onOpenJewelleryReferenceModal}
+            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-amber-200/90 bg-transparent px-2.5 text-[10px] font-black uppercase tracking-wide text-brand-blue transition-colors hover:bg-amber-50/80 focus-visible:outline focus-visible:ring-2 focus-visible:ring-brand-blue/25"
+            title="Mastermelt reference prices for this request"
+          >
+            <span className="material-symbols-outlined text-[18px] leading-none text-brand-blue/80">table_view</span>
+            Reference prices
+          </button>
+        ) : null}
 
         <StripField label="Request ID">
           <div className="flex min-w-0 max-w-[20rem] items-center gap-2">

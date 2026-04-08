@@ -8,7 +8,6 @@ export function useNegotiationFinalize({
   items,
   targetOffer,
   totalOfferPrice,
-  totalExpectation,
   useVoucherOffers,
   customerData,
   jewelleryReferenceScrape,
@@ -164,7 +163,6 @@ export function useNegotiationFinalize({
 
     const payload = buildFinishPayload(
       items,
-      totalExpectation,
       targetOffer,
       useVoucherOffers,
       totalOfferPrice,
@@ -184,7 +182,6 @@ export function useNegotiationFinalize({
     items,
     targetOffer,
     totalOfferPrice,
-    totalExpectation,
     useVoucherOffers,
     customerData,
     jewelleryReferenceScrape,

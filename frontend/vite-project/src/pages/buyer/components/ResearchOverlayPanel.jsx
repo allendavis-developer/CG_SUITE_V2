@@ -46,6 +46,9 @@ export default function ResearchOverlayPanel({
   reserveRightSidebar = true,
   /** Pixels to inset from the viewport bottom (e.g. buying module totals footer). */
   bottomInsetPx = 0,
+  /** Live tier rows from the open eBay research form (for metrics bar min/max while overlay is open). */
+  onEbayResearchOffersLiveChange = null,
+  onCashConvertersResearchOffersLiveChange = null,
 }) {
   if (!researchItem && !cashConvertersResearchItem) return null;
 
@@ -79,6 +82,7 @@ export default function ResearchOverlayPanel({
             blockedOfferSlots={blockedOfferSlots}
             onBlockedOfferClick={(payload) => onBlockedOfferClick?.(payload, researchItem)}
             onCategoryResolved={onCategoryResolved ? (cat) => onCategoryResolved(researchItem.id, cat) : null}
+            onOffersChange={onEbayResearchOffersLiveChange}
           />
         )}
         {cashConvertersResearchItem && (
@@ -101,6 +105,7 @@ export default function ResearchOverlayPanel({
             blockedOfferSlots={blockedOfferSlots}
             onBlockedOfferClick={(payload) => onBlockedOfferClick?.(payload, cashConvertersResearchItem)}
             onCategoryResolved={onCategoryResolved ? (cat) => onCategoryResolved(cashConvertersResearchItem.id, cat) : null}
+            onOffersChange={onCashConvertersResearchOffersLiveChange}
           />
         )}
       </div>

@@ -1,5 +1,5 @@
 import React from 'react';
-import JewelleryReferencePricesTable from '@/components/jewellery/JewelleryReferencePricesTable';
+import JewelleryReferencePricesModal from '@/components/jewellery/JewelleryReferencePricesModal';
 import NewCustomerDetailsModal from '@/components/modals/NewCustomerDetailsModal';
 import SalePriceConfirmModal from '@/components/modals/SalePriceConfirmModal';
 import TinyModal from '@/components/ui/TinyModal';
@@ -272,22 +272,11 @@ export default function NegotiationModalsLayer({
         />
       ) : null}
 
-      {showJewelleryReferenceModal ? (
-        <TinyModal
-          title="Jewellery reference table"
-          zClass="z-[220]"
-          panelClassName="!max-w-5xl !h-[min(92vh,860px)]"
-          onClose={() => setShowJewelleryReferenceModal(false)}
-        >
-          <JewelleryReferencePricesTable
-            sections={jewelleryReferenceScrape?.sections || []}
-            showLineItems={false}
-            defaultOpen={true}
-            hideToggle={true}
-            title="Reference prices (saved snapshot)"
-          />
-        </TinyModal>
-      ) : null}
+      <JewelleryReferencePricesModal
+        open={Boolean(showJewelleryReferenceModal)}
+        onClose={() => setShowJewelleryReferenceModal(false)}
+        sections={jewelleryReferenceScrape?.sections}
+      />
     </>
   );
 }

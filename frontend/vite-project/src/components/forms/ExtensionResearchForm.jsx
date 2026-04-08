@@ -1047,10 +1047,11 @@ function ExtensionResearchForm({
     return buildOtherResearchChannelsSummaries(lineItemContext, source, { ebayOfferMargins, useVoucherOffers });
   }, [lineItemContext, source, ebayOfferMargins, useVoucherOffers]);
 
-  // eBay-only: debounced onOffersChange when exclusions or offers change
+  // eBay / Cash Converters: debounced onOffersChange when exclusions or offers change
   const onOffersChangeRef = useRef(onOffersChange);
   useEffect(() => { onOffersChangeRef.current = onOffersChange; });
-  const offersChangeInitializedRef = useRef(false);
+  const ebayOffersChangeInitRef = useRef(false);
+  const ccOffersChangeInitRef = useRef(false);
   // ─── Advanced filter state tracking (for persistence) ────────────────────
   const advancedFilterStateRef = useRef(savedState?.advancedFilterState ?? null);
   const handleAdvancedFilterChange = useCallback((filterState) => {
@@ -1080,17 +1081,22 @@ function ExtensionResearchForm({
   }, [source, savedAdvInclude]);
 
   useEffect(() => {
-    if (!isEbay) return;
-    if (!offersChangeInitializedRef.current) {
-      offersChangeInitializedRef.current = true;
+    if (!onOffersChange) return;
+    const initRef = isEbay ? ebayOffersChangeInitRef : ccOffersChangeInitRef;
+    if (!initRef.current) {
+      initRef.current = true;
       return;
     }
-    const advSnapshot = {
-      ...(advancedFilterStateRef.current && typeof advancedFilterStateRef.current === 'object'
+    const advSnapshot = isEbay
+      ? {
+          ...(advancedFilterStateRef.current && typeof advancedFilterStateRef.current === 'object'
+            ? advancedFilterStateRef.current
+            : {}),
+          includeEbayBroadMatchListings,
+        }
+      : advancedFilterStateRef.current && typeof advancedFilterStateRef.current === 'object'
         ? advancedFilterStateRef.current
-        : {}),
-      includeEbayBroadMatchListings,
-    };
+        : {};
     const t = window.setTimeout(() => {
       onOffersChangeRef.current?.({
         buyOffers,
@@ -1101,6 +1107,7 @@ function ExtensionResearchForm({
     }, 120);
     return () => window.clearTimeout(t);
   }, [
+    onOffersChange,
     isEbay,
     listings,
     buyOffers,

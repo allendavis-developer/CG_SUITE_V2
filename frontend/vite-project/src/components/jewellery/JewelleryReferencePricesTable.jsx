@@ -50,8 +50,9 @@ export default function JewelleryReferencePricesTable({
   workspaceLines = null,
   onWorkspaceLinesChange = null,
   onRemoveJewelleryWorkspaceRow = null,
-  onUpdateReferenceRequest = null,
-  updateReferenceLoading = false,
+  onCloseWorkspace = null,
+  /** When false, only workspace line items — reference grid opens from the metrics-bar modal. */
+  showReferenceCard = true,
   showLineItems = true,
   defaultOpen = false,
   hideToggle = false,
@@ -106,8 +107,9 @@ export default function JewelleryReferencePricesTable({
   }, [hasSections]);
 
   return (
-    <div className="flex min-w-0 flex-col gap-3">
-    <div className="min-w-0 rounded-lg border border-gray-200 bg-white shadow-sm">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
+    {showReferenceCard ? (
+    <div className="min-w-0 shrink-0 rounded-lg border border-gray-200 bg-white shadow-sm">
       <style>{`${SPREADSHEET_TABLE_STYLES}\n${SPREADSHEET_TABLE_WORKSPACE_PERF_STYLES}`}</style>
       <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 px-2 py-2 sm:px-3">
         {hideToggle ? (
@@ -133,38 +135,12 @@ export default function JewelleryReferencePricesTable({
             <span className="min-w-0 flex-1 text-sm font-semibold text-brand-blue">{title}</span>
           </button>
         )}
-        {onUpdateReferenceRequest ? (
-          <button
-            type="button"
-            disabled={updateReferenceLoading}
-            onClick={() => onUpdateReferenceRequest()}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-2 text-[11px] font-extrabold uppercase tracking-wide text-brand-blue shadow-sm transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {updateReferenceLoading ? (
-              <>
-                <span className="material-symbols-outlined animate-spin text-lg leading-none">progress_activity</span>
-                Updating…
-              </>
-            ) : (
-              <>
-                <span className="material-symbols-outlined text-lg leading-none">sync</span>
-                Update reference data
-              </>
-            )}
-          </button>
-        ) : null}
       </div>
       {!hasSections ? (
         <p className="px-3 py-3 text-xs leading-relaxed text-gray-600">
-          {updateReferenceLoading ? (
-            <>Loading reference prices from Mastermelt…</>
-          ) : (
-            <>
-              No reference data yet — opening the jewellery workspace fetches prices automatically when this quote does
-              not have saved reference data. Use <span className="font-semibold text-gray-800">Update reference data</span>{' '}
-              anytime to refresh. Saved quotes reuse stored prices until you update.
-            </>
-          )}
+          No reference data yet — opening the jewellery workspace fetches prices automatically when this quote does not
+          have saved reference data. Use <span className="font-semibold text-gray-800">Reference prices</span> in the bar
+          above when data is available. Saved quotes reuse stored prices.
         </p>
       ) : null}
       {hasSections && (hideToggle || open) && !staticSnapshotMode ? (
@@ -172,7 +148,7 @@ export default function JewelleryReferencePricesTable({
           id={panelId}
           role="region"
           aria-labelledby={toggleId}
-          className="border-t border-gray-200"
+          className="max-h-[min(42vh,28rem)] overflow-y-auto border-t border-gray-200"
         >
           <table className="w-full spreadsheet-table spreadsheet-table--static-header spreadsheet-table--workspace border-collapse text-left">
             <thead>
@@ -316,16 +292,30 @@ export default function JewelleryReferencePricesTable({
         </div>
       ) : null}
     </div>
+    ) : (
+      <>
+        {!hasSections ? (
+          <p className="rounded-lg border border-dashed border-gray-200 bg-gray-50/80 px-3 py-4 text-xs text-gray-600">
+            No reference data yet — opening the jewellery workspace fetches prices automatically when this quote does not
+            have saved reference data. Use <span className="font-semibold text-gray-800">Reference prices</span> in the bar
+            above once data exists. Saved quotes reuse stored prices.
+          </p>
+        ) : null}
+      </>
+    )}
     {showLineItems ? (
-      <JewelleryLineItems
-        sections={sections || []}
-        useVoucherOffers={useVoucherOffers}
-        onAddJewelleryToNegotiation={onAddJewelleryToNegotiation}
-        showNotification={showNotification}
-        lines={workspaceLines}
-        onLinesChange={onWorkspaceLinesChange}
-        onRemoveJewelleryWorkspaceRow={onRemoveJewelleryWorkspaceRow}
-      />
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <JewelleryLineItems
+          sections={sections || []}
+          useVoucherOffers={useVoucherOffers}
+          onAddJewelleryToNegotiation={onAddJewelleryToNegotiation}
+          showNotification={showNotification}
+          lines={workspaceLines}
+          onLinesChange={onWorkspaceLinesChange}
+          onRemoveJewelleryWorkspaceRow={onRemoveJewelleryWorkspaceRow}
+          onCloseWorkspace={onCloseWorkspace}
+        />
+      </div>
     ) : null}
     </div>
   );

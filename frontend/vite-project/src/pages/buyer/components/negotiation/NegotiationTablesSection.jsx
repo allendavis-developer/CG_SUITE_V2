@@ -7,8 +7,6 @@ export default function NegotiationTablesSection({
   actualRequestId,
   researchSandboxBookedView,
   jewelleryNegotiationItems,
-  jewelleryReferenceScrape,
-  setShowJewelleryReferenceModal,
   handleSelectOffer,
   setContextMenu,
   setItemOfferModal,
@@ -44,16 +42,6 @@ export default function NegotiationTablesSection({
             <div className="sticky top-0 z-[5] bg-white px-6 py-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="text-sm font-black uppercase tracking-wider text-brand-blue">Jewellery</h3>
-                {mode === 'view' && jewelleryReferenceScrape?.sections?.length ? (
-                  <button
-                    type="button"
-                    onClick={() => setShowJewelleryReferenceModal(true)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-[11px] font-extrabold uppercase tracking-wide text-brand-blue shadow-sm transition-colors hover:bg-gray-50"
-                  >
-                    <span className="material-symbols-outlined text-[16px] leading-none">table_view</span>
-                    View reference table
-                  </button>
-                ) : null}
               </div>
               <p className="mt-0.5 text-[11px] text-gray-600">
                 Workspace-style columns plus manual offer and customer expectation. Grand total includes these lines.

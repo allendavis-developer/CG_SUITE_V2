@@ -372,6 +372,130 @@ export function getDisplayOffers(item, useVoucherOffers) {
   return item.offers || [];
 }
 
+/**
+ * Lowest/highest tier totals across the given lines (same construction as the negotiation Offer Min / Max bar).
+ * @returns {{ offerMin: number|null, offerMax: number|null }}
+ */
+export function sumOfferMinMaxForNegotiationItems(items, useVoucherOffers) {
+  const list = Array.isArray(items) ? items.filter((i) => i && !i.isRemoved) : [];
+  if (list.length === 0) return { offerMin: null, offerMax: null };
+  let min = 0;
+  let max = 0;
+  for (const item of list) {
+    const qty = item.quantity || 1;
+    const displayOffers = getDisplayOffers(item, useVoucherOffers);
+    const prices = displayOffers.map((o) => Number(o.price)).filter((p) => !Number.isNaN(p) && p >= 0);
+    if (prices.length > 0) {
+      min += Math.min(...prices) * qty;
+      max += Math.max(...prices) * qty;
+    }
+  }
+  return { offerMin: min, offerMax: max };
+}
+
+/**
+ * Offer min/max for the CeX browser workspace product blob (store), qty 1 — same tiers as a negotiation line.
+ * Used when the workspace is open so the metrics bar matches only the loaded listing, not every CeX line in cart.
+ */
+export function offerMinMaxFromCexProductData(cexProductData, useVoucherOffers) {
+  if (!cexProductData) return { offerMin: null, offerMax: null };
+  const cashOffers = slimCexNegotiationOfferRows(cexProductData.cash_offers || []);
+  const voucherOffers = slimCexNegotiationOfferRows(cexProductData.voucher_offers || []);
+  const synthetic = {
+    isRemoved: false,
+    quantity: 1,
+    cashOffers,
+    voucherOffers,
+    offers: cashOffers.length ? cashOffers : voucherOffers,
+  };
+  const display = getDisplayOffers(synthetic, useVoucherOffers);
+  if (!display.length) return { offerMin: null, offerMax: null };
+  return sumOfferMinMaxForNegotiationItems([synthetic], useVoucherOffers);
+}
+
+/**
+ * Offer min/max from eBay / Cash Converters research grid tiers (`calculateBuyOffers` rows), qty 1.
+ * Matches the offer rows built when adding a custom eBay line from the header research workspace.
+ */
+export function offerMinMaxFromResearchBuyOffers(buyOffers, useVoucherOffers) {
+  const rows = Array.isArray(buyOffers) ? buyOffers : [];
+  if (rows.length === 0) return { offerMin: null, offerMax: null };
+  const cashOffers = rows.map((o, idx) => ({
+    id: `research-cash-${idx + 1}`,
+    title: titleForEbayCcOfferIndex(idx),
+    price: Number(formatOfferPrice(o.price)),
+  }));
+  const voucherOffers = cashOffers.map((co) => ({
+    id: `research-voucher-${co.id}`,
+    title: co.title,
+    price: Number(formatOfferPrice(co.price * 1.1)),
+  }));
+  const synthetic = {
+    isRemoved: false,
+    quantity: 1,
+    cashOffers,
+    voucherOffers,
+    offers: cashOffers.length ? cashOffers : voucherOffers,
+  };
+  return sumOfferMinMaxForNegotiationItems([synthetic], useVoucherOffers);
+}
+
+/**
+ * Offer min/max from header builder (or MainContent) CeX tier rows already in negotiation shape
+ * (`id`, `title`, `price`), quantity 1 — same bar semantics as other workspaces scoped to the open picker.
+ */
+export function offerMinMaxFromWorkspaceOfferRows(offers, useVoucherOffers) {
+  const rows = Array.isArray(offers) ? offers : [];
+  if (rows.length === 0) return { offerMin: null, offerMax: null };
+  return sumOfferMinMaxForNegotiationItems(
+    [
+      {
+        isRemoved: false,
+        quantity: 1,
+        cashOffers: useVoucherOffers ? [] : rows,
+        voucherOffers: useVoucherOffers ? rows : [],
+        offers: rows,
+      },
+    ],
+    useVoucherOffers
+  );
+}
+
+/** Jewellery negotiation rows (upper workspace table). */
+export function isNegotiationJewelleryLine(item) {
+  return Boolean(item && !item.isRemoved && item.isJewelleryItem === true);
+}
+
+/**
+ * Main-table lines from CeX browser workspace / UK webuy custom path (`isCustomCeXItem`).
+ * Excludes jewellery (in the jewellery table).
+ */
+export function isNegotiationCexWorkspaceLine(item) {
+  if (!item || item.isRemoved || item.isJewelleryItem === true) return false;
+  return item.isCustomCeXItem === true;
+}
+
+/**
+ * Main-table catalogue / builder lines — not jewellery and not the CeX-browser-only custom SKU shape.
+ */
+export function isNegotiationBuilderWorkspaceLine(item) {
+  if (!item || item.isRemoved || item.isJewelleryItem === true) return false;
+  return item.isCustomCeXItem !== true;
+}
+
+/**
+ * Lines where eBay tiers apply: custom eBay rows or saved eBay research with listings/filters.
+ * Excludes jewellery and CeX-browser-only rows.
+ */
+export function isNegotiationEbayWorkspaceLine(item) {
+  if (!item || item.isRemoved || item.isJewelleryItem === true) return false;
+  if (item.isCustomCeXItem === true) return false;
+  if (item.isCustomEbayItem === true) return true;
+  const st = item.ebayResearchData?.stats;
+  const filters = item.ebayResearchData?.selectedFilters;
+  return Boolean(st && filters);
+}
+
 function getItemOfferTotal(item, useVoucherOffers) {
   if (item.isRemoved) return 0;
   const qty = item.quantity || 1;
@@ -411,9 +535,47 @@ export function calculateNonJewelleryOfferTotal(items, useVoucherOffers) {
 
 // ─── Payload builders ──────────────────────────────────────────────────────
 
+/** Header eBay workspace: pending customer expectation before the line exists in cart. */
+export const HEADER_EBAY_CUSTOMER_EXPECTATION_KEY = '__header_ebay__';
+
+/**
+ * Strip / metrics bar draft to apply on add — tries CeX placeholder, line id, then header eBay session key.
+ * @returns {{ value: string | null, consumeKeys: string[] }}
+ */
+export function resolveCustomerExpectationDraftForAdd(cartItem, pendingByTarget) {
+  if (!cartItem || !pendingByTarget || typeof pendingByTarget !== 'object') {
+    return { value: null, consumeKeys: [] };
+  }
+  const tryKeys = [];
+  const pid = cartItem.cexSku ?? cartItem.cexProductData?.id;
+  if (pid != null && pid !== '') tryKeys.push(`__cex__${pid}`);
+  if (cartItem.id != null) tryKeys.push(cartItem.id);
+  tryKeys.push(HEADER_EBAY_CUSTOMER_EXPECTATION_KEY);
+  const seen = new Set();
+  for (const k of tryKeys) {
+    if (k == null || seen.has(k)) continue;
+    seen.add(k);
+    const raw = pendingByTarget[k];
+    if (raw != null && String(raw).trim() !== '') {
+      return { value: String(raw).trim(), consumeKeys: [k] };
+    }
+  }
+  return { value: null, consumeKeys: [] };
+}
+
+/** Formatted sum of per-line customer expectations for the metrics strip (idle / view). */
+export function formatSumLineCustomerExpectations(items) {
+  const active = (items || []).filter((i) => !i.isRemoved);
+  if (active.length === 0) return '';
+  const sum = active.reduce((acc, i) => {
+    const v = parseFloat(String(i.customerExpectation ?? '').replace(/[£,]/g, '').trim());
+    return acc + (Number.isFinite(v) && v >= 0 ? v : 0);
+  }, 0);
+  return sum.toFixed(2);
+}
+
 export function buildFinishPayload(
   items,
-  totalExpectation,
   targetOffer,
   useVoucherOffers,
   totalOfferPrice,
@@ -520,7 +682,10 @@ export function buildFinishPayload(
       };
     });
 
-  const overallExpectationValue = parseFloat(totalExpectation.replace(/[£,]/g, '')) || 0;
+  const overallExpectationValue = itemsData.reduce(
+    (acc, row) => acc + (Number(row.customer_expectation_gbp) || 0),
+    0
+  );
   const targetOfferValue = parseFloat(targetOffer) || null;
 
   return {
