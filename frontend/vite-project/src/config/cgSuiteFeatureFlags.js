@@ -8,4 +8,4 @@
  *
  * Change this one constant to turn field AI on or off (dev server pick-up: save file / refresh).
  */
-export const ENABLE_NOSPOS_STOCK_FIELD_AI = false;
+export const ENABLE_NOSPOS_STOCK_FIELD_AI = true;

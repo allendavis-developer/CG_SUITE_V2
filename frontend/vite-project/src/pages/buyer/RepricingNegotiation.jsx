@@ -927,7 +927,7 @@ const RepricingNegotiation = () => {
         }}
       />
 
-      <main className="relative flex flex-1 overflow-hidden h-[calc(100vh-61px)]">
+      <main className="relative flex min-h-0 flex-1 overflow-hidden">
 
         {/* ── Main Table Section ─────────────────────────────────────────────── */}
         <section className="flex-1 bg-white flex flex-col overflow-hidden">

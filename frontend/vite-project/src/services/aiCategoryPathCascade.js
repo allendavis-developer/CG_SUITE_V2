@@ -8,41 +8,39 @@ import { fetchAllCategoriesFlat, fetchNosposCategories } from './api';
 
 /**
  * Walk `parent_category_id` to the DB root and return whether that root is `ready_for_builder`.
- * Used to decide when to suggest a mirrored NosPos stock path for buyer-visible trees only.
+ * Negotiation only runs {@link runNosposStockCategoryAiMatchBackground} when this is true; the extension
+ * picker may still invoke the cascade for any internal category.
  *
  * @param {Array<{ category_id: number, parent_category_id: number|null, ready_for_builder?: boolean }>} flat - from `/all-categories/`
  * @param {number} categoryId - selected leaf (or any) internal category id
- * @returns {boolean}
+ * @returns {{ rootCategoryId: number, rootName: string|null, ready_for_builder: boolean }|null}
  */
-export function isProductCategoryRootReadyForBuilder(flat, categoryId) {
-  if (!Array.isArray(flat) || flat.length === 0 || categoryId == null) {
-    console.log('[CG Suite][NosposPathMatch] root check skipped', { hasFlat: Array.isArray(flat), categoryId });
-    return false;
-  }
+export function getInternalProductCategoryRootMeta(flat, categoryId) {
+  if (!Array.isArray(flat) || flat.length === 0 || categoryId == null) return null;
   const byId = new Map(flat.map((r) => [r.category_id, r]));
   let id = categoryId;
   let step = 0;
   while (id != null && step++ < 500) {
     const row = byId.get(id);
-    if (!row) {
-      console.log('[CG Suite][NosposPathMatch] root check: missing row', { id });
-      return false;
-    }
+    if (!row) return null;
     if (row.parent_category_id == null) {
-      const ready = row.ready_for_builder === true;
-      console.log('[CG Suite][NosposPathMatch] root resolved', {
-        fromCategoryId: categoryId,
+      return {
         rootCategoryId: id,
-        rootName: row.name,
-        ready_for_builder: row.ready_for_builder,
-        qualifiesForNosposSuggest: ready,
-      });
-      return ready;
+        rootName: row.name != null ? String(row.name) : null,
+        ready_for_builder: row.ready_for_builder === true,
+      };
     }
     id = row.parent_category_id;
   }
-  console.log('[CG Suite][NosposPathMatch] root check: walk exceeded', { categoryId });
-  return false;
+  return null;
+}
+
+/**
+ * @returns {boolean}
+ */
+export function isProductCategoryRootReadyForBuilder(flat, categoryId) {
+  const m = getInternalProductCategoryRootMeta(flat, categoryId);
+  return Boolean(m?.ready_for_builder);
 }
 
 /** Last segment of a NosPos-style `fullName` ("A > B > C" → "C"). */
@@ -100,10 +98,6 @@ export function nosposApiResultsToAiTreeRoots(results) {
   roots.sort(sortName);
   roots.forEach(sortRec);
 
-  console.log('[CG Suite][NosposPathMatch] built Nospos AI tree', {
-    rootCount: roots.length,
-    totalNodes: byId.size,
-  });
   return roots;
 }
 
@@ -240,19 +234,22 @@ export async function runAiCategoryCascadeArrayTree({
   itemSummary,
   startPath = [],
   logTag = '[CG Suite][AiCategory][InternalProductTree]',
+  quiet = false,
 }) {
-  console.log(logTag, 'start', {
-    itemSummary,
-    startPath,
-    rootCount: rootNodes?.length ?? 0,
-  });
+  if (!quiet) {
+    console.log(logTag, 'start', {
+      itemSummary,
+      startPath,
+      rootCount: rootNodes?.length ?? 0,
+    });
+  }
 
   let pathSegments = [...startPath];
   let current = startPath.length ? findArrayTreeNodeAtPath(rootNodes, startPath) : null;
 
   if (startPath.length && !current) {
     const err = new Error('Invalid start path for product category tree');
-    console.log(logTag, 'invalid startPath', { startPath });
+    if (!quiet) console.log(logTag, 'invalid startPath', { startPath });
     return { success: false, path: pathSegments, error: err };
   }
 
@@ -264,11 +261,13 @@ export async function runAiCategoryCascadeArrayTree({
       const availableOptions = [...new Set(childList.map((c) => c.name).filter(Boolean))].sort((a, b) =>
         a.localeCompare(b)
       );
-      console.log(logTag, 'suggest request', {
-        levelIndex,
-        availableOptions,
-        previousPath: pathSegments,
-      });
+      if (!quiet) {
+        console.log(logTag, 'suggest request', {
+          levelIndex,
+          availableOptions,
+          previousPath: pathSegments,
+        });
+      }
 
       const result = await suggestNosposCategory({
         item: itemSummary,
@@ -277,15 +276,17 @@ export async function runAiCategoryCascadeArrayTree({
         previousPath: pathSegments,
       });
 
-      console.log(logTag, 'suggest response', result);
+      if (!quiet) console.log(logTag, 'suggest response', result);
 
       const next = pickChildByAiSuggestion(childList, result.suggested);
       if (!next) {
         const err = new Error(`AI suggestion not in tree: ${result.suggested}`);
-        console.log(logTag, 'no matching child', {
-          suggested: result.suggested,
-          availableOptions,
-        });
+        if (!quiet) {
+          console.log(logTag, 'no matching child', {
+            suggested: result.suggested,
+            availableOptions,
+          });
+        }
         return { success: false, path: pathSegments, error: err };
       }
 
@@ -294,20 +295,22 @@ export async function runAiCategoryCascadeArrayTree({
       childList = next.children || [];
     }
   } catch (e) {
-    console.log(logTag, 'cascade error', e);
+    if (!quiet) console.log(logTag, 'cascade error', e);
     return { success: false, path: pathSegments, error: e instanceof Error ? e : new Error(String(e)) };
   }
 
   if (!current) {
-    console.log(logTag, 'no leaf resolved');
+    if (!quiet) console.log(logTag, 'no leaf resolved');
     return { success: false, path: pathSegments, error: new Error('Empty tree') };
   }
 
-  console.log(logTag, 'done', {
-    path: pathSegments,
-    leafId: current.category_id,
-    leafName: current.name,
-  });
+  if (!quiet) {
+    console.log(logTag, 'done', {
+      path: pathSegments,
+      leafId: current.category_id,
+      leafName: current.name,
+    });
+  }
 
   return { success: true, path: pathSegments, leaf: current };
 }
@@ -327,8 +330,9 @@ export async function runAiCategoryCascadeMapTree({
   itemSummary,
   startPath = [],
   logTag = '[CG Suite][AiCategory][NosposMapTree]',
+  quiet = false,
 }) {
-  console.log(logTag, 'start', { itemSummary, startPath });
+  if (!quiet) console.log(logTag, 'start', { itemSummary, startPath });
 
   let currentPath = [...startPath];
   let node = tree;
@@ -336,7 +340,7 @@ export async function runAiCategoryCascadeMapTree({
   for (const seg of currentPath) {
     node = node.children.get(seg);
     if (!node) {
-      console.log(logTag, 'invalid startPath segment', seg);
+      if (!quiet) console.log(logTag, 'invalid startPath segment', seg);
       return { success: false, path: currentPath, error: new Error('invalid start path') };
     }
   }
@@ -345,11 +349,13 @@ export async function runAiCategoryCascadeMapTree({
     while (node.children.size > 0) {
       const levelIndex = currentPath.length;
       const availableOptions = [...node.children.keys()].sort((a, b) => a.localeCompare(b));
-      console.log(logTag, 'suggest request', {
-        levelIndex,
-        availableOptions,
-        previousPath: currentPath,
-      });
+      if (!quiet) {
+        console.log(logTag, 'suggest request', {
+          levelIndex,
+          availableOptions,
+          previousPath: currentPath,
+        });
+      }
 
       const result = await suggestNosposCategory({
         item: itemSummary,
@@ -358,11 +364,11 @@ export async function runAiCategoryCascadeMapTree({
         previousPath: currentPath,
       });
 
-      console.log(logTag, 'suggest response', result);
+      if (!quiet) console.log(logTag, 'suggest response', result);
 
       const nextNode = node.children.get(result.suggested);
       if (!nextNode) {
-        console.log(logTag, 'missing child', { suggested: result.suggested });
+        if (!quiet) console.log(logTag, 'missing child', { suggested: result.suggested });
         return { success: false, path: currentPath, error: new Error('AI suggestion missing') };
       }
 
@@ -370,11 +376,11 @@ export async function runAiCategoryCascadeMapTree({
       node = nextNode;
     }
   } catch (e) {
-    console.log(logTag, 'cascade error', e);
+    if (!quiet) console.log(logTag, 'cascade error', e);
     return { success: false, path: currentPath, error: e instanceof Error ? e : new Error(String(e)) };
   }
 
-  console.log(logTag, 'done', { path: currentPath });
+  if (!quiet) console.log(logTag, 'done', { path: currentPath });
   return { success: true, path: currentPath, leafNode: node };
 }
 
@@ -387,66 +393,102 @@ export async function runAiCategoryCascadeMapTree({
  * @param {number|null|undefined} params.internalCategoryId - ProductCategory id (leaf or any ancestor)
  * @param {import('./aiCategoryService').ItemSummary} params.itemSummary
  * @param {Array<{ category_id: number, parent_category_id: number|null, ready_for_builder?: boolean }>|null} [params.allCategoriesFlat]
- * @param {boolean} [params.skipReadyForBuilderCheck] - When true (header builder), run even if DB root is not `ready_for_builder`.
  * @param {string} [params.logTag]
  * @returns {Promise<{ nosposId: number, fullName: string, pathSegments: string[]|null }|null>}
  */
+function logNosposPathCategoryOnce({
+  logTag,
+  itemName,
+  internalCategoryId,
+  productCategoryRoot,
+  outcome,
+  nospos = null,
+  error = null,
+}) {
+  console.log('[CG Suite][NosposPathMatch] category', {
+    context: logTag,
+    item: itemName ?? null,
+    internalCategoryId: internalCategoryId ?? null,
+    productCategoryRoot,
+    outcome,
+    nospos,
+    error,
+  });
+}
+
 export async function runNosposStockCategoryAiMatchBackground({
   internalCategoryId,
   itemSummary,
   allCategoriesFlat = null,
-  skipReadyForBuilderCheck = false,
   logTag = '[CG Suite][NosposPathMatch][background]',
 }) {
+  const itemName = itemSummary?.name ?? null;
   let flat = allCategoriesFlat;
   if (!Array.isArray(flat) || flat.length === 0) {
     try {
       flat = await fetchAllCategoriesFlat();
     } catch (e) {
-      console.log(logTag, 'could not load /all-categories/', e);
+      logNosposPathCategoryOnce({
+        logTag,
+        itemName,
+        internalCategoryId,
+        productCategoryRoot: null,
+        outcome: 'error',
+        error: e instanceof Error ? e.message : String(e),
+      });
       return null;
     }
   }
-  if (internalCategoryId == null) {
-    console.log(logTag, 'skip — no internal category id');
-    return null;
-  }
-  if (!skipReadyForBuilderCheck && !isProductCategoryRootReadyForBuilder(flat, internalCategoryId)) {
-    console.log(logTag, 'skip — internal category root is not ready_for_builder');
-    return null;
-  }
+  const productCategoryRoot =
+    internalCategoryId != null ? getInternalProductCategoryRootMeta(flat, internalCategoryId) : null;
 
   try {
     const data = await fetchNosposCategories();
     const results = Array.isArray(data?.results) ? data.results : [];
-    console.log(logTag, 'loaded NosposCategory rows for level-by-level AI', { count: results.length });
     const nosposRoots = nosposApiResultsToAiTreeRoots(results);
     const res = await runAiCategoryCascadeArrayTree({
       rootNodes: nosposRoots,
       itemSummary,
       startPath: [],
       logTag: `${logTag}[perLevel]`,
+      quiet: true,
     });
     if (res.success && res.leaf) {
       const fullName = res.leaf.fullName || (res.path || []).join(' › ');
       const nosposId = res.leaf.nosposId ?? res.leaf.category_id;
-      console.log(logTag, '✅ Nospos stock category (background)', {
+      const pathSegments = Array.isArray(res.path) ? res.path : null;
+      logNosposPathCategoryOnce({
+        logTag,
+        itemName,
         internalCategoryId,
-        nosposCategory: { nosposId, fullName, pathSegments: res.path },
+        productCategoryRoot,
+        outcome: 'matched',
+        nospos: { nosposId, fullName, pathSegments },
       });
       return {
         nosposId,
         fullName,
-        pathSegments: Array.isArray(res.path) ? res.path : null,
+        pathSegments,
       };
     }
-    console.log(logTag, 'AI cascade incomplete', {
-      message: res.error?.message,
-      partialSegments: res.path,
+    logNosposPathCategoryOnce({
+      logTag,
+      itemName,
+      internalCategoryId,
+      productCategoryRoot,
+      outcome: 'cascade_incomplete',
+      error: res.error?.message ?? null,
     });
     return null;
   } catch (e) {
-    console.log(logTag, 'error', e);
+    logNosposPathCategoryOnce({
+      logTag,
+      itemName,
+      internalCategoryId,
+      productCategoryRoot,
+      outcome: 'error',
+      error: e instanceof Error ? e.message : String(e),
+    });
     return null;
   }
 }

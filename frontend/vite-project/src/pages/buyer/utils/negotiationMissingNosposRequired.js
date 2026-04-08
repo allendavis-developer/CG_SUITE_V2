@@ -1,5 +1,8 @@
 import { fetchNosposCategories, fetchNosposCategoryMappings } from '@/services/api';
-import { resolveNosposLeafCategoryIdForAgreementItem } from '@/utils/nosposCategoryMappings';
+import {
+  resolveNosposLeafCategoryIdForAgreementItem,
+  getAiSuggestedNosposStockFieldValuesFromItem,
+} from '@/utils/nosposCategoryMappings';
 import { buildNosposAgreementFirstItemFillPayload } from './nosposAgreementFirstItemFill';
 
 /** Human-readable line label for negotiation tables and modals. */
@@ -64,5 +67,64 @@ export async function fetchMissingRequiredNosposLines(items, useVoucherOffers) {
   return listNegotiationLinesWithMissingRequiredNosposFields(items, nosposCategoriesResults, {
     useVoucherOffers,
     categoryMappings,
+  });
+}
+
+/**
+ * Merge manual / AI blob for `raw_data.aiSuggestedNosposStockFieldValues` (same shape as field-AI save).
+ *
+ * @param {object} item - negotiation line (for existing blob)
+ * @param {number|string} leafNosposId
+ * @param {Record<string, string>} draftByFieldId - field id -> value (only edited keys required)
+ * @returns {object} aiSuggestedNosposStockFieldValues
+ */
+export function buildMergedNosposStockFieldValuesBlob(item, leafNosposId, draftByFieldId) {
+  const existing = getAiSuggestedNosposStockFieldValuesFromItem(item);
+  const prevBy =
+    existing?.byNosposFieldId && typeof existing.byNosposFieldId === 'object'
+      ? { ...existing.byNosposFieldId }
+      : {};
+  const mergedBy = { ...prevBy };
+  for (const [k, v] of Object.entries(draftByFieldId || {})) {
+    const s = String(v ?? '').trim();
+    if (s) mergedBy[String(k)] = s;
+  }
+  return {
+    nosposCategoryId: Number(leafNosposId),
+    byNosposFieldId: mergedBy,
+    source: existing?.source || 'manual_required_editor',
+    savedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * @param {object[]} items
+ * @param {string} itemId - `item.id`
+ * @param {object} aiSuggestedNosposStockFieldValues
+ * @returns {object[]} next items list
+ */
+export function applyNosposStockFieldBlobToNegotiationItems(items, itemId, aiSuggestedNosposStockFieldValues) {
+  if (!Array.isArray(items)) return items;
+  return items.map((row) => {
+    if (row.id !== itemId) return row;
+    const nextRaw =
+      row.rawData != null && typeof row.rawData === 'object'
+        ? { ...row.rawData, aiSuggestedNosposStockFieldValues }
+        : { aiSuggestedNosposStockFieldValues };
+    const base = {
+      ...row,
+      aiSuggestedNosposStockFieldValues,
+      rawData: nextRaw,
+    };
+    if (row.ebayResearchData != null && typeof row.ebayResearchData === 'object') {
+      return {
+        ...base,
+        ebayResearchData: {
+          ...row.ebayResearchData,
+          aiSuggestedNosposStockFieldValues,
+        },
+      };
+    }
+    return base;
   });
 }

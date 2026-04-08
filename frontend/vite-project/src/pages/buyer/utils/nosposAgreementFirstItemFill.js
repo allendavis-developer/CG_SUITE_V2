@@ -1,8 +1,9 @@
 import { linkedFieldsForCategory } from '@/pages/buyer/utils/nosposFieldAiAtAdd';
 import { nosposCaratHallmarkValueForMaterialGrade } from '@/pages/buyer/utils/jewelleryNosposMaterialGradeMap';
 import {
+  normalizePersistedNosposFieldValue,
   nosposFieldValueMapFromPersisted,
-  resolveNosposLeafCategoryIdForAgreementItem,
+  resolveNosposStockLeafIdForNegotiationLine,
 } from '@/utils/nosposCategoryMappings';
 import { getDisplayOffers, resolveOurSalePrice } from '@/pages/buyer/utils/negotiationHelpers';
 
@@ -59,6 +60,146 @@ function stockFieldLabelDedupeKey(label) {
     .toLowerCase()
     .replace(/\s+/g, '')
     .replace(/[^a-z0-9]/g, '');
+}
+
+function presetValueForLinkedFieldDedupeKey(item, dedupeKey) {
+  for (const row of OUR_ATTR_TO_NOSPOS_STOCK) {
+    const label = String(row.nosposLabel || '').trim();
+    if (!label || stockFieldLabelDedupeKey(label) !== dedupeKey) continue;
+    const v = row.resolveValue(item);
+    if (v != null && String(v).trim()) return String(v).trim();
+  }
+  return '';
+}
+
+/**
+ * Required NosPos stock fields for the negotiation editor (mirrors park coverage rules).
+ *
+ * @returns {{
+ *   leafNosposId: number|null,
+ *   requiredRows: { nosposFieldId: string, label: string, value: string, satisfiedByPreset: boolean }[],
+ *   stockAssessment: 'ready' | 'unavailable',
+ * }}
+ */
+export function buildRequiredNosposFieldEditorModel(item, negotiationIndex, options) {
+  const categoriesResults = Array.isArray(options?.categoriesResults) ? options.categoriesResults : [];
+  const categoryMappings = Array.isArray(options?.categoryMappings) ? options.categoryMappings : [];
+  const leafRaw = resolveNosposStockLeafIdForNegotiationLine(item, {
+    categoryMappings,
+    nosposCategoriesResults: categoriesResults,
+  });
+  const leaf =
+    leafRaw != null && Number.isFinite(Number(leafRaw)) && Number(leafRaw) > 0 ? Number(leafRaw) : null;
+
+  if (leaf == null) {
+    return {
+      leafNosposId: null,
+      requiredRows: [],
+      stockAssessment: 'unavailable',
+    };
+  }
+
+  const linked = linkedFieldsForCategory(leaf, categoriesResults);
+  const fieldMap = item ? nosposFieldValueMapFromPersisted(item) : {};
+  const presetLabelKeys = new Set();
+  for (const row of OUR_ATTR_TO_NOSPOS_STOCK) {
+    const v = row.resolveValue(item);
+    if (v == null || String(v).trim() === '') continue;
+    presetLabelKeys.add(stockFieldLabelDedupeKey(String(row.nosposLabel).trim()));
+  }
+
+  const requiredRows = [];
+  for (const lf of linked) {
+    if (lf.required !== true || lf.active === false) continue;
+    const fid = String(lf.nosposFieldId ?? lf.nospos_field_id ?? '');
+    const label = String(lf.name || '').trim();
+    if (!fid || !label) continue;
+    const dedupeKey = stockFieldLabelDedupeKey(label);
+    if (presetLabelKeys.has(dedupeKey)) {
+      requiredRows.push({
+        nosposFieldId: fid,
+        label,
+        value: presetValueForLinkedFieldDedupeKey(item, dedupeKey),
+        satisfiedByPreset: true,
+      });
+      continue;
+    }
+    const val = fieldMap[fid] ? String(fieldMap[fid]).trim() : '';
+    requiredRows.push({
+      nosposFieldId: fid,
+      label,
+      value: val,
+      satisfiedByPreset: false,
+    });
+  }
+  return {
+    leafNosposId: leaf,
+    requiredRows,
+    stockAssessment: 'ready',
+  };
+}
+
+function countMissingRequiredInModel(model) {
+  if (!model?.requiredRows?.length) return 0;
+  return model.requiredRows.filter((r) => !r.satisfiedByPreset && !String(r.value || '').trim()).length;
+}
+
+/** True if AI blob has a non-empty normalized value for at least one required non-preset row. */
+export function aiNosposFieldBlobFillsAnyRequiredRow(aiFvBlob, model) {
+  if (!aiFvBlob?.byNosposFieldId || typeof aiFvBlob.byNosposFieldId !== 'object' || !model?.requiredRows?.length) {
+    return false;
+  }
+  for (const r of model.requiredRows) {
+    if (r.satisfiedByPreset) continue;
+    const raw = aiFvBlob.byNosposFieldId[String(r.nosposFieldId)];
+    const v = normalizePersistedNosposFieldValue(raw);
+    if (String(v).trim()) return true;
+  }
+  return false;
+}
+
+/**
+ * After NosPos field AI, whether to auto-open NosposRequiredFieldsEditorModal (buying flow with hidden column).
+ * True when leaf is ready, required rows remain empty, and field AI did not run or did not fill any of them.
+ */
+export function shouldAutoOpenNosposStockFieldsEditor({
+  item,
+  negotiationIndex,
+  aiFieldValuesBlob,
+  fieldAiWasAttempted,
+  categoriesResults,
+  categoryMappings,
+  requestId,
+  useVoucherOffers,
+}) {
+  if (!Array.isArray(categoriesResults) || categoriesResults.length === 0) return false;
+  const model = buildRequiredNosposFieldEditorModel(item, negotiationIndex, {
+    useVoucherOffers,
+    categoriesResults,
+    categoryMappings: categoryMappings || [],
+    requestId,
+  });
+  if (model.stockAssessment !== 'ready' || !model.leafNosposId) return false;
+  if (countMissingRequiredInModel(model) === 0) return false;
+  if (!fieldAiWasAttempted) return true;
+  return !aiNosposFieldBlobFillsAnyRequiredRow(aiFieldValuesBlob, model);
+}
+
+/** True if at least one required (non-preset) NosPos stock field on the line is still empty. */
+export function negotiationLineHasMissingRequiredNosposStockFields(
+  item,
+  negotiationIndex,
+  { useVoucherOffers, categoriesResults, categoryMappings, requestId }
+) {
+  if (!Array.isArray(categoriesResults) || categoriesResults.length === 0) return false;
+  const model = buildRequiredNosposFieldEditorModel(item, negotiationIndex, {
+    useVoucherOffers,
+    categoriesResults,
+    categoryMappings: categoryMappings || [],
+    requestId,
+  });
+  if (model.stockAssessment !== 'ready' || !model.leafNosposId) return false;
+  return model.requiredRows.some((r) => !r.satisfiedByPreset && !String(r.value || '').trim());
 }
 
 /**
@@ -131,7 +272,7 @@ export function buildNosposAgreementFirstItemFillPayload(item, negotiationIndex,
       ? Math.max(0, parseInt(String(options.parkSequentialIndex), 10) || 0)
       : negotiationIndex;
 
-  const categoryId = resolveNosposLeafCategoryIdForAgreementItem(item, {
+  const categoryId = resolveNosposStockLeafIdForNegotiationLine(item, {
     categoryMappings,
     nosposCategoriesResults: categoriesResults,
   });

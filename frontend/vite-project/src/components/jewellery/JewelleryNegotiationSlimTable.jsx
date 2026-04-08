@@ -14,6 +14,10 @@ import { isBlockedForItem, offerIdToSlot } from '@/utils/customerOfferRules';
 import TestingPassedCell from '@/pages/buyer/components/TestingPassedCell';
 import TestingPassedColumnHeader from '@/pages/buyer/components/TestingPassedColumnHeader';
 import { getNosposCategoryHierarchyLabelFromItem } from '@/utils/nosposCategoryMappings';
+import NosposRequiredFieldsColumnCell, {
+  NosposRequiredFieldsEditorTriggerButton,
+  NosposSchemaCellSpinner,
+} from '@/pages/buyer/components/NosposRequiredFieldsColumnCell';
 
 function SlimOfferCell({
   offer,
@@ -110,6 +114,11 @@ export default function JewelleryNegotiationSlimTable({
   /** Set<string> of excluded item IDs — shows a Skip NosPos checkbox column. */
   parkExcludedItems = null,
   onToggleParkExcludeItem = null,
+  nosposCategoriesResults = null,
+  nosposCategoryMappings = null,
+  requestId = null,
+  onOpenNosposRequiredFieldsEditor = null,
+  hideNosposRequiredColumn = false,
 }) {
   const showParkExclude = parkExcludedItems != null && typeof onToggleParkExcludeItem === 'function';
   const isView = mode === 'view';
@@ -137,6 +146,11 @@ export default function JewelleryNegotiationSlimTable({
             <th scope="col" className="min-w-[140px] max-w-[220px]">
               NosPos category
             </th>
+            {!hideNosposRequiredColumn ? (
+              <th scope="col" className="min-w-[130px] max-w-[160px] text-[10px]">
+                NosPos required
+              </th>
+            ) : null}
             <th scope="col" className="min-w-[120px]">
               Item Name
             </th>
@@ -247,8 +261,41 @@ export default function JewelleryNegotiationSlimTable({
                   onContextMenu={ctxRemoveOnly(item)}
                   title={nosposCategoryBreadcrumb || undefined}
                 >
-                  {nosposCategoryBreadcrumb || '—'}
+                  {item.isRemoved ? (
+                    '—'
+                  ) : nosposCategoriesResults == null ? (
+                    <div className="py-1">
+                      <NosposSchemaCellSpinner />
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-0.5">
+                      <span className="break-words">{nosposCategoryBreadcrumb || '—'}</span>
+                      {hideNosposRequiredColumn ? (
+                        <NosposRequiredFieldsEditorTriggerButton
+                          item={item}
+                          negotiationIndex={index}
+                          nosposCategoriesResults={nosposCategoriesResults}
+                          nosposCategoryMappings={nosposCategoryMappings}
+                          useVoucherOffers={useVoucherOffers}
+                          requestId={requestId}
+                          onOpenEditor={onOpenNosposRequiredFieldsEditor}
+                        />
+                      ) : null}
+                    </div>
+                  )}
                 </td>
+                {!hideNosposRequiredColumn ? (
+                  <NosposRequiredFieldsColumnCell
+                    item={item}
+                    negotiationIndex={index}
+                    nosposCategoriesResults={nosposCategoriesResults}
+                    nosposCategoryMappings={nosposCategoryMappings}
+                    useVoucherOffers={useVoucherOffers}
+                    requestId={requestId}
+                    onOpenEditor={onOpenNosposRequiredFieldsEditor}
+                    onContextMenu={ctxRemoveOnly(item)}
+                  />
+                ) : null}
                 <td className="break-words text-gray-600" onContextMenu={ctxRemoveOnly(item)}>
                   {isView ? (
                     ref.item_name || ref.category_label || ref.line_title || item.variantName || item.title || '—'

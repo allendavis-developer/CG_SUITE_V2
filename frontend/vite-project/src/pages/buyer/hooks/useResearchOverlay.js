@@ -15,6 +15,7 @@ import { buildItemSpecs, buildInitialSearchQuery, logCategoryRuleDecision } from
  * @param {boolean} [opts.readOnly=false] - Whether the overlay is read-only (no in-form edits).
  * @param {boolean} [opts.persistResearchOnComplete=true] - When false, OK/complete does not apply research back to `items` (sandbox / preview).
  * @param {Function} [opts.onResearchPersisted=null] - Optional: `(mergedItem) => void` after `setItems` merges research (e.g. Negotiation manual-offer modals).
+ * @param {Function} [opts.onAfterEbayResearchMerge=null] - Optional: `(mergedItem) => void` after eBay research is merged (e.g. NosPos stock AI).
  */
 export function useResearchOverlay({
   items,
@@ -25,6 +26,7 @@ export function useResearchOverlay({
   readOnly = false,
   persistResearchOnComplete = true,
   onResearchPersisted = null,
+  onAfterEbayResearchMerge = null,
 }) {
   const [researchItem, setResearchItem] = useState(null);
   const [cashConvertersResearchItem, setCashConvertersResearchItem] = useState(null);
@@ -61,10 +63,13 @@ export function useResearchOverlay({
         return applyEbayResearch(i, updatedState);
       }));
       maybeShowSalePriceConfirm(updatedState, currentItem, researchItem, setSalePriceConfirmModal, resolveSalePrice, 'ebay');
-      if (mergedItem) onResearchPersisted?.(mergedItem);
+      if (mergedItem) {
+        onResearchPersisted?.(mergedItem);
+        onAfterEbayResearchMerge?.(mergedItem);
+      }
     }
     setResearchItem(null);
-  }, [researchItem, items, persistResearchOnComplete, setItems, applyEbayResearch, resolveSalePrice, onResearchPersisted]);
+  }, [researchItem, items, persistResearchOnComplete, setItems, applyEbayResearch, resolveSalePrice, onResearchPersisted, onAfterEbayResearchMerge]);
 
   const handleCashConvertersResearchComplete = useCallback((updatedState) => {
     if (updatedState?.cancel) { setCashConvertersResearchItem(null); return; }

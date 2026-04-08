@@ -270,7 +270,7 @@ export const markRequestPassedTesting = async (requestId) => {
 /**
  * Persist park agreement state for a request.
  * @param {string|number} requestId
- * @param {{ nosposAgreementUrl?: string|null, excludedItemIds?: string[] }} state
+ * @param {{ nosposAgreementId?: string|null, excludedItemIds?: string[] }} state
  */
 export const saveParkAgreementState = async (requestId, state) => {
   if (!requestId) return null;
@@ -446,7 +446,25 @@ export const updateCustomerRuleSettings = (data) =>
 
 // ─── NoSpos Category Mappings ───────────────────────────────────────────────────
 
-export const fetchNosposCategoryMappings = () => apiFetch('/nospos-category-mappings/');
+export const fetchNosposCategoryMappings = () => {
+  if (_nosposMappingsPayload != null) {
+    return Promise.resolve(_nosposMappingsPayload);
+  }
+  if (_nosposMappingsInflight) {
+    return _nosposMappingsInflight;
+  }
+  _nosposMappingsInflight = apiFetch('/nospos-category-mappings/')
+    .then((data) => {
+      _nosposMappingsPayload = data;
+      _nosposMappingsInflight = null;
+      return data;
+    })
+    .catch((err) => {
+      _nosposMappingsInflight = null;
+      throw err;
+    });
+  return _nosposMappingsInflight;
+};
 export const createNosposCategoryMapping = (data) => apiFetch('/nospos-category-mappings/', { method: 'POST', body: data });
 export const updateNosposCategoryMapping = (id, data) => apiFetch(`/nospos-category-mappings/${id}/`, { method: 'PATCH', body: data });
 export const deleteNosposCategoryMapping = (id) => apiFetch(`/nospos-category-mappings/${id}/`, { method: 'DELETE' });
@@ -457,7 +475,46 @@ export const syncNosposCategories = (categories) =>
 
 export const fetchNosposCategoriesCount = () => apiFetch('/nospos-categories/?count_only=1');
 
-export const fetchNosposCategories = () => apiFetch('/nospos-categories/');
+/**
+ * Large, mostly-static payloads — cache for the browser session so reopening a request does not
+ * refetch before the NosPos required column can resolve (was showing "…" for a long time).
+ */
+let _nosposCategoriesPayload = null;
+let _nosposCategoriesInflight = null;
+let _nosposMappingsPayload = null;
+let _nosposMappingsInflight = null;
+
+/** @returns {object|null} last successful /nospos-categories/ response (or null). */
+export const peekNosposCategoriesCache = () => _nosposCategoriesPayload;
+
+/** @returns {unknown|null} last successful /nospos-category-mappings/ response (or null). */
+export const peekNosposMappingsCache = () => _nosposMappingsPayload;
+
+/** Call after NosPos sync if fresh linked fields are required without full page reload. */
+export function clearNosposStaticDataCache() {
+  _nosposCategoriesPayload = null;
+  _nosposMappingsPayload = null;
+}
+
+export const fetchNosposCategories = () => {
+  if (_nosposCategoriesPayload != null) {
+    return Promise.resolve(_nosposCategoriesPayload);
+  }
+  if (_nosposCategoriesInflight) {
+    return _nosposCategoriesInflight;
+  }
+  _nosposCategoriesInflight = apiFetch('/nospos-categories/')
+    .then((data) => {
+      _nosposCategoriesPayload = data;
+      _nosposCategoriesInflight = null;
+      return data;
+    })
+    .catch((err) => {
+      _nosposCategoriesInflight = null;
+      throw err;
+    });
+  return _nosposCategoriesInflight;
+};
 
 /** Upsert category field rows from NosPos /stock/category/modify (Data page / extension). */
 export const syncNosposFields = (body) =>

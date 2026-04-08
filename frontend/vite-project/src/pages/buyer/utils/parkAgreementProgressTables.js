@@ -164,6 +164,8 @@ const DISPLAY_EXCLUDED = {
  *   lines?: object[],
  *   parkOpenDetail?: string|null,
  *   nosposCleanup?: { status: string, detail?: string|null }|null,
+ *   itemsFillAllDone?: boolean,
+ *   parkingAgreementStep?: { status: string, detail?: string|null }|null,
  * }} state
  */
 export function buildParkAgreementSystemSteps(lineLabels, state = {}) {
@@ -178,6 +180,8 @@ export function buildParkAgreementSystemSteps(lineLabels, state = {}) {
     lines = [],
     parkOpenDetail = null,
     nosposCleanup = null,
+    itemsFillAllDone = false,
+    parkingAgreementStep = null,
   } = state;
   const steps = [
     { key: 'login', label: 'Verified NoSpos session', status: loginStatus, detail: null },
@@ -208,6 +212,8 @@ export function buildParkAgreementSystemSteps(lineLabels, state = {}) {
       if (errorIndex != null) {
         if (i < errorIndex) status = 'done';
         else if (i === errorIndex) status = 'error';
+      } else if (itemsFillAllDone || parkingAgreementStep) {
+        status = 'done';
       } else if (allDone) {
         status = 'done';
       } else if (activeIndex != null && i < activeIndex) {
@@ -228,6 +234,18 @@ export function buildParkAgreementSystemSteps(lineLabels, state = {}) {
       detail,
       itemIndex: i,
       excluded: isExcluded,
+    });
+  }
+  if (parkingAgreementStep && parkingAgreementStep.status) {
+    const pd =
+      parkingAgreementStep.detail != null && String(parkingAgreementStep.detail).trim() !== ''
+        ? String(parkingAgreementStep.detail).trim()
+        : null;
+    steps.push({
+      key: 'parking-agreement',
+      label: 'Parking agreement',
+      status: parkingAgreementStep.status,
+      detail: pd,
     });
   }
   return steps;

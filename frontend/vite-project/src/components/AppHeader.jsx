@@ -49,9 +49,10 @@ const AppHeader = ({
   const [referenceData, setReferenceData] = useState(null);
   const [ourSalePrice, setOurSalePrice] = useState('');
   const [workspaceMode, setWorkspaceMode] = useState('builder'); // builder | ebay | cex | jewellery
+  /** Matches negotiation preview row for CeX workspace (`Negotiation` early NosPos AI). */
+  const [cexNegotiationClientLineId, setCexNegotiationClientLineId] = useState(null);
   const popupRef = useRef(null);
   const headerRef = useRef(null);
-  const secondRowRef = useRef(null);
   const categoryFilterInputRef = useRef(null);
   const [mountedTop, setMountedTop] = useState(64);
   const {
@@ -64,6 +65,9 @@ const AppHeader = ({
   const [marketplaceSearchDialog, setMarketplaceSearchDialog] = useState(null);
   /** True once CeX fetch has started (loading) for this panel — avoids closing before load begins or resetting ref incorrectly */
   const cexFetchStartedRef = useRef(false);
+  const builderNegotiationClientLineIdRef = useRef(null);
+  const lastBuilderNosposPreviewKeyRef = useRef(null);
+  const lastCexNosposPreviewKeyRef = useRef(null);
 
   const isActive = (to) =>
     location.pathname === to || location.pathname.startsWith(to + '/');
@@ -89,6 +93,8 @@ const AppHeader = ({
     setOurSalePrice('');
     setCategorySearch('');
     setExpandedIds([]);
+    builderNegotiationClientLineIdRef.current = null;
+    lastBuilderNosposPreviewKeyRef.current = null;
   }, []);
 
   /** Full reset: builder UI, top-level picker, workspace mode, marketplace dialog. */
@@ -303,6 +309,23 @@ const AppHeader = ({
     };
   }, [showNegotiationItemBuilder, variant, useVoucherOffers]);
 
+  useEffect(() => {
+    builderNegotiationClientLineIdRef.current = null;
+  }, [variant, selectedModel?.product_id]);
+
+  useEffect(() => {
+    const pid = buyerControls?.cexProductData?.id;
+    if (pid == null || pid === '') {
+      setCexNegotiationClientLineId(null);
+      lastCexNosposPreviewKeyRef.current = null;
+      return;
+    }
+    setCexNegotiationClientLineId(
+      crypto.randomUUID?.() ?? `cex-ws-${pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    );
+    lastCexNosposPreviewKeyRef.current = null;
+  }, [buyerControls?.cexProductData?.id]);
+
   const activeTopLevelCategory = useMemo(
     () => categories.find((cat) => String(cat.category_id) === String(activeTopLevelId)) || null,
     [categories, activeTopLevelId]
@@ -367,15 +390,15 @@ const AppHeader = ({
     resetHeaderWorkspaceChrome,
   ]);
 
-  // Keep --workspace-overlay-top in sync with the top edge of the buyer-controls
-  // row so fixed research-form overlays in child pages know where to start.
+  // --workspace-overlay-top: bottom of sticky header (single merged bar for buyer / repricing).
   useEffect(() => {
+    if (!showBuyerControls) return undefined;
     const update = () => {
-      const rect = secondRowRef.current?.getBoundingClientRect();
-      if (rect?.top != null) {
+      const rect = headerRef.current?.getBoundingClientRect();
+      if (rect?.bottom != null) {
         document.documentElement.style.setProperty(
           '--workspace-overlay-top',
-          `${Math.max(0, Math.round(rect.top))}px`
+          `${Math.max(0, Math.round(rect.bottom))}px`
         );
       }
     };
@@ -388,10 +411,10 @@ const AppHeader = ({
   }, [showBuyerControls]);
 
   useEffect(() => {
-    if (!showMountedWorkspace) return;
+    if (!showMountedWorkspace) return undefined;
     const updateTop = () => {
-      const rect = secondRowRef.current?.getBoundingClientRect();
-      if (rect?.top != null) setMountedTop(Math.max(0, Math.round(rect.top)));
+      const rect = headerRef.current?.getBoundingClientRect();
+      if (rect?.bottom != null) setMountedTop(Math.max(0, Math.round(rect.bottom)));
     };
     updateTop();
     window.addEventListener('resize', updateTop);
@@ -474,8 +497,12 @@ const AppHeader = ({
       selectedVariant?.title
       || Object.values(attributeValues).filter((v) => v).join(' / ')
       || null;
+    if (!builderNegotiationClientLineIdRef.current) {
+      builderNegotiationClientLineIdRef.current =
+        crypto.randomUUID?.() ?? `neg-item-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
     return {
-      id: crypto.randomUUID?.() ?? `neg-item-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      id: builderNegotiationClientLineIdRef.current,
       title: selectedModel.name,
       subtitle: variantLine || 'Standard',
       variantName: variantLine || undefined,
@@ -503,6 +530,84 @@ const AppHeader = ({
       referenceData,
     };
   }, [showNegotiationItemBuilder, selectedModel, variant, variants, referenceData, useVoucherOffers, offers, buyerControls?.selectedCategory, attributeValues, attributes, ourSalePrice]);
+
+  useEffect(() => {
+    if (!showNegotiationItemBuilder || workspaceMode !== 'builder') return;
+    if (isRepricingWorkspace) return;
+    const onPreview = buyerControls?.onNegotiationBuilderOffersDisplayed;
+    if (!onPreview || !variant || isLoadingOffers || !offers?.length) return;
+    if (!selectedModel || !buyerControls?.selectedCategory) return;
+    const payload = buildWorkspaceNegotiationItem(null);
+    if (!payload?.id) return;
+    const key = `${selectedModel.product_id}:${variant}:${payload.id}`;
+    if (lastBuilderNosposPreviewKeyRef.current === key) return;
+    lastBuilderNosposPreviewKeyRef.current = key;
+    void onPreview(payload);
+  }, [
+    showNegotiationItemBuilder,
+    workspaceMode,
+    isRepricingWorkspace,
+    buyerControls?.onNegotiationBuilderOffersDisplayed,
+    variant,
+    isLoadingOffers,
+    offers,
+    selectedModel,
+    buyerControls?.selectedCategory,
+    buildWorkspaceNegotiationItem,
+  ]);
+
+  useEffect(() => {
+    if (!showNegotiationItemBuilder || workspaceMode !== 'cex') return;
+    if (isRepricingWorkspace) return;
+    const onPreview = buyerControls?.onNegotiationCexProductDisplayed;
+    const data = buyerControls?.cexProductData;
+    if (!onPreview || !data || !cexNegotiationClientLineId) return;
+    const cashOffers = slimCexNegotiationOfferRows(data.cash_offers || []);
+    const voucherOffers = slimCexNegotiationOfferRows(data.voucher_offers || []);
+    const displayOffers = useVoucherOffers ? voucherOffers : cashOffers;
+    if (!displayOffers.length) return;
+    const refData = data.referenceData || {};
+    const key = `${data.id}:${useVoucherOffers ? 'v' : 'c'}:${cexNegotiationClientLineId}`;
+    if (lastCexNosposPreviewKeyRef.current === key) return;
+    lastCexNosposPreviewKeyRef.current = key;
+    const selectedArg = displayOffers[0]?.id ?? null;
+    void onPreview({
+      id: cexNegotiationClientLineId,
+      title: data.title || 'CeX Product',
+      subtitle: data.category || '',
+      quantity: 1,
+      category: data.category || 'CeX',
+      categoryObject:
+        data.categoryObject ||
+        (data.category ? { name: data.category, path: [data.category] } : { name: 'CeX', path: ['CeX'] }),
+      isCustomCeXItem: true,
+      variantId: null,
+      cexSku: data.id ?? null,
+      cexUrl: data.id ? `https://uk.webuy.com/product-detail?id=${data.id}` : null,
+      referenceData: refData,
+      offers: displayOffers,
+      cashOffers,
+      voucherOffers,
+      selectedOfferId: typeof selectedArg === 'string' ? selectedArg : null,
+      manualOffer: null,
+      ourSalePrice:
+        refData.cex_based_sale_price != null ? roundSalePrice(Number(refData.cex_based_sale_price)) : null,
+      request_item_id: null,
+      cexOutOfStock: data.isOutOfStock ?? false,
+      cexSellPrice: refData.cex_sale_price ? Number(refData.cex_sale_price) : null,
+      cexBuyPrice: refData.cex_tradein_cash ? Number(refData.cex_tradein_cash) : null,
+      cexVoucherPrice: refData.cex_tradein_voucher ? Number(refData.cex_tradein_voucher) : null,
+      cexProductData: data,
+    });
+  }, [
+    showNegotiationItemBuilder,
+    workspaceMode,
+    isRepricingWorkspace,
+    buyerControls?.onNegotiationCexProductDisplayed,
+    buyerControls?.cexProductData,
+    useVoucherOffers,
+    cexNegotiationClientLineId,
+  ]);
 
   const handleAddNegotiationItem = async (offerArg) => {
     if (!buyerControls?.onAddNegotiationItem) return;
@@ -585,59 +690,60 @@ const AppHeader = ({
     );
   };
 
+  const brandLink = (
+    <Link
+      to="/"
+      className="flex items-center gap-3 text-brand-blue hover:opacity-90 transition-opacity"
+    >
+      <div className="size-8 flex items-center justify-center bg-white text-brand-blue rounded-lg">
+        <span className="material-symbols-outlined">rocket_launch</span>
+      </div>
+      <h2 className="text-white text-xl font-bold leading-tight tracking-tight">
+        Internal Tool
+      </h2>
+    </Link>
+  );
+
+  const navIconsRow = (
+    <div className="flex items-center gap-2">
+      <NavIcon
+        to="/buyer"
+        icon="shopping_cart_checkout"
+        label="Buying Module"
+        tooltip="Buying Module"
+      />
+      <NavIcon
+        to="/repricing"
+        icon="analytics"
+        label="Repricing Module"
+        tooltip="Repricing Module"
+      />
+      <NavIcon
+        to="/reports"
+        icon="summarize"
+        label="Reports"
+        tooltip="Reports"
+      />
+      <NavIcon
+        to="/data"
+        icon="dataset_linked"
+        label="Data"
+        tooltip="Data"
+      />
+      <NavIcon
+        to="/pricing-rules"
+        icon="tune"
+        label="Pricing Rules"
+        tooltip="Pricing Rules"
+      />
+    </div>
+  );
+
   return (
     <header ref={headerRef} className="border-b border-solid border-brand-blue bg-brand-blue px-6 md:px-10 py-3 sticky top-0 z-50 text-white">
-      <div className="flex items-center whitespace-nowrap">
-      <div className="flex items-center gap-6">
-        <Link
-          to="/"
-          className="flex items-center gap-3 text-brand-blue hover:opacity-90 transition-opacity"
-        >
-          <div className="size-8 flex items-center justify-center bg-white text-brand-blue rounded-lg">
-            <span className="material-symbols-outlined">rocket_launch</span>
-          </div>
-          <h2 className="text-white text-xl font-bold leading-tight tracking-tight">
-            Internal Tool
-          </h2>
-        </Link>
-
-        <div className="flex items-center gap-2">
-          <NavIcon
-            to="/buyer"
-            icon="shopping_cart_checkout"
-            label="Buying Module"
-            tooltip="Buying Module"
-          />
-          <NavIcon
-            to="/repricing"
-            icon="analytics"
-            label="Repricing Module"
-            tooltip="Repricing Module"
-          />
-          <NavIcon
-            to="/reports"
-            icon="summarize"
-            label="Reports"
-            tooltip="Reports"
-          />
-          <NavIcon
-            to="/data"
-            icon="dataset_linked"
-            label="Data"
-            tooltip="Data"
-          />
-          <NavIcon
-            to="/pricing-rules"
-            icon="tune"
-            label="Pricing Rules"
-            tooltip="Pricing Rules"
-          />
-        </div>
-      </div>
-      </div>
-      {showBuyerControls && (
-        <div ref={secondRowRef} className="mt-3 flex items-center justify-center border-t border-white/20 pt-3">
-          <div className="relative" ref={popupRef}>
+      {showBuyerControls ? (
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+          <div className="relative min-w-0 flex-1" ref={popupRef}>
             <div className="flex flex-wrap items-center gap-2">
               {builderTopLevelCategories.map((category) => {
                 const isActive = String(activeTopLevelId) === String(category.category_id);
@@ -886,6 +992,7 @@ const AppHeader = ({
                             isRepricing={isRepricingWorkspace}
                             useVoucherOffers={useVoucherOffers}
                             customerData={buyerControls?.customerData}
+                            negotiationClientLineId={cexNegotiationClientLineId}
                             onAddToCart={(item, opts) =>
                               buyerControls?.onAddNegotiationItem?.(item, {
                                 ...opts,
@@ -903,7 +1010,10 @@ const AppHeader = ({
                               const selectedArg = blockedSelectionArg === undefined ? offer?.id : blockedSelectionArg;
                               const selectedVariant = null;
                               const payload = {
-                                id: crypto.randomUUID?.() ?? `neg-cex-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                                id:
+                                  cexNegotiationClientLineId ??
+                                  crypto.randomUUID?.() ??
+                                  `neg-cex-${Date.now()}-${Math.random().toString(36).slice(2)}`,
                                 title: buyerControls.cexProductData?.title || 'CeX Product',
                                 subtitle: buyerControls.cexProductData?.category || '',
                                 quantity: 1,
@@ -1052,6 +1162,17 @@ const AppHeader = ({
                 )}
               </div>
             )}
+          </div>
+          <div className="flex shrink-0 items-center gap-4 self-center">
+            {navIconsRow}
+            {brandLink}
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center whitespace-nowrap">
+          <div className="flex items-center gap-6">
+            {brandLink}
+            {navIconsRow}
           </div>
         </div>
       )}

@@ -8,6 +8,7 @@ import { TargetOfferModal, ItemOfferModal, SeniorMgmtModal, MarginResultModal, B
 import NegotiationRowContextMenu from '../NegotiationRowContextMenu';
 import ParkAgreementProgressModal from '../ParkAgreementProgressModal';
 import MissingNosposRequiredFieldsModal from '@/components/modals/MissingNosposRequiredFieldsModal';
+import NosposRequiredFieldsEditorModal from '@/components/modals/NosposRequiredFieldsEditorModal';
 import { handlePriceSourceAsRrpOffersSource } from '../../utils/priceSourceAsRrpOffers';
 
 export default function NegotiationModalsLayer({
@@ -49,12 +50,25 @@ export default function NegotiationModalsLayer({
   handleParkFieldPatch,
   handleRetryParkLine,
   parkRetryBusyUi,
+  persistedNosposAgreementId,
   handleViewParkedAgreement,
   showJewelleryReferenceModal,
   setShowJewelleryReferenceModal,
   jewelleryReferenceScrape,
   missingRequiredNosposModal,
   handleMissingNosposRecheckContinue,
+  missingGateItems,
+  missingGateNosposCategories,
+  missingGateNosposMappings,
+  onSaveMissingGateNosposFields,
+  nosposRequiredFieldsEditor,
+  nosposRequiredEditorLiveItem,
+  nosposSchemaCategories,
+  nosposSchemaMappings,
+  actualRequestId,
+  onCloseNosposRequiredFieldsEditor,
+  onSaveNosposRequiredFieldsFromModal,
+  nosposRequiredFieldsRequireCompletion = false,
 }) {
   return (
     <>
@@ -225,6 +239,7 @@ export default function NegotiationModalsLayer({
           parkLineRetryEnabled={
             parkProgressModal.allowClose === true || Boolean(parkProgressModal.footerError)
           }
+          parkedAgreementId={persistedNosposAgreementId}
           onViewParkedAgreement={handleViewParkedAgreement}
         />
       ) : null}
@@ -232,7 +247,28 @@ export default function NegotiationModalsLayer({
       {missingRequiredNosposModal?.length ? (
         <MissingNosposRequiredFieldsModal
           lines={missingRequiredNosposModal}
+          items={missingGateItems}
+          nosposCategoriesResults={missingGateNosposCategories}
+          nosposCategoryMappings={missingGateNosposMappings}
+          useVoucherOffers={useVoucherOffers}
+          actualRequestId={actualRequestId}
+          onSaveLineFields={onSaveMissingGateNosposFields}
           onRecheckContinue={handleMissingNosposRecheckContinue}
+        />
+      ) : null}
+
+      {nosposRequiredFieldsEditor && nosposRequiredEditorLiveItem && nosposSchemaCategories != null ? (
+        <NosposRequiredFieldsEditorModal
+          key={nosposRequiredEditorLiveItem.id}
+          item={nosposRequiredEditorLiveItem}
+          negotiationIndex={nosposRequiredFieldsEditor.negotiationIndex}
+          nosposSiteCategories={nosposSchemaCategories}
+          nosposCategoryMappings={nosposSchemaMappings}
+          useVoucherOffers={useVoucherOffers}
+          requestId={actualRequestId}
+          onSave={onSaveNosposRequiredFieldsFromModal}
+          onClose={onCloseNosposRequiredFieldsEditor}
+          requireCompletionUntilSave={nosposRequiredFieldsRequireCompletion}
         />
       ) : null}
 

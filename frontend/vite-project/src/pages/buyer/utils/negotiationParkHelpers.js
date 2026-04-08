@@ -9,6 +9,25 @@ export function buildNosposNewAgreementCreateUrl(nosposCustomerId, transactionTy
   return `https://nospos.com/newagreement/agreement/create?type=${agreementType}&customer_id=${id}`;
 }
 
+export function extractNosposAgreementId(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+  if (/^\d+$/.test(raw)) return raw;
+  try {
+    const u = new URL(raw);
+    const m = /^\/newagreement\/(\d+)\/items\/?$/i.exec(u.pathname || '');
+    return m?.[1] || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+export function buildNosposAgreementItemsUrl(agreementId) {
+  const id = extractNosposAgreementId(agreementId);
+  if (!id) return null;
+  return `https://nospos.com/newagreement/${id}/items`;
+}
+
 export function parkNegotiationLines(items) {
   if (!Array.isArray(items)) return [];
   return [
@@ -81,12 +100,11 @@ export function agreementParkLineTitle(item, index) {
 /** Parse `park_agreement_state_json` from request detail into UI state. */
 export function parseParkAgreementStateFromApi(parkState, mappedItems) {
   if (!parkState || typeof parkState !== 'object') {
-    return { url: null, excludedIds: null };
+    return { agreementId: null, excludedIds: null };
   }
-  const savedUrl =
-    typeof parkState.nosposAgreementUrl === 'string' && parkState.nosposAgreementUrl.trim()
-      ? parkState.nosposAgreementUrl.trim()
-      : null;
+  const savedAgreementId = extractNosposAgreementId(
+    parkState.nosposAgreementId ?? parkState.nosposAgreementUrl ?? null
+  );
   let excludedIds = null;
   if (Array.isArray(parkState.excludedItemIds) && parkState.excludedItemIds.length > 0) {
     const excluded = new Set(parkState.excludedItemIds.map(String));
@@ -98,5 +116,5 @@ export function parseParkAgreementStateFromApi(parkState, mappedItems) {
     });
     if (resolvedExcluded.size > 0) excludedIds = resolvedExcluded;
   }
-  return { url: savedUrl, excludedIds };
+  return { agreementId: savedAgreementId, excludedIds };
 }

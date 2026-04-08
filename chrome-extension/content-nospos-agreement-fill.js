@@ -717,6 +717,7 @@
     const selectors = [
       '.swal2-confirm',
       'button.swal2-confirm',
+      '.swal2-actions button.swal2-confirm',
       '.swal-button--confirm',
       '[data-bb-handler="confirm"]',
       '.bootbox .btn-primary',
@@ -805,7 +806,8 @@
     }
     log('sidebar park — click POST link', parkLink.getAttribute('href'));
     parkLink.click();
-    const conf = await confirmDeleteDialogIfPresent(15000);
+    // Park dialogs can be slower than delete confirms; allow time for manual/extension OK.
+    const conf = await confirmDeleteDialogIfPresent(45000);
     if (!conf.confirmed) {
       return {
         ok: false,

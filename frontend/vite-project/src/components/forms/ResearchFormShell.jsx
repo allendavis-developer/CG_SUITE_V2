@@ -1276,6 +1276,7 @@ export default function ResearchFormShell({
             }
           }}
           labelPosition="left"
+          variant="compact"
         />
       )}
 

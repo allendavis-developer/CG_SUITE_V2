@@ -136,7 +136,7 @@ const RepricingSessionView = () => {
 
       <AppHeader />
 
-      <main className="flex flex-1 overflow-hidden h-[calc(100vh-61px)]">
+      <main className="flex min-h-0 flex-1 overflow-hidden">
         <section className="flex-1 bg-white flex flex-col overflow-hidden">
           <div className="p-6 border-b" style={{ borderColor: 'var(--ui-border)' }}>
             <div className="flex items-center justify-between gap-6">

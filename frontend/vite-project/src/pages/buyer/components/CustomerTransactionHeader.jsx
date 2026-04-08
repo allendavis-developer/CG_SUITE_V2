@@ -8,6 +8,8 @@ const CustomerTransactionHeader = ({
   onTransactionChange,
   containerClassName = '',
   readOnly = false, // Add readOnly prop with default false
+  /** `card` = sidebar/white panel with transaction controls; `infoStrip` = full-width brand bar, customer details only */
+  presentation = 'card',
 }) => {
   const transaction = TRANSACTION_META[transactionType] || {
     label: 'Unknown',
@@ -43,6 +45,48 @@ const CustomerTransactionHeader = ({
     { label: 'Email', value: customer?.email },
   ].filter((row) => row.value !== null && row.value !== undefined && String(row.value).trim() !== '');
 
+  if (presentation === 'infoStrip') {
+    return (
+      <div
+        className={`shrink-0 border-b-2 border-amber-300/90 border-t-4 border-t-amber-400 bg-white px-6 py-3 md:px-10 ${containerClassName}`}
+      >
+        <h2 className="text-lg font-extrabold tracking-tight text-brand-blue md:text-xl">{customer.name}</h2>
+        {detailRows.length > 0 && (
+          <ul className="mt-2 flex flex-wrap gap-x-6 gap-y-2 text-sm">
+            {detailRows.map((row) => (
+              <li
+                key={row.label}
+                className="flex min-w-[10rem] flex-col gap-0.5 rounded-md border border-amber-200/60 bg-amber-50/40 px-2.5 py-1.5 sm:min-w-0 sm:flex-row sm:items-baseline sm:gap-2"
+              >
+                <span className="font-semibold text-gray-600">{row.label}</span>
+                <span className="font-bold text-brand-blue">
+                  {row.value && typeof row.value === 'object' && row.value.base && row.value.age ? (
+                    <>
+                      <span>{row.value.base} </span>
+                      <span className="text-amber-700">({row.value.age})</span>
+                    </>
+                  ) : (
+                    row.value
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {customer.bypassReason && (
+          <div className="mt-2 flex w-fit max-w-full items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5">
+            <span className="material-symbols-outlined text-sm text-amber-600">info</span>
+            <p className="text-xs font-semibold text-amber-900">
+              {customer.bypassReason === 'Within 14 days of last transaction'
+                ? `Customer data not updated — ${customer.bypassReason}`
+                : `Customer data was not updated because: ${customer.bypassReason}`}
+            </p>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className={`bg-white p-6 ${containerClassName}`}>
       <h1 className="text-3xl font-extrabold tracking-tight text-brand-blue">
@@ -61,6 +105,7 @@ const CustomerTransactionHeader = ({
                 const selected = TRANSACTION_OPTIONS.find(o => o.label === label);
                 if (selected) onTransactionChange(selected.value);
               }}
+              variant="compact"
             />
           )}
         </div>

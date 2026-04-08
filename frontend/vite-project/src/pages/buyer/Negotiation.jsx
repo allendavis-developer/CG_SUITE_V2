@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useRef, useCallback } from "react";
+import React, { useMemo, useState, useRef, useCallback, useEffect } from "react";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
 import AppHeader from "@/components/AppHeader";
 import CustomerIntakeModal from '@/components/modals/CustomerIntakeModal.jsx';
@@ -6,6 +6,8 @@ import ResearchOverlayPanel from './components/ResearchOverlayPanel';
 import NegotiationDocumentHead from './components/negotiation/NegotiationDocumentHead';
 import NegotiationTablesSection from './components/negotiation/NegotiationTablesSection';
 import NegotiationSidebarPanel from './components/negotiation/NegotiationSidebarPanel';
+import CustomerTransactionHeader from './components/CustomerTransactionHeader';
+import NegotiationOfferMetricsBar from './components/negotiation/NegotiationOfferMetricsBar';
 import NegotiationModalsLayer from './components/negotiation/NegotiationModalsLayer';
 import { useNotification } from '@/contexts/NotificationContext';
 import useAppStore from '@/store/useAppStore';
@@ -26,6 +28,19 @@ import {
   resolveSuggestedRetailFromResearchStats,
   getDisplayOffers,
 } from './utils/negotiationHelpers';
+import {
+  fetchNosposCategories,
+  fetchNosposCategoryMappings,
+  updateRequestItemRawData,
+  peekNosposCategoriesCache,
+  peekNosposMappingsCache,
+} from '@/services/api';
+import {
+  fetchMissingRequiredNosposLines,
+  buildMergedNosposStockFieldValuesBlob,
+  applyNosposStockFieldBlobToNegotiationItems,
+} from './utils/negotiationMissingNosposRequired';
+import { negotiationLineHasMissingRequiredNosposStockFields } from './utils/nosposAgreementFirstItemFill';
 
 const Negotiation = ({ mode }) => {
   const navigate = useNavigate();
@@ -89,6 +104,20 @@ const Negotiation = ({ mode }) => {
   const [showJewelleryReferenceModal, setShowJewelleryReferenceModal] = useState(false);
   /** Lines missing required NosPos stock fields — blocks book-for-testing until filled (see modal). */
   const [missingRequiredNosposModal, setMissingRequiredNosposModal] = useState(null);
+  /** `{ categories, mappings }` for NosPos linked fields — warmed from session cache when available. */
+  const [nosposSchema, setNosposSchema] = useState(() => {
+    const cat = peekNosposCategoriesCache();
+    const map = peekNosposMappingsCache();
+    if (cat != null && map != null) {
+      return {
+        categories: Array.isArray(cat.results) ? cat.results : [],
+        mappings: Array.isArray(map) ? map : [],
+      };
+    }
+    return { categories: null, mappings: null };
+  });
+  /** `{ item, negotiationIndex }` — spreadsheet editor for required stock fields. */
+  const [nosposRequiredFieldsEditor, setNosposRequiredFieldsEditor] = useState(null);
   // Refs
   const hasInitializedNegotiateRef = useRef(false);
   const completedRef = useRef(false);
@@ -116,6 +145,31 @@ const Negotiation = ({ mode }) => {
     ? 'Research you run in this panel is not saved.'
     : null;
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [catRes, mapRes] = await Promise.all([
+          fetchNosposCategories(),
+          fetchNosposCategoryMappings(),
+        ]);
+        if (cancelled) return;
+        setNosposSchema({
+          categories: Array.isArray(catRes?.results) ? catRes.results : [],
+          mappings: Array.isArray(mapRes) ? mapRes : [],
+        });
+      } catch (e) {
+        if (!cancelled) {
+          console.error('[Negotiation] NosPos schema load', e);
+          setNosposSchema({ categories: [], mappings: [] });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // ─── Research overlay (shared hook) ─────────────────────────────────────
   const applyEbay = useCallback((item, state) => applyEbayResearchToItem(item, state, useVoucherOffers), [useVoucherOffers]);
   const applyCC = useCallback((item, state) => applyCashConvertersResearchToItem(item, state, useVoucherOffers), [useVoucherOffers]);
@@ -140,6 +194,11 @@ const Negotiation = ({ mode }) => {
         });
     }, 0);
   }, [parseManualOfferValue, setSeniorMgmtModal, setMarginResultModal]);
+  /** Populated after useNegotiationItemHandlers — avoids TDZ passing notify into useResearchOverlay. */
+  const notifyEbayResearchMergedForNosposAiRef = useRef(null);
+  const bridgeNotifyEbayResearchMergedForNosposAi = useCallback((merged) => {
+    notifyEbayResearchMergedForNosposAiRef.current?.(merged);
+  }, []);
   const {
     researchItem, setResearchItem,
     cashConvertersResearchItem, setCashConvertersResearchItem,
@@ -156,6 +215,7 @@ const Negotiation = ({ mode }) => {
     readOnly: researchFormReadOnly,
     persistResearchOnComplete: mode === 'negotiate',
     onResearchPersisted,
+    onAfterEbayResearchMerge: mode === 'negotiate' ? bridgeNotifyEbayResearchMergedForNosposAi : null,
   });
 
   // ─── Derived values ────────────────────────────────────────────────────
@@ -179,12 +239,142 @@ const Negotiation = ({ mode }) => {
     [items]
   );
 
+  const nosposRequiredEditorLiveItem = useMemo(() => {
+    if (!nosposRequiredFieldsEditor?.item?.id) return null;
+    return items.find((it) => it.id === nosposRequiredFieldsEditor.item.id) ?? null;
+  }, [items, nosposRequiredFieldsEditor]);
+
+  useEffect(() => {
+    if (nosposRequiredFieldsEditor && !nosposRequiredEditorLiveItem) {
+      setNosposRequiredFieldsEditor(null);
+    }
+  }, [nosposRequiredFieldsEditor, nosposRequiredEditorLiveItem]);
+
+  const handleOpenNosposRequiredFieldsEditor = useCallback((item, negotiationIndex) => {
+    if (!item) return;
+    setNosposRequiredFieldsEditor({ item, negotiationIndex });
+  }, []);
+
+  /** Buying flow: open the stock-fields editor for the first line with missing required values (hidden column + forced completion). */
+  useEffect(() => {
+    if (mode !== 'negotiate') return;
+    if (missingRequiredNosposModal?.length) return;
+    const cats = nosposSchema.categories;
+    const maps = nosposSchema.mappings ?? [];
+    if (!Array.isArray(cats) || cats.length === 0) return;
+
+    const ordered = [...jewelleryNegotiationItems, ...mainNegotiationItems];
+    const openId = nosposRequiredFieldsEditor?.item?.id;
+
+    for (const item of ordered) {
+      if (item.isRemoved) continue;
+      if (!item.request_item_id || String(item.request_item_id).trim() === '') continue;
+
+      const isJewellery = item.isJewelleryItem === true;
+      const list = isJewellery ? jewelleryNegotiationItems : mainNegotiationItems;
+      const negotiationIndex = list.findIndex((i) => i.id === item.id);
+      if (negotiationIndex < 0) continue;
+
+      if (
+        !negotiationLineHasMissingRequiredNosposStockFields(item, negotiationIndex, {
+          useVoucherOffers,
+          categoriesResults: cats,
+          categoryMappings: maps,
+          requestId: actualRequestId,
+        })
+      ) {
+        continue;
+      }
+
+      if (openId === item.id) return;
+      if (openId && openId !== item.id) return;
+
+      setNosposRequiredFieldsEditor({ item, negotiationIndex });
+      return;
+    }
+  }, [
+    mode,
+    missingRequiredNosposModal,
+    nosposSchema.categories,
+    nosposSchema.mappings,
+    mainNegotiationItems,
+    jewelleryNegotiationItems,
+    nosposRequiredFieldsEditor?.item?.id,
+    useVoucherOffers,
+    actualRequestId,
+  ]);
+
+  const handleSaveNosposRequiredFieldsFromModal = useCallback(
+    async ({ item, leafNosposId, draftByFieldId }) => {
+      const reqId = item?.request_item_id;
+      if (!reqId) {
+        showNotification('Line must be saved on the request before NosPos fields can be stored.', 'error');
+        return;
+      }
+      const aiSuggestedNosposStockFieldValues = buildMergedNosposStockFieldValuesBlob(
+        item,
+        leafNosposId,
+        draftByFieldId
+      );
+      const result = await updateRequestItemRawData(reqId, {
+        raw_data: { aiSuggestedNosposStockFieldValues },
+      });
+      if (!result) {
+        showNotification('Could not save NosPos fields — try again or check your connection.', 'error');
+        return;
+      }
+      setItems((prev) =>
+        applyNosposStockFieldBlobToNegotiationItems(prev, item.id, aiSuggestedNosposStockFieldValues)
+      );
+      showNotification('NosPos required fields saved.', 'success');
+      setNosposRequiredFieldsEditor(null);
+    },
+    [showNotification, setItems]
+  );
+
+  const handleSaveNosposRequiredFieldsFromMissingGate = useCallback(
+    async ({ item, leafNosposId, draftByFieldId }) => {
+      const reqId = item?.request_item_id;
+      if (!reqId) {
+        showNotification('Line must be saved on the request before NosPos fields can be stored.', 'error');
+        return;
+      }
+      const aiSuggestedNosposStockFieldValues = buildMergedNosposStockFieldValuesBlob(
+        item,
+        leafNosposId,
+        draftByFieldId
+      );
+      const result = await updateRequestItemRawData(reqId, {
+        raw_data: { aiSuggestedNosposStockFieldValues },
+      });
+      if (!result) {
+        showNotification('Could not save NosPos fields — try again or check your connection.', 'error');
+        return;
+      }
+      const nextItems = applyNosposStockFieldBlobToNegotiationItems(
+        items,
+        item.id,
+        aiSuggestedNosposStockFieldValues
+      );
+      setItems(nextItems);
+      try {
+        const missing = await fetchMissingRequiredNosposLines(nextItems, useVoucherOffers);
+        setMissingRequiredNosposModal(missing.length ? missing : null);
+      } catch (e) {
+        console.error('[CG Suite] refresh missing NosPos after gate save', e);
+        showNotification('Saved fields, but could not refresh the checklist. Use Continue — verify fields.', 'warning');
+      }
+      showNotification('NosPos fields saved for this line.', 'success');
+    },
+    [items, useVoucherOffers, showNotification, setItems, setMissingRequiredNosposModal]
+  );
+
   const {
     parkProgressModal,
     setParkProgressModal,
     parkRetryBusyUi,
     parkExcludedItems,
-    persistedNosposUrl,
+    persistedNosposAgreementId,
     handleParkFieldPatch,
     handleRetryParkLine,
     handleViewParkedAgreement,
@@ -286,7 +476,11 @@ const Negotiation = ({ mode }) => {
     handleRemoveJewelleryWorkspaceRow,
     handleEbayResearchCompleteFromHeader,
     handleRefreshCeXData,
+    notifyEbayResearchMergedForNosposAi,
+    handleNegotiationBuilderOffersDisplayed,
+    handleNegotiationCexProductDisplayed,
   } = useNegotiationItemHandlers({
+    mode,
     items,
     setItems,
     setContextMenu,
@@ -304,9 +498,12 @@ const Negotiation = ({ mode }) => {
     normalizeOffersForApi,
     parseManualOfferValue,
     headerWorkspaceMode,
+    headerWorkspaceOpen,
+    jewelleryWorkspaceLines,
     handleAddFromCeX,
     clearCexProduct,
   });
+  notifyEbayResearchMergedForNosposAiRef.current = notifyEbayResearchMergedForNosposAi;
 
   const { draftPayload, handleJewelleryReferenceScrapeResult } = useNegotiationLifecycle({
     mode,
@@ -397,6 +594,10 @@ const Negotiation = ({ mode }) => {
           showNotification,
           blockedOfferSlots,
           onWorkspaceBlockedOfferAttempt: handleWorkspaceBlockedOfferAttempt,
+          onNegotiationBuilderOffersDisplayed:
+            mode === 'negotiate' ? handleNegotiationBuilderOffersDisplayed : undefined,
+          onNegotiationCexProductDisplayed:
+            mode === 'negotiate' ? handleNegotiationCexProductDisplayed : undefined,
           jewelleryWorkspaceLines,
           setJewelleryWorkspaceLines: handleJewelleryWorkspaceLinesChange,
           onRemoveJewelleryWorkspaceRow: handleRemoveJewelleryWorkspaceRow,
@@ -405,15 +606,37 @@ const Negotiation = ({ mode }) => {
         } : null}
       />
 
-      <main className="relative flex flex-1 overflow-hidden h-[calc(100vh-61px)]">
+      <CustomerTransactionHeader
+        customer={customerData?.id ? customerData : { name: 'No customer selected' }}
+        transactionType={transactionType}
+        onTransactionChange={(nextType) => {
+          setTransactionType(nextType);
+          setStoreTransactionType(nextType);
+        }}
+        presentation="infoStrip"
+        readOnly={mode === 'view'}
+      />
+      <NegotiationOfferMetricsBar
+        mode={mode}
+        transactionType={transactionType}
+        onTransactionChange={(nextType) => {
+          setTransactionType(nextType);
+          setStoreTransactionType(nextType);
+        }}
+        totalExpectation={totalExpectation}
+        setTotalExpectation={setTotalExpectation}
+        offerMin={offerMin}
+        offerMax={offerMax}
+        parsedTarget={parsedTarget}
+        setShowTargetModal={setShowTargetModal}
+        setShowNewBuyConfirm={setShowNewBuyConfirm}
+        actualRequestId={actualRequestId}
+        researchSandboxBookedView={researchSandboxBookedView}
+      />
+
+      <main className="relative flex min-h-0 flex-1 overflow-hidden">
         <NegotiationTablesSection
           mode={mode}
-          totalExpectation={totalExpectation}
-          setTotalExpectation={setTotalExpectation}
-          offerMin={offerMin}
-          offerMax={offerMax}
-          parsedTarget={parsedTarget}
-          setShowTargetModal={setShowTargetModal}
           actualRequestId={actualRequestId}
           researchSandboxBookedView={researchSandboxBookedView}
           jewelleryNegotiationItems={jewelleryNegotiationItems}
@@ -438,14 +661,13 @@ const Negotiation = ({ mode }) => {
           setResearchItem={setResearchItem}
           setCashConvertersResearchItem={setCashConvertersResearchItem}
           useVoucherOffers={useVoucherOffers}
+          nosposCategoriesResults={nosposSchema.categories}
+          nosposCategoryMappings={nosposSchema.mappings ?? []}
+          onOpenNosposRequiredFieldsEditor={handleOpenNosposRequiredFieldsEditor}
+          hideNosposRequiredColumn={mode === 'negotiate'}
         />
         <NegotiationSidebarPanel
-          customerData={customerData}
-          transactionType={transactionType}
-          setTransactionType={setTransactionType}
-          setStoreTransactionType={setStoreTransactionType}
           mode={mode}
-          setShowNewBuyConfirm={setShowNewBuyConfirm}
           jewelleryOfferTotal={jewelleryOfferTotal}
           otherItemsOfferTotal={otherItemsOfferTotal}
           totalOfferPrice={totalOfferPrice}
@@ -456,7 +678,7 @@ const Negotiation = ({ mode }) => {
           targetExcess={targetExcess}
           setTargetOffer={setTargetOffer}
           researchSandboxBookedView={researchSandboxBookedView}
-          persistedNosposUrl={persistedNosposUrl}
+          persistedNosposAgreementId={persistedNosposAgreementId}
           handleParkAgreementOpenNospos={handleParkAgreementOpenNospos}
           handleViewParkedAgreement={handleViewParkedAgreement}
           headerWorkspaceOpen={headerWorkspaceOpen}
@@ -518,12 +740,25 @@ const Negotiation = ({ mode }) => {
         handleParkFieldPatch={handleParkFieldPatch}
         handleRetryParkLine={handleRetryParkLine}
         parkRetryBusyUi={parkRetryBusyUi}
+        persistedNosposAgreementId={persistedNosposAgreementId}
         handleViewParkedAgreement={handleViewParkedAgreement}
         showJewelleryReferenceModal={showJewelleryReferenceModal}
         setShowJewelleryReferenceModal={setShowJewelleryReferenceModal}
         jewelleryReferenceScrape={jewelleryReferenceScrape}
         missingRequiredNosposModal={missingRequiredNosposModal}
         handleMissingNosposRecheckContinue={handleMissingNosposRecheckContinue}
+        missingGateItems={items}
+        missingGateNosposCategories={nosposSchema.categories}
+        missingGateNosposMappings={nosposSchema.mappings ?? []}
+        onSaveMissingGateNosposFields={handleSaveNosposRequiredFieldsFromMissingGate}
+        nosposRequiredFieldsEditor={nosposRequiredFieldsEditor}
+        nosposRequiredEditorLiveItem={nosposRequiredEditorLiveItem}
+        nosposSchemaCategories={nosposSchema.categories}
+        nosposSchemaMappings={nosposSchema.mappings ?? []}
+        actualRequestId={actualRequestId}
+        onCloseNosposRequiredFieldsEditor={() => setNosposRequiredFieldsEditor(null)}
+        onSaveNosposRequiredFieldsFromModal={handleSaveNosposRequiredFieldsFromModal}
+        nosposRequiredFieldsRequireCompletion={mode === 'negotiate'}
       />
 
     </div>

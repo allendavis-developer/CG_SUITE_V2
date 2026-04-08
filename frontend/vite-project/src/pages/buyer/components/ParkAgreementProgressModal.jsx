@@ -254,6 +254,7 @@ function EditableNosposCell({ row, lineIndex, patchEnabled, onPatch }) {
  * @param {(itemIndex: number) => void} [props.onRetryParkLine]
  * @param {boolean} [props.parkRetryBusy]
  * @param {boolean} [props.parkLineRetryEnabled] — false while the automatic run is in progress (avoid overlapping extension calls)
+ * @param {string|null} [props.parkedAgreementId]
  * @param {() => void|Promise<void>} [props.onViewParkedAgreement] — when the run finished cleanly; opens saved agreement URL in a new tab (no extension)
  */
 export default function ParkAgreementProgressModal({
@@ -267,6 +268,7 @@ export default function ParkAgreementProgressModal({
   onRetryParkLine,
   parkRetryBusy = false,
   parkLineRetryEnabled = false,
+  parkedAgreementId = null,
   onViewParkedAgreement,
 }) {
   const noopPatch = useCallback(() => {}, []);
@@ -352,7 +354,7 @@ export default function ParkAgreementProgressModal({
                           Retry / re-sync this line
                         </p>
                         {row.detail ? (
-                          <p className="mt-1 text-xs leading-relaxed text-[var(--text-muted)]">{row.detail}</p>
+                          <p className="mt-1 break-all text-xs leading-relaxed text-[var(--text-muted)]">{row.detail}</p>
                         ) : null}
                       </button>
                     ) : (
@@ -361,7 +363,7 @@ export default function ParkAgreementProgressModal({
                           {row.label}
                         </p>
                         {row.detail ? (
-                          <p className="mt-1 text-xs leading-relaxed text-[var(--text-muted)]">{row.detail}</p>
+                          <p className="mt-1 break-all text-xs leading-relaxed text-[var(--text-muted)]">{row.detail}</p>
                         ) : null}
                       </>
                     )}
@@ -402,8 +404,13 @@ export default function ParkAgreementProgressModal({
                   <span className="text-lg font-black uppercase tracking-wide text-[var(--brand-blue)]">
                     View parked agreement
                   </span>
+                  {parkedAgreementId ? (
+                    <span className="text-xs font-semibold uppercase tracking-wide text-[var(--brand-blue)]">
+                      ID {parkedAgreementId}
+                    </span>
+                  ) : null}
                   <span className="max-w-[260px] text-xs leading-snug text-[var(--text-muted)]">
-                    Switches to your NoSpos tab. If that tab was closed, opens a new agreement for this customer.
+                    Opens the NoSpos agreement items page for this saved agreement ID.
                   </span>
                 </button>
               </div>

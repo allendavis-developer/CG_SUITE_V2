@@ -32,6 +32,8 @@ export default function CexProductView({
   onUpdateCartItemResearch,
   blockedOfferSlots = null,
   onBlockedOfferClick = null,
+  /** When set (header CeX workspace), keeps one negotiation row id for preview AI + Add to Cart. */
+  negotiationClientLineId = null,
 }) {
   const [isCeXEbayModalOpen, setCeXEbayModalOpen] = useState(false);
   const [isCeXCashConvertersModalOpen, setCeXCashConvertersModalOpen] = useState(false);
@@ -171,15 +173,27 @@ export default function CexProductView({
       selectedOfferId = offerArg;
     }
     const researchQuery = buildCeXProductResearchInitialQuery(data);
+    const existingByLine =
+      negotiationClientLineId != null
+        ? cartItems.find((ci) => ci.id === negotiationClientLineId)
+        : null;
     return {
-      id: crypto.randomUUID?.() ?? `cart-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      id:
+        negotiationClientLineId ??
+        crypto.randomUUID?.() ??
+        `cart-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       title: data.title || 'CeX Product',
       subtitle: data.category || '',
       variantName: researchQuery || undefined,
       quantity: 1,
       category: data.category || 'CeX',
       categoryObject: data.categoryObject || (data.category ? { name: data.category, path: [data.category] } : { name: 'CeX', path: ['CeX'] }),
-      offers, cashOffers, voucherOffers, isCustomCeXItem: true, variantId: null, request_item_id: null,
+      offers,
+      cashOffers,
+      voucherOffers,
+      isCustomCeXItem: true,
+      variantId: null,
+      request_item_id: existingByLine?.request_item_id ?? null,
       referenceData: refData,
       ourSalePrice: cexBasedRounded,
       cexSellPrice: refData.cex_sale_price ? Number(refData.cex_sale_price) : null,
@@ -208,11 +222,14 @@ export default function CexProductView({
       if (isRepricing || isDuplicate) {
         onAddToCart(cartItem, { showNotification });
       } else {
-        const reqItemId = await createOrAppendRequestItem({
-          variantId: null, rawData: data, cashConvertersData: data.cashConvertersResearchData || null,
-          cexSku: data.id, cashOffers: cartItem.cashOffers, voucherOffers: cartItem.voucherOffers,
-          selectedOfferId: cartItem.selectedOfferId, manualOffer: cartItem.manualOffer, ourSalePrice: cartItem.ourSalePrice,
-        });
+        let reqItemId = cartItem.request_item_id;
+        if (reqItemId == null || reqItemId === '') {
+          reqItemId = await createOrAppendRequestItem({
+            variantId: null, rawData: data, cashConvertersData: data.cashConvertersResearchData || null,
+            cexSku: data.id, cashOffers: cartItem.cashOffers, voucherOffers: cartItem.voucherOffers,
+            selectedOfferId: cartItem.selectedOfferId, manualOffer: cartItem.manualOffer, ourSalePrice: cartItem.ourSalePrice,
+          });
+        }
         cartItem.request_item_id = reqItemId;
         onAddToCart(cartItem, { showNotification });
       }

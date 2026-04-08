@@ -247,7 +247,10 @@ export function buildJewelleryNegotiationCartItem(
       ? { id: jewInternalId, name: 'Jewellery', path: ['Jewellery'] }
       : { name: 'Jewellery', path: ['Jewellery'] };
   return {
-    id: crypto.randomUUID?.() ?? `jew-neg-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    id:
+      line?.id ??
+      crypto.randomUUID?.() ??
+      `jew-neg-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     title: itemName,
     subtitle: [line.referenceEntry?.displayName, qtySubtitle].filter(Boolean).join(' · '),
     quantity: 1,

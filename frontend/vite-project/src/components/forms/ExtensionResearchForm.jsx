@@ -384,7 +384,6 @@ function CategoryPickerStep({
                     internalCategoryId: payload.id,
                     itemSummary: itemSummaryForAi,
                     allCategoriesFlat: flat,
-                    skipReadyForBuilderCheck: true,
                     logTag: '[CG Suite][NosposPathMatch]',
                   });
                   if (match) {
@@ -392,18 +391,6 @@ function CategoryPickerStep({
                       nosposId: match.nosposId,
                       fullName: match.fullName,
                       pathSegments: match.pathSegments,
-                    });
-                    console.log('[CG Suite][NosposPathMatch] ✅ suggested Nospos category (extension picker, background)', {
-                      internalProductCategory: {
-                        id: payload.id,
-                        name: payload.name,
-                        path: payload.path,
-                      },
-                      nosposCategory: {
-                        nosposId: match.nosposId,
-                        fullName: match.fullName,
-                        aiPathSegments: match.pathSegments,
-                      },
                     });
                   }
                 })();

@@ -115,6 +115,9 @@ export async function openNosposSiteForCategoryFieldsBulk(nosposCategoryIds, onP
 /** Default cap for extension calls that should not leave the UI stuck (e.g. open NosPos site flows). */
 export const OPEN_NOSPOS_PROFILE_CLIENT_TIMEOUT_MS = 28000;
 
+/** Open new agreement + wait for NosPos items URL (`openNosposNewAgreementCreateBackground` polls the tab ~120s). */
+export const OPEN_NOSPOS_NEW_AGREEMENT_ITEMS_TAB_TIMEOUT_MS = 130000;
+
 /**
  * Race an extension call so the UI never stays in a loading state forever if the bridge hangs.
  */
@@ -178,8 +181,13 @@ export async function checkNosposCustomerBuyingSession(nosposCustomerId) {
 }
 
 /**
- * Step 2 — Open new-agreement create in a new browser tab (same window when possible; tab is not focused). Returns NosPos tab id.
- * @returns {Promise<{ ok: true, tabId: number } | { ok: false, error?: string }>}
+ * Step 2 — Open new-agreement create in a new browser tab (same window when possible; tab is not focused).
+ * Waits until NosPos redirects to the items page and returns the full URL (e.g. `.../items?items-page=1`).
+ * @returns {Promise<
+ *   | { ok: true, tabId: number, agreementItemsUrl: string }
+ *   | { ok: true, tabId: number, agreementItemsUrl: null, agreementItemsUrlWarning?: string|null }
+ *   | { ok: false, error?: string }
+ * >}
  */
 export async function openNosposNewAgreementCreateBackground(nosposCustomerId, options = {}) {
   const agreementType = options.agreementType === 'PA' ? 'PA' : 'DP';

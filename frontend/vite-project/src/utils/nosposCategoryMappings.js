@@ -145,45 +145,113 @@ export function matchNosposPathToLeafNosposId(nosposPath, categoriesResults) {
   return null;
 }
 
+function leafNosposIdFromPersistedFieldValuesBlob(item) {
+  const fv = getAiSuggestedNosposStockFieldValuesFromItem(item);
+  const id = fv?.nosposCategoryId;
+  if (id != null && Number(id) > 0) return Number(id);
+  return null;
+}
+
+/** AI hint carries a real NosPos leaf id (not an internal-category mirror row). */
+function leafNosposIdFromAuthoritativeCategoryHint(hint) {
+  if (!hint || hint.fromInternalProductCategory === true) return null;
+  const raw = hint.nosposId ?? hint.category_id;
+  if (raw != null && Number(raw) > 0) return Number(raw);
+  return null;
+}
+
+function leafNosposIdFromDbCategoryMappingRows(item, categoryMappings, categoriesResults) {
+  if (!Array.isArray(categoryMappings) || categoryMappings.length === 0) return null;
+  if (!Array.isArray(categoriesResults) || categoriesResults.length === 0) return null;
+  const internalId = item.categoryObject?.id ?? null;
+  const pathLeaf =
+    Array.isArray(item.categoryObject?.path) && item.categoryObject.path.length > 0
+      ? item.categoryObject.path[item.categoryObject.path.length - 1]
+      : null;
+  const internalName = item.categoryObject?.name ?? pathLeaf ?? item.category ?? null;
+  const map = findNosposMappingForCategory(internalId, internalName, categoryMappings);
+  if (!map?.nosposPath) return null;
+  const id = matchNosposPathToLeafNosposId(map.nosposPath, categoriesResults);
+  if (id != null && Number(id) > 0) return id;
+  return null;
+}
+
 /**
- * Leaf NosPos stock category id for agreement / park / fill (matches option value).
+ * When the saved hint mirrors the internal product tree (`fromInternalProductCategory`), the NosPos leaf
+ * is found by matching hint / product breadcrumb strings to `GET /nospos-categories/` `fullName` values.
+ */
+function leafNosposIdFromMirroredProductCategoryPaths(item, hint, categoriesResults) {
+  if (!hint || hint.fromInternalProductCategory !== true) return null;
+  if (!Array.isArray(categoriesResults) || categoriesResults.length === 0) return null;
+
+  let pathStr = '';
+  if (hint.fullName != null && String(hint.fullName).trim()) {
+    pathStr = String(hint.fullName).trim();
+  } else if (Array.isArray(hint.pathSegments) && hint.pathSegments.length > 0) {
+    pathStr = hint.pathSegments.map((s) => String(s).trim()).filter(Boolean).join(' > ');
+  }
+  if (pathStr) {
+    const id = matchNosposPathToLeafNosposId(pathStr, categoriesResults);
+    if (id != null && Number(id) > 0) return id;
+  }
+
+  const co = item?.categoryObject;
+  const pathSegs = Array.isArray(co?.path)
+    ? co.path.map((s) => String(s).trim()).filter(Boolean)
+    : [];
+  const productPathString =
+    pathSegs.length > 0
+      ? pathSegs.join(' > ')
+      : co?.name != null && String(co.name).trim()
+        ? String(co.name).trim()
+        : '';
+  if (!productPathString) return null;
+  const id2 = matchNosposPathToLeafNosposId(productPathString, categoriesResults);
+  if (id2 != null && Number(id2) > 0) return id2;
+  return null;
+}
+
+/**
+ * NosPos stock leaf id for linked fields, extension fill, and negotiation UI.
+ *
+ * Resolution order (first hit wins):
+ * 1. Persisted `aiSuggestedNosposStockFieldValues.nosposCategoryId`
+ * 2. AI category hint `nosposId` when not an internal-product mirror
+ * 3. DB nospos-category-mapping for this internal category
+ * 4. Internal-mirror hint + product path matched to NosPos `fullName` rows
  *
  * @param {object|null|undefined} item
  * @param {{
  *   categoryMappings?: Array<{ internalCategoryId?: number, internalCategoryName?: string, nosposPath?: string }>|null,
  *   nosposCategoriesResults?: Array<{ fullName?: string, nosposId?: number }>|null,
- * }} [extras] - When set, falls back to internal `categoryObject` → DB NosPos path mapping.
+ * }} [extras]
+ * @returns {number|null}
  */
-export function resolveNosposLeafCategoryIdForAgreementItem(item, extras = {}) {
+export function resolveNosposStockLeafIdForNegotiationLine(item, extras = {}) {
   if (!item || typeof item !== 'object') return null;
-  const fv = getAiSuggestedNosposStockFieldValuesFromItem(item);
-  const fromFv = fv?.nosposCategoryId;
-  if (fromFv != null && Number(fromFv) > 0) return Number(fromFv);
+
+  const fromFv = leafNosposIdFromPersistedFieldValuesBlob(item);
+  if (fromFv != null) return fromFv;
+
   const hint = getAiSuggestedNosposStockCategoryFromItem(item);
-  const fromHint = hint?.nosposId ?? hint?.category_id;
-  if (fromHint != null && Number(fromHint) > 0) return Number(fromHint);
+  const fromHint = leafNosposIdFromAuthoritativeCategoryHint(hint);
+  if (fromHint != null) return fromHint;
 
   const { categoryMappings = null, nosposCategoriesResults = null } = extras;
-  if (
-    Array.isArray(categoryMappings) &&
-    categoryMappings.length > 0 &&
-    Array.isArray(nosposCategoriesResults) &&
-    nosposCategoriesResults.length > 0
-  ) {
-    const internalId = item.categoryObject?.id ?? null;
-    const pathLeaf =
-      Array.isArray(item.categoryObject?.path) && item.categoryObject.path.length > 0
-        ? item.categoryObject.path[item.categoryObject.path.length - 1]
-        : null;
-    const internalName = item.categoryObject?.name ?? pathLeaf ?? item.category ?? null;
-    const map = findNosposMappingForCategory(internalId, internalName, categoryMappings);
-    if (map?.nosposPath) {
-      const fromPath = matchNosposPathToLeafNosposId(map.nosposPath, nosposCategoriesResults);
-      if (fromPath != null && Number(fromPath) > 0) return fromPath;
-    }
-  }
+  const categoriesResults = Array.isArray(nosposCategoriesResults) ? nosposCategoriesResults : [];
+
+  const fromMap = leafNosposIdFromDbCategoryMappingRows(item, categoryMappings, categoriesResults);
+  if (fromMap != null) return fromMap;
+
+  const fromMirror = leafNosposIdFromMirroredProductCategoryPaths(item, hint, categoriesResults);
+  if (fromMirror != null) return fromMirror;
 
   return null;
+}
+
+/** @see resolveNosposStockLeafIdForNegotiationLine */
+export function resolveNosposLeafCategoryIdForAgreementItem(item, extras = {}) {
+  return resolveNosposStockLeafIdForNegotiationLine(item, extras);
 }
 
 /** Human-readable hierarchy for UI (AI hint). */

@@ -1,6 +1,10 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import useAppStore from '@/store/useAppStore';
-import { buildJewelleryNegotiationCartItem, getJewelleryWorkspaceDerivedState } from '@/components/jewellery/jewelleryNegotiationCart';
+import {
+  buildJewelleryNegotiationCartItem,
+  computeWorkspaceLineTotal,
+  getJewelleryWorkspaceDerivedState,
+} from '@/components/jewellery/jewelleryNegotiationCart';
 import { negotiationJewelleryItemToWorkspaceLine } from '@/components/jewellery/jewelleryWorkspaceMapping';
 import { titleForEbayCcOfferIndex } from '@/components/forms/researchStats';
 import { buildPersistedEbayRawData } from '@/utils/researchPersistence';
@@ -10,6 +14,9 @@ import {
   updateRequestItemOffer,
   updateRequestItemRawData,
   fetchJewelleryCatalog,
+  fetchNosposCategories,
+  fetchNosposCategoryMappings,
+  fetchAllCategoriesFlat,
 } from '@/services/api';
 import { revokeManualOfferAuthorisationIfSwitchingAway } from '@/utils/customerOfferRules';
 import {
@@ -21,10 +28,13 @@ import {
 import {
   summariseNegotiationItemForAi,
   runNosposStockCategoryAiMatchBackground,
+  isProductCategoryRootReadyForBuilder,
+  getInternalProductCategoryRootMeta,
 } from '@/services/aiCategoryPathCascade';
 import {
   getAiSuggestedNosposStockCategoryFromItem,
   getAiSuggestedNosposStockFieldValuesFromItem,
+  resolveNosposStockLeafIdForNegotiationLine,
 } from '@/utils/nosposCategoryMappings';
 import { buildNosposStockFieldAiPayload } from '../utils/nosposFieldAiAtAdd';
 import { makeSalePriceBlurHandler } from './useResearchOverlay';
@@ -32,7 +42,67 @@ import { useRefreshCexRowData } from './useRefreshCexRowData';
 import { EBAY_TOP_LEVEL_CATEGORY } from '../constants';
 import { ENABLE_NOSPOS_STOCK_FIELD_AI } from '@/config/cgSuiteFeatureFlags';
 
+function mergeNosposAiOntoNegotiationRow(row, aiSuggestedNosposStockCategory, aiSuggestedNosposStockFieldValues) {
+  const nextRaw =
+    row.rawData != null && typeof row.rawData === 'object'
+      ? {
+          ...row.rawData,
+          aiSuggestedNosposStockCategory,
+          ...(aiSuggestedNosposStockFieldValues ? { aiSuggestedNosposStockFieldValues } : {}),
+        }
+      : {
+          aiSuggestedNosposStockCategory,
+          ...(aiSuggestedNosposStockFieldValues ? { aiSuggestedNosposStockFieldValues } : {}),
+        };
+  if (row.ebayResearchData != null && typeof row.ebayResearchData === 'object') {
+    return {
+      ...row,
+      aiSuggestedNosposStockCategory,
+      ...(aiSuggestedNosposStockFieldValues ? { aiSuggestedNosposStockFieldValues } : {}),
+      rawData: nextRaw,
+      ebayResearchData: {
+        ...row.ebayResearchData,
+        aiSuggestedNosposStockCategory,
+        ...(aiSuggestedNosposStockFieldValues ? { aiSuggestedNosposStockFieldValues } : {}),
+      },
+    };
+  }
+  return {
+    ...row,
+    aiSuggestedNosposStockCategory,
+    ...(aiSuggestedNosposStockFieldValues ? { aiSuggestedNosposStockFieldValues } : {}),
+    rawData: nextRaw,
+  };
+}
+
+function negotiationOffersJsonForApi(offers) {
+  if (!Array.isArray(offers)) return [];
+  return offers.map((o) => ({
+    id: o.id,
+    title: o.title,
+    price: normalizeExplicitSalePrice(o.price),
+  }));
+}
+
+/** NosPos leaf for suggest-fields using the same resolution order as the rest of negotiation. */
+async function resolveNosposLeafIdForNegotiationFieldAi(negotiationItem) {
+  try {
+    const [catData, mappings] = await Promise.all([fetchNosposCategories(), fetchNosposCategoryMappings()]);
+    const catResults = Array.isArray(catData?.results) ? catData.results : [];
+    const mapList = Array.isArray(mappings) ? mappings : [];
+    const id = resolveNosposStockLeafIdForNegotiationLine(negotiationItem, {
+      categoryMappings: mapList,
+      nosposCategoriesResults: catResults,
+    });
+    if (id != null && Number(id) > 0) return id;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export function useNegotiationItemHandlers({
+  mode,
   items,
   setItems,
   setContextMenu,
@@ -50,9 +120,12 @@ export function useNegotiationItemHandlers({
   normalizeOffersForApi,
   parseManualOfferValue,
   headerWorkspaceMode,
+  headerWorkspaceOpen,
+  jewelleryWorkspaceLines,
   handleAddFromCeX,
   clearCexProduct,
 }) {
+  const jewelleryNosposEarlyAiStartedRef = useRef(new Set());
   const handleQuantityChange = useCallback((itemId, newQty) => {
     setItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, quantity: newQty } : i)));
   }, [setItems]);
@@ -281,6 +354,203 @@ export function useNegotiationItemHandlers({
     [useVoucherOffers, customerOfferRulesData?.settings, normalizeOffersForApi, setItems, setJewelleryWorkspaceLines]
   );
 
+  /** Run NosPos stock path AI + optional field AI; persist to `request_item_id` and merge into `items`. */
+  const scheduleNosposStockAiForNegotiationLine = useCallback((normalizedItem, meta) => {
+    const reqItemId = normalizedItem?.request_item_id;
+    const lineId = normalizedItem?.id;
+    const catId = normalizedItem?.categoryObject?.id;
+    const isCeXNoInternalLeaf = normalizedItem?.isCustomCeXItem === true && catId == null;
+    if (!reqItemId || !lineId) return;
+    if (catId == null && !isCeXNoInternalLeaf) return;
+
+    const {
+      pathLogTag = '[CG Suite][NosposPathMatch][background]',
+      categorySource = 'negotiation_ai',
+      fieldAiSource = categorySource,
+      fieldAiLogLabel = 'negotiation',
+    } = meta || {};
+
+    void (async () => {
+      try {
+        const itemSummary = summariseNegotiationItemForAi(normalizedItem);
+        let flatArr = [];
+        try {
+          const flat = await fetchAllCategoriesFlat();
+          flatArr = Array.isArray(flat) ? flat : [];
+        } catch {
+          flatArr = [];
+        }
+
+        let match = null;
+        if (isCeXNoInternalLeaf) {
+          match = await runNosposStockCategoryAiMatchBackground({
+            internalCategoryId: null,
+            itemSummary,
+            allCategoriesFlat: flatArr,
+            logTag: pathLogTag,
+          });
+        } else {
+          const rootReady = flatArr.length > 0 && isProductCategoryRootReadyForBuilder(flatArr, catId);
+          if (rootReady) {
+            match = await runNosposStockCategoryAiMatchBackground({
+              internalCategoryId: catId,
+              itemSummary,
+              allCategoriesFlat: flatArr,
+              logTag: pathLogTag,
+            });
+            if (!match) return;
+          }
+        }
+
+        const co = normalizedItem.categoryObject || {};
+        const pathSegs = Array.isArray(co.path)
+          ? co.path.map((s) => String(s).trim()).filter(Boolean)
+          : [];
+        const productBreadcrumb =
+          pathSegs.length > 0
+            ? pathSegs.join(' > ')
+            : co.name != null && String(co.name).trim()
+              ? String(co.name).trim()
+              : String(normalizedItem.categoryName || normalizedItem.category || '').trim();
+
+        let aiSuggestedNosposStockCategory;
+        let fieldNosposCategoryId = null;
+
+        if (match) {
+          aiSuggestedNosposStockCategory = {
+            nosposId: match.nosposId != null ? Number(match.nosposId) : null,
+            fullName: match.fullName,
+            pathSegments: match.pathSegments,
+            source: categorySource,
+            savedAt: new Date().toISOString(),
+          };
+          fieldNosposCategoryId =
+            match.nosposId != null && Number(match.nosposId) > 0 ? Number(match.nosposId) : null;
+        } else {
+          const fullName =
+            productBreadcrumb ||
+            (co.name != null && String(co.name).trim() ? String(co.name).trim() : '') ||
+            (catId != null ? `Category ${catId}` : '');
+          const numericCat = catId != null && Number.isFinite(Number(catId)) ? Number(catId) : null;
+          aiSuggestedNosposStockCategory = {
+            ...(numericCat != null
+              ? { nosposId: numericCat, internalCategoryId: numericCat }
+              : { nosposId: null }),
+            fullName,
+            pathSegments: pathSegs.length ? pathSegs : null,
+            fromInternalProductCategory: true,
+            source: categorySource,
+            savedAt: new Date().toISOString(),
+          };
+          console.log('[CG Suite][NosposPathMatch] category', {
+            context: pathLogTag,
+            item: itemSummary.name,
+            lineId,
+            internalCategoryId: catId ?? null,
+            productCategoryRoot:
+              catId != null ? getInternalProductCategoryRootMeta(flatArr, catId) : null,
+            outcome: 'internal_hint',
+            nospos: {
+              nosposId: aiSuggestedNosposStockCategory.nosposId,
+              fullName: aiSuggestedNosposStockCategory.fullName,
+              pathSegments: aiSuggestedNosposStockCategory.pathSegments,
+            },
+            error: null,
+          });
+        }
+
+        const rowWithCategoryHint = {
+          ...normalizedItem,
+          aiSuggestedNosposStockCategory,
+          rawData:
+            normalizedItem.rawData != null && typeof normalizedItem.rawData === 'object'
+              ? { ...normalizedItem.rawData, aiSuggestedNosposStockCategory }
+              : { aiSuggestedNosposStockCategory },
+        };
+
+        if (!match) {
+          fieldNosposCategoryId = await resolveNosposLeafIdForNegotiationFieldAi(rowWithCategoryHint);
+        }
+
+        await updateRequestItemRawData(reqItemId, {
+          raw_data: { aiSuggestedNosposStockCategory },
+        });
+        let aiSuggestedNosposStockFieldValues = null;
+        if (
+          ENABLE_NOSPOS_STOCK_FIELD_AI &&
+          fieldNosposCategoryId != null &&
+          Number(fieldNosposCategoryId) > 0
+        ) {
+          try {
+            aiSuggestedNosposStockFieldValues = await buildNosposStockFieldAiPayload({
+              nosposCategoryId: fieldNosposCategoryId,
+              negotiationItem: rowWithCategoryHint,
+              source: fieldAiSource,
+            });
+          } catch (fe) {
+            console.warn('[CG Suite][NosposFieldAi] fields', {
+              context: fieldAiLogLabel,
+              item: itemSummary.name,
+              lineId,
+              outcome: 'error',
+              error: fe instanceof Error ? fe.message : String(fe),
+            });
+          }
+          if (aiSuggestedNosposStockFieldValues) {
+            const fvSaveResult = await updateRequestItemRawData(reqItemId, {
+              raw_data: { aiSuggestedNosposStockFieldValues },
+            });
+            if (!fvSaveResult) {
+              console.warn('[CG Suite][NosposFieldAi] fields', {
+                context: fieldAiLogLabel,
+                item: itemSummary.name,
+                lineId,
+                outcome: 'save_failed',
+                requestItemId: reqItemId,
+              });
+            }
+          }
+        }
+        let mergedForPrompt = null;
+        setItems((prev) => {
+          const base = prev.find((r) => r.id === lineId);
+          if (!base) return prev;
+          mergedForPrompt = mergeNosposAiOntoNegotiationRow(
+            base,
+            aiSuggestedNosposStockCategory,
+            aiSuggestedNosposStockFieldValues
+          );
+          return prev.map((row) => (row.id === lineId ? mergedForPrompt : row));
+        });
+
+      } catch (e) {
+        console.warn('[CG Suite][NosposPathMatch] category', {
+          context: pathLogTag,
+          item: summariseNegotiationItemForAi(normalizedItem).name,
+          lineId,
+          outcome: 'persist_error',
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+    })();
+  }, [setItems]);
+
+  const notifyEbayResearchMergedForNosposAi = useCallback(
+    (mergedItem) => {
+      if (!mergedItem?.request_item_id) return;
+      if (mergedItem.categoryObject?.id == null && mergedItem.isCustomCeXItem !== true) return;
+      scheduleNosposStockAiForNegotiationLine(mergedItem, {
+        pathLogTag: mergedItem.isCustomEbayItem
+          ? '[CG Suite][NosposPathMatch][ebay_research_complete]'
+          : '[CG Suite][NosposPathMatch][negotiation_research_complete]',
+        categorySource: mergedItem.isCustomEbayItem ? 'ebay_research_complete' : 'negotiation_research_complete',
+        fieldAiSource: mergedItem.isCustomEbayItem ? 'ebay_research_complete' : 'negotiation_research_complete',
+        fieldAiLogLabel: mergedItem.isCustomEbayItem ? 'ebay_overlay' : 'negotiation_overlay',
+      });
+    },
+    [scheduleNosposStockAiForNegotiationLine]
+  );
+
   const handleAddNegotiationItem = useCallback(
     async (cartItem, options = {}) => {
       if (!cartItem) return false;
@@ -288,10 +558,16 @@ export function useNegotiationItemHandlers({
         skipSuccessNotification = false,
         addedFromBuilder = false,
         runNosposCategoryAiForInternalLeaf = false,
-        nosposAiSkipReadyForBuilderCheck = false,
+        onCommitted = null,
       } = options;
       try {
+        const existingLine =
+          cartItem.id != null ? items.find((i) => i.id === cartItem.id) : null;
         let reqItemId = cartItem.request_item_id;
+        if ((reqItemId == null || reqItemId === '') && existingLine?.request_item_id) {
+          reqItemId = existingLine.request_item_id;
+        }
+        const isClientLineUpdate = Boolean(cartItem.id != null && existingLine && reqItemId != null && reqItemId !== '');
         if (reqItemId == null || reqItemId === '') {
           const rawDataPayload =
             cartItem.rawData != null && typeof cartItem.rawData === 'object'
@@ -329,18 +605,60 @@ export function useNegotiationItemHandlers({
             referenceDataPresent: Boolean(normalizedItem.referenceData),
           },
         });
-        setItems((prev) => [...prev, normalizedItem]);
+        setItems((prev) => {
+          const idx = prev.findIndex((i) => i.id === normalizedItem.id);
+          if (idx >= 0) {
+            const prevRow = prev[idx];
+            const nextRow = {
+              ...prevRow,
+              ...normalizedItem,
+              request_item_id: prevRow.request_item_id ?? reqItemId,
+              aiSuggestedNosposStockCategory:
+                prevRow.aiSuggestedNosposStockCategory ?? normalizedItem.aiSuggestedNosposStockCategory,
+              aiSuggestedNosposStockFieldValues:
+                prevRow.aiSuggestedNosposStockFieldValues ?? normalizedItem.aiSuggestedNosposStockFieldValues,
+              rawData:
+                prevRow.rawData != null && typeof prevRow.rawData === 'object'
+                  ? {
+                      ...prevRow.rawData,
+                      ...(normalizedItem.rawData != null && typeof normalizedItem.rawData === 'object'
+                        ? normalizedItem.rawData
+                        : {}),
+                    }
+                  : normalizedItem.rawData,
+              ebayResearchData: prevRow.ebayResearchData ?? normalizedItem.ebayResearchData,
+            };
+            const next = [...prev];
+            next[idx] = nextRow;
+            return next;
+          }
+          return [...prev, normalizedItem];
+        });
 
+        if (isClientLineUpdate && reqItemId) {
+          void updateRequestItemOffer(reqItemId, {
+            selected_offer_id: normalizedItem.selectedOfferId,
+            manual_offer_used: normalizedItem.selectedOfferId === 'manual',
+            manual_offer_gbp:
+              normalizedItem.selectedOfferId === 'manual' && normalizedItem.manualOffer
+                ? normalizeExplicitSalePrice(
+                    parseFloat(String(normalizedItem.manualOffer).replace(/[£,]/g, ''))
+                  )
+                : null,
+            our_sale_price_at_negotiation: resolveOurSalePrice(normalizedItem) ?? null,
+            cash_offers_json: negotiationOffersJsonForApi(normalizedItem.cashOffers),
+            voucher_offers_json: negotiationOffersJsonForApi(normalizedItem.voucherOffers),
+          }).catch(() => {});
+        }
+
+        const existingAiCat = existingLine ? getAiSuggestedNosposStockCategoryFromItem(existingLine) : null;
         const scheduledFullNosposAi =
           reqItemId &&
-          normalizedItem.categoryObject?.id != null &&
-          (addedFromBuilder || runNosposCategoryAiForInternalLeaf);
+          (normalizedItem.categoryObject?.id != null || normalizedItem.isCustomCeXItem === true) &&
+          (addedFromBuilder || runNosposCategoryAiForInternalLeaf) &&
+          !existingAiCat;
 
         if (scheduledFullNosposAi) {
-          const lineId = normalizedItem.id;
-          const catId = normalizedItem.categoryObject.id;
-          const skipReadyForBuilderCheck =
-            addedFromBuilder || nosposAiSkipReadyForBuilderCheck === true;
           const pathLogTag = addedFromBuilder
             ? '[CG Suite][NosposPathMatch][builder]'
             : normalizedItem.isJewelleryItem
@@ -357,117 +675,12 @@ export function useNegotiationItemHandlers({
             : normalizedItem.isJewelleryItem
               ? 'jewellery'
               : 'cex';
-          void (async () => {
-            try {
-              const itemSummary = summariseNegotiationItemForAi(normalizedItem);
-              const match = await runNosposStockCategoryAiMatchBackground({
-                internalCategoryId: catId,
-                itemSummary,
-                skipReadyForBuilderCheck,
-                logTag: pathLogTag,
-              });
-              if (!match) return;
-              const aiSuggestedNosposStockCategory = {
-                nosposId: match.nosposId != null ? Number(match.nosposId) : null,
-                fullName: match.fullName,
-                pathSegments: match.pathSegments,
-                source: categorySource,
-                savedAt: new Date().toISOString(),
-              };
-              await updateRequestItemRawData(reqItemId, {
-                raw_data: { aiSuggestedNosposStockCategory },
-              });
-              const rowWithCategoryHint = {
-                ...normalizedItem,
-                aiSuggestedNosposStockCategory,
-                rawData:
-                  normalizedItem.rawData != null && typeof normalizedItem.rawData === 'object'
-                    ? { ...normalizedItem.rawData, aiSuggestedNosposStockCategory }
-                    : { aiSuggestedNosposStockCategory },
-              };
-              let aiSuggestedNosposStockFieldValues = null;
-              if (
-                ENABLE_NOSPOS_STOCK_FIELD_AI &&
-                match.nosposId != null &&
-                Number(match.nosposId) > 0
-              ) {
-                try {
-                  aiSuggestedNosposStockFieldValues = await buildNosposStockFieldAiPayload({
-                    nosposCategoryId: match.nosposId,
-                    negotiationItem: rowWithCategoryHint,
-                    source: fieldAiSource,
-                  });
-                } catch (fe) {
-                  console.log(`[CG Suite][NosposFieldAi][${fieldAiLogLabel}] error`, fe);
-                }
-                if (aiSuggestedNosposStockFieldValues) {
-                  const fvSaveResult = await updateRequestItemRawData(reqItemId, {
-                    raw_data: { aiSuggestedNosposStockFieldValues },
-                  });
-                  if (fvSaveResult) {
-                    console.log(`[CG Suite][NosposFieldAi][${fieldAiLogLabel}] DB save OK`, {
-                      reqItemId,
-                      nosposCategoryId: aiSuggestedNosposStockFieldValues.nosposCategoryId,
-                      savedFields: Object.fromEntries(
-                        Object.entries(aiSuggestedNosposStockFieldValues.byNosposFieldId || {}).map(([id, val]) => [
-                          id,
-                          val,
-                        ])
-                      ),
-                    });
-                  } else {
-                    console.error(
-                      `[CG Suite][NosposFieldAi][${fieldAiLogLabel}] DB save FAILED — updateRequestItemRawData returned null`,
-                      { reqItemId }
-                    );
-                  }
-                }
-              }
-              setItems((prev) =>
-                prev.map((row) => {
-                  if (row.id !== lineId) return row;
-                  const nextRaw =
-                    row.rawData != null && typeof row.rawData === 'object'
-                      ? {
-                          ...row.rawData,
-                          aiSuggestedNosposStockCategory,
-                          ...(aiSuggestedNosposStockFieldValues
-                            ? { aiSuggestedNosposStockFieldValues }
-                            : {}),
-                        }
-                      : {
-                          aiSuggestedNosposStockCategory,
-                          ...(aiSuggestedNosposStockFieldValues
-                            ? { aiSuggestedNosposStockFieldValues }
-                            : {}),
-                        };
-                  if (row.ebayResearchData != null && typeof row.ebayResearchData === 'object') {
-                    return {
-                      ...row,
-                      aiSuggestedNosposStockCategory,
-                      ...(aiSuggestedNosposStockFieldValues ? { aiSuggestedNosposStockFieldValues } : {}),
-                      rawData: nextRaw,
-                      ebayResearchData: {
-                        ...row.ebayResearchData,
-                        aiSuggestedNosposStockCategory,
-                        ...(aiSuggestedNosposStockFieldValues
-                          ? { aiSuggestedNosposStockFieldValues }
-                          : {}),
-                      },
-                    };
-                  }
-                  return {
-                    ...row,
-                    aiSuggestedNosposStockCategory,
-                    ...(aiSuggestedNosposStockFieldValues ? { aiSuggestedNosposStockFieldValues } : {}),
-                    rawData: nextRaw,
-                  };
-                })
-              );
-            } catch (e) {
-              console.log(`${pathLogTag} persist error`, e);
-            }
-          })();
+          scheduleNosposStockAiForNegotiationLine(normalizedItem, {
+            pathLogTag,
+            categorySource,
+            fieldAiSource,
+            fieldAiLogLabel,
+          });
         }
 
         if (ENABLE_NOSPOS_STOCK_FIELD_AI && !scheduledFullNosposAi && reqItemId) {
@@ -492,17 +705,14 @@ export function useNegotiationItemHandlers({
                 const fvSaveResult = await updateRequestItemRawData(reqItemId, {
                   raw_data: { aiSuggestedNosposStockFieldValues },
                 });
-                if (fvSaveResult) {
-                  console.log('[CG Suite][NosposFieldAi][negotiation_add] DB save OK', {
-                    reqItemId,
-                    nosposCategoryId: aiSuggestedNosposStockFieldValues.nosposCategoryId,
-                    savedFields: { ...aiSuggestedNosposStockFieldValues.byNosposFieldId },
+                if (!fvSaveResult) {
+                  console.warn('[CG Suite][NosposFieldAi] fields', {
+                    context: 'negotiation_add',
+                    item: summariseNegotiationItemForAi(normalizedItem).name,
+                    lineId,
+                    outcome: 'save_failed',
+                    requestItemId: reqItemId,
                   });
-                } else {
-                  console.error(
-                    '[CG Suite][NosposFieldAi][negotiation_add] DB save FAILED — updateRequestItemRawData returned null',
-                    { reqItemId }
-                  );
                 }
                 setItems((prev) =>
                   prev.map((row) => {
@@ -526,7 +736,13 @@ export function useNegotiationItemHandlers({
                   })
                 );
               } catch (e) {
-                console.log('[CG Suite][NosposFieldAi][negotiation_add] error', e);
+                console.warn('[CG Suite][NosposFieldAi] fields', {
+                  context: 'negotiation_add',
+                  item: summariseNegotiationItemForAi(normalizedItem).name,
+                  lineId: normalizedItem.id,
+                  outcome: 'error',
+                  error: e instanceof Error ? e.message : String(e),
+                });
               }
             })();
           }
@@ -556,6 +772,7 @@ export function useNegotiationItemHandlers({
         if (!skipSuccessNotification) {
           showNotification(`Added "${cartItem.title}" to negotiation`, 'success');
         }
+        onCommitted?.({ id: normalizedItem.id, request_item_id: reqItemId });
         return true;
       } catch (err) {
         console.error('Failed to add negotiation item:', err);
@@ -564,6 +781,7 @@ export function useNegotiationItemHandlers({
       }
     },
     [
+      items,
       createOrAppendRequestItem,
       parseManualOfferValue,
       showNotification,
@@ -571,7 +789,111 @@ export function useNegotiationItemHandlers({
       setItems,
       setSeniorMgmtModal,
       setMarginResultModal,
+      scheduleNosposStockAiForNegotiationLine,
     ]
+  );
+
+  const handleAddNegotiationItemRef = useRef(handleAddNegotiationItem);
+  handleAddNegotiationItemRef.current = handleAddNegotiationItem;
+
+  useEffect(() => {
+    const lines = jewelleryWorkspaceLines;
+    if (!Array.isArray(lines)) return;
+    const ids = new Set(lines.map((l) => l?.id).filter(Boolean));
+    for (const id of [...jewelleryNosposEarlyAiStartedRef.current]) {
+      if (!ids.has(id)) jewelleryNosposEarlyAiStartedRef.current.delete(id);
+    }
+  }, [jewelleryWorkspaceLines]);
+
+  useEffect(() => {
+    if (mode !== 'negotiate') return;
+    if (!headerWorkspaceOpen || headerWorkspaceMode !== 'jewellery') return;
+    if (!Array.isArray(jewelleryWorkspaceLines) || jewelleryWorkspaceLines.length === 0) return;
+
+    let cancelled = false;
+    void (async () => {
+      let fallbackJewelleryCategoryId = null;
+      try {
+        const jewCat = await fetchJewelleryCatalog();
+        fallbackJewelleryCategoryId = jewCat?.category_id ?? null;
+      } catch {
+        /* best effort */
+      }
+      if (cancelled) return;
+
+      for (const line of jewelleryWorkspaceLines) {
+        if (!line?.id || line.request_item_id) continue;
+        if (jewelleryNosposEarlyAiStartedRef.current.has(line.id)) continue;
+        let total = 0;
+        try {
+          total = computeWorkspaceLineTotal(line);
+        } catch {
+          continue;
+        }
+        if (!Number.isFinite(total) || total <= 0) continue;
+
+        jewelleryNosposEarlyAiStartedRef.current.add(line.id);
+        try {
+          const cartItem = buildJewelleryNegotiationCartItem(
+            line,
+            useVoucherOffers,
+            customerOfferRulesData?.settings,
+            fallbackJewelleryCategoryId
+          );
+          const add = handleAddNegotiationItemRef.current;
+          if (!add) continue;
+          await add(cartItem, {
+            skipSuccessNotification: true,
+            runNosposCategoryAiForInternalLeaf: true,
+            onCommitted: ({ id, request_item_id: rid }) => {
+              if (cancelled || !rid) return;
+              setJewelleryWorkspaceLines((prev) =>
+                prev.map((l) => (l.id === id ? { ...l, request_item_id: rid } : l))
+              );
+            },
+          });
+        } catch (e) {
+          jewelleryNosposEarlyAiStartedRef.current.delete(line.id);
+          console.error('[CG Suite] jewellery workspace early NosPos AI', e);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    mode,
+    headerWorkspaceOpen,
+    headerWorkspaceMode,
+    jewelleryWorkspaceLines,
+    useVoucherOffers,
+    customerOfferRulesData?.settings,
+    setJewelleryWorkspaceLines,
+  ]);
+
+  const handleNegotiationBuilderOffersDisplayed = useCallback(
+    async (previewItem) => {
+      if (mode !== 'negotiate' || !previewItem?.id || previewItem.categoryObject?.id == null) return;
+      if (items.some((i) => i.id === previewItem.id)) return;
+      await handleAddNegotiationItem(previewItem, {
+        skipSuccessNotification: true,
+        addedFromBuilder: true,
+      });
+    },
+    [mode, items, handleAddNegotiationItem]
+  );
+
+  const handleNegotiationCexProductDisplayed = useCallback(
+    async (previewItem) => {
+      if (mode !== 'negotiate' || !previewItem?.id) return;
+      if (items.some((i) => i.id === previewItem.id)) return;
+      await handleAddNegotiationItem(previewItem, {
+        skipSuccessNotification: true,
+        runNosposCategoryAiForInternalLeaf: true,
+      });
+    },
+    [mode, items, handleAddNegotiationItem]
   );
 
   const handleWorkspaceBlockedOfferAttempt = useCallback(
@@ -597,7 +919,6 @@ export function useNegotiationItemHandlers({
             addedFromBuilder: workspaceModeAtAttempt === 'builder',
             runNosposCategoryAiForInternalLeaf:
               workspaceModeAtAttempt === 'cex' || workspaceModeAtAttempt === 'jewellery',
-            nosposAiSkipReadyForBuilderCheck: workspaceModeAtAttempt === 'jewellery',
           });
           if (ok && (workspaceModeAtAttempt === 'builder' || workspaceModeAtAttempt === 'cex')) {
             useAppStore.getState().requestCloseHeaderWorkspace();
@@ -637,10 +958,10 @@ export function useNegotiationItemHandlers({
             customerOfferRulesData?.settings,
             fallbackJewelleryCategoryId
           );
+          const existingNeg = items.find((i) => i.id === cartItem.id);
           const ok = await handleAddNegotiationItem(cartItem, {
             skipSuccessNotification: true,
-            runNosposCategoryAiForInternalLeaf: true,
-            nosposAiSkipReadyForBuilderCheck: true,
+            runNosposCategoryAiForInternalLeaf: !getAiSuggestedNosposStockCategoryFromItem(existingNeg),
           });
           if (!ok) return;
         } catch (err) {
@@ -656,7 +977,14 @@ export function useNegotiationItemHandlers({
         'success'
       );
     },
-    [customerOfferRulesData?.settings, handleAddNegotiationItem, useVoucherOffers, showNotification, setJewelleryWorkspaceLines]
+    [
+      customerOfferRulesData?.settings,
+      handleAddNegotiationItem,
+      useVoucherOffers,
+      showNotification,
+      setJewelleryWorkspaceLines,
+      items,
+    ]
   );
 
   const handleRemoveJewelleryWorkspaceRow = useCallback(
@@ -722,7 +1050,9 @@ export function useNegotiationItemHandlers({
         request_item_id: null,
         variantId: null,
       };
-      await handleAddNegotiationItem(customItem);
+      await handleAddNegotiationItem(customItem, {
+        runNosposCategoryAiForInternalLeaf: Boolean(categoryObject?.id),
+      });
     },
     [handleAddNegotiationItem, useVoucherOffers]
   );
@@ -754,5 +1084,8 @@ export function useNegotiationItemHandlers({
     handleRemoveJewelleryWorkspaceRow,
     handleEbayResearchCompleteFromHeader,
     handleRefreshCeXData,
+    notifyEbayResearchMergedForNosposAi,
+    handleNegotiationBuilderOffersDisplayed,
+    handleNegotiationCexProductDisplayed,
   };
 }

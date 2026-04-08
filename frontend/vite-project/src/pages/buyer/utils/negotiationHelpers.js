@@ -4,6 +4,10 @@ import { mapRequestItemsToCartItems } from '@/utils/requestToCartMapping';
 import { calculateBuyOffers, titleForEbayCcOfferIndex } from '@/components/forms/researchStats';
 import { NEGOTIATION_ROW_CONTEXT } from '../rowContextZones';
 import { rebuildJewelleryOffersForNegotiationItem } from '@/components/jewellery/jewelleryNegotiationCart';
+import {
+  getAiSuggestedNosposStockCategoryFromItem,
+  getAiSuggestedNosposStockFieldValuesFromItem,
+} from '@/utils/nosposCategoryMappings';
 
 // ─── Pure helper functions for Negotiation page ─────────────────────────────
 
@@ -479,6 +483,17 @@ export function buildFinishPayload(
       }
       if (Array.isArray(item.authorisedOfferSlots) && item.authorisedOfferSlots.length > 0) {
         rawData.authorisedOfferSlots = item.authorisedOfferSlots;
+      }
+
+      // Ensure NosPos hints + saved stock fields survive book/draft even when only on item top-level
+      // or nested under ebayResearchData (getters merge all candidate locations).
+      const nosposCatHint = getAiSuggestedNosposStockCategoryFromItem(item);
+      if (nosposCatHint) {
+        rawData.aiSuggestedNosposStockCategory = nosposCatHint;
+      }
+      const nosposFieldBlob = getAiSuggestedNosposStockFieldValuesFromItem(item);
+      if (nosposFieldBlob) {
+        rawData.aiSuggestedNosposStockFieldValues = nosposFieldBlob;
       }
 
       const cexBuyCash = item.cexBuyPrice != null ? Number(item.cexBuyPrice) : null;

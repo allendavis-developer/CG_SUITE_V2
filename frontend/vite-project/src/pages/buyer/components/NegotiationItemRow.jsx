@@ -5,6 +5,10 @@ import { resolveOurSalePrice, getDisplayOffers } from '../utils/negotiationHelpe
 import { NEGOTIATION_ROW_CONTEXT, RRP_SOURCE_CELL_CLASS } from '../rowContextZones';
 import { isBlockedForItem, offerIdToSlot, manualSlotCommitRequiresAuthorisation } from '@/utils/customerOfferRules';
 import TestingPassedCell from './TestingPassedCell';
+import NosposRequiredFieldsColumnCell, {
+  NosposRequiredFieldsEditorTriggerButton,
+  NosposSchemaCellSpinner,
+} from './NosposRequiredFieldsColumnCell';
 
 // ─── Reusable offer cell (1st / 2nd / 3rd / 4th) ─────────────────────────────
 
@@ -121,6 +125,11 @@ export default function NegotiationItemRow({
   /** When provided, shows a "Skip NosPos" checkbox column. */
   parkExcluded = false,
   onToggleParkExclude = null,
+  nosposCategoriesResults = null,
+  nosposCategoryMappings = null,
+  actualRequestId = null,
+  onOpenNosposRequiredFieldsEditor = null,
+  hideNosposRequiredColumn = false,
 }) {
   const quantity = item.quantity || 1;
   const displayOffers = getDisplayOffers(item, useVoucherOffers);
@@ -218,10 +227,44 @@ export default function NegotiationItemRow({
 
       {/* AI-resolved NosPos stock category (breadcrumb) */}
       <td className="align-top max-w-[220px]" onContextMenu={ctxRemoveOnly} title={nosposCategoryBreadcrumb || undefined}>
-        <div className="text-[10px] font-medium leading-snug break-words" style={{ color: 'var(--text-muted)' }}>
-          {nosposCategoryBreadcrumb || '—'}
-        </div>
+        {item.isRemoved ? (
+          <div className="text-[10px] text-slate-400">—</div>
+        ) : nosposCategoriesResults == null ? (
+          <div className="py-1">
+            <NosposSchemaCellSpinner />
+          </div>
+        ) : (
+          <div className="flex flex-col gap-0.5">
+            <div className="text-[10px] font-medium leading-snug break-words" style={{ color: 'var(--text-muted)' }}>
+              {nosposCategoryBreadcrumb || '—'}
+            </div>
+            {hideNosposRequiredColumn ? (
+              <NosposRequiredFieldsEditorTriggerButton
+                item={item}
+                negotiationIndex={index}
+                nosposCategoriesResults={nosposCategoriesResults}
+                nosposCategoryMappings={nosposCategoryMappings}
+                useVoucherOffers={useVoucherOffers}
+                requestId={actualRequestId}
+                onOpenEditor={onOpenNosposRequiredFieldsEditor}
+              />
+            ) : null}
+          </div>
+        )}
       </td>
+
+      {!hideNosposRequiredColumn ? (
+        <NosposRequiredFieldsColumnCell
+          item={item}
+          negotiationIndex={index}
+          nosposCategoriesResults={nosposCategoriesResults}
+          nosposCategoryMappings={nosposCategoryMappings}
+          useVoucherOffers={useVoucherOffers}
+          requestId={actualRequestId}
+          onOpenEditor={onOpenNosposRequiredFieldsEditor}
+          onContextMenu={ctxRemoveOnly}
+        />
+      ) : null}
 
       {/* Item Name & Attributes */}
       <td onContextMenu={ctxRemoveOnly}>

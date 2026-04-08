@@ -11,11 +11,19 @@ import {
   suggestFieldValues,
 } from '@/services/aiCategoryService';
 import { summariseNegotiationItemForAi } from '@/services/aiCategoryPathCascade';
+import {
+  getBoundedNosposStockFieldSelect,
+  snapAiValueToBoundedSelectOptions,
+} from '@/pages/buyer/utils/nosposStockFieldBoundedSelects';
 
 export const AI_SUGGESTED_NOSPOS_FIELD_VALUES_KEY = 'aiSuggestedNosposStockFieldValues';
 
 function syntheticFieldName(nosposFieldId) {
   return `cg_nf_${nosposFieldId}`;
+}
+
+function logNosposFieldsOnce(payload) {
+  console.log('[CG Suite][NosposFieldAi] fields', payload);
 }
 
 export function linkedFieldsForCategory(nosposCategoryId, categoriesResults) {
@@ -27,6 +35,15 @@ export function linkedFieldsForCategory(nosposCategoryId, categoriesResults) {
 }
 
 /**
+ * Build field entries for /api/ai/suggest-fields/.
+ *
+ * Linked fields with a **bounded** label (e.g. Storage, Network — see `nosposStockFieldBoundedSelects`)
+ * are sent as `control: 'select'` with only NosPos option values, and **only if** `lf.required === true`
+ * (optional bounded fields are left for staff / table editors).
+ *
+ * All other eligible fields stay `text` as before. Jewellery Carat/Hallmark remains excluded via
+ * `shouldSkipAiFill`, with presets handled separately.
+ *
  * @param {object[]} linked
  * @returns {{ name: string, label: string, control: string, options: { value: string, text: string }[], _fid: number }[]}
  */
@@ -38,6 +55,20 @@ export function buildNosposFieldAiPayloadEntries(linked) {
     const label = String(lf.name || '').trim() || `Field ${fid}`;
     const stub = { name: syntheticFieldName(fid), label };
     if (shouldSkipAiFill(stub)) continue;
+
+    const bounded = getBoundedNosposStockFieldSelect(label);
+    if (bounded) {
+      if (lf.required !== true) continue;
+      out.push({
+        name: syntheticFieldName(fid),
+        label,
+        control: 'select',
+        options: bounded.options,
+        _fid: Number(fid),
+      });
+      continue;
+    }
+
     out.push({
       name: syntheticFieldName(fid),
       label,
@@ -66,67 +97,37 @@ function mapAiResponseToByFieldId(normalized, entries) {
  * @param {object[]|null} [params.categoriesResults] - if null, fetches /nospos-categories/
  * @returns {Promise<object|null>} payload for raw_data[AI_SUGGESTED_NOSPOS_FIELD_VALUES_KEY] or null
  */
-function attributePairsFromCartItem(negotiationItem) {
-  const av = negotiationItem?.attributeValues;
-  const al = negotiationItem?.attributeLabels || {};
-  if (!av || typeof av !== 'object') return [];
-  return Object.entries(av)
-    .filter(([, v]) => v != null && String(v).trim())
-    .map(([code, v]) => ({
-      code,
-      label: al[code] != null && String(al[code]).trim() ? String(al[code]).trim() : code,
-      value: String(v).trim(),
-    }));
-}
-
 export async function buildNosposStockFieldAiPayload({
   nosposCategoryId,
   negotiationItem,
   source = 'negotiation_add',
   categoriesResults = null,
 }) {
-  const pairsFromCart = attributePairsFromCartItem(negotiationItem);
-  console.log('[CG Suite][NosposFieldAi][add] cart attributes (raw)', {
-    source,
-    title: negotiationItem?.title,
-    variantName: negotiationItem?.variantName,
-    subtitle: negotiationItem?.subtitle,
-    categoryObject: negotiationItem?.categoryObject?.name ?? negotiationItem?.categoryObject?.id,
-    attributeValues: negotiationItem?.attributeValues ?? null,
-    attributeLabels: negotiationItem?.attributeLabels ?? null,
-    pairsResolved: pairsFromCart,
-    variant_details: negotiationItem?.variant_details
-      ? {
-          attribute_values: negotiationItem.variant_details.attribute_values ?? negotiationItem.variant_details.attributeValues,
-          attribute_labels: negotiationItem.variant_details.attribute_labels ?? negotiationItem.variant_details.attributeLabels,
-        }
-      : null,
-    referenceDataAttributeValues:
-      negotiationItem?.referenceData?.attribute_values ??
-      negotiationItem?.referenceData?.attributeValues ??
-      null,
-  });
+  const itemLabel =
+    negotiationItem?.title ||
+    negotiationItem?.variantName ||
+    summariseNegotiationItemForAi(negotiationItem).name ||
+    null;
+  const lineId = negotiationItem?.id ?? null;
 
   const results =
     categoriesResults != null ? categoriesResults : (await fetchNosposCategories())?.results || [];
   const linked = linkedFieldsForCategory(nosposCategoryId, results);
   const entries = buildNosposFieldAiPayloadEntries(linked);
   if (!entries.length) {
-    console.log('[CG Suite][NosposFieldAi][add] skip — no eligible linked fields', {
-      nosposCategoryId,
-      linkedCount: linked.length,
+    logNosposFieldsOnce({
+      source,
+      item: itemLabel,
+      lineId,
+      nosposCategoryId: Number(nosposCategoryId),
+      outcome: 'skip_no_eligible_fields',
+      linkedFieldCount: linked.length,
+      fieldValues: null,
     });
     return null;
   }
 
   const item = summariseNegotiationItemForAi(negotiationItem);
-  console.log('[CG Suite][NosposFieldAi][add] item summary sent to /api/ai/suggest-fields/', {
-    name: item.name,
-    dbCategory: item.dbCategory,
-    attributes: item.attributes,
-    attributeCount: Object.keys(item.attributes || {}).length,
-    nosposFieldsRequested: entries.map((e) => ({ nosposFieldId: e._fid, apiName: e.name, label: e.label })),
-  });
 
   const fieldsForApi = entries.map(({ name, label, control, options }) => ({
     name,
@@ -135,21 +136,53 @@ export async function buildNosposStockFieldAiPayload({
     options,
   }));
 
-  const result = await suggestFieldValues({ item, fields: fieldsForApi });
-  console.log('[CG Suite][NosposFieldAi][add] API response fields (raw keys)', result?.fields ?? null);
+  let result;
+  try {
+    result = await suggestFieldValues({ item, fields: fieldsForApi });
+  } catch (e) {
+    logNosposFieldsOnce({
+      source,
+      item: itemLabel,
+      lineId,
+      nosposCategoryId: Number(nosposCategoryId),
+      outcome: 'error',
+      fieldValues: null,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return null;
+  }
 
   const normalized = normalizeAiFieldResponseKeys(result.fields, fieldsForApi);
-  console.log('[CG Suite][NosposFieldAi][add] normalized (after key-map cg_nf_* → canonical)', normalized);
-  const byNosposFieldId = mapAiResponseToByFieldId(normalized, entries);
-  console.log('[CG Suite][NosposFieldAi][add] byNosposFieldId (string ids → values)', byNosposFieldId);
+
+  const snapped = { ...normalized };
+  const dropped = [];
+  for (const e of entries) {
+    if (!e.options?.length) continue;
+    const v = snapped[e.name];
+    if (v == null || String(v).trim() === '') continue;
+    const fixed = snapAiValueToBoundedSelectOptions(v, e.options);
+    if (fixed) {
+      snapped[e.name] = fixed;
+    } else {
+      delete snapped[e.name];
+      dropped.push({ label: e.label, value: v });
+    }
+  }
+
+  const byNosposFieldId = mapAiResponseToByFieldId(snapped, entries);
 
   const labelById = Object.fromEntries(entries.map((e) => [String(e._fid), e.label]));
 
   if (!Object.keys(byNosposFieldId).length) {
-    console.log('[CG Suite][NosposFieldAi][add] no values returned', {
-      nosposCategoryId,
-      fieldCount: entries.length,
-      normalizedAfterKeyMap: normalized,
+    logNosposFieldsOnce({
+      source,
+      item: itemLabel,
+      lineId,
+      nosposCategoryId: Number(nosposCategoryId),
+      outcome: 'skip_no_values',
+      requestedFieldCount: entries.length,
+      fieldValues: null,
+      dropped: dropped.length ? dropped : undefined,
     });
     return null;
   }
@@ -160,12 +193,17 @@ export async function buildNosposStockFieldAiPayload({
     source,
     savedAt: new Date().toISOString(),
   };
-  const persistedLabeled = Object.fromEntries(
+  const fieldValues = Object.fromEntries(
     Object.entries(byNosposFieldId).map(([id, val]) => [id, { label: labelById[id] || id, value: val }])
   );
-  console.log('[CG Suite][NosposFieldAi][add] persisted', {
+  logNosposFieldsOnce({
+    source,
+    item: itemLabel,
+    lineId,
     nosposCategoryId: payload.nosposCategoryId,
-    byNosposFieldId: persistedLabeled,
+    outcome: 'ok',
+    fieldValues,
+    dropped: dropped.length ? dropped : undefined,
   });
   return payload;
 }

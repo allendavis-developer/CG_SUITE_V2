@@ -72,7 +72,15 @@ export const Badge = ({ children, variant = 'default', className = '' }) => {
   );
 };
 
-export const CustomDropdown = ({ label, value, options, onChange, labelPosition = 'left', includeSelected = false }) => {
+export const CustomDropdown = ({
+  label,
+  value,
+  options,
+  onChange,
+  labelPosition = 'left',
+  includeSelected = false,
+  buttonClassName = '',
+}) => {
   const [isOpen, setIsOpen] = useState(false);
   const [menuRect, setMenuRect] = useState(null);
   const dropdownRef = React.useRef(null);
@@ -129,7 +137,7 @@ export const CustomDropdown = ({ label, value, options, onChange, labelPosition 
         ref={buttonRef}
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-900 text-left flex items-center justify-between hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-brand-orange focus:border-brand-orange transition-all"
+        className={`w-full bg-white border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-900 text-left flex items-center justify-between hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-brand-orange focus:border-brand-orange transition-all ${buttonClassName}`.trim()}
       >
         <span className="font-medium">{value}</span>
         <Icon

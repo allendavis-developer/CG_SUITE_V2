@@ -1,13 +1,7 @@
 import React from 'react';
-import CustomerTransactionHeader from '../CustomerTransactionHeader';
 
 export default function NegotiationSidebarPanel({
-  customerData,
-  transactionType,
-  setTransactionType,
-  setStoreTransactionType,
   mode,
-  setShowNewBuyConfirm,
   jewelleryOfferTotal,
   otherItemsOfferTotal,
   totalOfferPrice,
@@ -18,7 +12,7 @@ export default function NegotiationSidebarPanel({
   targetExcess,
   setTargetOffer,
   researchSandboxBookedView,
-  persistedNosposUrl,
+  persistedNosposAgreementId,
   handleParkAgreementOpenNospos,
   handleViewParkedAgreement,
   headerWorkspaceOpen,
@@ -28,31 +22,7 @@ export default function NegotiationSidebarPanel({
 }) {
   return (
     <aside className="w-80 border-l flex flex-col bg-white shrink-0" style={{ borderColor: 'rgba(20, 69, 132, 0.2)' }}>
-      <CustomerTransactionHeader
-        customer={customerData?.id ? customerData : { name: 'No customer selected' }}
-        transactionType={transactionType}
-        onTransactionChange={(nextType) => {
-          setTransactionType(nextType);
-          setStoreTransactionType(nextType);
-        }}
-        readOnly={mode === 'view'}
-      />
-      <div className="flex-1 overflow-y-auto p-6 space-y-6">
-        <button
-          type="button"
-          onClick={() => setShowNewBuyConfirm(true)}
-          className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border font-bold text-sm transition-all"
-          style={{
-            borderColor: 'rgba(20, 69, 132, 0.25)',
-            color: 'var(--brand-blue)',
-            background: 'rgba(20, 69, 132, 0.03)',
-          }}
-          title="Clear cart/customer and start a fresh buying session"
-        >
-          <span className="material-symbols-outlined text-lg">refresh</span>
-          New Buy
-        </button>
-      </div>
+      <div className="min-h-0 flex-1 shrink" aria-hidden="true" />
 
       <div className="p-6 bg-white border-t space-y-4" style={{ borderColor: 'rgba(20, 69, 132, 0.2)' }}>
         <div className="space-y-2.5">
@@ -125,11 +95,11 @@ export default function NegotiationSidebarPanel({
             >
               <span className="material-symbols-outlined text-xl" aria-hidden>task_alt</span>
               <span className="text-base uppercase tracking-tight">
-                {persistedNosposUrl ? 'Rerun Park Agreement' : 'Park Agreement'}
+                {persistedNosposAgreementId ? 'Rerun Park Agreement' : 'Park Agreement'}
               </span>
               <span className="material-symbols-outlined text-xl group-hover:translate-x-1 transition-transform" aria-hidden>arrow_forward</span>
             </button>
-            {persistedNosposUrl && (
+            {persistedNosposAgreementId && (
               <button
                 type="button"
                 className="w-full font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 group active:scale-[0.98]"
@@ -141,7 +111,12 @@ export default function NegotiationSidebarPanel({
                 onClick={handleViewParkedAgreement}
               >
                 <span className="material-symbols-outlined text-xl" aria-hidden>open_in_new</span>
-                <span className="text-base uppercase tracking-tight">View Parked Agreement</span>
+                <span className="flex flex-col items-center leading-tight">
+                  <span className="text-base uppercase tracking-tight">View Parked Agreement</span>
+                  <span className="text-[11px] font-semibold tracking-wide opacity-90">
+                    ID {persistedNosposAgreementId}
+                  </span>
+                </span>
               </button>
             )}
           </div>

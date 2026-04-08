@@ -12,6 +12,7 @@ import {
   patchNosposAgreementField,
   withExtensionCallTimeout,
   getNosposTabUrl,
+  OPEN_NOSPOS_NEW_AGREEMENT_ITEMS_TAB_TIMEOUT_MS,
 } from "@/services/extensionClient";
 import { resolveNosposLeafCategoryIdForAgreementItem } from "@/utils/nosposCategoryMappings";
 import {
@@ -20,8 +21,10 @@ import {
 } from "../utils/parkAgreementProgressTables";
 import {
   agreementParkLineTitle,
+  buildNosposAgreementItemsUrl,
   buildNosposNewAgreementCreateUrl,
   buildParkExtensionItemPayload,
+  extractNosposAgreementId,
   parkIncludedSequentialStepIndex,
   parkNegotiationLines,
   parseParkAgreementStateFromApi,
@@ -48,8 +51,8 @@ export function useNegotiationParkAgreement({
   const [parkRetryBusyUi, setParkRetryBusyUi] = useState(false);
   /** Indices of negotiation lines excluded from the NosPos park run (persists across runs). */
   const [parkExcludedItems, setParkExcludedItems] = useState(new Set());
-  /** Persisted NosPos agreement URL for the current request (null = never parked). */
-  const [persistedNosposUrl, setPersistedNosposUrl] = useState(null);
+  /** Persisted NosPos agreement id for the current request (null = never parked). */
+  const [persistedNosposAgreementId, setPersistedNosposAgreementId] = useState(null);
   const parkStateSaveTimerRef = useRef(null);
   const handleParkFieldPatch = useCallback(
     async ({ lineIndex, rowId, patchKind, fieldLabel, value }) => {
@@ -355,8 +358,8 @@ export function useNegotiationParkAgreement({
     [items, useVoucherOffers, actualRequestId, showNotification, parkExcludedItems]
   );
 
-  /** Debounced persist of park state (excluded items + parked URL) to the DB. */
-  const scheduleParkStateSave = useCallback((url, excludedSet) => {
+  /** Debounced persist of park state (excluded items + NosPos agreement id) to the DB. */
+  const scheduleParkStateSave = useCallback((agreementId, excludedSet) => {
     if (!actualRequestId || !researchSandboxBookedView) return;
     if (parkStateSaveTimerRef.current) clearTimeout(parkStateSaveTimerRef.current);
     parkStateSaveTimerRef.current = setTimeout(() => {
@@ -365,7 +368,7 @@ export function useNegotiationParkAgreement({
         .map((item) => String(item.request_item_id ?? item.id))
         .filter((s) => s && s !== 'undefined' && s !== 'null');
       saveParkAgreementState(actualRequestId, {
-        nosposAgreementUrl: url ?? null,
+        nosposAgreementId: agreementId ?? null,
         excludedItemIds,
       }).catch(() => {});
     }, 800);
@@ -373,16 +376,16 @@ export function useNegotiationParkAgreement({
 
   /** Opens the saved NosPos agreement items URL in a new browser tab only (no extension). */
   const handleViewParkedAgreement = useCallback(() => {
-    const urlToOpen = persistedNosposUrl;
-    if (!urlToOpen || typeof urlToOpen !== 'string') {
+    const urlToOpen = buildNosposAgreementItemsUrl(persistedNosposAgreementId);
+    if (!urlToOpen) {
       showNotification(
-        'No parked agreement link saved yet. Finish a park run so the items URL is stored, then try again.',
+        'No parked agreement id saved yet. Finish a park run so the NoSpos id is stored, then try again.',
         'warning'
       );
       return;
     }
     window.open(urlToOpen, '_blank', 'noopener,noreferrer');
-  }, [persistedNosposUrl, showNotification]);
+  }, [persistedNosposAgreementId, showNotification]);
 
   const handleToggleParkExcludeItem = useCallback((itemIndex) => {
     setParkExcludedItems((prev) => {
@@ -392,10 +395,10 @@ export function useNegotiationParkAgreement({
       } else {
         next.add(itemIndex);
       }
-      scheduleParkStateSave(persistedNosposUrl, next);
+      scheduleParkStateSave(persistedNosposAgreementId, next);
       return next;
     });
-  }, [scheduleParkStateSave, persistedNosposUrl]);
+  }, [scheduleParkStateSave, persistedNosposAgreementId]);
 
   const handleParkAgreementOpenNospos = useCallback(() => {
     if (!researchSandboxBookedView) return;
@@ -496,8 +499,8 @@ export function useNegotiationParkAgreement({
 
         const opened = await withExtensionCallTimeout(
           openNosposNewAgreementCreateBackground(nid, { agreementType }),
-          undefined,
-          'NoSpos did not respond in time — make sure the Chrome extension is active and try again.'
+          OPEN_NOSPOS_NEW_AGREEMENT_ITEMS_TAB_TIMEOUT_MS,
+          'NoSpos did not open the agreement items page in time — check the NoSpos tab and try again.'
         );
         if (!opened?.ok || opened.tabId == null) {
           setParkProgressModal({
@@ -513,7 +516,22 @@ export function useNegotiationParkAgreement({
           showNotification(opened?.error || 'Could not open NoSpos.', 'warning');
           return;
         }
-        const { tabId } = opened;
+        const {
+          tabId,
+          agreementItemsUrl: openedAgreementItemsUrl,
+          agreementItemsUrlWarning,
+        } = opened;
+        const openedAgreementId = extractNosposAgreementId(openedAgreementItemsUrl);
+        const parkOpenDetail = openedAgreementId
+          ? `Agreement ID: ${openedAgreementId}`
+          : null;
+        if (agreementItemsUrlWarning && !openedAgreementId) {
+          showNotification(String(agreementItemsUrlWarning), 'warning');
+        }
+        if (openedAgreementId) {
+          setPersistedNosposAgreementId(openedAgreementId);
+          scheduleParkStateSave(openedAgreementId, currentExcluded);
+        }
 
         const catRes = await fetchNosposCategories().catch(() => ({ results: [] }));
         const categoriesResults = catRes?.results || [];
@@ -530,7 +548,7 @@ export function useNegotiationParkAgreement({
         if (!firstLine) {
           parkNosposTabRef.current = tabId;
           setParkProgressModal({
-            systemSteps: buildParkAgreementSystemSteps([], { allDone: true }),
+            systemSteps: buildParkAgreementSystemSteps([], { allDone: true, parkOpenDetail }),
             itemTables: buildParkItemTablesFromFill({
               lines,
               fieldRows: [],
@@ -573,6 +591,7 @@ export function useNegotiationParkAgreement({
               activeIndex: null,
               loginStatus: 'done',
               openStatus: 'done',
+              parkOpenDetail,
               nosposCleanup: nosposCleanupStep,
               itemStepDetails: { ...itemStepDetails },
               excludedItemIds: currentExcluded,
@@ -634,6 +653,7 @@ export function useNegotiationParkAgreement({
               activeIndex: null,
               loginStatus: 'done',
               openStatus: 'done',
+              parkOpenDetail,
               nosposCleanup: nosposCleanupStep,
               itemStepDetails: { ...itemStepDetails },
               excludedItemIds: currentExcluded,
@@ -654,18 +674,24 @@ export function useNegotiationParkAgreement({
           });
         }
 
+        let itemsFillAllDone = false;
+        let parkingAgreementStep = null;
+
         const refreshModal = (i, patch = {}) => {
           setParkProgressModal({
             systemSteps: buildParkAgreementSystemSteps(lineLabels, {
               activeIndex: patch.errorIndex != null ? null : i,
               loginStatus: 'done',
               openStatus: 'done',
+              parkOpenDetail,
               errorIndex: patch.errorIndex,
               allDone: patch.allDone,
               itemStepDetails: { ...itemStepDetails },
               excludedItemIds: currentExcluded,
               lines,
               nosposCleanup: nosposCleanupStep,
+              itemsFillAllDone,
+              parkingAgreementStep,
             }),
             itemTables: buildParkItemTablesFromFill({
               lines,
@@ -816,12 +842,50 @@ export function useNegotiationParkAgreement({
           refreshModal(i, { progressive: { currentLineIndex: i } });
         }
 
+        itemsFillAllDone = true;
+        parkingAgreementStep = {
+          status: 'running',
+          detail:
+            'NoSpos: Next → Agreement → Actions → Park Agreement → confirm. Waiting until the tab shows nospos.com/buying…',
+        };
+        setParkProgressModal({
+          systemSteps: buildParkAgreementSystemSteps(lineLabels, {
+            activeIndex: null,
+            loginStatus: 'done',
+            openStatus: 'done',
+            parkOpenDetail,
+            itemStepDetails: { ...itemStepDetails },
+            excludedItemIds: currentExcluded,
+            lines,
+            nosposCleanup: nosposCleanupStep,
+            itemsFillAllDone,
+            parkingAgreementStep,
+          }),
+          itemTables: buildParkItemTablesFromFill({
+            lines,
+            fieldRows: [],
+            fieldRowsByItemIndex: { ...parkFieldRowsByIndexRef.current },
+            progressive: undefined,
+            categoryId: catIdFirst,
+            categoriesResults,
+            agreementParkLineTitle,
+            excludedItemIds: currentExcluded,
+          }),
+          footerError: null,
+          allowClose: false,
+          itemStepDetails: { ...itemStepDetails },
+        });
+
+        let parkOk = false;
+        let parkErr = null;
         try {
           const parkSidebarRes = await withExtensionCallTimeout(
             clickNosposSidebarParkAgreement({ tabId }),
-            65000,
-            'Parking the agreement on NoSpos (Next, then Actions → Park Agreement) timed out.'
+            130000,
+            'Parking the agreement on NoSpos timed out — the tab should end on nospos.com/buying when Park succeeds.'
           );
+          parkOk = !!parkSidebarRes?.ok;
+          parkErr = parkSidebarRes?.error || null;
           if (!parkSidebarRes?.ok) {
             showNotification(
               parkSidebarRes?.error ||
@@ -830,6 +894,7 @@ export function useNegotiationParkAgreement({
             );
           }
         } catch (e) {
+          parkErr = e?.message || null;
           showNotification(
             e?.message ||
               'Could not finish Park Agreement on NoSpos — use Actions → Park Agreement there.',
@@ -837,16 +902,31 @@ export function useNegotiationParkAgreement({
           );
         }
 
+        parkingAgreementStep = parkOk
+          ? {
+              status: 'done',
+              detail: 'NoSpos reached https://nospos.com/buying — parking finished.',
+            }
+          : {
+              status: 'error',
+              detail:
+                parkErr ||
+                'Parking did not complete — use Actions → Park Agreement on NoSpos or check the tab.',
+            };
+
         parkNosposTabRef.current = tabId;
         setParkProgressModal({
           systemSteps: buildParkAgreementSystemSteps(lineLabels, {
             allDone: true,
             loginStatus: 'done',
             openStatus: 'done',
+            parkOpenDetail,
             itemStepDetails: { ...itemStepDetails },
             excludedItemIds: currentExcluded,
             lines,
             nosposCleanup: nosposCleanupStep,
+            itemsFillAllDone,
+            parkingAgreementStep,
           }),
           itemTables: buildParkItemTablesFromFill({
             lines,
@@ -863,13 +943,14 @@ export function useNegotiationParkAgreement({
           itemStepDetails: { ...itemStepDetails },
         });
 
-        // Capture the live NosPos agreement URL and persist park state to DB
+        // If the tab is still on an agreement workflow URL, persist its agreement id.
         try {
           const tabUrlResult = await getNosposTabUrl(tabId);
           const capturedUrl = tabUrlResult?.ok && tabUrlResult.url ? tabUrlResult.url : null;
-          if (capturedUrl) {
-            setPersistedNosposUrl(capturedUrl);
-            scheduleParkStateSave(capturedUrl, currentExcluded);
+          const capturedAgreementId = extractNosposAgreementId(capturedUrl);
+          if (capturedAgreementId) {
+            setPersistedNosposAgreementId(capturedAgreementId);
+            scheduleParkStateSave(capturedAgreementId, currentExcluded);
           }
         } catch (_) {}
 
@@ -913,8 +994,8 @@ export function useNegotiationParkAgreement({
   ]);
 
   const hydrateFromSavedState = useCallback((parkState, mappedItems) => {
-    const { url, excludedIds } = parseParkAgreementStateFromApi(parkState, mappedItems);
-    if (url) setPersistedNosposUrl(url);
+    const { agreementId, excludedIds } = parseParkAgreementStateFromApi(parkState, mappedItems);
+    if (agreementId) setPersistedNosposAgreementId(agreementId);
     if (excludedIds) setParkExcludedItems(excludedIds);
   }, []);
 
@@ -923,7 +1004,7 @@ export function useNegotiationParkAgreement({
     setParkProgressModal,
     parkRetryBusyUi,
     parkExcludedItems,
-    persistedNosposUrl,
+    persistedNosposAgreementId,
     handleParkFieldPatch,
     handleRetryParkLine,
     handleViewParkedAgreement,

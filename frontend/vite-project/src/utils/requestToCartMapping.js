@@ -141,6 +141,8 @@ export function mapRequestItemsToCartItems(items, transactionType) {
         id: item.request_item_id,
         request_item_id: item.request_item_id,
         rawData,
+        aiSuggestedNosposStockCategory: rawData?.aiSuggestedNosposStockCategory ?? null,
+        aiSuggestedNosposStockFieldValues: rawData?.aiSuggestedNosposStockFieldValues ?? null,
         authorisedOfferSlots: Array.isArray(rawData?.authorisedOfferSlots) ? rawData.authorisedOfferSlots : [],
         title,
         subtitle,

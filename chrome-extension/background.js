@@ -234,6 +234,18 @@ function isNosposNewAgreementWorkflowUrl(url) {
   }
 }
 
+/** After a successful Park Agreement, NosPos returns the tab to the Buying hub (`/buying`). */
+function isNosposBuyingHubUrl(url) {
+  try {
+    const u = new URL(url || '');
+    const host = u.hostname.replace(/^www\./i, '').toLowerCase();
+    if (host !== 'nospos.com' && !host.endsWith('.nospos.com')) return false;
+    return /^\/buying\/?$/i.test(u.pathname || '') || /^\/customer\/\d+\/buying\/?$/i.test(u.pathname || '');
+  } catch (e) {
+    return false;
+  }
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -604,47 +616,165 @@ async function waitAfterAgreementItemsNextClick(tabId, maxWaitMs = NOSPOS_RELOAD
   };
 }
 
+const NOSPOS_BUYING_AFTER_PARK_WAIT_MS = 60000;
+
+/** After opening `/newagreement/agreement/create?…`, NosPos redirects to `/newagreement/{id}/items?…`. */
+const NOSPOS_OPEN_AGREEMENT_ITEMS_URL_WAIT_MS = 120000;
+
+async function waitForNosposNewAgreementItemsTabUrl(
+  tabId,
+  maxWaitMs = NOSPOS_OPEN_AGREEMENT_ITEMS_URL_WAIT_MS
+) {
+  const deadline = Date.now() + maxWaitMs;
+  while (Date.now() < deadline) {
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    if (!tab) {
+      return { ok: false, error: 'The NoSpos tab was closed' };
+    }
+    const url = tab.url || '';
+    if (tab.status === 'complete' && isNosposAgreementItemsUrl(url)) {
+      return { ok: true, url };
+    }
+    await sleep(300);
+  }
+  return {
+    ok: false,
+    error:
+      'NoSpos did not reach the agreement items page in time — use the NoSpos tab if it loaded.',
+  };
+}
+
+/** Park Agreement completion: NosPos navigates the tab to https://nospos.com/buying (authoritative). */
+async function waitForNosposTabBuyingAfterPark(tabId, maxWaitMs = NOSPOS_BUYING_AFTER_PARK_WAIT_MS) {
+  const deadline = Date.now() + maxWaitMs;
+  let settled = false;
+  return new Promise((resolve) => {
+    const done = (result) => {
+      if (settled) return;
+      settled = true;
+      try {
+        chrome.tabs.onUpdated.removeListener(onTabUpdated);
+      } catch (_) {}
+      resolve(result);
+    };
+
+    const onTabUpdated = (updatedTabId, _changeInfo, tab) => {
+      if (updatedTabId !== tabId || settled) return;
+      const url = tab?.url || '';
+      if (url && isNosposBuyingHubUrl(url)) {
+        done({ ok: true });
+      }
+    };
+
+    chrome.tabs.onUpdated.addListener(onTabUpdated);
+
+    (async function poll() {
+      const tab0 = await chrome.tabs.get(tabId).catch(() => null);
+      if (!tab0) {
+        done({ ok: false, error: 'The NoSpos tab was closed' });
+        return;
+      }
+      if (isNosposBuyingHubUrl(tab0.url || '')) {
+        done({ ok: true });
+        return;
+      }
+      while (Date.now() < deadline && !settled) {
+        const tab = await chrome.tabs.get(tabId).catch(() => null);
+        if (!tab) {
+          done({ ok: false, error: 'The NoSpos tab was closed' });
+          return;
+        }
+        const url = tab.url || '';
+        if (isNosposBuyingHubUrl(url)) {
+          done({ ok: true });
+          return;
+        }
+        await sleep(80);
+      }
+      if (!settled) {
+        done({
+          ok: false,
+          error:
+            'NoSpos did not return to nospos.com/buying after Park — finish or confirm Park in the NoSpos tab, then try again.',
+        });
+      }
+    })();
+  });
+}
+
 /** Items page Next → wait for reload → Agreement card Actions → Park Agreement → SweetAlert OK. */
 async function clickNosposSidebarParkAgreementImpl(payload) {
   const tabId = parseInt(String(payload.tabId ?? '').trim(), 10);
   if (!Number.isFinite(tabId) || tabId <= 0) {
     return { ok: false, error: 'Invalid tab' };
   }
-  const tabCheck = await ensureNosposAgreementItemsTab(tabId, 120000);
+  const tabCheck = await waitForNosposAgreementTabReadyForPark(tabId, 120000);
   if (!tabCheck.ok) {
     return tabCheck;
   }
   try {
-    const rNext = await sendMessageToTabWithRetries(
+    if (tabCheck.onItemsStep) {
+      const rNext = await sendMessageToTabWithRetries(
+        tabId,
+        { type: 'NOSPOS_AGREEMENT_FILL_PHASE', phase: 'click_items_form_next' },
+        18,
+        450
+      );
+      if (!rNext || rNext.ok === false) {
+        return {
+          ok: false,
+          error: rNext?.error || 'Could not press Next on the NoSpos items page',
+        };
+      }
+      const waitNav = await waitAfterAgreementItemsNextClick(tabId, NOSPOS_RELOAD_WAIT_MS);
+      if (!waitNav.ok) {
+        return waitNav;
+      }
+    } else {
+      await sleep(500);
+    }
+    const buyingReachedPromise = waitForNosposTabBuyingAfterPark(
       tabId,
-      { type: 'NOSPOS_AGREEMENT_FILL_PHASE', phase: 'click_items_form_next' },
-      18,
-      450
+      NOSPOS_BUYING_AFTER_PARK_WAIT_MS
     );
-    if (!rNext || rNext.ok === false) {
-      return {
-        ok: false,
-        error: rNext?.error || 'Could not press Next on the NoSpos items page',
-      };
-    }
-    const waitNav = await waitAfterAgreementItemsNextClick(tabId, NOSPOS_RELOAD_WAIT_MS);
-    if (!waitNav.ok) {
-      return waitNav;
-    }
-    const r = await sendMessageToTabWithRetries(
+    const parkSidebarPromise = sendMessageToTabWithRetries(
       tabId,
       { type: 'NOSPOS_AGREEMENT_FILL_PHASE', phase: 'sidebar_park_agreement' },
       22,
       450
-    );
-    if (!r || r.ok === false) {
+    )
+      .then((result) => ({ ok: true, result }))
+      .catch((e) => ({ ok: false, error: e?.message || String(e) }));
+
+    const first = await Promise.race([
+      buyingReachedPromise.then((result) => ({ kind: 'buying', ...result })),
+      parkSidebarPromise.then((result) => ({ kind: 'park', ...result })),
+    ]);
+
+    if (first.kind === 'buying' && first.ok) {
+      return { ok: true, parked: true };
+    }
+
+    const r = first.kind === 'park' ? first : await parkSidebarPromise;
+    const buyingReached = first.kind === 'buying' ? first : await buyingReachedPromise;
+
+    if (buyingReached.ok) {
+      return { ok: true, parked: true };
+    }
+    if (!r.ok || r.result?.ok === false) {
       return {
         ok: false,
-        error: r?.error || 'NoSpos did not complete sidebar Park Agreement',
+        error:
+          r.error ||
+          r.result?.error ||
+          buyingReached.error ||
+          'NoSpos did not complete sidebar Park Agreement',
       };
     }
-    await sleep(1400);
-    return { ok: true, parked: true };
+    return {
+      ok: false,
+      error: buyingReached.error || 'NoSpos did not return to Buying after Park.',
+    };
   } catch (e) {
     return { ok: false, error: e?.message || String(e) || 'Sidebar park failed' };
   }
@@ -706,6 +836,39 @@ async function ensureNosposAgreementItemsTab(tabId, deadlineMs = 90000) {
     ok: false,
     error:
       'Items page did not load in time. Finish opening the agreement in the NoSpos window, then try again.',
+  };
+}
+
+/**
+ * Before Park Agreement: tab must be on a NosPos new-agreement step with the sidebar.
+ * With a single line, NosPos sometimes advances past /items before we run — waiting only for
+ * /items would spin until timeout while the user finishes Park in the UI (CG Suite stuck on the line).
+ */
+async function waitForNosposAgreementTabReadyForPark(tabId, deadlineMs = 120000) {
+  const deadline = Date.now() + deadlineMs;
+  while (Date.now() < deadline) {
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    if (!tab) {
+      return { ok: false, error: 'The NoSpos tab was closed' };
+    }
+    const url = tab.url || '';
+    if (tab.status !== 'complete') {
+      await sleep(350);
+      continue;
+    }
+    if (!isNosposNewAgreementWorkflowUrl(url)) {
+      await sleep(350);
+      continue;
+    }
+    if (isNosposAgreementItemsUrl(url)) {
+      return { ok: true, onItemsStep: true };
+    }
+    return { ok: true, onItemsStep: false };
+  }
+  return {
+    ok: false,
+    error:
+      'Agreement page did not load in time. Finish opening the agreement in the NoSpos window, then try again.',
   };
 }
 
@@ -2043,7 +2206,19 @@ async function handleBridgeForward(message, sender) {
     try {
       const { tabId } = await openNosposParkAgreementTab(createUrl, appTabId);
       if (tabId == null) return { ok: false, error: 'Could not open NoSpos tab' };
-      return { ok: true, tabId };
+      const urlRes = await waitForNosposNewAgreementItemsTabUrl(
+        tabId,
+        NOSPOS_OPEN_AGREEMENT_ITEMS_URL_WAIT_MS
+      );
+      if (urlRes.ok && urlRes.url) {
+        return { ok: true, tabId, agreementItemsUrl: urlRes.url };
+      }
+      return {
+        ok: true,
+        tabId,
+        agreementItemsUrl: null,
+        agreementItemsUrlWarning: urlRes.error || null,
+      };
     } catch (e) {
       return { ok: false, error: e?.message || 'Could not open NoSpos' };
     }
