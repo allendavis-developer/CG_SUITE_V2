@@ -48,6 +48,7 @@ export default function NegotiationOfferMetricsBar({
   headerWorkspaceOpen = false,
   headerWorkspaceMode = 'builder',
   onOpenJewelleryReferenceModal,
+  className = '',
 }) {
   const showJewelleryReferenceCta =
     hasJewelleryReferenceData &&
@@ -62,7 +63,7 @@ export default function NegotiationOfferMetricsBar({
   const txLabels = TRANSACTION_OPTIONS.map((o) => o.label);
 
   return (
-    <div className="shrink-0 bg-brand-blue px-6 pb-2 pt-1">
+    <div className={`shrink-0 bg-brand-blue px-6 pb-2 pt-1 ${className}`.trim()}>
       <div className="flex flex-wrap items-center gap-2">
         <StripField label="Transaction type" valueClassName="px-0">
           {mode === 'view' ? (

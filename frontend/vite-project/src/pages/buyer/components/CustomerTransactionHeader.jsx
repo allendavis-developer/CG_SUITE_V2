@@ -70,7 +70,7 @@ const CustomerTransactionHeader = ({
       <div
         className={`shrink-0 border-t-4 border-t-white/35 bg-brand-blue px-6 pt-2 pb-1 ${containerClassName}`}
       >
-        <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/40">
+        <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:h-0">
           <div
             className={`flex shrink-0 ${rowMinH} max-w-full min-w-0 overflow-hidden rounded-md border border-white/25 bg-white/10 ${joinedRow ? '' : 'pl-1.5 pr-3'}`}
           >

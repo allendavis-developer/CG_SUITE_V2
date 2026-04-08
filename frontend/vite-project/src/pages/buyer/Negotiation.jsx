@@ -921,7 +921,10 @@ const Negotiation = ({ mode }) => {
         } : null}
       />
 
-      <div ref={negotiationWorkspaceOverlayBottomRef}>
+      <div
+        ref={negotiationWorkspaceOverlayBottomRef}
+        className="flex shrink-0 flex-col gap-3 bg-brand-blue px-6 py-2"
+      >
         <CustomerTransactionHeader
           customer={customerData?.id ? customerData : { name: 'No customer selected' }}
           transactionType={transactionType}
@@ -931,6 +934,7 @@ const Negotiation = ({ mode }) => {
           }}
           presentation="infoStrip"
           readOnly={mode === 'view'}
+          containerClassName="!border-t-0 !bg-transparent !px-0 !py-0"
         />
         <NegotiationOfferMetricsBar
           mode={mode}
@@ -955,6 +959,7 @@ const Negotiation = ({ mode }) => {
           headerWorkspaceOpen={headerWorkspaceOpen}
           headerWorkspaceMode={headerWorkspaceMode}
           onOpenJewelleryReferenceModal={() => setShowJewelleryReferenceModal(true)}
+          className="!bg-transparent !px-0 !py-0"
         />
       </div>
 

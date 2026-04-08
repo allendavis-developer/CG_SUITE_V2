@@ -686,6 +686,7 @@ const AppHeader = ({
     const isExpanded = isFilteringCategories ? hasChildren : expandedIds.includes(category.category_id);
     const suppressSelectedState = isFilteringCategories && filteredLeafMatches.length > 1;
     const isSelected = !suppressSelectedState && selectedCategoryId === String(category.category_id);
+    const treeOnBrandBlue = showNegotiationItemBuilder;
 
     return (
       <div key={category.category_id} className="space-y-1">
@@ -694,8 +695,10 @@ const AppHeader = ({
           className={`flex w-full cursor-pointer items-center rounded-lg p-2 text-left text-sm ${
             isSelected
               ? 'border-l-2 border-brand-orange bg-brand-orange/10 font-semibold text-brand-orange'
-              : 'text-brand-blue hover:bg-[var(--brand-blue-alpha-10)]'
-          } ${!isSelected && isExpanded ? 'bg-[var(--brand-blue-alpha-05)]' : ''}`}
+              : treeOnBrandBlue
+                ? 'text-white hover:bg-white/10'
+                : 'text-brand-blue hover:bg-[var(--brand-blue-alpha-10)]'
+          } ${!isSelected && isExpanded ? (treeOnBrandBlue ? 'bg-white/10' : 'bg-[var(--brand-blue-alpha-05)]') : ''}`}
           onClick={() => {
             handleCategorySelect(category);
             if (hasChildren) {
@@ -724,7 +727,9 @@ const AppHeader = ({
           </div>
         </button>
         {hasChildren && isExpanded && (
-          <div className="ml-4 space-y-1 border-l border-[var(--ui-border)]">
+          <div
+            className={`ml-4 space-y-1 border-l ${treeOnBrandBlue ? 'border-white/25' : 'border-[var(--ui-border)]'}`}
+          >
             {category.children.map((child) => renderCategoryNode(child))}
           </div>
         )}
@@ -802,7 +807,12 @@ const AppHeader = ({
   );
 
   return (
-    <header ref={headerRef} className="border-b border-solid border-brand-blue bg-brand-blue px-6 md:px-10 py-3 sticky top-0 z-50 text-white">
+    <header
+      ref={headerRef}
+      className={`bg-brand-blue px-6 md:px-10 py-3 sticky top-0 z-50 text-white ${
+        showBuyerControls ? '' : 'border-b border-solid border-brand-blue'
+      }`}
+    >
       {showBuyerControls ? (
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
           <div className="relative min-w-0 flex-1" ref={popupRef}>
@@ -939,19 +949,31 @@ const AppHeader = ({
                 <div
                   className={
                     showNegotiationItemBuilder
-                      ? 'h-full w-[420px] overflow-y-auto border-r border-[var(--ui-border)] bg-[var(--ui-bg)] p-2'
+                      ? 'h-full w-[420px] overflow-y-auto border-r border-white/20 bg-brand-blue p-2'
                       : 'max-h-[440px] w-[420px] overflow-y-auto rounded-l-xl border border-[var(--ui-border)] bg-[var(--ui-card)] p-2 shadow-2xl'
                   }
                 >
-                <div className="mb-3 border-b border-[var(--ui-border)] px-2 pb-3">
-                  <p className="text-lg font-black uppercase leading-snug tracking-wide text-brand-blue sm:text-xl">
+                <div
+                  className={`mb-3 border-b px-2 pb-3 ${
+                    showNegotiationItemBuilder ? 'border-white/20' : 'border-[var(--ui-border)]'
+                  }`}
+                >
+                  <p
+                    className={`text-lg font-black uppercase leading-snug tracking-wide sm:text-xl ${
+                      showNegotiationItemBuilder ? 'text-white' : 'text-brand-blue'
+                    }`}
+                  >
                     <span>{activeTopLevelCategory.name}</span>
                     <span className="ml-2 text-brand-orange">Categories</span>
                   </p>
                 </div>
                 <div className="px-2 pb-3">
                   <div className="relative">
-                    <span className="material-symbols-outlined absolute left-3 top-2.5 text-sm text-[var(--text-muted)]">
+                    <span
+                      className={`material-symbols-outlined absolute left-3 top-2.5 text-sm ${
+                        showNegotiationItemBuilder ? 'text-white/55' : 'text-[var(--text-muted)]'
+                      }`}
+                    >
                       filter_list
                     </span>
                     <input
@@ -968,7 +990,13 @@ const AppHeader = ({
                   {visibleActiveTopLevelCategory
                     ? renderCategoryNode(visibleActiveTopLevelCategory)
                     : (
-                      <p className="px-2 py-1 text-xs text-[var(--text-muted)]">No matching categories.</p>
+                      <p
+                        className={`px-2 py-1 text-xs ${
+                          showNegotiationItemBuilder ? 'text-white/65' : 'text-[var(--text-muted)]'
+                        }`}
+                      >
+                        No matching categories.
+                      </p>
                     )}
                 </div>
                 {!showNegotiationItemBuilder && (
