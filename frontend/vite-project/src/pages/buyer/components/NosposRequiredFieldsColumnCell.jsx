@@ -1,5 +1,8 @@
 import React, { useMemo } from 'react';
-import { buildRequiredNosposFieldEditorModel } from '@/pages/buyer/utils/nosposAgreementFirstItemFill';
+import {
+  buildRequiredNosposFieldEditorModel,
+  negotiationLineNosposFieldAiPending,
+} from '@/pages/buyer/utils/nosposAgreementFirstItemFill';
 
 function useRequiredNosposFieldEditorModel({
   item,
@@ -64,6 +67,22 @@ export function NosposRequiredFieldsEditorTriggerButton({
 
   if (item?.isRemoved || nosposCategoriesResults == null) return null;
   if (!model || model.stockAssessment !== 'ready') return null;
+
+  if (negotiationLineNosposFieldAiPending(item)) {
+    return (
+      <button
+        type="button"
+        disabled
+        className="mt-1 inline-flex w-full max-w-full cursor-wait items-center justify-center gap-0.5 rounded-md border border-slate-200 bg-slate-50 px-1.5 py-1 text-left text-[9px] font-bold uppercase tracking-wide text-slate-500 opacity-90"
+        title="NosPos stock field AI is finishing — editor opens when suggestions are ready"
+      >
+        <span className="material-symbols-outlined shrink-0 text-[14px] animate-spin leading-none text-slate-400">
+          progress_activity
+        </span>
+        <span className="min-w-0 truncate">Stock AI…</span>
+      </button>
+    );
+  }
 
   const missingRequiredCount = countMissingRequiredNosposValues(model.requiredRows);
   const hasReqId = item?.request_item_id != null && String(item.request_item_id).trim() !== '';
@@ -138,6 +157,26 @@ export default function NosposRequiredFieldsColumnCell({
     return (
       <td className="align-top text-[11px] text-slate-400" onContextMenu={onContextMenu}>
         —
+      </td>
+    );
+  }
+
+  if (negotiationLineNosposFieldAiPending(item)) {
+    return (
+      <td className="align-top max-w-[150px]" onContextMenu={onContextMenu}>
+        <button
+          type="button"
+          disabled
+          className="w-full cursor-wait rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-left text-[10px] font-bold uppercase tracking-wide text-slate-500 opacity-90"
+          title="NosPos stock field AI is finishing — editor opens when suggestions are ready"
+        >
+          <span className="inline-flex items-center gap-1">
+            <span className="material-symbols-outlined animate-spin text-[14px] leading-none text-slate-400">
+              progress_activity
+            </span>
+            Stock AI…
+          </span>
+        </button>
       </td>
     );
   }

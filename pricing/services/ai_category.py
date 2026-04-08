@@ -108,6 +108,12 @@ Strict rules:
   from the item details. Do NOT guess.
 - Omit any field you are not confident about — it is safer to leave it blank
   than to guess wrong.
+- Mobile / phone NETWORK or CARRIER-LOCK fields (any field whose label or
+  purpose is network lock, locked to network, SIM lock, etc.): do NOT choose
+  "unlocked", "open", "SIM free", "SIM-free", or similar positive-unlock
+  options unless the item name or attributes EXPLICITLY say the device is
+  unlocked, SIM-free, or not carrier-locked. Never treat "unlocked" as a
+  default or best guess when status is unknown — omit the field instead.
 - NEVER fill: description, serial number, IMEI, barcode, EAN, location,
   address, postcode, notes, comments, condition notes, rate, or any field
   that requires physical inspection or store-specific knowledge.

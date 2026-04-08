@@ -71,8 +71,14 @@ export default function MissingNosposRequiredFieldsModal({
         const existing = next[id] && typeof next[id] === 'object' ? next[id] : {};
         const merged = { ...existing };
         for (const er of row.editRows) {
-          if (merged[er.nosposFieldId] === undefined) {
-            merged[er.nosposFieldId] = er.value || '';
+          const nextVal = er.value || '';
+          const prevVal = merged[er.nosposFieldId];
+          const prevEmpty = prevVal === undefined || prevVal === null || String(prevVal).trim() === '';
+          const nextNonEmpty = String(nextVal).trim() !== '';
+          if (prevVal === undefined || prevVal === null) {
+            merged[er.nosposFieldId] = nextVal;
+          } else if (prevEmpty && nextNonEmpty) {
+            merged[er.nosposFieldId] = nextVal;
           }
         }
         next[id] = merged;

@@ -371,6 +371,11 @@ export function useNegotiationItemHandlers({
     } = meta || {};
 
     void (async () => {
+      if (ENABLE_NOSPOS_STOCK_FIELD_AI) {
+        setItems((prev) =>
+          prev.map((row) => (row.id === lineId ? { ...row, nosposStockFieldAiPending: true } : row))
+        );
+      }
       try {
         const itemSummary = summariseNegotiationItemForAi(normalizedItem);
         let flatArr = [];
@@ -520,7 +525,11 @@ export function useNegotiationItemHandlers({
             aiSuggestedNosposStockCategory,
             aiSuggestedNosposStockFieldValues
           );
-          return prev.map((row) => (row.id === lineId ? mergedForPrompt : row));
+          const nextRow =
+            ENABLE_NOSPOS_STOCK_FIELD_AI
+              ? { ...mergedForPrompt, nosposStockFieldAiPending: false }
+              : mergedForPrompt;
+          return prev.map((row) => (row.id === lineId ? nextRow : row));
         });
 
       } catch (e) {
@@ -531,6 +540,12 @@ export function useNegotiationItemHandlers({
           outcome: 'persist_error',
           error: e instanceof Error ? e.message : String(e),
         });
+      } finally {
+        if (ENABLE_NOSPOS_STOCK_FIELD_AI) {
+          setItems((prev) =>
+            prev.map((row) => (row.id === lineId ? { ...row, nosposStockFieldAiPending: false } : row))
+          );
+        }
       }
     })();
   }, [setItems]);
@@ -695,6 +710,11 @@ export function useNegotiationItemHandlers({
           if (nid != null && nid > 0 && !already) {
             const lineId = normalizedItem.id;
             void (async () => {
+              if (ENABLE_NOSPOS_STOCK_FIELD_AI) {
+                setItems((prev) =>
+                  prev.map((row) => (row.id === lineId ? { ...row, nosposStockFieldAiPending: true } : row))
+                );
+              }
               try {
                 const aiSuggestedNosposStockFieldValues = await buildNosposStockFieldAiPayload({
                   nosposCategoryId: nid,
@@ -721,9 +741,12 @@ export function useNegotiationItemHandlers({
                       row.rawData != null && typeof row.rawData === 'object'
                         ? { ...row.rawData, aiSuggestedNosposStockFieldValues }
                         : { aiSuggestedNosposStockFieldValues };
+                    const pendingClear =
+                      ENABLE_NOSPOS_STOCK_FIELD_AI ? { nosposStockFieldAiPending: false } : {};
                     if (row.ebayResearchData != null && typeof row.ebayResearchData === 'object') {
                       return {
                         ...row,
+                        ...pendingClear,
                         aiSuggestedNosposStockFieldValues,
                         rawData: nextRaw,
                         ebayResearchData: {
@@ -732,7 +755,7 @@ export function useNegotiationItemHandlers({
                         },
                       };
                     }
-                    return { ...row, aiSuggestedNosposStockFieldValues, rawData: nextRaw };
+                    return { ...row, ...pendingClear, aiSuggestedNosposStockFieldValues, rawData: nextRaw };
                   })
                 );
               } catch (e) {
@@ -743,6 +766,14 @@ export function useNegotiationItemHandlers({
                   outcome: 'error',
                   error: e instanceof Error ? e.message : String(e),
                 });
+              } finally {
+                if (ENABLE_NOSPOS_STOCK_FIELD_AI) {
+                  setItems((prev) =>
+                    prev.map((row) =>
+                      row.id === lineId ? { ...row, nosposStockFieldAiPending: false } : row
+                    )
+                  );
+                }
               }
             })();
           }

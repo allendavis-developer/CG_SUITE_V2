@@ -4,7 +4,7 @@ import { SPREADSHEET_TABLE_STYLES } from '@/styles/spreadsheetTableStyles';
 import { buildRequiredNosposFieldEditorModel } from '@/pages/buyer/utils/nosposAgreementFirstItemFill';
 import { negotiationItemDisplayName } from '@/pages/buyer/utils/negotiationMissingNosposRequired';
 import { getBoundedNosposStockFieldSelect } from '@/pages/buyer/utils/nosposStockFieldBoundedSelects';
-import { CustomDropdown } from '@/components/ui/components';
+import { SearchablePortalSelect } from '@/components/ui/components';
 
 const BOUNDED_FIELD_PLACEHOLDER = 'Choose…';
 
@@ -35,6 +35,16 @@ export default function NosposRequiredFieldsEditorModal({
     [item, negotiationIndex, useVoucherOffers, nosposSiteCategories, nosposCategoryMappings, requestId]
   );
 
+  /** When stock field AI lands after the modal opens, `id` / leaf / assessment stay the same — still sync draft from the line. */
+  const persistedEditableStockKey = useMemo(
+    () =>
+      model.requiredRows
+        .filter((r) => !r.satisfiedByPreset)
+        .map((r) => `${r.nosposFieldId}\u0001${String(r.value ?? '').trim()}`)
+        .join('\u0002'),
+    [model.requiredRows]
+  );
+
   const [draft, setDraft] = useState({});
   const [busy, setBusy] = useState(false);
 
@@ -44,7 +54,7 @@ export default function NosposRequiredFieldsEditorModal({
       if (!r.satisfiedByPreset) m[r.nosposFieldId] = r.value || '';
     }
     setDraft(m);
-  }, [item?.id, model.leafNosposId, model.stockAssessment]); // sync when line or leaf changes (not every model ref)
+  }, [item?.id, model.leafNosposId, model.stockAssessment, persistedEditableStockKey]);
 
   const handleSave = useCallback(async () => {
     const missing = model.requiredRows.filter(
@@ -125,36 +135,22 @@ export default function NosposRequiredFieldsEditorModal({
                       const bounded = getBoundedNosposStockFieldSelect(row.label);
                       const rawVal = String(draft[row.nosposFieldId] ?? '').trim();
                       if (bounded?.options?.length) {
-                        const optionLabels = bounded.options.map((o) =>
-                          String(o.text ?? o.value ?? '').trim()
-                        );
-                        const selectedOpt = bounded.options.find(
-                          (o) => String(o.value ?? '').trim() === rawVal
-                        );
-                        const selectedLabel = selectedOpt
-                          ? String(selectedOpt.text ?? selectedOpt.value ?? '').trim()
-                          : '';
-                        const valueOk =
-                          Boolean(selectedLabel) && optionLabels.includes(selectedLabel);
+                        const portalOptions = bounded.options.map((o) => ({
+                          value: String(o.value ?? '').trim(),
+                          label: String(o.text ?? o.value ?? '').trim(),
+                        }));
                         return (
-                          <div className="w-full min-w-[160px]">
-                            <CustomDropdown
-                              value={valueOk ? selectedLabel : BOUNDED_FIELD_PLACEHOLDER}
-                              options={optionLabels}
-                              onChange={(label) => {
-                                const found = bounded.options.find(
-                                  (o) =>
-                                    String(o.text ?? '').trim() === label ||
-                                    String(o.value ?? '').trim() === label
-                                );
-                                if (found) {
-                                  setDraft((d) => ({
-                                    ...d,
-                                    [row.nosposFieldId]: String(found.value ?? '').trim(),
-                                  }));
-                                }
-                              }}
-                              labelPosition="top"
+                          <div className="min-w-[160px] max-w-full">
+                            <SearchablePortalSelect
+                              value={rawVal}
+                              options={portalOptions}
+                              placeholder={BOUNDED_FIELD_PLACEHOLDER}
+                              onChange={(v) =>
+                                setDraft((d) => ({
+                                  ...d,
+                                  [row.nosposFieldId]: v,
+                                }))
+                              }
                             />
                           </div>
                         );

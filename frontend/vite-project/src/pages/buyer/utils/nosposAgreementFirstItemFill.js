@@ -185,6 +185,14 @@ export function shouldAutoOpenNosposStockFieldsEditor({
   return !aiNosposFieldBlobFillsAnyRequiredRow(aiFieldValuesBlob, model);
 }
 
+/**
+ * True while background NosPos stock field AI is resolving for this line.
+ * Buying flow uses this to defer the required-fields modal until values are merged into state.
+ */
+export function negotiationLineNosposFieldAiPending(item) {
+  return item?.nosposStockFieldAiPending === true;
+}
+
 /** True if at least one required (non-preset) NosPos stock field on the line is still empty. */
 export function negotiationLineHasMissingRequiredNosposStockFields(
   item,

@@ -1,5 +1,5 @@
 // components.js
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import TomSelect from 'tom-select';
 import 'tom-select/dist/css/tom-select.default.css';
@@ -179,6 +179,315 @@ export const CustomDropdown = ({
   );
 };
 
+/**
+ * Searchable single-select: trigger + portaled menu (fixed position) with filter input.
+ * Opening focuses the filter field immediately; arrow keys move highlight; Enter selects.
+ * Typing with the menu closed (focus on trigger) opens and seeds the filter.
+ *
+ * @param {{ value: string, label: string }}[] options
+ */
+export const SearchablePortalSelect = ({
+  value,
+  options,
+  onChange,
+  placeholder = 'Choose…',
+  searchPlaceholder = '',
+  buttonClassName = '',
+  zClass = 'z-[10050]',
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [highlightIdx, setHighlightIdx] = useState(0);
+  const [menuRect, setMenuRect] = useState(null);
+  const rootRef = useRef(null);
+  const buttonRef = useRef(null);
+  const menuRef = useRef(null);
+  const searchRef = useRef(null);
+  const itemRefs = useRef({});
+
+  const normalized = useMemo(() => {
+    if (!Array.isArray(options)) return [];
+    return options.map((o) => ({
+      value: String(o?.value ?? '').trim(),
+      label: String(o?.label ?? o?.value ?? '').trim(),
+    }));
+  }, [options]);
+
+  const selected = useMemo(
+    () => normalized.find((o) => o.value === String(value ?? '').trim()),
+    [normalized, value]
+  );
+
+  const displayText =
+    selected?.label || (String(value ?? '').trim() ? String(value) : placeholder);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return normalized;
+    return normalized.filter((o) => {
+      const lb = (o.label || o.value).toLowerCase();
+      return lb.includes(q);
+    });
+  }, [normalized, query]);
+
+  const maxHighlight = filtered.length;
+
+  useEffect(() => {
+    setHighlightIdx((h) => Math.min(Math.max(0, h), maxHighlight));
+  }, [maxHighlight]);
+
+  useLayoutEffect(() => {
+    if (!isOpen) return undefined;
+    const id = window.setTimeout(() => {
+      searchRef.current?.focus({ preventScroll: true });
+    }, 0);
+    return () => clearTimeout(id);
+  }, [isOpen]);
+
+  useLayoutEffect(() => {
+    if (!isOpen) return;
+    const el = itemRefs.current[highlightIdx];
+    el?.scrollIntoView?.({ block: 'nearest' });
+  }, [highlightIdx, isOpen, filtered]);
+
+  const closeMenu = useCallback(() => {
+    setIsOpen(false);
+    setQuery('');
+    buttonRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  const pickHighlight = useCallback(() => {
+    if (highlightIdx === 0) {
+      onChange('');
+    } else if (filtered[highlightIdx - 1]) {
+      onChange(filtered[highlightIdx - 1].value);
+    }
+    setIsOpen(false);
+    setQuery('');
+    buttonRef.current?.focus({ preventScroll: true });
+  }, [highlightIdx, filtered, onChange]);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeMenu();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isOpen, closeMenu]);
+
+  useEffect(() => {
+    const onDown = (event) => {
+      const inRoot = rootRef.current?.contains(event.target);
+      const inMenu = menuRef.current?.contains(event.target);
+      if (!inRoot && !inMenu) {
+        setIsOpen(false);
+        setQuery('');
+      }
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, []);
+
+  useEffect(() => {
+    if (isOpen && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setMenuRect({ top: rect.bottom + 4, left: rect.left, width: Math.max(rect.width, 200) });
+    } else {
+      setMenuRect(null);
+    }
+  }, [isOpen]);
+
+  const showPlaceholderStyle = !selected && !String(value ?? '').trim();
+
+  const onFilterKeyDown = (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeMenu();
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlightIdx((h) => Math.min(h + 1, maxHighlight));
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlightIdx((h) => Math.max(h - 1, 0));
+      return;
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      pickHighlight();
+    }
+  };
+
+  const onTriggerKeyDown = (e) => {
+    if (isOpen) return;
+    if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      setQuery('');
+      setHighlightIdx(normalized.length > 0 ? 1 : 0);
+      setIsOpen(true);
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setQuery('');
+      setHighlightIdx(normalized.length > 0 ? normalized.length : 0);
+      setIsOpen(true);
+      return;
+    }
+    const ch = e.key;
+    if (
+      ch &&
+      ch.length === 1 &&
+      !e.ctrlKey &&
+      !e.metaKey &&
+      !e.altKey &&
+      !e.isComposing
+    ) {
+      e.preventDefault();
+      const nextFiltered = normalized.filter((o) => {
+        const lb = (o.label || o.value).toLowerCase();
+        return lb.includes(ch.toLowerCase());
+      });
+      setQuery(ch);
+      setHighlightIdx(nextFiltered.length > 0 ? 1 : 0);
+      setIsOpen(true);
+    }
+  };
+
+  const setClearRef = (el) => {
+    itemRefs.current[0] = el;
+  };
+  const setOptionRef = (idx) => (el) => {
+    itemRefs.current[idx + 1] = el;
+  };
+
+  const hiRow = (active) =>
+    active
+      ? 'bg-brand-blue/10 ring-1 ring-inset ring-brand-blue/20'
+      : 'hover:bg-gray-50';
+
+  const portalMenu =
+    isOpen &&
+    menuRect &&
+    createPortal(
+      <div
+        ref={menuRef}
+        role="listbox"
+        aria-label="Options"
+        className={`fixed ${zClass} flex flex-col rounded-lg border border-gray-200 bg-white shadow-xl`}
+        style={{
+          top: menuRect.top,
+          left: menuRect.left,
+          width: menuRect.width,
+          minWidth: 160,
+          maxHeight: 'min(50vh, 280px)',
+        }}
+      >
+        <div className="shrink-0 border-b border-gray-100 p-1.5">
+          <input
+            ref={searchRef}
+            type="text"
+            inputMode="search"
+            autoComplete="off"
+            aria-autocomplete="list"
+            aria-controls="searchable-portal-select-list"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={onFilterKeyDown}
+            placeholder={searchPlaceholder}
+            aria-label={searchPlaceholder ? undefined : 'Filter options'}
+            className="w-full rounded border border-gray-200 px-2 py-1 text-xs text-gray-900 outline-none focus:border-brand-blue focus:ring-1 focus:ring-brand-blue/25"
+          />
+        </div>
+        <div
+          id="searchable-portal-select-list"
+          className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
+        >
+          <button
+            ref={setClearRef}
+            type="button"
+            role="option"
+            aria-selected={highlightIdx === 0}
+            className={`w-full border-b border-gray-50 px-3 py-1.5 text-left text-[11px] text-gray-500 ${hiRow(highlightIdx === 0)}`}
+            onMouseEnter={() => setHighlightIdx(0)}
+            onClick={() => {
+              onChange('');
+              closeMenu();
+            }}
+          >
+            {placeholder}
+          </button>
+          {filtered.length === 0 ? (
+            <div className="px-3 py-2 text-xs text-gray-500">No matches</div>
+          ) : (
+            filtered.map((o, idx) => {
+              const listIdx = idx + 1;
+              const isHi = highlightIdx === listIdx;
+              const isValue = String(value ?? '').trim() === o.value;
+              return (
+                <button
+                  ref={setOptionRef(idx)}
+                  key={`${o.value}-${idx}`}
+                  type="button"
+                  role="option"
+                  aria-selected={isHi}
+                  onMouseEnter={() => setHighlightIdx(listIdx)}
+                  onClick={() => {
+                    onChange(o.value);
+                    closeMenu();
+                  }}
+                  className={`w-full px-3 py-2 text-left text-xs text-gray-800 ${hiRow(isHi)} ${
+                    isValue ? 'font-semibold text-brand-blue' : ''
+                  }`}
+                >
+                  {o.label || o.value}
+                </button>
+              );
+            })
+          )}
+        </div>
+      </div>,
+      document.body
+    );
+
+  return (
+    <div className="relative w-full" ref={rootRef}>
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        onClick={() => {
+          setIsOpen((prev) => {
+            if (prev) {
+              setQuery('');
+              return false;
+            }
+            setQuery('');
+            setHighlightIdx(normalized.length > 0 ? 1 : 0);
+            return true;
+          });
+        }}
+        onKeyDown={onTriggerKeyDown}
+        className={`flex w-full max-w-full items-center justify-between gap-1 rounded border border-gray-300 bg-white px-2 py-1 text-left text-xs font-medium focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-blue/30 ${
+          showPlaceholderStyle ? 'text-gray-500' : 'text-gray-900'
+        } ${buttonClassName}`.trim()}
+      >
+        <span className="min-w-0 flex-1 truncate">{displayText}</span>
+        <Icon name="expand_more" className="shrink-0 text-[18px] leading-none text-gray-400" />
+      </button>
+      {portalMenu}
+    </div>
+  );
+};
+
 export const SearchableDropdown = ({
   label,
   value,
@@ -187,6 +496,7 @@ export const SearchableDropdown = ({
   placeholder = "Select...",
   clearable,
   onClear,
+  className = '',
 }) => {
   const selectRef = useRef(null);
   const tomSelectInstance = useRef(null);
@@ -258,7 +568,7 @@ export const SearchableDropdown = ({
 
 
   return (
-    <div className="searchable-dropdown-match flex flex-col gap-1.5">
+    <div className={`searchable-dropdown-match flex flex-col gap-1.5 ${className}`.trim()}>
       {label && (
         <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">
           {label}

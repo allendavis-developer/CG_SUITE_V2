@@ -39,6 +39,10 @@ const AppHeader = ({
   const [activeTopLevelId, setActiveTopLevelId] = useState(null);
   const [expandedIds, setExpandedIds] = useState([]);
   const [headerSearch, setHeaderSearch] = useState('');
+  /** Search term for the header eBay panel — only set when user commits (e button or eBay research). Not tied to live header typing. */
+  const [ebayHeaderResearchQuery, setEbayHeaderResearchQuery] = useState('');
+  /** Increments on each committed eBay session so the form remounts fresh; never derived from `headerSearch` keystrokes. */
+  const [ebayHeaderResearchMountKey, setEbayHeaderResearchMountKey] = useState(0);
   const [categorySearch, setCategorySearch] = useState('');
   const [availableModels, setAvailableModels] = useState([]);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
@@ -96,6 +100,12 @@ const AppHeader = ({
     lastBuilderNosposPreviewKeyRef.current = null;
   }, []);
 
+  const beginHeaderEbayResearchSession = useCallback((rawQuery) => {
+    const q = String(rawQuery ?? '').trim();
+    setEbayHeaderResearchQuery(q);
+    setEbayHeaderResearchMountKey((k) => k + 1);
+  }, []);
+
   /** Full reset: builder UI, top-level picker, workspace mode, marketplace dialog. */
   const resetHeaderWorkspaceChrome = useCallback(() => {
     resetJewelleryScrape();
@@ -103,6 +113,8 @@ const AppHeader = ({
     setActiveTopLevelId(null);
     setWorkspaceMode('builder');
     setMarketplaceSearchDialog(null);
+    setEbayHeaderResearchQuery('');
+    setHeaderSearch('');
   }, [clearHeaderBuilderState, resetJewelleryScrape]);
 
   const setHeaderWorkspaceModeGlobal = useAppStore((s) => s.setHeaderWorkspaceMode);
@@ -801,6 +813,8 @@ const AppHeader = ({
                   onClick={() => {
                     if (!ebayTopLevelCategory) return;
                     handleCategorySelect(ebayTopLevelCategory);
+                    beginHeaderEbayResearchSession(headerSearch);
+                    setHeaderSearch('');
                     setWorkspaceMode('ebay');
                     setActiveTopLevelId(null);
                   }}
@@ -971,18 +985,17 @@ const AppHeader = ({
                     ) : workspaceMode === 'ebay' ? (
                       <div className="relative h-full min-h-0">
                         <EbayResearchForm
-                          key={`ebay-header-${headerSearch.trim()}`}
+                          key={`ebay-header-${ebayHeaderResearchMountKey}`}
                           mode="modal"
                           containModalInParent={true}
                           category={ebayTopLevelCategory || { name: 'eBay', path: ['eBay'] }}
-                          initialSearchQuery={headerSearch.trim() || undefined}
+                          initialSearchQuery={ebayHeaderResearchQuery || undefined}
                           onComplete={(data) => {
                             if (data?.cancel) {
                               resetHeaderWorkspaceChrome();
                               return;
                             }
                             buyerControls?.onEbayResearchComplete?.(data);
-                            setHeaderSearch('');
                             resetHeaderWorkspaceChrome();
                           }}
                           initialHistogramState={true}
@@ -1228,6 +1241,8 @@ const AppHeader = ({
                 onClick={() => {
                   if (!ebayTopLevelCategory) return;
                   handleCategorySelect(ebayTopLevelCategory);
+                  beginHeaderEbayResearchSession(marketplaceSearchDialog);
+                  setHeaderSearch('');
                   setWorkspaceMode('ebay');
                   setActiveTopLevelId(null);
                   setMarketplaceSearchDialog(null);

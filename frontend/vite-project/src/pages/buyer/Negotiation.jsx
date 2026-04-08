@@ -40,7 +40,10 @@ import {
   buildMergedNosposStockFieldValuesBlob,
   applyNosposStockFieldBlobToNegotiationItems,
 } from './utils/negotiationMissingNosposRequired';
-import { negotiationLineHasMissingRequiredNosposStockFields } from './utils/nosposAgreementFirstItemFill';
+import {
+  negotiationLineHasMissingRequiredNosposStockFields,
+  negotiationLineNosposFieldAiPending,
+} from './utils/nosposAgreementFirstItemFill';
 
 const Negotiation = ({ mode }) => {
   const navigate = useNavigate();
@@ -264,10 +267,15 @@ const Negotiation = ({ mode }) => {
     }
   }, [nosposRequiredFieldsEditor, nosposRequiredEditorLiveItem]);
 
-  const handleOpenNosposRequiredFieldsEditor = useCallback((item, negotiationIndex) => {
-    if (!item) return;
-    setNosposRequiredFieldsEditor({ item, negotiationIndex });
-  }, []);
+  const handleOpenNosposRequiredFieldsEditor = useCallback(
+    (item, negotiationIndex) => {
+      if (!item) return;
+      const live = items.find((i) => i.id === item.id) ?? item;
+      if (negotiationLineNosposFieldAiPending(live)) return;
+      setNosposRequiredFieldsEditor({ item: live, negotiationIndex });
+    },
+    [items]
+  );
 
   /** Buying flow: open the stock-fields editor for the first line with missing required values (hidden column + forced completion). */
   useEffect(() => {
@@ -288,6 +296,8 @@ const Negotiation = ({ mode }) => {
       const list = isJewellery ? jewelleryNegotiationItems : mainNegotiationItems;
       const negotiationIndex = list.findIndex((i) => i.id === item.id);
       if (negotiationIndex < 0) continue;
+
+      if (negotiationLineNosposFieldAiPending(item)) continue;
 
       if (
         !negotiationLineHasMissingRequiredNosposStockFields(item, negotiationIndex, {
