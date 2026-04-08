@@ -3,9 +3,13 @@
  * (mirrors NosPos HTML). The category API does not ship these options — we keep them here so field-AI
  * only sees allowed values for matching labels.
  *
- * Jewellery "Carat / Hallmark" and weight are **not** listed here: Carat is preset via
- * `jewelleryNosposMaterialGradeMap` + `shouldSkipAiFill`, and other jewellery lines use free text / AI as today.
+ * Jewellery **Carat / Hallmark** options come from `jewelleryNosposMaterialGradeMap` (`nosposCaratHallmarkSelectOptions`). Weight stays free text / AI.
  */
+
+import {
+  isNosposCaratHallmarkStockFieldLabel,
+  nosposCaratHallmarkSelectOptions,
+} from '@/pages/buyer/utils/jewelleryNosposMaterialGradeMap';
 
 /** @param {string} label */
 function normLabelKey(label) {
@@ -71,11 +75,14 @@ const LABEL_TO_OPTION_VALUES = {
 };
 
 /**
- * If this linked field label uses a fixed NosPos &lt;select&gt;, return { options } for AI (`control: 'select'`).
+ * If this linked field label uses a fixed NosPos &lt;select&gt;, return { options }.
  * @param {string} fieldLabel - `linkedField.name` from NosPos category mirror
  * @returns {{ options: { value: string, text: string }[] } | null}
  */
 export function getBoundedNosposStockFieldSelect(fieldLabel) {
+  if (isNosposCaratHallmarkStockFieldLabel(fieldLabel)) {
+    return { options: nosposCaratHallmarkSelectOptions() };
+  }
   const key = normLabelKey(fieldLabel);
   const values = LABEL_TO_OPTION_VALUES[key];
   if (!values?.length) return null;

@@ -4,9 +4,9 @@ import { formatOfferPrice } from '@/utils/helpers';
 import NegotiationHeaderTransactionDropdown from './NegotiationHeaderTransactionDropdown';
 
 const LABEL_COL =
-  'flex shrink-0 items-center self-stretch border-r border-amber-200/80 bg-transparent px-2.5';
+  'flex shrink-0 items-center self-stretch border-r border-white/25 bg-white/10 px-2.5';
 
-/** One control: bordered cell, no fill (sits on white strip). */
+/** One control: bordered cell on blue negotiation strip. */
 function StripField({
   label,
   children,
@@ -14,9 +14,9 @@ function StripField({
   valueClassName = 'px-2.5',
 }) {
   return (
-    <div className="inline-flex h-9 max-w-full overflow-hidden rounded-md border border-amber-200/90 bg-transparent">
+    <div className="inline-flex h-9 max-w-full overflow-hidden rounded-md border border-white/25 bg-white/10">
       <div className={LABEL_COL} title={label}>
-        <span className="whitespace-nowrap text-left text-[10px] font-black uppercase leading-tight tracking-wider text-brand-blue/80">
+        <span className="whitespace-nowrap text-left text-[10px] font-black uppercase leading-tight tracking-wider text-white/80">
           {label}
         </span>
       </div>
@@ -25,7 +25,7 @@ function StripField({
   );
 }
 
-const numCls = 'text-sm font-black tabular-nums tracking-tight text-brand-blue';
+const numCls = 'text-sm font-black tabular-nums tracking-tight text-white';
 
 /**
  * Buying / negotiation: transaction + metrics — bordered controls on white strip under customer header.
@@ -62,11 +62,11 @@ export default function NegotiationOfferMetricsBar({
   const txLabels = TRANSACTION_OPTIONS.map((o) => o.label);
 
   return (
-    <div className="shrink-0 bg-white px-6 pb-2 pt-1">
+    <div className="shrink-0 bg-brand-blue px-6 pb-2 pt-1">
       <div className="flex flex-wrap items-center gap-2">
         <StripField label="Transaction type" valueClassName="px-0">
           {mode === 'view' ? (
-            <span className="min-w-[9rem] truncate px-2.5 text-sm font-semibold text-brand-blue">{transaction.label}</span>
+            <span className="min-w-[9rem] truncate px-2.5 text-sm font-semibold text-white">{transaction.label}</span>
           ) : (
             <NegotiationHeaderTransactionDropdown
               value={transaction.label}
@@ -75,17 +75,18 @@ export default function NegotiationOfferMetricsBar({
                 const selected = TRANSACTION_OPTIONS.find((o) => o.label === label);
                 if (selected) onTransactionChange(selected.value);
               }}
+              onDarkBackground
             />
           )}
         </StripField>
 
         <StripField label="Customer expectation" valueClassName="px-0">
           <div className="relative h-9 w-[8.25rem] min-w-[6.75rem] max-w-[11rem]">
-            <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-sm font-bold text-brand-blue">
+            <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-sm font-bold text-white">
               £
             </span>
             <input
-              className="h-9 w-full min-w-[5.75rem] border-0 bg-transparent py-0 pl-6 pr-2 text-sm font-bold text-brand-blue placeholder:text-brand-blue/35 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-blue/25"
+              className="h-9 w-full min-w-[5.75rem] border-0 bg-transparent py-0 pl-6 pr-2 text-sm font-bold text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white/35"
               type="text"
               value={customerExpectationValue}
               onChange={(e) => onCustomerExpectationChange?.(e.target.value)}
@@ -107,14 +108,14 @@ export default function NegotiationOfferMetricsBar({
 
         <StripField label="Offer Min" valueJustify="justify-end">
           <span className={`${numCls} flex items-baseline gap-0.5`}>
-            <span className="text-xs font-bold text-brand-blue/70">£</span>
+            <span className="text-xs font-bold text-white/75">£</span>
             {offerMin !== null ? formatOfferPrice(offerMin) : '—'}
           </span>
         </StripField>
 
         <StripField label="Offer Max" valueJustify="justify-end">
           <span className={`${numCls} flex items-baseline gap-0.5`}>
-            <span className="text-xs font-bold text-brand-blue/70">£</span>
+            <span className="text-xs font-bold text-white/75">£</span>
             {offerMax !== null ? formatOfferPrice(offerMax) : '—'}
           </span>
         </StripField>
@@ -123,7 +124,7 @@ export default function NegotiationOfferMetricsBar({
           <div
             className={`flex min-w-0 max-w-[22rem] items-center gap-2 ${
               mode === 'negotiate'
-                ? 'group -mx-0.5 cursor-pointer rounded px-1.5 transition-colors hover:bg-gray-100/80'
+                ? 'group -mx-0.5 cursor-pointer rounded px-1.5 transition-colors hover:bg-white/10'
                 : ''
             }`}
             onClick={mode === 'negotiate' ? () => setShowTargetModal(true) : undefined}
@@ -131,15 +132,15 @@ export default function NegotiationOfferMetricsBar({
             title={mode === 'negotiate' ? 'Click to set target offer' : undefined}
           >
             <span className={`${numCls} flex shrink-0 items-baseline gap-0.5`}>
-              <span className="text-xs font-bold text-brand-blue/70">£</span>
+              <span className="text-xs font-bold text-white/75">£</span>
               {parsedTarget > 0 ? parsedTarget.toFixed(2) : '0.00'}
             </span>
             {mode === 'negotiate' && (
-              <span className="material-symbols-outlined shrink-0 text-[18px] text-brand-blue/40 transition-colors group-hover:text-brand-blue">
+              <span className="material-symbols-outlined shrink-0 text-[18px] text-white/45 transition-colors group-hover:text-white">
                 edit
               </span>
             )}
-            <span className="min-w-0 truncate text-[10px] font-medium leading-tight text-gray-500" title={targetHint}>
+            <span className="min-w-0 truncate text-[10px] font-medium leading-tight text-white/65" title={targetHint}>
               {targetHint}
             </span>
           </div>
@@ -149,30 +150,30 @@ export default function NegotiationOfferMetricsBar({
           <button
             type="button"
             onClick={onOpenJewelleryReferenceModal}
-            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-amber-200/90 bg-transparent px-2.5 text-[10px] font-black uppercase tracking-wide text-brand-blue transition-colors hover:bg-amber-50/80 focus-visible:outline focus-visible:ring-2 focus-visible:ring-brand-blue/25"
+            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-white/30 bg-white/10 px-2.5 text-[10px] font-black uppercase tracking-wide text-white transition-colors hover:bg-white/15 focus-visible:outline focus-visible:ring-2 focus-visible:ring-white/35"
             title="Mastermelt reference prices for this request"
           >
-            <span className="material-symbols-outlined text-[18px] leading-none text-brand-blue/80">table_view</span>
+            <span className="material-symbols-outlined text-[18px] leading-none text-white/90">table_view</span>
             Reference prices
           </button>
         ) : null}
 
         <StripField label="Request ID">
           <div className="flex min-w-0 max-w-[20rem] items-center gap-2">
-            <span className="shrink-0 text-sm font-black tabular-nums tracking-tight text-brand-blue">
+            <span className="shrink-0 text-sm font-black tabular-nums tracking-tight text-white">
               #{actualRequestId || 'N/A'}
             </span>
             {mode === 'view' &&
               (researchSandboxBookedView ? (
                 <span
-                  className="inline-flex min-w-0 items-center gap-0.5 truncate text-[9px] font-bold uppercase tracking-wide text-amber-800"
+                  className="inline-flex min-w-0 items-center gap-0.5 truncate text-[9px] font-bold uppercase tracking-wide text-amber-200"
                   title="In-store testing — Park Agreement opens NoSpos and fills the first line category when CG Suite has one"
                 >
                   <span className="material-symbols-outlined shrink-0 text-[12px]">science</span>
                   <span className="truncate">In-store testing</span>
                 </span>
               ) : (
-                <span className="inline-flex shrink-0 items-center gap-0.5 text-[9px] font-bold uppercase tracking-wide text-red-600">
+                <span className="inline-flex shrink-0 items-center gap-0.5 text-[9px] font-bold uppercase tracking-wide text-red-200">
                   <span className="material-symbols-outlined text-[12px]">visibility_off</span>
                   View Only
                 </span>
@@ -184,7 +185,7 @@ export default function NegotiationOfferMetricsBar({
           <button
             type="button"
             onClick={() => setShowNewBuyConfirm(true)}
-            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-amber-500/80 bg-brand-orange px-2.5 text-xs font-black uppercase tracking-wide text-brand-blue transition-colors hover:opacity-95 focus-visible:outline focus-visible:ring-2 focus-visible:ring-brand-orange/50"
+            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-white/25 bg-brand-orange px-2.5 text-xs font-black uppercase tracking-wide text-brand-blue transition-colors hover:opacity-95 focus-visible:outline focus-visible:ring-2 focus-visible:ring-white/40"
             title="Clear cart/customer and start a fresh buying session"
           >
             <span className="material-symbols-outlined text-[18px] leading-none">refresh</span>

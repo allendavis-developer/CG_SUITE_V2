@@ -12,6 +12,7 @@ import {
   patchNosposAgreementField,
   withExtensionCallTimeout,
   getNosposTabUrl,
+  closeNosposParkAgreementTab,
   OPEN_NOSPOS_NEW_AGREEMENT_ITEMS_TAB_TIMEOUT_MS,
 } from "@/services/extensionClient";
 import { resolveNosposLeafCategoryIdForAgreementItem } from "@/utils/nosposCategoryMappings";
@@ -953,6 +954,11 @@ export function useNegotiationParkAgreement({
             scheduleParkStateSave(capturedAgreementId, currentExcluded);
           }
         } catch (_) {}
+
+        if (parkOk) {
+          void closeNosposParkAgreementTab(tabId).catch(() => {});
+          parkNosposTabRef.current = null;
+        }
 
         showNotification(
           lines.length === 1

@@ -4,18 +4,14 @@ function TotalPill({ label, value, emphasize = false }) {
   return (
     <div className={`flex min-w-0 flex-col ${emphasize ? 'px-1' : ''}`}>
       {label ? (
-        <span
-          className="text-[10px] font-black uppercase tracking-widest"
-          style={{ color: 'var(--brand-blue)' }}
-        >
+        <span className="text-[10px] font-black uppercase tracking-widest text-white/75">
           {label}
         </span>
       ) : null}
       <span
-        className={`font-black tabular-nums tracking-tight ${
+        className={`font-black tabular-nums tracking-tight text-white ${
           emphasize ? 'text-2xl leading-none sm:text-3xl' : 'text-lg'
         }`}
-        style={{ color: 'var(--brand-blue)' }}
       >
         £{value.toFixed(2)}
       </span>
@@ -59,20 +55,13 @@ const NegotiationTotalsFooter = forwardRef(function NegotiationTotalsFooter(
   return (
     <footer
       ref={ref}
-      className="shrink-0 border-t bg-white py-3 pl-4 pr-3 sm:pl-6 sm:pr-4 md:pl-10 md:pr-4"
-      style={{ borderColor: 'rgba(20, 69, 132, 0.2)' }}
+      className="shrink-0 border-t border-white/20 bg-brand-blue py-3 pl-4 pr-3 sm:pl-6 sm:pr-4 md:pl-10 md:pr-4"
     >
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:gap-6">
-        <div
-          className="flex min-w-0 flex-wrap items-end gap-x-6 gap-y-2 border-b pb-3 lg:border-b-0 lg:pb-0"
-          style={{ borderColor: 'rgba(20, 69, 132, 0.12)' }}
-        >
+        <div className="flex min-w-0 flex-wrap items-end gap-x-6 gap-y-2 border-b border-white/15 pb-3 lg:border-b-0 lg:pb-0">
           <TotalPill label="Jewellery" value={jewelleryOfferTotal} />
           <TotalPill label="Other items" value={otherItemsOfferTotal} />
-          <div
-            className="min-w-0 border-l pl-6"
-            style={{ borderColor: 'rgba(20, 69, 132, 0.15)' }}
-          >
+          <div className="min-w-0 border-l border-white/20 pl-6">
             <TotalPill label="Grand total" value={totalOfferPrice} emphasize />
           </div>
         </div>
@@ -80,19 +69,21 @@ const NegotiationTotalsFooter = forwardRef(function NegotiationTotalsFooter(
         {hasTarget ? (
           <div
             className={`flex min-w-0 flex-1 items-center justify-between gap-3 rounded-lg px-3 py-2 sm:justify-start ${
-              targetMatched ? 'border border-emerald-200 bg-emerald-50' : 'border border-red-200 bg-red-50'
+              targetMatched
+                ? 'border border-emerald-400/50 bg-emerald-950/35'
+                : 'border border-red-400/50 bg-red-950/35'
             }`}
           >
             <div className="min-w-0">
               <div
                 className={`text-[10px] font-black uppercase tracking-wider ${
-                  targetMatched ? 'text-emerald-700' : 'text-red-700'
+                  targetMatched ? 'text-emerald-100' : 'text-red-100'
                 }`}
               >
                 Target offer
               </div>
               {!targetMatched && (
-                <div className="text-[9px] font-medium text-red-600">
+                <div className="text-[9px] font-medium text-red-100">
                   {totalOfferPrice < parsedTarget
                     ? `Below target by £${targetShortfall.toFixed(2)}`
                     : `Too high by £${targetExcess.toFixed(2)}`}
@@ -102,14 +93,14 @@ const NegotiationTotalsFooter = forwardRef(function NegotiationTotalsFooter(
             <div className="flex shrink-0 items-center gap-1.5">
               <span
                 className={`text-lg font-black tabular-nums sm:text-xl ${
-                  targetMatched ? 'text-emerald-700' : 'text-red-700'
+                  targetMatched ? 'text-emerald-100' : 'text-red-100'
                 }`}
               >
                 £{parsedTarget.toFixed(2)}
               </span>
               <span
                 className={`material-symbols-outlined text-[20px] ${
-                  targetMatched ? 'text-emerald-600' : 'text-red-500'
+                  targetMatched ? 'text-emerald-200' : 'text-red-200'
                 }`}
               >
                 {targetMatched ? 'check_circle' : 'cancel'}
@@ -121,7 +112,7 @@ const NegotiationTotalsFooter = forwardRef(function NegotiationTotalsFooter(
                     e.stopPropagation();
                     setTargetOffer('');
                   }}
-                  className="text-slate-400 transition-colors hover:text-red-500"
+                  className="text-white/50 transition-colors hover:text-white"
                   title="Remove target"
                 >
                   <span className="material-symbols-outlined text-[16px]">close</span>
@@ -202,7 +193,7 @@ const NegotiationTotalsFooter = forwardRef(function NegotiationTotalsFooter(
                 </span>
               </button>
               {hasTarget && !targetMatched && mode === 'negotiate' ? (
-                <p className="w-full text-center text-[10px] font-semibold text-red-600 sm:text-left">
+                <p className="w-full text-center text-[10px] font-semibold text-red-100 sm:text-left">
                   {totalOfferPrice < parsedTarget
                     ? `Grand total is below target by £${targetShortfall.toFixed(2)}`
                     : `Grand total is too high by £${targetExcess.toFixed(2)}`}

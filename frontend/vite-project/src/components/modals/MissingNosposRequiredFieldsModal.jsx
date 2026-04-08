@@ -3,6 +3,10 @@ import TinyModal from '@/components/ui/TinyModal';
 import { SPREADSHEET_TABLE_STYLES } from '@/styles/spreadsheetTableStyles';
 import { buildRequiredNosposFieldEditorModel } from '@/pages/buyer/utils/nosposAgreementFirstItemFill';
 import { negotiationItemDisplayName } from '@/pages/buyer/utils/negotiationMissingNosposRequired';
+import { getBoundedNosposStockFieldSelect } from '@/pages/buyer/utils/nosposStockFieldBoundedSelects';
+import { SearchablePortalSelect } from '@/components/ui/components';
+
+const BOUNDED_FIELD_PLACEHOLDER = 'Choose…';
 
 /**
  * Shown when booking for testing while some lines still lack required NosPos stock field values.
@@ -207,20 +211,50 @@ export default function MissingNosposRequiredFieldsModal({
                       <tr key={er.nosposFieldId}>
                         <td className="align-top font-semibold text-gray-900">{er.label}</td>
                         <td className="align-top">
-                          <input
-                            type="text"
-                            className="w-full min-w-[180px] rounded border border-gray-300 px-2 py-1 text-xs font-medium text-gray-900 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-blue/30"
-                            value={draft[er.nosposFieldId] ?? ''}
-                            onChange={(e) => {
-                              const v = e.target.value;
-                              setDraftByItemId((prev) => ({
-                                ...prev,
-                                [item.id]: { ...(prev[item.id] || {}), [er.nosposFieldId]: v },
+                          {(() => {
+                            const bounded = getBoundedNosposStockFieldSelect(er.label);
+                            const rawVal = String(draft[er.nosposFieldId] ?? '').trim();
+                            const disabled = !reqId || saving;
+                            if (bounded?.options?.length) {
+                              const portalOptions = bounded.options.map((o) => ({
+                                value: String(o.value ?? '').trim(),
+                                label: String(o.text ?? o.value ?? '').trim(),
                               }));
-                            }}
-                            placeholder="Required"
-                            disabled={!reqId || saving}
-                          />
+                              return (
+                                <div
+                                  className={`min-w-[160px] max-w-full ${disabled ? 'pointer-events-none opacity-55' : ''}`}
+                                >
+                                  <SearchablePortalSelect
+                                    value={rawVal}
+                                    options={portalOptions}
+                                    placeholder={BOUNDED_FIELD_PLACEHOLDER}
+                                    onChange={(v) => {
+                                      setDraftByItemId((prev) => ({
+                                        ...prev,
+                                        [item.id]: { ...(prev[item.id] || {}), [er.nosposFieldId]: v },
+                                      }));
+                                    }}
+                                  />
+                                </div>
+                              );
+                            }
+                            return (
+                              <input
+                                type="text"
+                                className="w-full min-w-[180px] rounded border border-gray-300 px-2 py-1 text-xs font-medium text-gray-900 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-blue/30"
+                                value={draft[er.nosposFieldId] ?? ''}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  setDraftByItemId((prev) => ({
+                                    ...prev,
+                                    [item.id]: { ...(prev[item.id] || {}), [er.nosposFieldId]: v },
+                                  }));
+                                }}
+                                placeholder="Required"
+                                disabled={disabled}
+                              />
+                            );
+                          })()}
                         </td>
                       </tr>
                     ))}

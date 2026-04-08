@@ -15,6 +15,10 @@ import {
   getBoundedNosposStockFieldSelect,
   snapAiValueToBoundedSelectOptions,
 } from '@/pages/buyer/utils/nosposStockFieldBoundedSelects';
+import {
+  isNosposCaratHallmarkStockFieldLabel,
+  nosposCaratHallmarkSelectOptions,
+} from '@/pages/buyer/utils/jewelleryNosposMaterialGradeMap';
 
 export const AI_SUGGESTED_NOSPOS_FIELD_VALUES_KEY = 'aiSuggestedNosposStockFieldValues';
 
@@ -41,8 +45,12 @@ export function linkedFieldsForCategory(nosposCategoryId, categoriesResults) {
  * are sent as `control: 'select'` with only NosPos option values, and **only if** `lf.required === true`
  * (optional bounded fields are left for staff / table editors).
  *
- * All other eligible fields stay `text` as before. Jewellery Carat/Hallmark remains excluded via
- * `shouldSkipAiFill`, with presets handled separately.
+ * Jewellery **Carat / Hallmark** is always `control: 'select'` with options from
+ * `jewelleryNosposMaterialGradeMap` (same values as `nosposCaratHallmarkValueForMaterialGrade`).
+ * Lines where the grade is unknown still use staff free text in the missing-fields / agreement UI;
+ * AI suggestions are snapped to those options only.
+ *
+ * All other eligible fields stay `text` as before, except bounded labels handled below.
  *
  * @param {object[]} linked
  * @returns {{ name: string, label: string, control: string, options: { value: string, text: string }[], _fid: number }[]}
@@ -54,6 +62,18 @@ export function buildNosposFieldAiPayloadEntries(linked) {
     if (fid == null || Number(fid) <= 0) continue;
     const label = String(lf.name || '').trim() || `Field ${fid}`;
     const stub = { name: syntheticFieldName(fid), label };
+
+    if (isNosposCaratHallmarkStockFieldLabel(label)) {
+      out.push({
+        name: syntheticFieldName(fid),
+        label,
+        control: 'select',
+        options: nosposCaratHallmarkSelectOptions(),
+        _fid: Number(fid),
+      });
+      continue;
+    }
+
     if (shouldSkipAiFill(stub)) continue;
 
     const bounded = getBoundedNosposStockFieldSelect(label);

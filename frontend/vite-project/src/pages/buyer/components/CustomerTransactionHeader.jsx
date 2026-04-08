@@ -54,7 +54,7 @@ const CustomerTransactionHeader = ({
     /** Matches name line-height so pills align vertically with the heading */
     const rowMinH = 'min-h-[2.75rem]';
 
-    const pillCls = `flex shrink-0 ${rowMinH} items-center gap-2 whitespace-nowrap rounded-md border border-amber-200/60 bg-transparent px-3 text-sm`;
+    const pillCls = `flex shrink-0 ${rowMinH} items-center gap-2 whitespace-nowrap rounded-md border border-white/25 bg-white/10 px-3 text-sm text-white`;
 
     const joinedRow = detailRows.find((r) => r.label === 'Joined');
     const stripRows = detailRows.filter((r) => r.label !== 'Joined');
@@ -68,33 +68,33 @@ const CustomerTransactionHeader = ({
 
     return (
       <div
-        className={`shrink-0 border-t-4 border-t-amber-400 bg-white px-6 pt-2 pb-1 ${containerClassName}`}
+        className={`shrink-0 border-t-4 border-t-white/35 bg-brand-blue px-6 pt-2 pb-1 ${containerClassName}`}
       >
-        <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-amber-300/80">
+        <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/40">
           <div
-            className={`flex shrink-0 ${rowMinH} max-w-full min-w-0 overflow-hidden rounded-md border border-amber-200/60 bg-transparent ${joinedRow ? '' : 'pl-1.5 pr-3'}`}
+            className={`flex shrink-0 ${rowMinH} max-w-full min-w-0 overflow-hidden rounded-md border border-white/25 bg-white/10 ${joinedRow ? '' : 'pl-1.5 pr-3'}`}
           >
             <div
-              className={`flex min-w-0 flex-1 items-center ${joinedRow ? 'border-r border-amber-200/60 pl-1.5 pr-3' : ''}`}
+              className={`flex min-w-0 flex-1 items-center ${joinedRow ? 'border-r border-white/25 pl-1.5 pr-3' : ''}`}
             >
-              <h2 className="min-w-0 truncate text-base font-extrabold leading-tight tracking-tight text-brand-blue md:text-lg">
+              <h2 className="min-w-0 truncate text-base font-extrabold leading-tight tracking-tight text-white md:text-lg">
                 {customer.name}
               </h2>
             </div>
             {joinedRow && (
               <div
-                className="flex shrink-0 items-center gap-2 whitespace-nowrap px-3 text-sm"
+                className="flex shrink-0 items-center gap-2 whitespace-nowrap px-3 text-sm text-white"
                 title={joinedTitle}
               >
-                <span className="font-semibold text-gray-600">{joinedRow.label}</span>
-                <span className="font-bold text-brand-blue">
+                <span className="font-semibold text-white/75">{joinedRow.label}</span>
+                <span className="font-bold text-white">
                   {joinedRow.value &&
                   typeof joinedRow.value === 'object' &&
                   joinedRow.value.base &&
                   joinedRow.value.age ? (
                     <>
                       <span>{joinedRow.value.base}</span>
-                      <span className="text-amber-700"> ({joinedRow.value.age})</span>
+                      <span className="text-white/70"> ({joinedRow.value.age})</span>
                     </>
                   ) : (
                     joinedRow.value
@@ -106,12 +106,12 @@ const CustomerTransactionHeader = ({
           {stripRows.length > 0 &&
             stripRows.map((row) => (
               <div key={row.label} className={pillCls} title={`${row.label}: ${row.value && typeof row.value === 'object' && row.value.base ? row.value.base : row.value}`}>
-                <span className="font-semibold text-gray-600">{row.label}</span>
-                <span className="font-bold text-brand-blue">
+                <span className="font-semibold text-white/75">{row.label}</span>
+                <span className="font-bold text-white">
                   {row.value && typeof row.value === 'object' && row.value.base && row.value.age ? (
                     <>
                       <span>{row.value.base}</span>
-                      <span className="text-amber-700"> ({row.value.age})</span>
+                      <span className="text-white/70"> ({row.value.age})</span>
                     </>
                   ) : (
                     row.value
@@ -120,11 +120,11 @@ const CustomerTransactionHeader = ({
               </div>
             ))}
           {customer.bypassReason && (
-            <div className={`${pillCls} border-amber-300`} title={bypassText}>
-              <span className="material-symbols-outlined flex size-6 shrink-0 items-center justify-center text-[22px] leading-none text-amber-600">
+            <div className={`${pillCls} border-white/40 bg-white/15`} title={bypassText}>
+              <span className="material-symbols-outlined flex size-6 shrink-0 items-center justify-center text-[22px] leading-none text-white">
                 info
               </span>
-              <span className="whitespace-nowrap font-semibold leading-none text-amber-900">{bypassText}</span>
+              <span className="whitespace-nowrap font-semibold leading-none text-white">{bypassText}</span>
             </div>
           )}
         </div>

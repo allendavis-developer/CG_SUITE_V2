@@ -271,6 +271,11 @@ export async function getNosposTabUrl(tabId) {
   return sendMessage({ action: 'getNosposTabUrl', tabId });
 }
 
+/** Close the NoSpos tab used for Park Agreement after success; extension drops buying-wait listeners. */
+export async function closeNosposParkAgreementTab(tabId) {
+  return sendMessage({ action: 'closeNosposParkAgreementTab', tabId });
+}
+
 export async function fillNosposParkAgreementCategory(payload) {
   return sendMessage({
     action: 'fillNosposParkAgreementCategory',

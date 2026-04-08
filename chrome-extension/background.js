@@ -618,6 +618,9 @@ async function waitAfterAgreementItemsNextClick(tabId, maxWaitMs = NOSPOS_RELOAD
 
 const NOSPOS_BUYING_AFTER_PARK_WAIT_MS = 60000;
 
+/** Force-remove `tabs.onUpdated` listener for {@link waitForNosposTabBuyingAfterPark} when closing the tab from CG Suite. */
+const nosposBuyingAfterParkDetachByTabId = new Map();
+
 /** After opening `/newagreement/agreement/create?…`, NosPos redirects to `/newagreement/{id}/items?…`. */
 const NOSPOS_OPEN_AGREEMENT_ITEMS_URL_WAIT_MS = 120000;
 
@@ -649,15 +652,6 @@ async function waitForNosposTabBuyingAfterPark(tabId, maxWaitMs = NOSPOS_BUYING_
   const deadline = Date.now() + maxWaitMs;
   let settled = false;
   return new Promise((resolve) => {
-    const done = (result) => {
-      if (settled) return;
-      settled = true;
-      try {
-        chrome.tabs.onUpdated.removeListener(onTabUpdated);
-      } catch (_) {}
-      resolve(result);
-    };
-
     const onTabUpdated = (updatedTabId, _changeInfo, tab) => {
       if (updatedTabId !== tabId || settled) return;
       const url = tab?.url || '';
@@ -666,6 +660,23 @@ async function waitForNosposTabBuyingAfterPark(tabId, maxWaitMs = NOSPOS_BUYING_
       }
     };
 
+    const detach = () => {
+      try {
+        chrome.tabs.onUpdated.removeListener(onTabUpdated);
+      } catch (_) {}
+      try {
+        nosposBuyingAfterParkDetachByTabId.delete(tabId);
+      } catch (_) {}
+    };
+
+    const done = (result) => {
+      if (settled) return;
+      settled = true;
+      detach();
+      resolve(result);
+    };
+
+    nosposBuyingAfterParkDetachByTabId.set(tabId, detach);
     chrome.tabs.onUpdated.addListener(onTabUpdated);
 
     (async function poll() {
@@ -2279,6 +2290,24 @@ async function handleBridgeForward(message, sender) {
     } catch (_) {
       return { ok: false, error: 'Tab not found' };
     }
+  }
+
+  /** After Park Agreement succeeds (nospos.com/buying): close worker tab and drop stray buying wait listeners. */
+  if (payload.action === 'closeNosposParkAgreementTab') {
+    const tid = parseInt(String(payload.tabId ?? '').trim(), 10);
+    if (!Number.isFinite(tid) || tid <= 0) return { ok: false, error: 'Invalid tabId' };
+    const detach = nosposBuyingAfterParkDetachByTabId.get(tid);
+    if (typeof detach === 'function') {
+      try {
+        detach();
+      } catch (_) {}
+    }
+    try {
+      await chrome.tabs.remove(tid);
+    } catch (_) {
+      /* already closed */
+    }
+    return { ok: true };
   }
 
   if (payload.action === 'fillNosposParkAgreementCategory') {

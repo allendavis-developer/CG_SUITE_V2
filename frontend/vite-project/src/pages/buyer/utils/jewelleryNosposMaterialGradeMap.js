@@ -32,6 +32,41 @@ const NORMALIZED_TO_NOSPOS = Object.fromEntries(
   ENTRIES.map(([k, v]) => [k.trim().toLowerCase(), v]),
 );
 
+/** Stable order for `<select>` options (matches typical NosPos carat list). */
+const CARAT_HALLMARK_VALUE_ORDER = [
+  '9k (375)',
+  '14k (585)',
+  '18k (750)',
+  '22k (916)',
+  '24k (999)',
+  'Silver (925)',
+  'Plat (950)',
+  'Pal (950)',
+];
+
+const VALUE_ORDER_IDX = new Map(CARAT_HALLMARK_VALUE_ORDER.map((v, i) => [v, i]));
+
+/** Unique NosPos option `value`s derived from {@link ENTRIES} only (single source of truth). */
+function uniqueCaratHallmarkNosposValuesFromEntries() {
+  return [...new Set(ENTRIES.map(([, v]) => v))];
+}
+
+/**
+ * NosPos "Carat / Hallmark" options for field-AI (`control: 'select'`) — same values the material-grade map resolves to.
+ * @returns {{ value: string, text: string }[]}
+ */
+export function nosposCaratHallmarkSelectOptions() {
+  const sorted = uniqueCaratHallmarkNosposValuesFromEntries().sort(
+    (a, b) => (VALUE_ORDER_IDX.get(a) ?? 999) - (VALUE_ORDER_IDX.get(b) ?? 999),
+  );
+  return sorted.map((v) => ({ value: v, text: v }));
+}
+
+/** Linked-field label is the NosPos Carat / Hallmark control (spacing/case-insensitive). */
+export function isNosposCaratHallmarkStockFieldLabel(label) {
+  return /carat\s*\/\s*hallmark/i.test(String(label ?? '').trim());
+}
+
 /**
  * @param {string} materialGrade - raw `referenceData.material_grade`
  * @returns {string|null} exact NoSpos option value, or null if unmapped

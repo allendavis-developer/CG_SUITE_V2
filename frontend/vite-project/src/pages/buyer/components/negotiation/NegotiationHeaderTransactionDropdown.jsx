@@ -2,9 +2,15 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 /**
- * Select for the negotiation metrics strip (dark text trigger, white menu).
+ * Select for the negotiation metrics strip. `onDarkBackground`: white trigger on blue bar; menu stays light.
  */
-export default function NegotiationHeaderTransactionDropdown({ value, options, onChange, disabled = false }) {
+export default function NegotiationHeaderTransactionDropdown({
+  value,
+  options,
+  onChange,
+  disabled = false,
+  onDarkBackground = false,
+}) {
   const [open, setOpen] = useState(false);
   const btnRef = useRef(null);
   const menuRef = useRef(null);
@@ -79,13 +85,17 @@ export default function NegotiationHeaderTransactionDropdown({ value, options, o
         aria-expanded={open}
         aria-haspopup="listbox"
         onClick={() => !disabled && setOpen((v) => !v)}
-        className="flex h-9 min-w-[9rem] max-w-[14rem] items-center justify-between gap-2 border-0 bg-transparent px-2.5 text-left text-sm font-semibold text-brand-blue outline-none transition-colors hover:bg-gray-100/90 focus-visible:bg-gray-100/90 focus-visible:ring-2 focus-visible:ring-brand-blue/30 disabled:cursor-not-allowed disabled:opacity-45"
+        className={
+          onDarkBackground
+            ? 'flex h-9 min-w-[9rem] max-w-[14rem] items-center justify-between gap-2 border-0 bg-transparent px-2.5 text-left text-sm font-semibold text-white outline-none transition-colors hover:bg-white/10 focus-visible:bg-white/10 focus-visible:ring-2 focus-visible:ring-white/35 disabled:cursor-not-allowed disabled:opacity-45'
+            : 'flex h-9 min-w-[9rem] max-w-[14rem] items-center justify-between gap-2 border-0 bg-transparent px-2.5 text-left text-sm font-semibold text-brand-blue outline-none transition-colors hover:bg-gray-100/90 focus-visible:bg-gray-100/90 focus-visible:ring-2 focus-visible:ring-brand-blue/30 disabled:cursor-not-allowed disabled:opacity-45'
+        }
       >
         <span className="min-w-0 flex-1 truncate">{value}</span>
         <span
-          className={`material-symbols-outlined shrink-0 text-[22px] text-brand-blue/55 transition-transform duration-200 ${
-            open ? 'rotate-180' : ''
-          }`}
+          className={`material-symbols-outlined shrink-0 text-[22px] transition-transform duration-200 ${
+            onDarkBackground ? 'text-white/70' : 'text-brand-blue/55'
+          } ${open ? 'rotate-180' : ''}`}
         >
           expand_more
         </span>
