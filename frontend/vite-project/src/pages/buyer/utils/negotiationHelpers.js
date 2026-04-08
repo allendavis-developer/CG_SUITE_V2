@@ -395,7 +395,7 @@ export function calculateTotalOfferPrice(items, useVoucherOffers) {
   return items.reduce((sum, item) => sum + getItemOfferTotal(item, useVoucherOffers), 0);
 }
 
-/** Sum of selected/manual offers for jewellery lines only (for negotiation sidebar breakdown). */
+/** Sum of selected/manual offers for jewellery lines only (for negotiation totals breakdown). */
 export function calculateJewelleryOfferTotal(items, useVoucherOffers) {
   return items
     .filter((i) => !i.isRemoved && i.isJewelleryItem === true)

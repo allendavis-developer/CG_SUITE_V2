@@ -46,43 +46,51 @@ const CustomerTransactionHeader = ({
   ].filter((row) => row.value !== null && row.value !== undefined && String(row.value).trim() !== '');
 
   if (presentation === 'infoStrip') {
+    const bypassText =
+      customer.bypassReason === 'Within 14 days of last transaction'
+        ? `Customer data not updated — ${customer.bypassReason}`
+        : `Customer data was not updated because: ${customer.bypassReason}`;
+
+    /** Matches name line-height so pills align vertically with the heading */
+    const rowMinH = 'min-h-[2.75rem]';
+
+    const pillCls = `flex shrink-0 ${rowMinH} items-center gap-2 whitespace-nowrap rounded-md border border-amber-200/60 bg-transparent px-3 text-sm`;
+
     return (
       <div
-        className={`shrink-0 border-b-2 border-amber-300/90 border-t-4 border-t-amber-400 bg-white px-6 py-3 md:px-10 ${containerClassName}`}
+        className={`shrink-0 border-t-4 border-t-amber-400 bg-white px-6 pt-2 pb-1 md:px-10 ${containerClassName}`}
       >
-        <h2 className="text-lg font-extrabold tracking-tight text-brand-blue md:text-xl">{customer.name}</h2>
-        {detailRows.length > 0 && (
-          <ul className="mt-2 flex flex-wrap gap-x-6 gap-y-2 text-sm">
-            {detailRows.map((row) => (
-              <li
-                key={row.label}
-                className="flex min-w-[10rem] flex-col gap-0.5 rounded-md border border-amber-200/60 bg-amber-50/40 px-2.5 py-1.5 sm:min-w-0 sm:flex-row sm:items-baseline sm:gap-2"
-              >
+        <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-amber-300/80">
+          <h2
+            className={`shrink-0 ${rowMinH} flex items-center text-base font-extrabold leading-tight tracking-tight text-brand-blue md:text-lg`}
+          >
+            {customer.name}
+          </h2>
+          {detailRows.length > 0 &&
+            detailRows.map((row) => (
+              <div key={row.label} className={pillCls} title={`${row.label}: ${row.value && typeof row.value === 'object' && row.value.base ? row.value.base : row.value}`}>
                 <span className="font-semibold text-gray-600">{row.label}</span>
                 <span className="font-bold text-brand-blue">
                   {row.value && typeof row.value === 'object' && row.value.base && row.value.age ? (
                     <>
-                      <span>{row.value.base} </span>
-                      <span className="text-amber-700">({row.value.age})</span>
+                      <span>{row.value.base}</span>
+                      <span className="text-amber-700"> ({row.value.age})</span>
                     </>
                   ) : (
                     row.value
                   )}
                 </span>
-              </li>
+              </div>
             ))}
-          </ul>
-        )}
-        {customer.bypassReason && (
-          <div className="mt-2 flex w-fit max-w-full items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5">
-            <span className="material-symbols-outlined text-sm text-amber-600">info</span>
-            <p className="text-xs font-semibold text-amber-900">
-              {customer.bypassReason === 'Within 14 days of last transaction'
-                ? `Customer data not updated — ${customer.bypassReason}`
-                : `Customer data was not updated because: ${customer.bypassReason}`}
-            </p>
-          </div>
-        )}
+          {customer.bypassReason && (
+            <div className={`${pillCls} border-amber-300`} title={bypassText}>
+              <span className="material-symbols-outlined flex size-6 shrink-0 items-center justify-center text-[22px] leading-none text-amber-600">
+                info
+              </span>
+              <span className="whitespace-nowrap font-semibold leading-none text-amber-900">{bypassText}</span>
+            </div>
+          )}
+        </div>
       </div>
     );
   }

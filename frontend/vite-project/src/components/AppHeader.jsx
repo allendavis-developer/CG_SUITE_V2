@@ -54,7 +54,6 @@ const AppHeader = ({
   const popupRef = useRef(null);
   const headerRef = useRef(null);
   const categoryFilterInputRef = useRef(null);
-  const [mountedTop, setMountedTop] = useState(64);
   const {
     scrape: jewelleryScrape,
     loading: jewelleryScrapeLoading,
@@ -390,36 +389,41 @@ const AppHeader = ({
     resetHeaderWorkspaceChrome,
   ]);
 
-  // --workspace-overlay-top: bottom of sticky header (single merged bar for buyer / repricing).
-  useEffect(() => {
+  // --workspace-overlay-top: bottom of sticky AppHeader, or (buying negotiation) bottom of customer + metrics strip.
+  useLayoutEffect(() => {
     if (!showBuyerControls) return undefined;
-    const update = () => {
-      const rect = headerRef.current?.getBoundingClientRect();
-      if (rect?.bottom != null) {
-        document.documentElement.style.setProperty(
-          '--workspace-overlay-top',
-          `${Math.max(0, Math.round(rect.bottom))}px`
-        );
+    function computeTop() {
+      const ext = buyerControlsRef.current?.workspaceOverlayBottomRef?.current;
+      let topPx = 64;
+      if (ext) {
+        const r = ext.getBoundingClientRect();
+        if (r.bottom != null) topPx = Math.max(0, Math.round(r.bottom));
+      } else {
+        const h = headerRef.current?.getBoundingClientRect();
+        if (h?.bottom != null) topPx = Math.max(0, Math.round(h.bottom));
       }
-    };
-    update();
-    window.addEventListener('resize', update);
+      document.documentElement.style.setProperty('--workspace-overlay-top', `${topPx}px`);
+    }
+    let ro;
+    function observeTargets() {
+      if (headerRef.current) ro.observe(headerRef.current);
+      const n = buyerControlsRef.current?.workspaceOverlayBottomRef?.current;
+      if (n) ro.observe(n);
+    }
+    ro = new ResizeObserver(() => computeTop());
+    observeTargets();
+    computeTop();
+    requestAnimationFrame(() => {
+      observeTargets();
+      computeTop();
+    });
+    window.addEventListener('resize', computeTop);
     return () => {
-      window.removeEventListener('resize', update);
+      window.removeEventListener('resize', computeTop);
+      ro.disconnect();
       document.documentElement.style.removeProperty('--workspace-overlay-top');
     };
   }, [showBuyerControls]);
-
-  useEffect(() => {
-    if (!showMountedWorkspace) return undefined;
-    const updateTop = () => {
-      const rect = headerRef.current?.getBoundingClientRect();
-      if (rect?.bottom != null) setMountedTop(Math.max(0, Math.round(rect.bottom)));
-    };
-    updateTop();
-    window.addEventListener('resize', updateTop);
-    return () => window.removeEventListener('resize', updateTop);
-  }, [showMountedWorkspace, showBuyerControls, activeTopLevelId, workspaceMode]);
 
   // After choosing a top-level category, focus the in-panel category filter (buyer + repricing header flows).
   useEffect(() => {
@@ -629,11 +633,11 @@ const AppHeader = ({
       <div key={category.category_id} className="space-y-1">
         <button
           type="button"
-          className={`w-full flex items-center p-2 rounded-lg text-left cursor-pointer text-sm ${
+          className={`flex w-full cursor-pointer items-center rounded-lg p-2 text-left text-sm ${
             isSelected
-              ? 'bg-brand-orange/10 text-brand-orange font-semibold border-l-2 border-brand-orange'
-              : 'text-white/70 hover:bg-white/10'
-          } ${!isSelected && isExpanded ? 'bg-white/5' : ''}`}
+              ? 'border-l-2 border-brand-orange bg-brand-orange/10 font-semibold text-brand-orange'
+              : 'text-brand-blue hover:bg-[var(--brand-blue-alpha-10)]'
+          } ${!isSelected && isExpanded ? 'bg-[var(--brand-blue-alpha-05)]' : ''}`}
           onClick={() => {
             handleCategorySelect(category);
             if (hasChildren) {
@@ -662,7 +666,7 @@ const AppHeader = ({
           </div>
         </button>
         {hasChildren && isExpanded && (
-          <div className="ml-4 space-y-1 border-l border-white/10">
+          <div className="ml-4 space-y-1 border-l border-[var(--ui-border)]">
             {category.children.map((child) => renderCategoryNode(child))}
           </div>
         )}
@@ -867,33 +871,35 @@ const AppHeader = ({
               <div
                 className={
                   showNegotiationItemBuilder
-                    ? 'fixed left-0 right-80 bottom-0 z-[200] flex gap-0 bg-white'
+                    ? `fixed left-0 ${isRepricingWorkspace ? 'right-80' : 'right-0'} bottom-0 z-[200] flex gap-0 bg-white`
                     : 'absolute left-0 top-12 z-50 flex gap-0'
                 }
-                style={showNegotiationItemBuilder ? { top: `${mountedTop}px` } : undefined}
+                style={
+                  showNegotiationItemBuilder ? { top: 'var(--workspace-overlay-top, 64px)' } : undefined
+                }
               >
                 {workspaceMode === 'builder' && (
                 <div
                   className={
                     showNegotiationItemBuilder
-                      ? 'w-[420px] h-full overflow-y-auto border-r border-white/10 bg-brand-blue p-2'
-                      : 'w-[420px] max-h-[440px] overflow-y-auto rounded-l-xl border border-white/10 bg-brand-blue p-2 shadow-2xl'
+                      ? 'h-full w-[420px] overflow-y-auto border-r border-[var(--ui-border)] bg-[var(--ui-bg)] p-2'
+                      : 'max-h-[440px] w-[420px] overflow-y-auto rounded-l-xl border border-[var(--ui-border)] bg-[var(--ui-card)] p-2 shadow-2xl'
                   }
                 >
-                <div className="mb-3 border-b border-white/20 px-2 pb-3">
-                  <p className="text-lg sm:text-xl font-black uppercase tracking-wide text-white leading-snug">
-                    <span className="text-white">{activeTopLevelCategory.name}</span>
-                    <span className="ml-2 text-brand-orange drop-shadow-sm">Categories</span>
+                <div className="mb-3 border-b border-[var(--ui-border)] px-2 pb-3">
+                  <p className="text-lg font-black uppercase leading-snug tracking-wide text-brand-blue sm:text-xl">
+                    <span>{activeTopLevelCategory.name}</span>
+                    <span className="ml-2 text-brand-orange">Categories</span>
                   </p>
                 </div>
                 <div className="px-2 pb-3">
                   <div className="relative">
-                    <span className="material-symbols-outlined absolute left-3 top-2.5 text-white/40 text-sm">
+                    <span className="material-symbols-outlined absolute left-3 top-2.5 text-sm text-[var(--text-muted)]">
                       filter_list
                     </span>
                     <input
                       ref={categoryFilterInputRef}
-                      className="w-full bg-white/10 border-white/10 border rounded-lg pl-9 py-2 text-sm text-white focus:ring-1 focus:ring-brand-orange placeholder:text-white/30"
+                      className="w-full rounded-lg border border-[var(--ui-border)] bg-white py-2 pl-9 text-sm text-[var(--text-main)] shadow-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-blue/25"
                       placeholder="Filter categories..."
                       type="text"
                       value={categorySearch}
@@ -904,14 +910,16 @@ const AppHeader = ({
                 <div className="space-y-1">
                   {visibleActiveTopLevelCategory
                     ? renderCategoryNode(visibleActiveTopLevelCategory)
-                    : <p className="px-2 py-1 text-xs text-white/60">No matching categories.</p>}
+                    : (
+                      <p className="px-2 py-1 text-xs text-[var(--text-muted)]">No matching categories.</p>
+                    )}
                 </div>
                 {!showNegotiationItemBuilder && (
-                  <div className="mt-2 border-t border-white/10 px-2 pt-2">
+                  <div className="mt-2 border-t border-[var(--ui-border)] px-2 pt-2">
                     <button
                       type="button"
                       onClick={resetHeaderWorkspaceChrome}
-                      className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-white/80 hover:bg-white/10 hover:text-white"
+                      className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-brand-blue/80 hover:bg-[var(--brand-blue-alpha-10)] hover:text-brand-blue"
                     >
                       <span className="material-symbols-outlined text-sm">close</span>
                       Close category picker

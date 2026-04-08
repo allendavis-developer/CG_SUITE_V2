@@ -267,26 +267,27 @@ export default function NegotiationItemRow({
       ) : null}
 
       {/* Item Name & Attributes */}
-      <td onContextMenu={ctxRemoveOnly}>
-        <div className="font-bold text-[13px] flex items-center gap-2 flex-wrap" style={{ color: 'var(--brand-blue)' }}>
-          {primaryItemName}
-          {item.isRemoved && (
-            <span className="text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-red-100 text-red-700">
-              Removed from cart
-            </span>
-          )}
-          {cexOutOfStock && (
-            <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-red-100 text-red-700 border border-red-300">
-              CeX out of stock
-            </span>
-          )}
+      <td className="align-top" onContextMenu={ctxRemoveOnly}>
+        <div className="flex items-start gap-2">
+          <span
+            className="min-w-0 flex-1 break-words font-bold text-[13px] leading-snug"
+            style={{ color: 'var(--brand-blue)' }}
+          >
+            {primaryItemName}
+          </span>
+          <div className="flex shrink-0 items-center gap-2">
+            {item.isRemoved && (
+              <span className="text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-red-100 text-red-700">
+                Removed from cart
+              </span>
+            )}
+            {cexOutOfStock && (
+              <span className="text-[9px] font-bold uppercase tracking-wider whitespace-nowrap rounded border border-red-300 bg-red-100 px-1.5 py-0.5 text-red-700">
+                CeX out of stock
+              </span>
+            )}
+          </div>
         </div>
-        <div className="text-[9px] uppercase font-medium mt-0.5" style={{ color: 'var(--text-muted)' }}>
-          {(item.cexBuyPrice != null || item.cexSellPrice != null) ? (item.subtitle || '') : (item.subtitle || item.category || 'No details')} {item.model && `| ${item.model}`}
-        </div>
-        {mode === 'negotiate' && (
-          <div className="text-[9px] mt-1 text-slate-400 italic">Click manual offer field to set</div>
-        )}
       </td>
 
       {/* CeX Sell / Buy (Voucher) / Buy (Cash) — same order as CeX listings */}

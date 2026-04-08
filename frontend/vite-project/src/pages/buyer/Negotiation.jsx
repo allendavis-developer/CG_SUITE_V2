@@ -1,11 +1,11 @@
-import React, { useMemo, useState, useRef, useCallback, useEffect } from "react";
+import React, { useMemo, useState, useRef, useCallback, useEffect, useLayoutEffect } from "react";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
 import AppHeader from "@/components/AppHeader";
 import CustomerIntakeModal from '@/components/modals/CustomerIntakeModal.jsx';
 import ResearchOverlayPanel from './components/ResearchOverlayPanel';
 import NegotiationDocumentHead from './components/negotiation/NegotiationDocumentHead';
 import NegotiationTablesSection from './components/negotiation/NegotiationTablesSection';
-import NegotiationSidebarPanel from './components/negotiation/NegotiationSidebarPanel';
+import NegotiationTotalsFooter from './components/negotiation/NegotiationTotalsFooter';
 import CustomerTransactionHeader from './components/CustomerTransactionHeader';
 import NegotiationOfferMetricsBar from './components/negotiation/NegotiationOfferMetricsBar';
 import NegotiationModalsLayer from './components/negotiation/NegotiationModalsLayer';
@@ -125,6 +125,10 @@ const Negotiation = ({ mode }) => {
   const prevTransactionTypeRef = useRef(transactionType);
   /** Only clear jewellery reference when switching to a different request, not on undefined→id (avoids wiping hydrated scrape). */
   const prevNegotiationRequestIdRef = useRef(null);
+  const negotiationFooterRef = useRef(null);
+  /** Bottom edge of this element → top of header workspace + item research overlay (below customer + metrics). */
+  const negotiationWorkspaceOverlayBottomRef = useRef(null);
+  const [researchOverlayBottomInsetPx, setResearchOverlayBottomInsetPx] = useState(0);
   const useVoucherOffers = transactionType === 'store_credit';
 
   const blockedOfferSlots = useMemo(() => {
@@ -238,6 +242,16 @@ const Negotiation = ({ mode }) => {
     () => items.filter((i) => i.isJewelleryItem === true),
     [items]
   );
+
+  useLayoutEffect(() => {
+    const el = negotiationFooterRef.current;
+    if (!el) return;
+    const measure = () => setResearchOverlayBottomInsetPx(el.offsetHeight);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const nosposRequiredEditorLiveItem = useMemo(() => {
     if (!nosposRequiredFieldsEditor?.item?.id) return null;
@@ -603,70 +617,91 @@ const Negotiation = ({ mode }) => {
           onRemoveJewelleryWorkspaceRow: handleRemoveJewelleryWorkspaceRow,
           jewelleryReferenceScrape,
           onJewelleryReferenceScrapeResult: handleJewelleryReferenceScrapeResult,
+          workspaceOverlayBottomRef: negotiationWorkspaceOverlayBottomRef,
         } : null}
       />
 
-      <CustomerTransactionHeader
-        customer={customerData?.id ? customerData : { name: 'No customer selected' }}
-        transactionType={transactionType}
-        onTransactionChange={(nextType) => {
-          setTransactionType(nextType);
-          setStoreTransactionType(nextType);
-        }}
-        presentation="infoStrip"
-        readOnly={mode === 'view'}
-      />
-      <NegotiationOfferMetricsBar
-        mode={mode}
-        transactionType={transactionType}
-        onTransactionChange={(nextType) => {
-          setTransactionType(nextType);
-          setStoreTransactionType(nextType);
-        }}
-        totalExpectation={totalExpectation}
-        setTotalExpectation={setTotalExpectation}
-        offerMin={offerMin}
-        offerMax={offerMax}
-        parsedTarget={parsedTarget}
-        setShowTargetModal={setShowTargetModal}
-        setShowNewBuyConfirm={setShowNewBuyConfirm}
-        actualRequestId={actualRequestId}
-        researchSandboxBookedView={researchSandboxBookedView}
-      />
-
-      <main className="relative flex min-h-0 flex-1 overflow-hidden">
-        <NegotiationTablesSection
+      <div ref={negotiationWorkspaceOverlayBottomRef}>
+        <CustomerTransactionHeader
+          customer={customerData?.id ? customerData : { name: 'No customer selected' }}
+          transactionType={transactionType}
+          onTransactionChange={(nextType) => {
+            setTransactionType(nextType);
+            setStoreTransactionType(nextType);
+          }}
+          presentation="infoStrip"
+          readOnly={mode === 'view'}
+        />
+        <NegotiationOfferMetricsBar
           mode={mode}
+          transactionType={transactionType}
+          onTransactionChange={(nextType) => {
+            setTransactionType(nextType);
+            setStoreTransactionType(nextType);
+          }}
+          totalExpectation={totalExpectation}
+          setTotalExpectation={setTotalExpectation}
+          offerMin={offerMin}
+          offerMax={offerMax}
+          parsedTarget={parsedTarget}
+          setShowTargetModal={setShowTargetModal}
+          setShowNewBuyConfirm={setShowNewBuyConfirm}
           actualRequestId={actualRequestId}
           researchSandboxBookedView={researchSandboxBookedView}
-          jewelleryNegotiationItems={jewelleryNegotiationItems}
-          jewelleryReferenceScrape={jewelleryReferenceScrape}
-          setShowJewelleryReferenceModal={setShowJewelleryReferenceModal}
-          handleSelectOffer={handleSelectOffer}
-          setContextMenu={setContextMenu}
-          setItemOfferModal={setItemOfferModal}
-          handleCustomerExpectationChange={handleCustomerExpectationChange}
-          handleJewelleryItemNameChange={handleJewelleryItemNameChange}
-          handleJewelleryWeightChange={handleJewelleryWeightChange}
-          blockedOfferSlots={blockedOfferSlots}
-          handleBlockedOfferClick={handleBlockedOfferClick}
-          parkExcludedItems={parkExcludedItems}
-          handleToggleParkExcludeItem={handleToggleParkExcludeItem}
-          mainNegotiationItems={mainNegotiationItems}
-          handleQuantityChange={handleQuantityChange}
-          handleOurSalePriceChange={handleOurSalePriceChange}
-          handleOurSalePriceBlur={handleOurSalePriceBlur}
-          handleOurSalePriceFocus={handleOurSalePriceFocus}
-          handleRefreshCeXData={handleRefreshCeXData}
-          setResearchItem={setResearchItem}
-          setCashConvertersResearchItem={setCashConvertersResearchItem}
-          useVoucherOffers={useVoucherOffers}
-          nosposCategoriesResults={nosposSchema.categories}
-          nosposCategoryMappings={nosposSchema.mappings ?? []}
-          onOpenNosposRequiredFieldsEditor={handleOpenNosposRequiredFieldsEditor}
-          hideNosposRequiredColumn={mode === 'negotiate'}
         />
-        <NegotiationSidebarPanel
+      </div>
+
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className="relative flex min-h-0 flex-1 overflow-hidden">
+          <NegotiationTablesSection
+            mode={mode}
+            actualRequestId={actualRequestId}
+            researchSandboxBookedView={researchSandboxBookedView}
+            jewelleryNegotiationItems={jewelleryNegotiationItems}
+            jewelleryReferenceScrape={jewelleryReferenceScrape}
+            setShowJewelleryReferenceModal={setShowJewelleryReferenceModal}
+            handleSelectOffer={handleSelectOffer}
+            setContextMenu={setContextMenu}
+            setItemOfferModal={setItemOfferModal}
+            handleCustomerExpectationChange={handleCustomerExpectationChange}
+            handleJewelleryItemNameChange={handleJewelleryItemNameChange}
+            handleJewelleryWeightChange={handleJewelleryWeightChange}
+            blockedOfferSlots={blockedOfferSlots}
+            handleBlockedOfferClick={handleBlockedOfferClick}
+            parkExcludedItems={parkExcludedItems}
+            handleToggleParkExcludeItem={handleToggleParkExcludeItem}
+            mainNegotiationItems={mainNegotiationItems}
+            handleQuantityChange={handleQuantityChange}
+            handleOurSalePriceChange={handleOurSalePriceChange}
+            handleOurSalePriceBlur={handleOurSalePriceBlur}
+            handleOurSalePriceFocus={handleOurSalePriceFocus}
+            handleRefreshCeXData={handleRefreshCeXData}
+            setResearchItem={setResearchItem}
+            setCashConvertersResearchItem={setCashConvertersResearchItem}
+            useVoucherOffers={useVoucherOffers}
+            nosposCategoriesResults={nosposSchema.categories}
+            nosposCategoryMappings={nosposSchema.mappings ?? []}
+            onOpenNosposRequiredFieldsEditor={handleOpenNosposRequiredFieldsEditor}
+            hideNosposRequiredColumn={mode === 'negotiate'}
+          />
+          <ResearchOverlayPanel
+            researchItem={researchItem}
+            cashConvertersResearchItem={cashConvertersResearchItem}
+            onResearchComplete={handleResearchComplete}
+            onCashConvertersResearchComplete={handleCashConvertersResearchComplete}
+            readOnly={researchFormReadOnly}
+            ephemeralSessionNotice={researchEphemeralNotice}
+            showManualOffer={true}
+            useVoucherOffers={useVoucherOffers}
+            blockedOfferSlots={blockedOfferSlots}
+            onBlockedOfferClick={handleResearchBlockedOfferClick}
+            onCategoryResolved={handleResearchItemCategoryResolved}
+            reserveRightSidebar={false}
+            bottomInsetPx={researchOverlayBottomInsetPx}
+          />
+        </div>
+        <NegotiationTotalsFooter
+          ref={negotiationFooterRef}
           mode={mode}
           jewelleryOfferTotal={jewelleryOfferTotal}
           otherItemsOfferTotal={otherItemsOfferTotal}
@@ -686,20 +721,7 @@ const Negotiation = ({ mode }) => {
           cashConvertersResearchItem={cashConvertersResearchItem}
           handleFinalizeTransaction={handleFinalizeTransaction}
         />
-        <ResearchOverlayPanel
-          researchItem={researchItem}
-          cashConvertersResearchItem={cashConvertersResearchItem}
-          onResearchComplete={handleResearchComplete}
-          onCashConvertersResearchComplete={handleCashConvertersResearchComplete}
-          readOnly={researchFormReadOnly}
-          ephemeralSessionNotice={researchEphemeralNotice}
-          showManualOffer={true}
-          useVoucherOffers={useVoucherOffers}
-          blockedOfferSlots={blockedOfferSlots}
-          onBlockedOfferClick={handleResearchBlockedOfferClick}
-          onCategoryResolved={handleResearchItemCategoryResolved}
-        />
-      </main>
+      </div>
 
       <NegotiationModalsLayer
         contextMenu={contextMenu}

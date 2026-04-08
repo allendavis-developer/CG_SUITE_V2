@@ -40,14 +40,8 @@ export default function NegotiationTablesSection({
     <section className="flex-1 bg-white flex flex-col overflow-hidden">
       <div className="min-h-0 flex-1 overflow-auto">
         {jewelleryNegotiationItems.length > 0 ? (
-          <div
-            className="border-b-2 bg-white"
-            style={{ borderColor: 'rgba(20, 69, 132, 0.2)' }}
-          >
-            <div
-              className="sticky top-0 z-[5] border-b bg-white px-6 py-3"
-              style={{ borderColor: 'var(--ui-border)' }}
-            >
+          <div className="bg-white">
+            <div className="sticky top-0 z-[5] bg-white px-6 py-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="text-sm font-black uppercase tracking-wider text-brand-blue">Jewellery</h3>
                 {mode === 'view' && jewelleryReferenceScrape?.sections?.length ? (

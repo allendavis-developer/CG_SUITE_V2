@@ -4,7 +4,6 @@ import ResearchFormShell from './ResearchFormShell';
 import WorkspaceCloseButton from '@/components/ui/WorkspaceCloseButton';
 import { calculateStats, calculateBuyOffers } from './researchStats';
 import { buildOtherResearchChannelsSummaries } from './researchOtherChannelsSummary';
-import { Icon } from '../ui/components';
 import useAppStore, { useEbayOfferMargins } from '@/store/useAppStore';
 import { fetchAllCategoriesFlat } from '@/services/api';
 import { matchCexCategoryNameToDb } from '@/utils/cexCategoryMatch';
@@ -55,6 +54,31 @@ function withoutEbayPickerPlaceholder(nodes) {
   return (nodes || []).filter((c) => String(c.name || '').trim().toLowerCase() !== 'ebay');
 }
 
+/**
+ * Every category node with `pathNodes` / `pathNames` from root → node (same object refs as the nested tree).
+ * Excludes the eBay placeholder; used for global search across all levels.
+ */
+function flattenCategoryTreeWithPaths(roots) {
+  const rows = [];
+  function walk(node, ancestorNodes) {
+    const pathNodes = [...ancestorNodes, node];
+    rows.push({
+      node,
+      pathNodes,
+      pathNames: pathNodes.map((n) => String(n.name ?? '')),
+      category_id: node.category_id,
+    });
+    const kids = withoutEbayPickerPlaceholder(node.children || []);
+    for (const child of kids) {
+      walk(child, pathNodes);
+    }
+  }
+  for (const r of withoutEbayPickerPlaceholder(roots || [])) {
+    walk(r, []);
+  }
+  return rows;
+}
+
 function resolveSkipCategoryFromFlat(flat) {
   const row = flat.find((c) => String(c.name || '').trim().toLowerCase() === 'ebay');
   if (!row) return null;
@@ -73,106 +97,247 @@ function categoryPickerDisplayName(cat) {
   return cat?.name ?? '';
 }
 
-function CategoryPickerList({ items, isLoading, onSelect, query, setQuery, statsHeading, entitySingular, entityPlural }) {
+/** `aiSuggestion` — top-level only: optional strip above search (spinner / suggested row / error). */
+function CategoryPickerList({
+  items,
+  isLoading,
+  onSelect,
+  query,
+  setQuery,
+  statsHeading,
+  entitySingular,
+  entityPlural,
+  aiSuggestion = null,
+  onSkip = null,
+  onClose = null,
+  globalSearchEntries = null,
+  onPickGlobalSearch = null,
+}) {
   const searchRef = useRef(null);
 
-  useEffect(() => { if (!isLoading && items.length > 0) searchRef.current?.focus({ preventScroll: true }); }, [isLoading, items.length]);
+  const searchQ = query.trim().toLowerCase();
+  const isGlobalSearch = Boolean(searchQ && globalSearchEntries?.length && onPickGlobalSearch);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return items;
+  useEffect(() => {
+    if (isLoading) return;
+    if (items.length > 0 || (globalSearchEntries && globalSearchEntries.length > 0)) {
+      searchRef.current?.focus({ preventScroll: true });
+    }
+  }, [isLoading, items.length, globalSearchEntries?.length]);
+
+  const filteredLevelItems = useMemo(() => {
+    if (!searchQ) return items;
     return items.filter((c) => {
       const name = String(c.name || '').toLowerCase();
       const label = categoryPickerDisplayName(c).toLowerCase();
-      return name.includes(q) || label.includes(q);
+      return name.includes(searchQ) || label.includes(searchQ);
     });
-  }, [items, query]);
+  }, [items, searchQ]);
+
+  const filteredGlobalEntries = useMemo(() => {
+    if (!searchQ || !globalSearchEntries?.length) return [];
+    const matches = globalSearchEntries.filter((entry) => {
+      const name = String(entry.node?.name || '').toLowerCase();
+      if (name.includes(searchQ)) return true;
+      if (entry.pathNames.some((p) => String(p).toLowerCase().includes(searchQ))) return true;
+      return entry.pathNames.join(' ').toLowerCase().includes(searchQ);
+    });
+    matches.sort((a, b) =>
+      a.pathNames.join('\u0000').localeCompare(b.pathNames.join('\u0000'), undefined, { sensitivity: 'base' })
+    );
+    return matches;
+  }, [globalSearchEntries, searchQ]);
+
+  const visibleRows = isGlobalSearch ? filteredGlobalEntries : filteredLevelItems;
 
   if (isLoading) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 py-12 text-gray-500">
-        <span className="material-symbols-outlined animate-spin text-3xl text-brand-blue">sync</span>
-        <p className="text-sm">Loading categories…</p>
+      <div className="flex flex-col items-center justify-center gap-2 py-6 text-gray-500">
+        <span className="material-symbols-outlined animate-spin text-2xl text-brand-blue">sync</span>
+        <p className="text-xs">Loading categories…</p>
       </div>
     );
   }
 
+  const listHeading = isGlobalSearch ? 'Search results' : statsHeading;
+  const countLabel = isGlobalSearch
+    ? `${filteredGlobalEntries.length} match${filteredGlobalEntries.length === 1 ? '' : 'es'} of ${globalSearchEntries.length} ${entityPlural}`
+    : filteredLevelItems.length === items.length
+      ? `${items.length} ${items.length === 1 ? entitySingular : entityPlural}`
+      : `${filteredLevelItems.length} match${filteredLevelItems.length === 1 ? '' : 'es'} of ${items.length}`;
+
+  const rowMinH = 'min-h-[2.75rem]';
+  const sharedText = 'text-xs font-semibold leading-snug sm:text-sm';
+
+  const showSuggestionBar = Boolean(aiSuggestion || onSkip || onClose);
+
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-      <div className="shrink-0 border-b border-gray-200 bg-white px-4 py-3">
+      {showSuggestionBar ? (
+        <div
+          className={`flex w-full shrink-0 items-stretch gap-2 border-b border-brand-blue/20 bg-brand-blue/[0.07] px-2 py-1.5 sm:gap-2.5 sm:px-3 sm:py-2 ${aiSuggestion ? '' : 'justify-end'}`}
+        >
+          {aiSuggestion ? (
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col justify-center" aria-live="polite">
+              {aiSuggestion.phase === 'running' ? (
+                <div
+                  className={`flex ${rowMinH} items-center gap-1.5 rounded-md border border-transparent px-2 text-brand-blue ${sharedText}`}
+                >
+                  <span
+                    className="inline-block h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-brand-blue border-t-transparent"
+                    aria-hidden
+                  />
+                  Finding suggested category…
+                </div>
+              ) : null}
+              {aiSuggestion.phase === 'ready' && aiSuggestion.breadcrumb ? (
+                <button
+                  type="button"
+                  onClick={aiSuggestion.onConfirm}
+                  className={`flex ${rowMinH} w-full cursor-pointer items-center gap-2 rounded-md border border-brand-blue bg-brand-blue px-2 text-left text-xs font-semibold leading-snug text-white shadow-sm transition-colors hover:bg-brand-blue-hover sm:px-3 sm:text-sm`}
+                  aria-label={`Use suggested category: ${aiSuggestion.breadcrumb}`}
+                >
+                  <span className="shrink-0 whitespace-nowrap uppercase tracking-wide text-white">
+                    Suggested
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-white">
+                    {aiSuggestion.breadcrumb}
+                  </span>
+                  <span className="material-symbols-outlined shrink-0 text-[18px] leading-none text-white/90">chevron_right</span>
+                </button>
+              ) : null}
+              {aiSuggestion.phase === 'error' && aiSuggestion.message ? (
+                <p className={`${rowMinH} flex items-center px-2 text-amber-900 ${sharedText}`}>{aiSuggestion.message}</p>
+              ) : null}
+            </div>
+          ) : null}
+          {(onSkip || onClose) ? (
+            <div className="flex shrink-0 items-stretch gap-2">
+              {onSkip ? (
+                <button
+                  type="button"
+                  onClick={onSkip}
+                  className={`flex ${rowMinH} shrink-0 items-center justify-center self-stretch rounded-md border-2 border-gray-500 bg-white px-3 font-bold text-gray-900 shadow-sm transition-colors hover:border-brand-blue hover:bg-brand-blue/5 hover:text-brand-blue sm:px-4 ${sharedText}`}
+                >
+                  Skip — default margins
+                </button>
+              ) : null}
+              {onClose ? (
+                <button
+                  type="button"
+                  onClick={onClose}
+                  aria-label="Close research"
+                  title="Close research"
+                  className={`flex ${rowMinH} min-w-[2.75rem] shrink-0 items-center justify-center self-stretch rounded-md bg-red-500 px-3 text-white shadow-sm transition-colors hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-400/70 focus:ring-offset-2 focus:ring-offset-white`}
+                >
+                  <span className="material-symbols-outlined text-[20px] leading-none">close</span>
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      <div className="shrink-0 border-b border-gray-200 bg-white px-2 py-2 sm:px-3">
         <div className="relative">
-          <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-gray-400">search</span>
+          <span className="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-[16px] text-gray-400">search</span>
           <input
             ref={searchRef}
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && filtered.length === 1) onSelect(filtered[0]); }}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return;
+              if (isGlobalSearch) {
+                if (filteredGlobalEntries.length === 1) onPickGlobalSearch(filteredGlobalEntries[0]);
+              } else if (filteredLevelItems.length === 1) {
+                onSelect(filteredLevelItems[0]);
+              }
+            }}
             placeholder="Search categories…"
-            className="w-full rounded-lg border border-gray-300 bg-white py-2 pl-9 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-orange"
+            className="w-full rounded-md border border-gray-300 bg-white py-1.5 pl-8 pr-8 text-xs text-gray-900 placeholder:text-gray-400 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-orange sm:text-sm"
           />
           {query ? (
-            <button type="button" onClick={() => setQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600">
-              <span className="material-symbols-outlined text-[16px]">close</span>
+            <button type="button" onClick={() => setQuery('')} className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600">
+              <span className="material-symbols-outlined text-[15px]">close</span>
             </button>
           ) : null}
         </div>
-        <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5">
-          <div className="flex flex-wrap items-end justify-between gap-2">
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">{statsHeading}</p>
-              {filtered.length === items.length ? (
-                <p className="mt-0.5 text-2xl font-black tabular-nums tracking-tight text-brand-blue">
-                  {items.length}
-                  <span className="ml-1.5 text-base font-bold text-gray-700">{items.length === 1 ? entitySingular : entityPlural}</span>
-                </p>
-              ) : (
-                <>
-                  <p className="mt-0.5 text-2xl font-black tabular-nums tracking-tight text-brand-blue">
-                    {filtered.length}
-                    <span className="mx-1 text-lg font-bold text-gray-400">/</span>
-                    <span className="text-xl font-bold text-gray-700">{items.length}</span>
-                  </p>
-                  <p className="mt-0.5 text-xs font-medium text-gray-600">Showing matches — {items.length} total</p>
-                </>
-              )}
-            </div>
-          </div>
+        <div className="mt-1.5 flex min-w-0 flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5 text-[10px] leading-tight text-gray-600">
+          <span className="min-w-0 shrink font-bold uppercase tracking-wide text-gray-500">{listHeading}</span>
+          <span className="shrink-0 tabular-nums">
+            <span className="font-semibold text-brand-blue">{countLabel}</span>
+          </span>
         </div>
       </div>
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain [-webkit-overflow-scrolling:touch]">
-        {filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center px-6 py-16 text-center text-gray-500">
-            <span className="material-symbols-outlined mb-3 text-4xl text-gray-400">{query.trim() ? 'search_off' : 'category'}</span>
+        {visibleRows.length === 0 ? (
+          <div className="flex flex-col items-center justify-center px-4 py-8 text-center text-gray-500">
+            <span className="material-symbols-outlined mb-2 text-3xl text-gray-400">{query.trim() ? 'search_off' : 'category'}</span>
             {query.trim() ? (
               <>
-                <p className="text-sm font-semibold text-gray-800">No matches</p>
-                <p className="mt-1 max-w-sm text-sm text-gray-600">Try different keywords or clear the search.</p>
+                <p className="text-xs font-semibold text-gray-800">No matches</p>
+                <p className="mt-0.5 max-w-sm text-xs text-gray-600">Try different keywords or clear the search.</p>
               </>
             ) : (
-              <p className="text-sm font-semibold text-gray-800">Nothing to show</p>
+              <p className="text-xs font-semibold text-gray-800">Nothing to show</p>
             )}
           </div>
         ) : (
-          <table className="w-full border-collapse text-sm">
+          <table className="w-full border-collapse text-xs sm:text-sm">
             <tbody>
-              {filtered.map((cat, i) => (
-                <tr
-                  key={cat.category_id}
-                  onClick={() => onSelect(cat)}
-                  className={`cursor-pointer border-b border-gray-200/80 transition-colors hover:bg-brand-blue/5 hover:text-brand-blue ${i % 2 === 0 ? 'bg-white' : 'bg-brand-blue/10'}`}
-                >
-                  <td className="px-4 py-3 font-medium text-gray-900">
-                    {categoryPickerDisplayName(cat)}
-                    {cat.children?.length > 0 && (
-                      <span className="ml-2 text-[11px] font-normal text-gray-400">{cat.children.length} sub-{cat.children.length === 1 ? 'category' : 'categories'}</span>
-                    )}
-                  </td>
-                  <td className="w-10 px-4 py-3 text-right">
-                    <span className="material-symbols-outlined align-middle text-[20px] text-gray-400">chevron_right</span>
-                  </td>
-                </tr>
-              ))}
+              {isGlobalSearch
+                ? filteredGlobalEntries.map((entry, i) => {
+                    const names = entry.pathNames;
+                    const ancestors = names.slice(0, -1);
+                    const leaf = names.length > 0 ? names[names.length - 1] : '';
+                    const subCount = withoutEbayPickerPlaceholder(entry.node.children || []).length;
+                    return (
+                      <tr
+                        key={entry.node.category_id}
+                        onClick={() => onPickGlobalSearch(entry)}
+                        className={`cursor-pointer border-b border-gray-200/80 transition-colors hover:bg-brand-blue/5 hover:text-brand-blue ${i % 2 === 0 ? 'bg-white' : 'bg-brand-blue/10'}`}
+                      >
+                        <td className="px-2 py-1.5 pl-3 leading-snug sm:px-3 sm:py-2">
+                          <span className="text-gray-900">
+                            {ancestors.length > 0 ? (
+                              <span className="text-gray-500">{ancestors.join(' › ')} › </span>
+                            ) : null}
+                            <span className="font-medium">{leaf}</span>
+                            {subCount > 0 ? (
+                              <span className="ml-1.5 text-[10px] font-normal text-gray-400 sm:text-[11px]">
+                                {subCount} sub-{subCount === 1 ? 'category' : 'categories'}
+                              </span>
+                            ) : null}
+                          </span>
+                        </td>
+                        <td className="w-8 px-1 py-1.5 text-right sm:w-9 sm:px-2 sm:py-2">
+                          <span className="material-symbols-outlined align-middle text-[18px] text-gray-400 sm:text-[19px]">chevron_right</span>
+                        </td>
+                      </tr>
+                    );
+                  })
+                : filteredLevelItems.map((cat, i) => {
+                    const subCount = withoutEbayPickerPlaceholder(cat.children || []).length;
+                    return (
+                      <tr
+                        key={cat.category_id}
+                        onClick={() => onSelect(cat)}
+                        className={`cursor-pointer border-b border-gray-200/80 transition-colors hover:bg-brand-blue/5 hover:text-brand-blue ${i % 2 === 0 ? 'bg-white' : 'bg-brand-blue/10'}`}
+                      >
+                        <td className="px-2 py-1.5 pl-3 font-medium leading-snug text-gray-900 sm:px-3 sm:py-2">
+                          {categoryPickerDisplayName(cat)}
+                          {subCount > 0 ? (
+                            <span className="ml-1.5 text-[10px] font-normal text-gray-400 sm:text-[11px]">
+                              {subCount} sub-{subCount === 1 ? 'category' : 'categories'}
+                            </span>
+                          ) : null}
+                        </td>
+                        <td className="w-8 px-1 py-1.5 text-right sm:w-9 sm:px-2 sm:py-2">
+                          <span className="material-symbols-outlined align-middle text-[18px] text-gray-400 sm:text-[19px]">chevron_right</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
             </tbody>
           </table>
         )}
@@ -193,6 +358,7 @@ function CategoryPickerStep({
   lineItemForAi = null,
   initialSearchQuery = null,
   categoryHint = null,
+  onClose = null,
 }) {
   const [allCategories, setAllCategories] = useState([]);
   const [skipCategoryPayload, setSkipCategoryPayload] = useState(null);
@@ -200,7 +366,6 @@ function CategoryPickerStep({
   const [loading, setLoading] = useState(true);
   const [path, setPath] = useState([]); // stack of category nodes
   const [query, setQuery] = useState('');
-  /** AI slot: space reserved in header so layout does not jump when the suggestion appears. */
   const [aiSlotPhase, setAiSlotPhase] = useState('waiting');
   const [aiBreadcrumb, setAiBreadcrumb] = useState('');
   const [aiAutoError, setAiAutoError] = useState(null);
@@ -315,8 +480,14 @@ function CategoryPickerStep({
   }, [path, allCategories]);
   const currentCategory = path.length > 0 ? path[path.length - 1] : null;
 
+  const globalSearchEntries = useMemo(
+    () => flattenCategoryTreeWithPaths(allCategories),
+    [allCategories]
+  );
+
   const handleSelectItem = (cat) => {
-    if (cat.children?.length > 0) {
+    const kids = withoutEbayPickerPlaceholder(cat.children || []);
+    if (kids.length > 0) {
       setPath([...path, cat]);
       setQuery('');
     } else {
@@ -324,6 +495,17 @@ function CategoryPickerStep({
       onSelect({ id: cat.category_id, name: cat.name, path: resolvedPath });
     }
   };
+
+  const handleGlobalSearchPick = useCallback((entry) => {
+    const { node, pathNames } = entry;
+    const kids = withoutEbayPickerPlaceholder(node.children || []);
+    setQuery('');
+    if (kids.length > 0) {
+      setPath(entry.pathNodes);
+    } else {
+      onSelect({ id: node.category_id, name: node.name, path: pathNames });
+    }
+  }, [onSelect]);
 
   const handleUseCurrentCategory = () => {
     if (!currentCategory) return;
@@ -335,92 +517,55 @@ function CategoryPickerStep({
     setQuery('');
   };
 
+  const handleAiSuggestedConfirm = useCallback(() => {
+    const payload = aiPendingSelectRef.current;
+    if (!payload) {
+      console.log('[CG Suite][AiCategory][Picker] click but no pending payload');
+      return;
+    }
+    console.log('[CG Suite][AiCategory][Picker] user confirmed AI category', payload);
+
+    onClearAiNosposStockCategory?.();
+    onSelect(payload, { awaitingAiNosposMatch: true });
+
+    const flat = allCategoriesFlatRef.current;
+    const run = (async () => {
+      const match = await runNosposStockCategoryAiMatchBackground({
+        internalCategoryId: payload.id,
+        itemSummary: itemSummaryForAi,
+        allCategoriesFlat: flat,
+        logTag: '[CG Suite][NosposPathMatch]',
+      });
+      if (match) {
+        onAiNosposStockCategoryReady?.({
+          nosposId: match.nosposId,
+          fullName: match.fullName,
+          pathSegments: match.pathSegments,
+        });
+      }
+    })();
+    registerNosposBackgroundMatch?.(run);
+  }, [
+    onSelect,
+    onClearAiNosposStockCategory,
+    onAiNosposStockCategoryReady,
+    registerNosposBackgroundMatch,
+    itemSummaryForAi,
+  ]);
+
+  const listAiSuggestion =
+    !loadError && path.length === 0 && !loading
+      ? aiSlotPhase === 'running'
+        ? { phase: 'running' }
+        : aiSlotPhase === 'ready' && aiBreadcrumb
+          ? { phase: 'ready', breadcrumb: aiBreadcrumb, onConfirm: handleAiSuggestedConfirm }
+          : aiSlotPhase === 'error' && aiAutoError
+            ? { phase: 'error', message: aiAutoError }
+            : null
+      : null;
+
   return (
-    <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col gap-3 overflow-hidden p-4">
-      <div className="shrink-0 space-y-3 rounded-xl border border-brand-blue/25 bg-white px-4 py-5 shadow-sm">
-        <p className="text-center text-xl font-extrabold leading-tight tracking-tight text-brand-blue sm:text-2xl">
-          What category does this item belong to?
-        </p>
-        <p className="mx-auto max-w-md text-center text-xs text-gray-600 sm:text-sm">
-          Choosing a category applies offer margins from pricing rules. All internal categories are listed below,
-          including those hidden from the main buyer sidebar.
-        </p>
-
-        {/* Fixed-height slot: empty while waiting, spinner while AI runs, then clickable blue bar with full breadcrumb. */}
-        <div
-          className="flex min-h-[3.25rem] w-full items-center justify-center rounded-xl border border-transparent px-1"
-          aria-live="polite"
-        >
-          {loadError ? null : loading ? (
-            <span className="text-xs font-medium text-gray-400">Loading categories…</span>
-          ) : aiSlotPhase === 'running' ? (
-            <span className="inline-flex items-center justify-center gap-2 text-sm font-semibold text-brand-blue">
-              <span
-                className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-brand-blue border-t-transparent"
-                aria-hidden
-              />
-              Finding category…
-            </span>
-          ) : aiSlotPhase === 'ready' && aiBreadcrumb ? (
-            <button
-              type="button"
-              onClick={() => {
-                const payload = aiPendingSelectRef.current;
-                if (!payload) {
-                  console.log('[CG Suite][AiCategory][Picker] click but no pending payload');
-                  return;
-                }
-                console.log('[CG Suite][AiCategory][Picker] user confirmed AI category', payload);
-
-                onClearAiNosposStockCategory?.();
-                onSelect(payload, { awaitingAiNosposMatch: true });
-
-                // Background NosPos stock path (same cascade as builder). Must not be gated on
-                // ready_for_builder — e.g. Watches/Seiko still needs a NosPos breadcrumb for the table.
-                // Completion awaits this via registerNosposBackgroundMatch so save payload includes the hint.
-                const flat = allCategoriesFlatRef.current;
-                const run = (async () => {
-                  const match = await runNosposStockCategoryAiMatchBackground({
-                    internalCategoryId: payload.id,
-                    itemSummary: itemSummaryForAi,
-                    allCategoriesFlat: flat,
-                    logTag: '[CG Suite][NosposPathMatch]',
-                  });
-                  if (match) {
-                    onAiNosposStockCategoryReady?.({
-                      nosposId: match.nosposId,
-                      fullName: match.fullName,
-                      pathSegments: match.pathSegments,
-                    });
-                  }
-                })();
-                registerNosposBackgroundMatch?.(run);
-              }}
-              className="w-full cursor-pointer rounded-xl bg-brand-blue px-4 py-3 text-center text-sm font-bold leading-snug text-white shadow-md transition-opacity hover:opacity-95 active:opacity-90"
-              aria-label={`Use suggested category: ${aiBreadcrumb}`}
-            >
-              {aiBreadcrumb}
-            </button>
-          ) : aiSlotPhase === 'error' && aiAutoError ? (
-            <p className="px-2 text-center text-xs font-medium text-amber-900">{aiAutoError}</p>
-          ) : (
-            <span className="pointer-events-none select-none text-transparent" aria-hidden="true">
-              &nbsp;
-            </span>
-          )}
-        </div>
-
-        {skipCategoryPayload ? (
-          <button
-            type="button"
-            onClick={() => onSelect(skipCategoryPayload)}
-            className="w-full rounded-xl border-2 border-gray-300 bg-white px-4 py-3.5 text-center text-sm font-bold text-gray-800 shadow-sm transition-colors hover:border-brand-blue hover:bg-brand-blue/5 hover:text-brand-blue"
-          >
-            Skip — use default margins
-          </button>
-        ) : null}
-      </div>
-
+    <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col gap-2 overflow-hidden p-2 sm:p-3">
       {/* Breadcrumb navigation */}
       {path.length > 0 && (
         <div className="shrink-0 flex flex-wrap items-center gap-1 text-xs font-medium">
@@ -443,9 +588,9 @@ function CategoryPickerStep({
         <button
           type="button"
           onClick={handleUseCurrentCategory}
-          className="shrink-0 flex items-center gap-2 rounded-lg border border-brand-blue/30 bg-brand-blue/5 px-3 py-2 text-xs font-bold text-brand-blue transition-colors hover:bg-brand-blue/10"
+          className="shrink-0 flex items-center gap-1.5 rounded-md border border-brand-blue/30 bg-brand-blue/5 px-2 py-1.5 text-[11px] font-bold text-brand-blue transition-colors hover:bg-brand-blue/10 sm:text-xs"
         >
-          <span className="material-symbols-outlined text-[16px]">check_circle</span>
+          <span className="material-symbols-outlined text-[15px]">check_circle</span>
           Use &ldquo;{categoryPickerDisplayName(currentCategory)}&rdquo; as category
         </button>
       )}
@@ -470,6 +615,11 @@ function CategoryPickerStep({
           statsHeading={path.length === 0 ? 'Top-level categories' : `Sub-categories of "${currentCategory ? categoryPickerDisplayName(currentCategory) : ''}"`}
           entitySingular="category"
           entityPlural="categories"
+          aiSuggestion={listAiSuggestion}
+          onSkip={skipCategoryPayload ? () => onSelect(skipCategoryPayload) : null}
+          onClose={onClose}
+          globalSearchEntries={globalSearchEntries}
+          onPickGlobalSearch={handleGlobalSearchPick}
         />
       </div>
     </div>
@@ -1129,6 +1279,7 @@ function ExtensionResearchForm({
             lineItemForAi={lineItemContext}
             initialSearchQuery={initialSearchQuery}
             categoryHint={category}
+            onClose={mode === 'modal' ? () => onComplete?.({ cancel: true }) : null}
           />
         </div>
       </div>
@@ -1144,23 +1295,6 @@ function ExtensionResearchForm({
             <div className="cg-animate-modal-backdrop absolute inset-0 bg-black/40" aria-hidden />
           )}
           <div className={`flex min-h-0 flex-1 flex-col overflow-hidden bg-white ${!containModalInParent ? 'relative z-10 cg-animate-modal-panel' : ''}`}>
-            <header className="bg-brand-blue px-6 py-4 flex items-center justify-between text-white shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="bg-white/10 p-1.5 rounded">
-                  <Icon name="category" className="text-brand-orange" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-bold">{config.headerTitle}</h2>
-                  <p className="text-[10px] text-white/60 font-medium uppercase tracking-widest leading-none mt-0.5">
-                    Select item category
-                  </p>
-                </div>
-              </div>
-              <WorkspaceCloseButton
-                title={`Close ${config.label} research`}
-                onClick={() => onComplete?.({ cancel: true })}
-              />
-            </header>
             {ephemeralSessionNotice && (
               <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2.5 text-center text-xs font-semibold text-amber-950" role="status">
                 {ephemeralSessionNotice}
@@ -1173,12 +1307,8 @@ function ExtensionResearchForm({
     }
 
     return (
-      <div className="flex flex-col h-full bg-gray-50">
-        <header className="px-6 py-4 border-b border-gray-200 bg-white shrink-0">
-          <h2 className="text-lg font-bold text-brand-blue">{config.headerTitle}</h2>
-          <p className="text-sm text-gray-500">Select the item category before searching</p>
-        </header>
-        <main className="flex-1 min-h-0 overflow-hidden flex flex-col">{categoryBody}</main>
+      <div className="flex h-full flex-col bg-gray-50">
+        <main className="flex min-h-0 flex-1 flex-col overflow-hidden">{categoryBody}</main>
       </div>
     );
   }
@@ -1210,23 +1340,12 @@ function ExtensionResearchForm({
             <div className="cg-animate-modal-backdrop absolute inset-0 bg-black/40" aria-hidden />
           )}
           <div className={`flex min-h-0 flex-1 flex-col overflow-hidden bg-white ${!containModalInParent ? 'relative z-10 cg-animate-modal-panel' : ''}`}>
-            <header className="bg-brand-blue px-6 py-4 flex items-center justify-between text-white shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="bg-white/10 p-1.5 rounded">
-                  <Icon name={config.headerIcon} className="text-brand-orange" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-bold">{config.headerTitle}</h2>
-                  <p className="text-[10px] text-white/60 font-medium uppercase tracking-widest leading-none mt-0.5">
-                    Get data via Chrome extension
-                  </p>
-                </div>
-              </div>
+            <div className="flex shrink-0 items-center justify-end border-b border-[var(--ui-border)] bg-white px-2 py-1.5">
               <WorkspaceCloseButton
                 title={`Close ${config.label} research`}
                 onClick={() => onComplete?.({ cancel: true })}
               />
-            </header>
+            </div>
             {ephemeralSessionNotice && (
               <div
                 className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2.5 text-center text-xs font-semibold text-amber-950"
@@ -1242,12 +1361,8 @@ function ExtensionResearchForm({
     }
 
     return (
-      <div className="flex flex-col h-full bg-gray-50">
-        <header className="px-6 py-4 border-b border-gray-200 bg-white shrink-0">
-          <h2 className="text-lg font-bold text-brand-blue">{config.headerTitle}</h2>
-          <p className="text-sm text-gray-500">Get data from a listings page via the Chrome extension</p>
-        </header>
-        <main className="flex-1 overflow-auto flex flex-col">{getDataBody}</main>
+      <div className="flex h-full flex-col bg-gray-50">
+        <main className="flex flex-1 flex-col overflow-auto">{getDataBody}</main>
       </div>
     );
   }

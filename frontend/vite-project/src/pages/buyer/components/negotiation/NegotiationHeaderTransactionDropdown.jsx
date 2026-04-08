@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 /**
- * Select for the negotiation metrics strip (white/amber bar; dark text trigger, white menu).
+ * Select for the negotiation metrics strip (dark text trigger, white menu).
  */
 export default function NegotiationHeaderTransactionDropdown({ value, options, onChange, disabled = false }) {
   const [open, setOpen] = useState(false);
@@ -79,7 +79,7 @@ export default function NegotiationHeaderTransactionDropdown({ value, options, o
         aria-expanded={open}
         aria-haspopup="listbox"
         onClick={() => !disabled && setOpen((v) => !v)}
-        className="flex h-9 w-full min-w-[9rem] items-center justify-between gap-2 border-0 bg-transparent px-2.5 text-left text-sm font-semibold text-brand-blue outline-none transition-colors hover:bg-amber-50/90 focus-visible:bg-amber-50/90 focus-visible:ring-2 focus-visible:ring-amber-400/60 disabled:cursor-not-allowed disabled:opacity-45"
+        className="flex h-9 w-full min-w-[9rem] items-center justify-between gap-2 border-0 bg-transparent px-2.5 text-left text-sm font-semibold text-brand-blue outline-none transition-colors hover:bg-gray-100/90 focus-visible:bg-gray-100/90 focus-visible:ring-2 focus-visible:ring-brand-blue/30 disabled:cursor-not-allowed disabled:opacity-45"
       >
         <span className="min-w-0 flex-1 truncate">{value}</span>
         <span

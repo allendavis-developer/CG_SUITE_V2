@@ -42,11 +42,21 @@ export default function ResearchOverlayPanel({
    *  Signature: (itemId, category) => void. Use to stamp the category onto the item so sibling
    *  research forms (eBay ↔ CC) skip the picker. */
   onCategoryResolved = null,
+  /** When true, leave viewport space for a fixed right rail (e.g. repricing negotiation sidebar). */
+  reserveRightSidebar = true,
+  /** Pixels to inset from the viewport bottom (e.g. buying module totals footer). */
+  bottomInsetPx = 0,
 }) {
   if (!researchItem && !cashConvertersResearchItem) return null;
 
   return (
-    <div className="fixed left-0 right-80 bottom-0 z-[90] min-h-0" style={{ top: 'var(--workspace-overlay-top, 64px)' }}>
+    <div
+      className={`fixed left-0 z-[90] min-h-0 ${reserveRightSidebar ? 'right-80' : 'right-0'}`}
+      style={{
+        top: 'var(--workspace-overlay-top, 64px)',
+        bottom: bottomInsetPx > 0 ? `${bottomInsetPx}px` : 0,
+      }}
+    >
       <div className="relative h-full w-full min-h-0">
         {researchItem && (
           <EbayResearchForm
