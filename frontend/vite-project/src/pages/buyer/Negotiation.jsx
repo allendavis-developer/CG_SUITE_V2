@@ -1029,6 +1029,7 @@ const Negotiation = ({ mode }) => {
           persistedNosposAgreementId={persistedNosposAgreementId}
           handleParkAgreementOpenNospos={handleParkAgreementOpenNospos}
           handleViewParkedAgreement={handleViewParkedAgreement}
+          handleDownloadParkLog={handleDownloadParkLog}
           headerWorkspaceOpen={headerWorkspaceOpen}
           researchItem={researchItem}
           cashConvertersResearchItem={cashConvertersResearchItem}

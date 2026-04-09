@@ -38,6 +38,7 @@ const NegotiationTotalsFooter = forwardRef(function NegotiationTotalsFooter(
     persistedNosposAgreementId,
     handleParkAgreementOpenNospos,
     handleViewParkedAgreement,
+    handleDownloadParkLog,
     headerWorkspaceOpen,
     researchItem,
     cashConvertersResearchItem,
@@ -151,25 +152,40 @@ const NegotiationTotalsFooter = forwardRef(function NegotiationTotalsFooter(
                 </span>
               </button>
               {persistedNosposAgreementId ? (
-                <button
-                  type="button"
-                  className="group flex w-full min-w-[12rem] items-center justify-center gap-2 rounded-lg py-3 font-bold text-white transition-all active:scale-[0.98] sm:w-auto sm:px-6"
-                  style={{
-                    background: 'var(--brand-blue)',
-                    boxShadow: '0 6px 15px -3px rgba(0,0,0,0.25)',
-                  }}
-                  onClick={handleViewParkedAgreement}
-                >
-                  <span className="material-symbols-outlined text-xl" aria-hidden>
-                    open_in_new
-                  </span>
-                  <span className="flex flex-col items-center leading-tight">
-                    <span className="text-sm uppercase tracking-tight sm:text-base">View Parked Agreement</span>
-                    <span className="text-[11px] font-semibold tracking-wide opacity-90">
-                      ID {persistedNosposAgreementId}
+                <>
+                  <button
+                    type="button"
+                    className="group flex w-full min-w-[12rem] items-center justify-center gap-2 rounded-lg py-3 font-bold text-white transition-all active:scale-[0.98] sm:w-auto sm:px-6"
+                    style={{
+                      background: 'var(--brand-blue)',
+                      boxShadow: '0 6px 15px -3px rgba(0,0,0,0.25)',
+                    }}
+                    onClick={handleViewParkedAgreement}
+                  >
+                    <span className="material-symbols-outlined text-xl" aria-hidden>
+                      open_in_new
                     </span>
-                  </span>
-                </button>
+                    <span className="flex flex-col items-center leading-tight">
+                      <span className="text-sm uppercase tracking-tight sm:text-base">View Parked Agreement</span>
+                      <span className="text-[11px] font-semibold tracking-wide opacity-90">
+                        ID {persistedNosposAgreementId}
+                      </span>
+                    </span>
+                  </button>
+                  {typeof handleDownloadParkLog === 'function' ? (
+                    <button
+                      type="button"
+                      onClick={handleDownloadParkLog}
+                      className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-white/25 bg-white/10 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-white/20 active:scale-[0.98] sm:w-auto"
+                      title="Download park agreement diagnostic log"
+                    >
+                      <span className="material-symbols-outlined text-[16px] leading-none" aria-hidden>
+                        download
+                      </span>
+                      Download log
+                    </button>
+                  ) : null}
+                </>
               ) : null}
             </>
           ) : (
