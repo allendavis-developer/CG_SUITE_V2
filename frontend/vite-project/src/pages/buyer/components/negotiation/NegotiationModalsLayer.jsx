@@ -52,6 +52,7 @@ export default function NegotiationModalsLayer({
   parkRetryBusyUi,
   persistedNosposAgreementId,
   handleViewParkedAgreement,
+  handleDownloadParkLog,
   showJewelleryReferenceModal,
   setShowJewelleryReferenceModal,
   jewelleryReferenceScrape,
@@ -241,6 +242,7 @@ export default function NegotiationModalsLayer({
           }
           parkedAgreementId={persistedNosposAgreementId}
           onViewParkedAgreement={handleViewParkedAgreement}
+          onDownloadLog={handleDownloadParkLog}
         />
       ) : null}
 

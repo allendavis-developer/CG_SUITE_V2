@@ -18,6 +18,41 @@
 
 importScripts('jewellery-scrap/constants.js', 'jewellery-scrap/worker-session.js');
 
+// ── Park agreement diagnostic log ─────────────────────────────────────────────
+
+/** Accumulated log entries for the current/last park agreement run. Cleared each new run. */
+let cgParkLog = [];
+let cgParkLogStartTs = null;
+
+/**
+ * Append a structured log entry for park-agreement diagnostics.
+ * @param {string} fn     - originating function name
+ * @param {string} phase  - 'enter' | 'step' | 'decision' | 'call' | 'result' | 'exit' | 'error'
+ * @param {object} [data] - key variable values at this point
+ * @param {string} [msg]  - short human-readable description
+ */
+function logPark(fn, phase, data, msg) {
+  const now = Date.now();
+  if (cgParkLogStartTs == null) cgParkLogStartTs = now;
+  let safe = {};
+  try {
+    safe = JSON.parse(
+      JSON.stringify(data ?? {}, (_k, v) => {
+        if (v === undefined) return null;
+        if (typeof v === 'function') return '[Function]';
+        if (
+          typeof v === 'object' && v !== null && !Array.isArray(v) &&
+          Object.keys(v).length > 30
+        ) return '[Object]';
+        return v;
+      })
+    );
+  } catch (_) {}
+  const entry = { ts: now, rel: now - cgParkLogStartTs, fn, phase, msg: msg || '', data: safe };
+  cgParkLog.push(entry);
+  console.log(`[CG Park Log] [${fn}] [${phase}]${msg ? ' ' + msg : ''}`, safe);
+}
+
 // ── eBay filter enforcement ────────────────────────────────────────────────────
 
 /**
@@ -115,28 +150,38 @@ async function openBackgroundNosposTab(url, appTabId = null) {
  * Park agreement: open NosPos in a normal tab (same window as the app when possible), not a minimized window.
  */
 async function openNosposParkAgreementTab(url, appTabId = null) {
+  logPark('openNosposParkAgreementTab', 'enter', { url, appTabId }, 'Opening NoSpos park agreement tab');
   let windowId = null;
   if (appTabId) {
     try {
       const t = await chrome.tabs.get(appTabId);
       windowId = t.windowId;
-    } catch (_) {}
+      logPark('openNosposParkAgreementTab', 'step', { appTabId, resolvedWindowId: windowId }, 'Resolved window from app tab');
+    } catch (_) {
+      logPark('openNosposParkAgreementTab', 'step', { appTabId }, 'Could not get app tab window — will use last focused');
+    }
   }
   if (windowId == null) {
     try {
       const w = await chrome.windows.getLastFocused({ populate: false });
       windowId = w?.id ?? null;
-    } catch (_) {}
+      logPark('openNosposParkAgreementTab', 'step', { windowId }, 'Using last focused window');
+    } catch (_) {
+      logPark('openNosposParkAgreementTab', 'step', {}, 'Could not get last focused window — tab will open in default window');
+    }
   }
   const createOpts = { url, active: false };
   if (windowId != null) createOpts.windowId = windowId;
+  logPark('openNosposParkAgreementTab', 'call', { createOpts }, 'Calling chrome.tabs.create');
   const newTab = await chrome.tabs.create(createOpts);
   await putTabInYellowGroup(newTab.id);
   if (appTabId) {
     await focusAppTab(appTabId);
   }
-  console.log('[CG Suite] NosPos park agreement: opened tab', { tabId: newTab.id, windowId: newTab.windowId });
-  return { tabId: newTab.id, windowId: newTab.windowId || null };
+  const result = { tabId: newTab.id, windowId: newTab.windowId || null };
+  logPark('openNosposParkAgreementTab', 'exit', result, 'Tab created successfully');
+  console.log('[CG Suite] NosPos park agreement: opened tab', result);
+  return result;
 }
 
 /**
@@ -426,8 +471,11 @@ async function countNosposAgreementItemLines(tabId) {
       10,
       400
     );
-    return typeof r?.count === 'number' ? r.count : 0;
+    const count = typeof r?.count === 'number' ? r.count : 0;
+    logPark('countNosposAgreementItemLines', 'result', { tabId, count }, `Line count: ${count}`);
+    return count;
   } catch (_) {
+    logPark('countNosposAgreementItemLines', 'error', { tabId }, 'count_lines message failed');
     return 0;
   }
 }
@@ -475,31 +523,24 @@ function findMarkerSearchNeedleForPark(marker) {
 }
 
 async function findNosposLineIndexForMarkerWithFallback(tabId, marker) {
+  logPark('findNosposLineIndexForMarkerWithFallback', 'enter', { tabId, marker }, 'Searching NoSpos rows by description marker');
   const riNeedle = findMarkerSearchNeedleForPark(marker);
   if (riNeedle && riNeedle !== String(marker || '').trim()) {
     const byRi = await findNosposLineIndexForMarker(tabId, riNeedle);
     if (byRi != null && byRi >= 0) {
-      console.log('[CG Suite] NosPos park: matched by request-item needle in description', {
-        marker,
-        riNeedle,
-        lineIndex: byRi,
-      });
+      logPark('findNosposLineIndexForMarkerWithFallback', 'result', { marker, riNeedle, lineIndex: byRi }, 'Matched by RI needle in description');
+      console.log('[CG Suite] NosPos park: matched by request-item needle in description', { marker, riNeedle, lineIndex: byRi });
       return byRi;
     }
   }
   const exact = await findNosposLineIndexForMarker(tabId, marker);
   if (exact != null && exact >= 0) {
-    console.log('[CG Suite] NosPos park: matched by full marker substring', {
-      marker,
-      lineIndex: exact,
-    });
+    logPark('findNosposLineIndexForMarkerWithFallback', 'result', { marker, lineIndex: exact }, 'Matched by full marker substring');
+    console.log('[CG Suite] NosPos park: matched by full marker substring', { marker, lineIndex: exact });
     return exact;
   }
-  console.log('[CG Suite] NosPos park: no row found by description marker', {
-    marker,
-    riNeedle,
-    lineIndex: null,
-  });
+  logPark('findNosposLineIndexForMarkerWithFallback', 'result', { marker, riNeedle, lineIndex: null }, 'No row found by description marker');
+  console.log('[CG Suite] NosPos park: no row found by description marker', { marker, riNeedle, lineIndex: null });
   return null;
 }
 
@@ -583,21 +624,26 @@ async function deleteExcludedNosposAgreementLinesImpl(payload) {
  * After clicking Items "Next", wait until the tab is off the /items step (wizard advances; often full reload).
  */
 async function waitAfterAgreementItemsNextClick(tabId, maxWaitMs = NOSPOS_RELOAD_WAIT_MS) {
+  logPark('waitAfterAgreementItemsNextClick', 'enter', { tabId, maxWaitMs }, 'Waiting for NoSpos to leave items step after Next click');
   const deadline = Date.now() + maxWaitMs;
+  let pollCount = 0;
   while (Date.now() < deadline) {
     const tab = await chrome.tabs.get(tabId).catch(() => null);
     if (!tab) {
+      logPark('waitAfterAgreementItemsNextClick', 'error', { tabId }, 'Tab closed while waiting for Next navigation');
       return { ok: false, error: 'The NoSpos tab was closed' };
     }
     const url = tab.url || '';
-    if (
-      tab.status === 'complete' &&
-      isNosposNewAgreementWorkflowUrl(url) &&
-      !isNosposAgreementItemsUrl(url)
-    ) {
+    const leftItems = tab.status === 'complete' && isNosposNewAgreementWorkflowUrl(url) && !isNosposAgreementItemsUrl(url);
+    if (pollCount % 8 === 0) {
+      logPark('waitAfterAgreementItemsNextClick', 'step', { pollCount, tabStatus: tab.status, url, leftItems }, 'Polling for post-Next navigation');
+    }
+    if (leftItems) {
       await sleep(500);
+      logPark('waitAfterAgreementItemsNextClick', 'exit', { url, pollCount }, 'Successfully left items step');
       return { ok: true };
     }
+    pollCount++;
     await sleep(250);
   }
   const tab = await chrome.tabs.get(tabId).catch(() => null);
@@ -628,18 +674,29 @@ async function waitForNosposNewAgreementItemsTabUrl(
   tabId,
   maxWaitMs = NOSPOS_OPEN_AGREEMENT_ITEMS_URL_WAIT_MS
 ) {
+  logPark('waitForNosposNewAgreementItemsTabUrl', 'enter', { tabId, maxWaitMs }, 'Waiting for NoSpos to redirect to agreement items URL');
   const deadline = Date.now() + maxWaitMs;
+  let pollCount = 0;
   while (Date.now() < deadline) {
     const tab = await chrome.tabs.get(tabId).catch(() => null);
     if (!tab) {
+      logPark('waitForNosposNewAgreementItemsTabUrl', 'error', { tabId, pollCount }, 'NoSpos tab was closed while waiting for items URL');
       return { ok: false, error: 'The NoSpos tab was closed' };
     }
     const url = tab.url || '';
-    if (tab.status === 'complete' && isNosposAgreementItemsUrl(url)) {
+    const isItems = isNosposAgreementItemsUrl(url);
+    if (pollCount % 10 === 0) {
+      logPark('waitForNosposNewAgreementItemsTabUrl', 'step', { pollCount, tabStatus: tab.status, url, isItems }, 'Polling for items URL');
+    }
+    if (tab.status === 'complete' && isItems) {
+      logPark('waitForNosposNewAgreementItemsTabUrl', 'exit', { url, pollCount }, 'Items URL reached');
       return { ok: true, url };
     }
+    pollCount++;
     await sleep(300);
   }
+  const finalTab = await chrome.tabs.get(tabId).catch(() => null);
+  logPark('waitForNosposNewAgreementItemsTabUrl', 'error', { tabId, pollCount, finalUrl: finalTab?.url }, 'Timed out waiting for items URL');
   return {
     ok: false,
     error:
@@ -649,6 +706,7 @@ async function waitForNosposNewAgreementItemsTabUrl(
 
 /** Park Agreement completion: NosPos navigates the tab to https://nospos.com/buying (authoritative). */
 async function waitForNosposTabBuyingAfterPark(tabId, maxWaitMs = NOSPOS_BUYING_AFTER_PARK_WAIT_MS) {
+  logPark('waitForNosposTabBuyingAfterPark', 'enter', { tabId, maxWaitMs }, 'Waiting for NoSpos tab to reach buying hub after park');
   const deadline = Date.now() + maxWaitMs;
   let settled = false;
   return new Promise((resolve) => {
@@ -656,6 +714,7 @@ async function waitForNosposTabBuyingAfterPark(tabId, maxWaitMs = NOSPOS_BUYING_
       if (updatedTabId !== tabId || settled) return;
       const url = tab?.url || '';
       if (url && isNosposBuyingHubUrl(url)) {
+        logPark('waitForNosposTabBuyingAfterPark', 'result', { url }, 'Buying hub URL detected via onUpdated listener');
         done({ ok: true });
       }
     };
@@ -682,27 +741,35 @@ async function waitForNosposTabBuyingAfterPark(tabId, maxWaitMs = NOSPOS_BUYING_
     (async function poll() {
       const tab0 = await chrome.tabs.get(tabId).catch(() => null);
       if (!tab0) {
+        logPark('waitForNosposTabBuyingAfterPark', 'error', { tabId }, 'Tab was closed at poll start');
         done({ ok: false, error: 'The NoSpos tab was closed' });
         return;
       }
       if (isNosposBuyingHubUrl(tab0.url || '')) {
+        logPark('waitForNosposTabBuyingAfterPark', 'result', { url: tab0.url }, 'Already on buying hub at poll start');
         done({ ok: true });
         return;
       }
+      logPark('waitForNosposTabBuyingAfterPark', 'step', { currentUrl: tab0.url }, 'Not yet on buying hub — beginning poll loop');
+      let pollCount = 0;
       while (Date.now() < deadline && !settled) {
         const tab = await chrome.tabs.get(tabId).catch(() => null);
         if (!tab) {
+          logPark('waitForNosposTabBuyingAfterPark', 'error', { tabId, pollCount }, 'Tab closed during poll loop');
           done({ ok: false, error: 'The NoSpos tab was closed' });
           return;
         }
         const url = tab.url || '';
         if (isNosposBuyingHubUrl(url)) {
+          logPark('waitForNosposTabBuyingAfterPark', 'result', { url, pollCount }, 'Buying hub URL detected via poll loop');
           done({ ok: true });
           return;
         }
+        pollCount++;
         await sleep(80);
       }
       if (!settled) {
+        logPark('waitForNosposTabBuyingAfterPark', 'error', { tabId }, 'Timed out waiting for buying hub URL');
         done({
           ok: false,
           error:
@@ -715,35 +782,44 @@ async function waitForNosposTabBuyingAfterPark(tabId, maxWaitMs = NOSPOS_BUYING_
 
 /** Items page Next → wait for reload → Agreement card Actions → Park Agreement → SweetAlert OK. */
 async function clickNosposSidebarParkAgreementImpl(payload) {
+  logPark('clickNosposSidebarParkAgreementImpl', 'enter', { tabId: payload.tabId }, 'Starting sidebar park agreement sequence');
   const tabId = parseInt(String(payload.tabId ?? '').trim(), 10);
   if (!Number.isFinite(tabId) || tabId <= 0) {
+    logPark('clickNosposSidebarParkAgreementImpl', 'error', { rawTabId: payload.tabId }, 'Invalid tabId');
     return { ok: false, error: 'Invalid tab' };
   }
   const tabCheck = await waitForNosposAgreementTabReadyForPark(tabId, 120000);
+  logPark('clickNosposSidebarParkAgreementImpl', 'result', { tabCheck }, 'Tab readiness check result');
   if (!tabCheck.ok) {
     return tabCheck;
   }
   try {
     if (tabCheck.onItemsStep) {
+      logPark('clickNosposSidebarParkAgreementImpl', 'step', { tabId }, 'Tab is on items step — clicking Next');
       const rNext = await sendMessageToTabWithRetries(
         tabId,
         { type: 'NOSPOS_AGREEMENT_FILL_PHASE', phase: 'click_items_form_next' },
         18,
         450
       );
+      logPark('clickNosposSidebarParkAgreementImpl', 'result', { rNext }, 'click_items_form_next response');
       if (!rNext || rNext.ok === false) {
+        logPark('clickNosposSidebarParkAgreementImpl', 'error', { rNext }, 'Failed to click Next on items page');
         return {
           ok: false,
           error: rNext?.error || 'Could not press Next on the NoSpos items page',
         };
       }
       const waitNav = await waitAfterAgreementItemsNextClick(tabId, NOSPOS_RELOAD_WAIT_MS);
+      logPark('clickNosposSidebarParkAgreementImpl', 'result', { waitNav }, 'Wait-after-Next navigation result');
       if (!waitNav.ok) {
         return waitNav;
       }
     } else {
+      logPark('clickNosposSidebarParkAgreementImpl', 'step', { tabId }, 'Tab is past items step — skipping Next, waiting 500ms');
       await sleep(500);
     }
+    logPark('clickNosposSidebarParkAgreementImpl', 'step', { tabId }, 'Sending sidebar_park_agreement phase to content script (racing with buying hub detection)');
     const buyingReachedPromise = waitForNosposTabBuyingAfterPark(
       tabId,
       NOSPOS_BUYING_AFTER_PARK_WAIT_MS
@@ -754,39 +830,46 @@ async function clickNosposSidebarParkAgreementImpl(payload) {
       22,
       450
     )
-      .then((result) => ({ ok: true, result }))
-      .catch((e) => ({ ok: false, error: e?.message || String(e) }));
+      .then((result) => {
+        logPark('clickNosposSidebarParkAgreementImpl', 'result', { result }, 'sidebar_park_agreement content-script response');
+        return { ok: true, result };
+      })
+      .catch((e) => {
+        logPark('clickNosposSidebarParkAgreementImpl', 'error', { error: e?.message }, 'sidebar_park_agreement sendMessage threw');
+        return { ok: false, error: e?.message || String(e) };
+      });
 
     const first = await Promise.race([
       buyingReachedPromise.then((result) => ({ kind: 'buying', ...result })),
       parkSidebarPromise.then((result) => ({ kind: 'park', ...result })),
     ]);
+    logPark('clickNosposSidebarParkAgreementImpl', 'step', { firstKind: first.kind, firstOk: first.ok }, 'Race winner resolved');
 
     if (first.kind === 'buying' && first.ok) {
+      logPark('clickNosposSidebarParkAgreementImpl', 'exit', { parked: true, via: 'buying-hub-race' }, 'Park confirmed — buying hub reached first in race');
       return { ok: true, parked: true };
     }
 
     const r = first.kind === 'park' ? first : await parkSidebarPromise;
     const buyingReached = first.kind === 'buying' ? first : await buyingReachedPromise;
+    logPark('clickNosposSidebarParkAgreementImpl', 'step', { parkResult: r, buyingReached }, 'Both race legs settled');
 
     if (buyingReached.ok) {
+      logPark('clickNosposSidebarParkAgreementImpl', 'exit', { parked: true, via: 'buying-hub-poll' }, 'Park confirmed — buying hub reached after sidebar');
       return { ok: true, parked: true };
     }
     if (!r.ok || r.result?.ok === false) {
-      return {
-        ok: false,
-        error:
-          r.error ||
-          r.result?.error ||
-          buyingReached.error ||
-          'NoSpos did not complete sidebar Park Agreement',
-      };
+      const err = r.error || r.result?.error || buyingReached.error || 'NoSpos did not complete sidebar Park Agreement';
+      logPark('clickNosposSidebarParkAgreementImpl', 'error', { parkResult: r, buyingReached, err }, 'Park sidebar failed');
+      return { ok: false, error: err };
     }
+    logPark('clickNosposSidebarParkAgreementImpl', 'error', { buyingReached }, 'Park sidebar sent but buying hub not reached');
     return {
       ok: false,
       error: buyingReached.error || 'NoSpos did not return to Buying after Park.',
     };
   } catch (e) {
+    logPark('clickNosposSidebarParkAgreementImpl', 'error', { error: e?.message }, 'Unexpected exception in sidebar park');
     return { ok: false, error: e?.message || String(e) || 'Sidebar park failed' };
   }
 }
@@ -830,19 +913,27 @@ async function waitForNewAgreementLineAfterAdd(tabId, countBefore) {
 }
 
 async function ensureNosposAgreementItemsTab(tabId, deadlineMs = 90000) {
+  logPark('ensureNosposAgreementItemsTab', 'enter', { tabId, deadlineMs }, 'Ensuring items page is loaded');
   const deadline = Date.now() + deadlineMs;
+  let pollCount = 0;
   while (Date.now() < deadline) {
     const tab = await chrome.tabs.get(tabId).catch(() => null);
     if (!tab) {
+      logPark('ensureNosposAgreementItemsTab', 'error', { tabId }, 'Tab closed while waiting for items page');
       return { ok: false, error: 'The NoSpos tab was closed' };
     }
-    // Require both the items URL AND a fully-loaded page — otherwise the DOM
-    // may still be mid-render and the content script might not be ready yet.
-    if (isNosposAgreementItemsUrl(tab.url || '') && tab.status === 'complete') {
+    const isItems = isNosposAgreementItemsUrl(tab.url || '');
+    if (pollCount % 10 === 0) {
+      logPark('ensureNosposAgreementItemsTab', 'step', { pollCount, tabStatus: tab.status, url: tab.url, isItems }, 'Polling for items page ready');
+    }
+    if (isItems && tab.status === 'complete') {
+      logPark('ensureNosposAgreementItemsTab', 'exit', { url: tab.url, pollCount }, 'Items page is loaded and ready');
       return { ok: true };
     }
+    pollCount++;
     await sleep(350);
   }
+  logPark('ensureNosposAgreementItemsTab', 'error', { tabId }, 'Timed out waiting for items page');
   return {
     ok: false,
     error:
@@ -856,26 +947,31 @@ async function ensureNosposAgreementItemsTab(tabId, deadlineMs = 90000) {
  * /items would spin until timeout while the user finishes Park in the UI (CG Suite stuck on the line).
  */
 async function waitForNosposAgreementTabReadyForPark(tabId, deadlineMs = 120000) {
+  logPark('waitForNosposAgreementTabReadyForPark', 'enter', { tabId, deadlineMs }, 'Waiting for NoSpos agreement tab to be ready for Park');
   const deadline = Date.now() + deadlineMs;
+  let pollCount = 0;
   while (Date.now() < deadline) {
     const tab = await chrome.tabs.get(tabId).catch(() => null);
     if (!tab) {
+      logPark('waitForNosposAgreementTabReadyForPark', 'error', { tabId }, 'Tab closed while waiting for park readiness');
       return { ok: false, error: 'The NoSpos tab was closed' };
     }
     const url = tab.url || '';
-    if (tab.status !== 'complete') {
-      await sleep(350);
-      continue;
+    const isWorkflow = isNosposNewAgreementWorkflowUrl(url);
+    const isItems = isNosposAgreementItemsUrl(url);
+    if (pollCount % 10 === 0) {
+      logPark('waitForNosposAgreementTabReadyForPark', 'step', { pollCount, tabStatus: tab.status, url, isWorkflow, isItems }, 'Polling tab readiness');
     }
-    if (!isNosposNewAgreementWorkflowUrl(url)) {
-      await sleep(350);
-      continue;
-    }
-    if (isNosposAgreementItemsUrl(url)) {
+    if (tab.status !== 'complete') { pollCount++; await sleep(350); continue; }
+    if (!isWorkflow) { pollCount++; await sleep(350); continue; }
+    if (isItems) {
+      logPark('waitForNosposAgreementTabReadyForPark', 'exit', { url, onItemsStep: true, pollCount }, 'Tab is on items step — ready for park');
       return { ok: true, onItemsStep: true };
     }
+    logPark('waitForNosposAgreementTabReadyForPark', 'exit', { url, onItemsStep: false, pollCount }, 'Tab is past items step — ready for park');
     return { ok: true, onItemsStep: false };
   }
+  logPark('waitForNosposAgreementTabReadyForPark', 'error', { tabId }, 'Timed out waiting for agreement tab park readiness');
   return {
     ok: false,
     error:
@@ -889,24 +985,30 @@ async function waitForNosposAgreementTabReadyForPark(tabId, deadlineMs = 120000)
 async function applyNosposAgreementCategoryPhaseImpl(tabId, payload) {
   const lineIndex = Math.max(0, parseInt(String(payload.lineIndex ?? '0'), 10) || 0);
   const categoryId = String(payload.categoryId ?? '').trim();
+  logPark('applyNosposAgreementCategoryPhaseImpl', 'enter', { tabId, lineIndex, categoryId, name: payload.name, marker: payload.cgParkLineMarker }, 'Setting category on NoSpos agreement line');
   let categoryLabel = null;
   const stockLabelsForWait = Array.isArray(payload.stockFields)
     ? payload.stockFields.map((r) => r && r.label).filter(Boolean)
     : [];
   if (!categoryId) {
+    logPark('applyNosposAgreementCategoryPhaseImpl', 'decision', { lineIndex }, 'No categoryId — skipping category phase');
     return { ok: true, categoryLabel: null, waitForm: { ok: true }, lineIndex };
   }
   try {
+    logPark('applyNosposAgreementCategoryPhaseImpl', 'call', { tabId, lineIndex, categoryId }, 'Sending category phase to content script');
     const r1 = await sendMessageToTabWithRetries(
       tabId,
       { type: 'NOSPOS_AGREEMENT_FILL_PHASE', phase: 'category', categoryId, lineIndex },
       8,
       500
     );
+    logPark('applyNosposAgreementCategoryPhaseImpl', 'result', { r1 }, 'Category phase response from content script');
     if (!r1?.ok) {
+      logPark('applyNosposAgreementCategoryPhaseImpl', 'error', { r1, lineIndex, categoryId }, 'Content script could not set category');
       return { ok: false, error: r1?.error || 'Could not set category', lineIndex, ...r1 };
     }
     categoryLabel = r1.label || null;
+    logPark('applyNosposAgreementCategoryPhaseImpl', 'step', { lineIndex, categoryLabel, stockLabelsForWait }, 'Category set — waiting for page/form reload');
     console.log('[CG Suite] NosPos agreement fill: category set, waiting for page/form…', {
       lineIndex,
       categoryLabel,
@@ -917,11 +1019,13 @@ async function applyNosposAgreementCategoryPhaseImpl(tabId, payload) {
       stockLabelsForWait,
       lineIndex
     );
+    logPark('applyNosposAgreementCategoryPhaseImpl', 'result', { waitForm, lineIndex, categoryLabel }, 'Post-category form-ready wait result');
     if (!waitForm.ok) {
       console.warn('[CG Suite] NosPos agreement fill: post-category wait failed', waitForm);
     }
     return { ok: true, categoryLabel, waitForm, lineIndex };
   } catch (e) {
+    logPark('applyNosposAgreementCategoryPhaseImpl', 'error', { error: e?.message, lineIndex, categoryId }, 'Exception in category phase');
     return { ok: false, error: e?.message || 'Could not set category on NoSpos', lineIndex };
   }
 }
@@ -931,6 +1035,13 @@ async function applyNosposAgreementCategoryPhaseImpl(tabId, payload) {
  */
 async function applyNosposAgreementRestPhaseImpl(tabId, payload, categoryLabel) {
   const lineIndex = Math.max(0, parseInt(String(payload.lineIndex ?? '0'), 10) || 0);
+  logPark('applyNosposAgreementRestPhaseImpl', 'enter', {
+    tabId, lineIndex, categoryLabel,
+    name: payload.name, quantity: payload.quantity,
+    retailPrice: payload.retailPrice, boughtFor: payload.boughtFor,
+    stockFieldCount: Array.isArray(payload.stockFields) ? payload.stockFields.length : 0,
+    itemDescription: payload.itemDescription,
+  }, 'Filling rest of agreement line fields');
   const restPayload = {
     type: 'NOSPOS_AGREEMENT_FILL_PHASE',
     phase: 'rest',
@@ -949,38 +1060,21 @@ async function applyNosposAgreementRestPhaseImpl(tabId, payload, categoryLabel) 
     for (let i = 0; i < 28; i += 1) {
       last = await sendMessageToTabWithRetries(tabId, restPayload, 6, 350);
       if (last?.ok) {
-        return {
-          ok: true,
-          categoryLabel,
-          lineIndex,
-          ...last,
-        };
+        logPark('applyNosposAgreementRestPhaseImpl', 'exit', { lineIndex, attempt: i, applied: last?.applied, warnings: last?.warnings, missingRequired: last?.missingRequired }, 'Rest phase succeeded');
+        return { ok: true, categoryLabel, lineIndex, ...last };
       }
       if (!last?.notReady) {
-        return {
-          ok: false,
-          categoryLabel,
-          lineIndex,
-          error: last?.error || 'Could not fill agreement line',
-          ...last,
-        };
+        logPark('applyNosposAgreementRestPhaseImpl', 'error', { lineIndex, attempt: i, last }, 'Rest phase failed (not a notReady error)');
+        return { ok: false, categoryLabel, lineIndex, error: last?.error || 'Could not fill agreement line', ...last };
       }
+      logPark('applyNosposAgreementRestPhaseImpl', 'step', { lineIndex, attempt: i, notReady: true }, `Form not ready yet — retry ${i + 1}/28`);
       await sleep(500);
     }
-    return {
-      ok: false,
-      categoryLabel,
-      lineIndex,
-      error: last?.error || 'Agreement line form did not become ready in time',
-      ...last,
-    };
+    logPark('applyNosposAgreementRestPhaseImpl', 'error', { lineIndex, attempts: 28 }, 'Rest phase exhausted all retries — form never became ready');
+    return { ok: false, categoryLabel, lineIndex, error: last?.error || 'Agreement line form did not become ready in time', ...last };
   } catch (e) {
-    return {
-      ok: false,
-      categoryLabel,
-      lineIndex,
-      error: e?.message || 'Could not fill agreement line on NoSpos',
-    };
+    logPark('applyNosposAgreementRestPhaseImpl', 'error', { error: e?.message, lineIndex }, 'Exception in rest phase');
+    return { ok: false, categoryLabel, lineIndex, error: e?.message || 'Could not fill agreement line on NoSpos' };
   }
 }
 
@@ -1133,9 +1227,16 @@ async function resolveNosposParkAgreementLineImpl(tabId, stepIndex, item, opts =
   const marker = String(item.cgParkLineMarker || '').trim();
   const parkNegotiationLineCount = opts.parkNegotiationLineCount;
   const negotiationLineIndex = opts.negotiationLineIndex;
+  logPark('resolveNosposParkAgreementLineImpl', 'enter', {
+    tabId, stepIndex, noAdd, alwaysEnsureTab, marker,
+    parkNegotiationLineCount, negotiationLineIndex,
+    itemName: item.name, itemCategoryId: item.categoryId,
+  }, `Resolving NoSpos line for step ${stepIndex}`);
 
   if (stepIndex === 0 || alwaysEnsureTab) {
+    logPark('resolveNosposParkAgreementLineImpl', 'step', { stepIndex, alwaysEnsureTab }, 'Ensuring items tab is loaded');
     const tabCheck = await ensureNosposAgreementItemsTab(tabId, 120000);
+    logPark('resolveNosposParkAgreementLineImpl', 'result', { tabCheck }, 'ensureNosposAgreementItemsTab result');
     if (!tabCheck.ok) return { ...tabCheck, targetLineIndex: undefined };
   }
 
@@ -1151,27 +1252,25 @@ async function resolveNosposParkAgreementLineImpl(tabId, stepIndex, item, opts =
       const expCat = String(item.categoryId || '').trim();
       const snap = await readNosposAgreementLineSnapshot(tabId, targetLineIndex);
       if (snap?.ok) {
+        logPark('resolveNosposParkAgreementLineImpl', 'decision', {
+          marker, targetLineIndex, stepIndex,
+          nosposName: snap.name, nosposDescription: snap.description, nosposCategoryId: snap.categoryId,
+          expectedCategoryId: expCat, categoryMismatch: expCat && snap.categoryId && expCat !== snap.categoryId,
+          markerMissing: !String(snap.description || '').includes(marker),
+        }, 'Reusing existing NoSpos row matched by marker (skipping Add)');
         console.log('[CG Suite] NosPos park: reusing row with CG marker (skip Add)', {
-          marker,
-          targetLineIndex,
-          stepIndex,
-          nosposName: snap.name,
-          nosposItemDescription: snap.description,
-          nosposCategoryId: snap.categoryId,
+          marker, targetLineIndex, stepIndex,
+          nosposName: snap.name, nosposItemDescription: snap.description, nosposCategoryId: snap.categoryId,
         });
         if (expCat && snap.categoryId && expCat !== snap.categoryId) {
-          console.warn(
-            '[CG Suite] NosPos park: category differs on reused row (fill will overwrite)',
-            { expectedCategoryId: expCat, nosposCategoryId: snap.categoryId }
-          );
+          console.warn('[CG Suite] NosPos park: category differs on reused row (fill will overwrite)', { expectedCategoryId: expCat, nosposCategoryId: snap.categoryId });
         }
         if (!String(snap.description || '').includes(marker)) {
-          console.warn(
-            '[CG Suite] NosPos park: marker missing in Nospos item description before fill',
-            { marker, description: snap.description }
-          );
+          console.warn('[CG Suite] NosPos park: marker missing in Nospos item description before fill', { marker, description: snap.description });
         }
       }
+    } else {
+      logPark('resolveNosposParkAgreementLineImpl', 'decision', { marker }, 'Marker not found in any NoSpos row');
     }
   }
 
@@ -1183,46 +1282,43 @@ async function resolveNosposParkAgreementLineImpl(tabId, stepIndex, item, opts =
       countBefore,
       parkNegotiationLineCount
     );
+    logPark('resolveNosposParkAgreementLineImpl', 'step', { countBefore, fallbackIdx, stepIndex, noAdd, negotiationLineIndex, parkNegotiationLineCount }, 'Marker not found — deciding between fallback index or Add');
 
     if (stepIndex === 0 || noAdd) {
       targetLineIndex = fallbackIdx;
-      // Only rows found by description marker skip category / "reuse" path. Positional fallback may
-      // target an empty or wrong card — keep reusedExistingRow false so the UI runs category + fill.
+      logPark('resolveNosposParkAgreementLineImpl', 'decision', { targetLineIndex, reason: stepIndex === 0 ? 'first-step' : 'noAdd' }, 'Using fallback line index (no Add click)');
       if (noAdd && stepIndex > 0) {
         console.log('[CG Suite] NosPos park: noAdd — marker not found, using fallback line index', {
-          stepIndex,
-          negotiationLineIndex,
-          fallbackIdx,
-          lineCount: countBefore,
-          parkNegotiationLineCount,
-          reusedExistingRow,
+          stepIndex, negotiationLineIndex, fallbackIdx, lineCount: countBefore, parkNegotiationLineCount, reusedExistingRow,
         });
       }
     } else if (countBefore > fallbackIdx) {
       targetLineIndex = fallbackIdx;
+      logPark('resolveNosposParkAgreementLineImpl', 'decision', { targetLineIndex, countBefore, fallbackIdx }, 'Existing row available at fallback index — skipping Add');
       console.log('[CG Suite] NosPos park: marker not found; using existing row at fallback index (skip Add)', {
-        stepIndex,
-        negotiationLineIndex,
-        fallbackIdx,
-        lineCount: countBefore,
-        parkNegotiationLineCount,
-        marker,
+        stepIndex, negotiationLineIndex, fallbackIdx, lineCount: countBefore, parkNegotiationLineCount, marker,
       });
     } else {
+      logPark('resolveNosposParkAgreementLineImpl', 'step', { countBefore, fallbackIdx }, 'No existing row at fallback index — clicking Add');
       const clickR = await clickNosposAgreementAddItem(tabId);
+      logPark('resolveNosposParkAgreementLineImpl', 'result', { clickR }, 'clickNosposAgreementAddItem result');
       if (!clickR?.ok) {
+        logPark('resolveNosposParkAgreementLineImpl', 'error', { clickR }, 'Failed to click Add');
         return { ok: false, error: clickR?.error || 'Could not click Add on NoSpos' };
       }
       didClickAdd = true;
       const waitNew = await waitForNewAgreementLineAfterAdd(tabId, countBefore);
+      logPark('resolveNosposParkAgreementLineImpl', 'result', { waitNew }, 'waitForNewAgreementLineAfterAdd result');
       if (!waitNew.ok) {
         return { ok: false, error: waitNew.error };
       }
       const countAfter = await countNosposAgreementItemLines(tabId);
       targetLineIndex = Math.max(0, countAfter - 1);
+      logPark('resolveNosposParkAgreementLineImpl', 'step', { countAfter, targetLineIndex }, 'Add succeeded — targeting last row');
     }
   }
 
+  logPark('resolveNosposParkAgreementLineImpl', 'exit', { targetLineIndex, reusedExistingRow, didClickAdd }, 'Line resolved');
   return { ok: true, targetLineIndex, reusedExistingRow, didClickAdd };
 }
 
@@ -1233,7 +1329,9 @@ async function resolveNosposParkAgreementLineImpl(tabId, stepIndex, item, opts =
 async function fillNosposAgreementItemStepImpl(payload) {
   const tabId = parseInt(String(payload.tabId ?? '').trim(), 10);
   const stepIndex = Math.max(0, parseInt(String(payload.stepIndex ?? '0'), 10) || 0);
+  logPark('fillNosposAgreementItemStepImpl', 'enter', { tabId, stepIndex, negotiationLineIndex: payload.negotiationLineIndex, itemName: payload.item?.name }, `Step ${stepIndex} — resolving then filling`);
   if (!Number.isFinite(tabId) || tabId <= 0) {
+    logPark('fillNosposAgreementItemStepImpl', 'error', { tabId }, 'Invalid tabId');
     return { ok: false, error: 'Invalid tab' };
   }
 
@@ -1242,19 +1340,23 @@ async function fillNosposAgreementItemStepImpl(payload) {
     negotiationLineIndex: payload.negotiationLineIndex,
     parkNegotiationLineCount: payload.parkNegotiationLineCount,
   });
+  logPark('fillNosposAgreementItemStepImpl', 'result', { resolved }, 'Line resolution result');
   if (!resolved.ok) return resolved;
 
   const fillRes = await fillNosposAgreementOneLineImpl(tabId, {
     ...item,
     lineIndex: resolved.targetLineIndex,
   });
+  logPark('fillNosposAgreementItemStepImpl', 'result', { fillOk: fillRes?.ok, lineIndex: resolved.targetLineIndex, warnings: fillRes?.warnings }, 'fillNosposAgreementOneLineImpl result');
   if (!fillRes?.ok) return fillRes;
-  return {
+  const out = {
     ...fillRes,
     reusedExistingRow: resolved.reusedExistingRow,
     targetLineIndex: resolved.targetLineIndex,
     didClickAdd: resolved.didClickAdd,
   };
+  logPark('fillNosposAgreementItemStepImpl', 'exit', { targetLineIndex: out.targetLineIndex, reusedExistingRow: out.reusedExistingRow, didClickAdd: out.didClickAdd }, `Step ${stepIndex} complete`);
+  return out;
 }
 
 async function fillNosposAgreementItemsSequentialImpl(payload) {
@@ -1991,6 +2093,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'PARK_LOG_ENTRY') {
+    logPark(
+      message.fn || 'content-nospos-agreement-fill',
+      message.phase || 'step',
+      message.data || {},
+      message.msg || ''
+    );
+    sendResponse({ ok: true });
+    return true;
+  }
+
   if (message.type === 'NOSPOS_LOGIN_REQUIRED') {
     handleNosposLoginRequired(message, sender)
       .then(() => sendResponse({ ok: true }))
@@ -2198,15 +2311,26 @@ async function handleBridgeForward(message, sender) {
     }
   }
 
+  // Diagnostic log: return all accumulated park agreement log entries.
+  if (payload.action === 'getParkAgreementLog') {
+    return { ok: true, entries: cgParkLog.slice(), startTs: cgParkLogStartTs };
+  }
+
   // Park agreement (step 1): session only — same probe as searchNosposBarcode path.
   if (payload.action === 'checkNosposCustomerBuyingSession') {
+    logPark('handleBridgeForward', 'enter', { action: 'checkNosposCustomerBuyingSession', nosposCustomerId: payload.nosposCustomerId }, 'Step 1: checking NoSpos customer buying session');
     return nosposFetchCustomerBuyingSession(payload.nosposCustomerId);
   }
 
   // Park agreement (step 2): open create URL in background; call after checkNosposCustomerBuyingSession succeeds.
   if (payload.action === 'openNosposNewAgreementCreateBackground') {
+    // ── Clear log for each new park run ──────────────────────────────────────
+    cgParkLog = [];
+    cgParkLogStartTs = Date.now();
+    // ─────────────────────────────────────────────────────────────────────────
     const id = parseInt(String(payload.nosposCustomerId ?? '').trim(), 10);
     if (!Number.isFinite(id) || id <= 0) {
+      logPark('handleBridgeForward', 'error', { rawId: payload.nosposCustomerId }, 'Invalid NosPos customer id');
       return { ok: false, error: 'Invalid NosPos customer id' };
     }
     const rawType = String(
@@ -2214,16 +2338,23 @@ async function handleBridgeForward(message, sender) {
     ).toUpperCase();
     const agreementType = rawType === 'PA' ? 'PA' : 'DP';
     const createUrl = `https://nospos.com/newagreement/agreement/create?type=${agreementType}&customer_id=${id}`;
+    logPark('handleBridgeForward', 'enter', { action: 'openNosposNewAgreementCreateBackground', nosposCustomerId: id, agreementType, createUrl }, 'Step 2: opening new agreement tab');
     try {
       const { tabId } = await openNosposParkAgreementTab(createUrl, appTabId);
-      if (tabId == null) return { ok: false, error: 'Could not open NoSpos tab' };
+      if (tabId == null) {
+        logPark('handleBridgeForward', 'error', {}, 'openNosposParkAgreementTab returned null tabId');
+        return { ok: false, error: 'Could not open NoSpos tab' };
+      }
       const urlRes = await waitForNosposNewAgreementItemsTabUrl(
         tabId,
         NOSPOS_OPEN_AGREEMENT_ITEMS_URL_WAIT_MS
       );
+      logPark('handleBridgeForward', 'result', { urlRes, tabId }, 'waitForNosposNewAgreementItemsTabUrl result');
       if (urlRes.ok && urlRes.url) {
+        logPark('handleBridgeForward', 'exit', { tabId, agreementItemsUrl: urlRes.url }, 'Step 2 complete — items URL obtained');
         return { ok: true, tabId, agreementItemsUrl: urlRes.url };
       }
+      logPark('handleBridgeForward', 'exit', { tabId, warning: urlRes.error }, 'Step 2 complete — items URL not confirmed (warning)');
       return {
         ok: true,
         tabId,
@@ -2231,6 +2362,7 @@ async function handleBridgeForward(message, sender) {
         agreementItemsUrlWarning: urlRes.error || null,
       };
     } catch (e) {
+      logPark('handleBridgeForward', 'error', { error: e?.message }, 'Exception opening NoSpos tab');
       return { ok: false, error: e?.message || 'Could not open NoSpos' };
     }
   }

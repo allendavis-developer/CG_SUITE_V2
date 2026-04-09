@@ -507,6 +507,7 @@ const Negotiation = ({ mode }) => {
     handleParkFieldPatch,
     handleRetryParkLine,
     handleViewParkedAgreement,
+    handleDownloadParkLog,
     handleToggleParkExcludeItem,
     handleParkAgreementOpenNospos,
     hydrateFromSavedState,
@@ -1076,6 +1077,7 @@ const Negotiation = ({ mode }) => {
         parkRetryBusyUi={parkRetryBusyUi}
         persistedNosposAgreementId={persistedNosposAgreementId}
         handleViewParkedAgreement={handleViewParkedAgreement}
+        handleDownloadParkLog={handleDownloadParkLog}
         showJewelleryReferenceModal={showJewelleryReferenceModal}
         setShowJewelleryReferenceModal={setShowJewelleryReferenceModal}
         jewelleryReferenceScrape={jewelleryReferenceScrape}

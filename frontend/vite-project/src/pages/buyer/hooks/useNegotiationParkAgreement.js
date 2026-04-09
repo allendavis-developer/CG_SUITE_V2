@@ -13,6 +13,7 @@ import {
   withExtensionCallTimeout,
   getNosposTabUrl,
   closeNosposParkAgreementTab,
+  getParkAgreementLog,
   OPEN_NOSPOS_NEW_AGREEMENT_ITEMS_TAB_TIMEOUT_MS,
 } from "@/services/extensionClient";
 import { resolveNosposLeafCategoryIdForAgreementItem } from "@/utils/nosposCategoryMappings";
@@ -55,6 +56,65 @@ export function useNegotiationParkAgreement({
   /** Persisted NosPos agreement id for the current request (null = never parked). */
   const [persistedNosposAgreementId, setPersistedNosposAgreementId] = useState(null);
   const parkStateSaveTimerRef = useRef(null);
+  /** Accumulated log entries from the last park run (fetched from extension after run ends). */
+  const parkLogRef = useRef([]);
+  /** Fetch the log from the extension and save it to parkLogRef, then trigger a .txt download. */
+  const handleDownloadParkLog = useCallback(async () => {
+    let entries = parkLogRef.current || [];
+    try {
+      const res = await getParkAgreementLog();
+      if (res?.ok && Array.isArray(res.entries) && res.entries.length > 0) {
+        entries = res.entries;
+        parkLogRef.current = entries;
+      }
+    } catch (_) {}
+
+    if (!entries.length) {
+      showNotification('No park agreement log available yet — run Park Agreement first.', 'warning');
+      return;
+    }
+
+    // Format as human-readable text log
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const formatRel = (ms) => {
+      const totalSec = Math.floor(ms / 1000);
+      const m = Math.floor(totalSec / 60);
+      const s = totalSec % 60;
+      const millis = ms % 1000;
+      return `${pad2(m)}:${pad2(s)}.${String(millis).padStart(3, '0')}`;
+    };
+    const startIso = entries[0]?.ts ? new Date(entries[0].ts).toISOString() : new Date().toISOString();
+    const lines = [
+      '=== CG Suite Park Agreement Diagnostic Log ===',
+      `Run started:  ${startIso}`,
+      `Total entries: ${entries.length}`,
+      `Generated:    ${new Date().toISOString()}`,
+      '',
+    ];
+    for (const e of entries) {
+      lines.push(`[+${formatRel(e.rel ?? 0)}] ${e.fn ?? '?'} | ${(e.phase ?? '?').toUpperCase()}${e.msg ? '  —  ' + e.msg : ''}`);
+      const data = e.data ?? {};
+      const keys = Object.keys(data);
+      if (keys.length > 0) {
+        for (const k of keys) {
+          let v = data[k];
+          try { v = JSON.stringify(v); } catch (_) { v = String(v); }
+          lines.push(`  ${k}: ${v}`);
+        }
+      }
+      lines.push('');
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `cg-park-log-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }, [showNotification]);
+
   const handleParkFieldPatch = useCallback(
     async ({ lineIndex, rowId, patchKind, fieldLabel, value }) => {
       const tabId = parkNosposTabRef.current;
@@ -960,6 +1020,14 @@ export function useNegotiationParkAgreement({
           parkNosposTabRef.current = null;
         }
 
+        // Fetch the diagnostic log from the extension after the run settles.
+        try {
+          const logRes = await getParkAgreementLog();
+          if (logRes?.ok && Array.isArray(logRes.entries)) {
+            parkLogRef.current = logRes.entries;
+          }
+        } catch (_) {}
+
         showNotification(
           lines.length === 1
             ? 'Line updated in NoSpos. Review the table below or edit values.'
@@ -967,6 +1035,14 @@ export function useNegotiationParkAgreement({
           'success'
         );
       } catch (err) {
+        // Fetch the diagnostic log even on error so it can be downloaded for debugging.
+        try {
+          const logRes = await getParkAgreementLog();
+          if (logRes?.ok && Array.isArray(logRes.entries)) {
+            parkLogRef.current = logRes.entries;
+          }
+        } catch (_) {}
+
         setParkProgressModal((prev) =>
           prev
             ? { ...prev, footerError: err?.message || 'Extension error', allowClose: true }
@@ -1016,6 +1092,7 @@ export function useNegotiationParkAgreement({
     handleViewParkedAgreement,
     handleToggleParkExcludeItem,
     handleParkAgreementOpenNospos,
+    handleDownloadParkLog,
     hydrateFromSavedState,
     parkNosposTabRef,
   };

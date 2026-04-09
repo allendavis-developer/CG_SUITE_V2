@@ -256,6 +256,7 @@ function EditableNosposCell({ row, lineIndex, patchEnabled, onPatch }) {
  * @param {boolean} [props.parkLineRetryEnabled] — false while the automatic run is in progress (avoid overlapping extension calls)
  * @param {string|null} [props.parkedAgreementId]
  * @param {() => void|Promise<void>} [props.onViewParkedAgreement] — when the run finished cleanly; opens saved agreement URL in a new tab (no extension)
+ * @param {() => Promise<void>} [props.onDownloadLog] — downloads the park agreement diagnostic log as a .txt file
  */
 export default function ParkAgreementProgressModal({
   open,
@@ -270,11 +271,13 @@ export default function ParkAgreementProgressModal({
   parkLineRetryEnabled = false,
   parkedAgreementId = null,
   onViewParkedAgreement,
+  onDownloadLog,
 }) {
   const noopPatch = useCallback(() => {}, []);
   const patch = onPatchField || noopPatch;
   const canRetryLine = typeof onRetryParkLine === 'function';
   const [viewNoSposBusy, setViewNoSposBusy] = useState(false);
+  const [logDownloadBusy, setLogDownloadBusy] = useState(false);
 
   const showViewParkedCta = useMemo(() => {
     if (!allowClose || footerError || typeof onViewParkedAgreement !== 'function') return false;
@@ -291,6 +294,16 @@ export default function ParkAgreementProgressModal({
       setViewNoSposBusy(false);
     }
   }, [onViewParkedAgreement]);
+
+  const handleLogDownload = useCallback(async () => {
+    if (!onDownloadLog) return;
+    setLogDownloadBusy(true);
+    try {
+      await onDownloadLog();
+    } finally {
+      setLogDownloadBusy(false);
+    }
+  }, [onDownloadLog]);
 
   if (!open) return null;
 
@@ -387,33 +400,51 @@ export default function ParkAgreementProgressModal({
         ) : null}
           </div>
 
-          {showViewParkedCta ? (
-            <aside className="w-full shrink-0 lg:sticky lg:top-6 lg:w-[min(100%,380px)] lg:self-start">
-              <div className="rounded-2xl border-2 border-[var(--brand-blue)] bg-gradient-to-br from-[var(--brand-orange)] via-amber-300 to-amber-100 p-1 shadow-lg">
+          {(showViewParkedCta || (allowClose && typeof onDownloadLog === 'function')) ? (
+            <aside className="w-full shrink-0 lg:sticky lg:top-6 lg:w-[min(100%,380px)] lg:self-start flex flex-col gap-3">
+              {showViewParkedCta ? (
+                <div className="rounded-2xl border-2 border-[var(--brand-blue)] bg-gradient-to-br from-[var(--brand-orange)] via-amber-300 to-amber-100 p-1 shadow-lg">
+                  <button
+                    type="button"
+                    disabled={viewNoSposBusy}
+                    onClick={handleViewParked}
+                    className="flex w-full flex-col items-center justify-center gap-2 rounded-[14px] bg-white px-5 py-8 text-center shadow-sm transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-70 focus:outline-none focus:ring-4 focus:ring-[var(--brand-blue)]/25"
+                  >
+                    {viewNoSposBusy ? (
+                      <span className="h-10 w-10 animate-spin rounded-full border-2 border-[var(--brand-blue)] border-t-transparent" />
+                    ) : (
+                      <span className="material-symbols-outlined text-5xl text-[var(--brand-blue)]">open_in_new</span>
+                    )}
+                    <span className="text-lg font-black uppercase tracking-wide text-[var(--brand-blue)]">
+                      View parked agreement
+                    </span>
+                    {parkedAgreementId ? (
+                      <span className="text-xs font-semibold uppercase tracking-wide text-[var(--brand-blue)]">
+                        ID {parkedAgreementId}
+                      </span>
+                    ) : null}
+                    <span className="max-w-[260px] text-xs leading-snug text-[var(--text-muted)]">
+                      Opens the NoSpos agreement items page for this saved agreement ID.
+                    </span>
+                  </button>
+                </div>
+              ) : null}
+
+              {allowClose && typeof onDownloadLog === 'function' ? (
                 <button
                   type="button"
-                  disabled={viewNoSposBusy}
-                  onClick={handleViewParked}
-                  className="flex w-full flex-col items-center justify-center gap-2 rounded-[14px] bg-white px-5 py-8 text-center shadow-sm transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-70 focus:outline-none focus:ring-4 focus:ring-[var(--brand-blue)]/25"
+                  disabled={logDownloadBusy}
+                  onClick={handleLogDownload}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--ui-border)] bg-white px-4 py-3 text-sm font-semibold text-[var(--text-main)] shadow-sm transition hover:bg-[var(--ui-bg)] disabled:cursor-wait disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-[var(--brand-blue)]"
                 >
-                  {viewNoSposBusy ? (
-                    <span className="h-10 w-10 animate-spin rounded-full border-2 border-[var(--brand-blue)] border-t-transparent" />
+                  {logDownloadBusy ? (
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--brand-blue)] border-t-transparent" />
                   ) : (
-                    <span className="material-symbols-outlined text-5xl text-[var(--brand-blue)]">open_in_new</span>
+                    <span className="material-symbols-outlined text-[18px] leading-none text-[var(--brand-blue)]">download</span>
                   )}
-                  <span className="text-lg font-black uppercase tracking-wide text-[var(--brand-blue)]">
-                    View parked agreement
-                  </span>
-                  {parkedAgreementId ? (
-                    <span className="text-xs font-semibold uppercase tracking-wide text-[var(--brand-blue)]">
-                      ID {parkedAgreementId}
-                    </span>
-                  ) : null}
-                  <span className="max-w-[260px] text-xs leading-snug text-[var(--text-muted)]">
-                    Opens the NoSpos agreement items page for this saved agreement ID.
-                  </span>
+                  Download diagnostic log
                 </button>
-              </div>
+              ) : null}
             </aside>
           ) : null}
         </div>

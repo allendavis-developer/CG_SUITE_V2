@@ -316,6 +316,14 @@ export async function getLastRepricingResult() {
   return sendMessage({ action: 'getLastRepricingResult' });
 }
 
+/**
+ * Retrieve all park-agreement log entries accumulated by the extension for the last run.
+ * Returns { ok: true, entries: Array<{ ts, rel, fn, phase, msg, data }>, startTs: number }
+ */
+export async function getParkAgreementLog() {
+  return sendMessage({ action: 'getParkAgreementLog' });
+}
+
 export async function clearLastRepricingResult() {
   return sendMessage({ action: 'clearLastRepricingResult' });
 }
