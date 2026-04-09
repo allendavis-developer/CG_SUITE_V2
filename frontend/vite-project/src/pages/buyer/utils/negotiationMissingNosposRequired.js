@@ -122,9 +122,11 @@ export async function fetchLinesWithNoNosposCategory(items) {
  * @param {object} item - negotiation line (for existing blob)
  * @param {number|string} leafNosposId
  * @param {Record<string, string>} draftByFieldId - field id -> value (only edited keys required)
+ * @param {{ deleteIfEmpty?: boolean }} [options] - when true, blank entries remove that field id from the merged map
  * @returns {object} aiSuggestedNosposStockFieldValues
  */
-export function buildMergedNosposStockFieldValuesBlob(item, leafNosposId, draftByFieldId) {
+export function buildMergedNosposStockFieldValuesBlob(item, leafNosposId, draftByFieldId, options = {}) {
+  const deleteIfEmpty = options.deleteIfEmpty === true;
   const existing = getAiSuggestedNosposStockFieldValuesFromItem(item);
   const prevBy =
     existing?.byNosposFieldId && typeof existing.byNosposFieldId === 'object'
@@ -132,8 +134,12 @@ export function buildMergedNosposStockFieldValuesBlob(item, leafNosposId, draftB
       : {};
   const mergedBy = { ...prevBy };
   for (const [k, v] of Object.entries(draftByFieldId || {})) {
+    const key = String(k);
     const s = String(v ?? '').trim();
-    if (s) mergedBy[String(k)] = s;
+    if (s) mergedBy[key] = s;
+    else if (deleteIfEmpty && Object.prototype.hasOwnProperty.call(draftByFieldId, k)) {
+      delete mergedBy[key];
+    }
   }
   return {
     nosposCategoryId: Number(leafNosposId),

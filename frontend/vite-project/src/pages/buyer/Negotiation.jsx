@@ -40,10 +40,17 @@ import {
 import {
   fetchNosposCategories,
   fetchNosposCategoryMappings,
+  updateRequestItemOffer,
   updateRequestItemRawData,
   peekNosposCategoriesCache,
   peekNosposMappingsCache,
 } from '@/services/api';
+import { normalizeExplicitSalePrice } from '@/utils/helpers';
+import {
+  deriveNegotiationJewelleryWeightUpdate,
+  negotiationJewelleryItemToWorkspaceLine,
+} from '@/components/jewellery/jewelleryWorkspaceMapping';
+import { isNosposJewelleryWeightStockLabel } from '@/pages/buyer/utils/nosposAgreementFirstItemFill';
 import {
   fetchMissingRequiredNosposLines,
   buildMergedNosposStockFieldValuesBlob,
@@ -439,57 +446,218 @@ const Negotiation = ({ mode }) => {
   ]);
 
   const handleSaveNosposRequiredFieldsFromModal = useCallback(
-    async ({ item, leafNosposId, draftByFieldId }) => {
+    async ({ item, leafNosposId, draftByFieldId, labelByFieldId }) => {
       const reqId = item?.request_item_id;
       if (!reqId) {
         showNotification('Line must be saved on the request before NosPos fields can be stored.', 'error');
         return;
       }
+      let jewelleryDerived = null;
+      if (item.isJewelleryItem && labelByFieldId && draftByFieldId) {
+        for (const [fid, rawVal] of Object.entries(draftByFieldId)) {
+          const lab = labelByFieldId[fid];
+          if (!isNosposJewelleryWeightStockLabel(lab)) continue;
+          jewelleryDerived = deriveNegotiationJewelleryWeightUpdate(
+            item,
+            rawVal,
+            useVoucherOffers,
+            customerOfferRulesData?.settings
+          );
+          break;
+        }
+      }
+
       const aiSuggestedNosposStockFieldValues = buildMergedNosposStockFieldValuesBlob(
         item,
         leafNosposId,
         draftByFieldId
       );
-      const result = await updateRequestItemRawData(reqId, {
-        raw_data: { aiSuggestedNosposStockFieldValues },
-      });
+      const rawDataPayload = { aiSuggestedNosposStockFieldValues };
+      if (jewelleryDerived) {
+        const wl = negotiationJewelleryItemToWorkspaceLine(item);
+        const itemName = wl?.itemName || wl?.categoryLabel || wl?.variantTitle || null;
+        rawDataPayload.referenceData = {
+          ...jewelleryDerived.d.referenceData,
+          item_name: itemName,
+        };
+      }
+
+      const result = await updateRequestItemRawData(reqId, { raw_data: rawDataPayload });
       if (!result) {
         showNotification('Could not save NosPos fields — try again or check your connection.', 'error');
         return;
       }
-      setItems((prev) =>
-        applyNosposStockFieldBlobToNegotiationItems(prev, item.id, aiSuggestedNosposStockFieldValues)
-      );
+      if (jewelleryDerived) {
+        void updateRequestItemOffer(reqId, {
+          selected_offer_id: jewelleryDerived.d.selectedOfferId,
+          manual_offer_used: jewelleryDerived.d.selectedOfferId === 'manual',
+          manual_offer_gbp:
+            jewelleryDerived.d.selectedOfferId === 'manual' && jewelleryDerived.d.manualOffer
+              ? normalizeExplicitSalePrice(
+                  parseFloat(String(jewelleryDerived.d.manualOffer).replace(/[£,]/g, ''))
+                )
+              : null,
+          our_sale_price_at_negotiation: jewelleryDerived.ourSale ?? null,
+          cash_offers_json: !Array.isArray(jewelleryDerived.d.cashOffers)
+            ? []
+            : jewelleryDerived.d.cashOffers.map((o) => ({
+                id: o.id,
+                title: o.title,
+                price: normalizeExplicitSalePrice(o.price),
+              })),
+          voucher_offers_json: !Array.isArray(jewelleryDerived.d.voucherOffers)
+            ? []
+            : jewelleryDerived.d.voucherOffers.map((o) => ({
+                id: o.id,
+                title: o.title,
+                price: normalizeExplicitSalePrice(o.price),
+              })),
+        }).catch(() => {});
+      }
+
+      setItems((prev) => {
+        let next = applyNosposStockFieldBlobToNegotiationItems(
+          prev,
+          item.id,
+          aiSuggestedNosposStockFieldValues
+        );
+        if (jewelleryDerived) {
+          next = next.map((row) => {
+            if (row.id !== item.id) return row;
+            return {
+              ...row,
+              cashOffers: jewelleryDerived.d.cashOffers,
+              voucherOffers: jewelleryDerived.d.voucherOffers,
+              offers: jewelleryDerived.d.offers,
+              selectedOfferId: jewelleryDerived.d.selectedOfferId,
+              manualOffer: jewelleryDerived.d.manualOffer,
+              manualOfferUsed: jewelleryDerived.d.manualOfferUsed,
+              ourSalePrice: jewelleryDerived.ourSale,
+              referenceData: jewelleryDerived.d.referenceData,
+              rawData:
+                row.rawData != null && typeof row.rawData === 'object'
+                  ? { ...row.rawData, referenceData: jewelleryDerived.d.referenceData }
+                  : { referenceData: jewelleryDerived.d.referenceData },
+            };
+          });
+        }
+        return next;
+      });
+      if (jewelleryDerived) {
+        setJewelleryWorkspaceLines((prev) =>
+          prev.map((l) => (l.id === item.id ? { ...l, weight: jewelleryDerived.cleaned } : l))
+        );
+      }
       showNotification('NosPos required fields saved.', 'success');
       setNosposRequiredFieldsEditor(null);
     },
-    [showNotification, setItems]
+    [
+      showNotification,
+      setItems,
+      setJewelleryWorkspaceLines,
+      useVoucherOffers,
+      customerOfferRulesData?.settings,
+    ]
   );
 
   const handleSaveNosposRequiredFieldsFromMissingGate = useCallback(
-    async ({ item, leafNosposId, draftByFieldId }) => {
+    async ({ item, leafNosposId, draftByFieldId, labelByFieldId }) => {
       const reqId = item?.request_item_id;
       if (!reqId) {
         showNotification('Line must be saved on the request before NosPos fields can be stored.', 'error');
         return;
       }
+      let jewelleryDerived = null;
+      if (item.isJewelleryItem && labelByFieldId && draftByFieldId) {
+        for (const [fid, rawVal] of Object.entries(draftByFieldId)) {
+          const lab = labelByFieldId[fid];
+          if (!isNosposJewelleryWeightStockLabel(lab)) continue;
+          jewelleryDerived = deriveNegotiationJewelleryWeightUpdate(
+            item,
+            rawVal,
+            useVoucherOffers,
+            customerOfferRulesData?.settings
+          );
+          break;
+        }
+      }
+
       const aiSuggestedNosposStockFieldValues = buildMergedNosposStockFieldValuesBlob(
         item,
         leafNosposId,
         draftByFieldId
       );
-      const result = await updateRequestItemRawData(reqId, {
-        raw_data: { aiSuggestedNosposStockFieldValues },
-      });
+      const rawDataPayload = { aiSuggestedNosposStockFieldValues };
+      if (jewelleryDerived) {
+        const wl = negotiationJewelleryItemToWorkspaceLine(item);
+        const itemName = wl?.itemName || wl?.categoryLabel || wl?.variantTitle || null;
+        rawDataPayload.referenceData = {
+          ...jewelleryDerived.d.referenceData,
+          item_name: itemName,
+        };
+      }
+
+      const result = await updateRequestItemRawData(reqId, { raw_data: rawDataPayload });
       if (!result) {
         showNotification('Could not save NosPos fields — try again or check your connection.', 'error');
         return;
       }
-      const nextItems = applyNosposStockFieldBlobToNegotiationItems(
+      if (jewelleryDerived) {
+        void updateRequestItemOffer(reqId, {
+          selected_offer_id: jewelleryDerived.d.selectedOfferId,
+          manual_offer_used: jewelleryDerived.d.selectedOfferId === 'manual',
+          manual_offer_gbp:
+            jewelleryDerived.d.selectedOfferId === 'manual' && jewelleryDerived.d.manualOffer
+              ? normalizeExplicitSalePrice(
+                  parseFloat(String(jewelleryDerived.d.manualOffer).replace(/[£,]/g, ''))
+                )
+              : null,
+          our_sale_price_at_negotiation: jewelleryDerived.ourSale ?? null,
+          cash_offers_json: !Array.isArray(jewelleryDerived.d.cashOffers)
+            ? []
+            : jewelleryDerived.d.cashOffers.map((o) => ({
+                id: o.id,
+                title: o.title,
+                price: normalizeExplicitSalePrice(o.price),
+              })),
+          voucher_offers_json: !Array.isArray(jewelleryDerived.d.voucherOffers)
+            ? []
+            : jewelleryDerived.d.voucherOffers.map((o) => ({
+                id: o.id,
+                title: o.title,
+                price: normalizeExplicitSalePrice(o.price),
+              })),
+        }).catch(() => {});
+      }
+
+      let nextItems = applyNosposStockFieldBlobToNegotiationItems(
         items,
         item.id,
         aiSuggestedNosposStockFieldValues
       );
+      if (jewelleryDerived) {
+        nextItems = nextItems.map((row) => {
+          if (row.id !== item.id) return row;
+          return {
+            ...row,
+            cashOffers: jewelleryDerived.d.cashOffers,
+            voucherOffers: jewelleryDerived.d.voucherOffers,
+            offers: jewelleryDerived.d.offers,
+            selectedOfferId: jewelleryDerived.d.selectedOfferId,
+            manualOffer: jewelleryDerived.d.manualOffer,
+            manualOfferUsed: jewelleryDerived.d.manualOfferUsed,
+            ourSalePrice: jewelleryDerived.ourSale,
+            referenceData: jewelleryDerived.d.referenceData,
+            rawData:
+              row.rawData != null && typeof row.rawData === 'object'
+                ? { ...row.rawData, referenceData: jewelleryDerived.d.referenceData }
+                : { referenceData: jewelleryDerived.d.referenceData },
+          };
+        });
+        setJewelleryWorkspaceLines((prev) =>
+          prev.map((l) => (l.id === item.id ? { ...l, weight: jewelleryDerived.cleaned } : l))
+        );
+      }
       setItems(nextItems);
       try {
         const missing = await fetchMissingRequiredNosposLines(nextItems, useVoucherOffers);
@@ -500,7 +668,15 @@ const Negotiation = ({ mode }) => {
       }
       showNotification('NosPos fields saved for this line.', 'success');
     },
-    [items, useVoucherOffers, showNotification, setItems, setMissingRequiredNosposModal]
+    [
+      items,
+      useVoucherOffers,
+      showNotification,
+      setItems,
+      setMissingRequiredNosposModal,
+      setJewelleryWorkspaceLines,
+      customerOfferRulesData?.settings,
+    ]
   );
 
   // ─── NosPos category picker ──────────────────────────────────────────────
@@ -604,6 +780,8 @@ const Negotiation = ({ mode }) => {
     jewelleryNegotiationItems,
     headerWorkspaceOpen,
     headerWorkspaceMode,
+    nosposCategoriesResults: nosposSchema.categories ?? [],
+    nosposCategoryMappings: nosposSchema.mappings ?? [],
   });
 
   const hasTarget = parsedTarget > 0;
@@ -775,6 +953,8 @@ const Negotiation = ({ mode }) => {
     clearCexProduct,
     getPendingCustomerExpectationMap,
     consumeCustomerExpectationDraftKeys,
+    nosposCategoriesResults: nosposSchema.categories ?? [],
+    nosposCategoryMappings: nosposSchema.mappings ?? [],
   });
   notifyEbayResearchMergedForNosposAiRef.current = notifyEbayResearchMergedForNosposAi;
 

@@ -3,6 +3,11 @@ import { getJewelleryWorkspaceDerivedState } from '@/components/jewellery/jewell
 import { negotiationJewelleryItemsToWorkspaceLines } from '@/components/jewellery/jewelleryWorkspaceMapping';
 import { normalizeExplicitSalePrice } from '@/utils/helpers';
 import { updateRequestItemOffer, updateRequestItemRawData } from '@/services/api';
+import { getJewelleryNosposWeightSyncPlan } from '@/pages/buyer/utils/nosposAgreementFirstItemFill';
+import {
+  buildMergedNosposStockFieldValuesBlob,
+  applyNosposStockFieldBlobToNegotiationItems,
+} from '@/pages/buyer/utils/negotiationMissingNosposRequired';
 
 /**
  * Keeps header jewellery workspace lines in sync with negotiation rows and persists offer/raw updates.
@@ -17,9 +22,15 @@ export function useNegotiationJewelleryWorkspaceSync({
   jewelleryNegotiationItems,
   headerWorkspaceOpen,
   headerWorkspaceMode,
+  nosposCategoriesResults = null,
+  nosposCategoryMappings = null,
 }) {
   const jewelleryWorkspaceLinesRef = useRef(jewelleryWorkspaceLines);
-  jewelleryWorkspaceLinesRef.current = jewelleryWorkspaceLines;
+  const jewelleryNegotiationItemsRef = useRef(jewelleryNegotiationItems);
+  useEffect(() => {
+    jewelleryWorkspaceLinesRef.current = jewelleryWorkspaceLines;
+    jewelleryNegotiationItemsRef.current = jewelleryNegotiationItems;
+  });
 
   const normalizeOffersForApi = useCallback((offers) => {
     if (!Array.isArray(offers)) return [];
@@ -61,6 +72,8 @@ export function useNegotiationJewelleryWorkspaceSync({
       const linesToPersist = changedLineIds ? lines.filter((l) => changedLineIds.has(l.id)) : lines;
 
       void (async () => {
+        const cats = Array.isArray(nosposCategoriesResults) ? nosposCategoriesResults : [];
+        const maps = Array.isArray(nosposCategoryMappings) ? nosposCategoryMappings : [];
         for (const line of linesToPersist) {
           if (!line.request_item_id) continue;
           const d = getJewelleryWorkspaceDerivedState(line, useVoucherOffers, customerOfferRulesData?.settings);
@@ -79,20 +92,46 @@ export function useNegotiationJewelleryWorkspaceSync({
             voucher_offers_json: normalizeOffersForApi(d.voucherOffers),
           };
           await updateRequestItemOffer(line.request_item_id, payload).catch(() => {});
-          await updateRequestItemRawData(line.request_item_id, {
-            raw_data: {
-              referenceData: {
-                ...d.referenceData,
-                item_name: itemName,
-                category_label: line.categoryLabel || d.referenceData?.line_title || null,
-              },
-              authorisedOfferSlots: Array.isArray(line.authorisedOfferSlots) ? line.authorisedOfferSlots : [],
+          const baseItem = jewelleryNegotiationItemsRef.current.find((i) => i.id === line.id);
+          let weightBlob = null;
+          if (baseItem?.isJewelleryItem && cats.length > 0) {
+            const rowForPlan = { ...baseItem, referenceData: d.referenceData };
+            const plan = getJewelleryNosposWeightSyncPlan(rowForPlan, cats, maps);
+            if (plan) {
+              weightBlob = buildMergedNosposStockFieldValuesBlob(
+                baseItem,
+                plan.leafNosposId,
+                { [plan.fieldId]: plan.gramsString },
+                { deleteIfEmpty: true }
+              );
+            }
+          }
+          const rawData = {
+            referenceData: {
+              ...d.referenceData,
+              item_name: itemName,
+              category_label: line.categoryLabel || d.referenceData?.line_title || null,
             },
-          }).catch(() => {});
+            authorisedOfferSlots: Array.isArray(line.authorisedOfferSlots) ? line.authorisedOfferSlots : [],
+            ...(weightBlob ? { aiSuggestedNosposStockFieldValues: weightBlob } : {}),
+          };
+          const rawOk = await updateRequestItemRawData(line.request_item_id, {
+            raw_data: rawData,
+          }).catch(() => null);
+          if (rawOk && weightBlob) {
+            setItems((prev) => applyNosposStockFieldBlobToNegotiationItems(prev, line.id, weightBlob));
+          }
         }
       })();
     },
-    [customerOfferRulesData?.settings, normalizeOffersForApi, setItems, useVoucherOffers]
+    [
+      customerOfferRulesData?.settings,
+      normalizeOffersForApi,
+      setItems,
+      useVoucherOffers,
+      nosposCategoriesResults,
+      nosposCategoryMappings,
+    ]
   );
 
   const handleJewelleryWorkspaceLinesChange = useCallback(

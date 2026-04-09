@@ -1,5 +1,6 @@
 import {
   JEWELLERY_TIER_MARGINS_PCT,
+  getJewelleryWorkspaceDerivedState,
   isJewelleryCoinLine,
   resolveJewelleryTierMarginsPct,
 } from '@/components/jewellery/jewelleryNegotiationCart';
@@ -81,4 +82,18 @@ export function negotiationJewelleryItemToWorkspaceLine(item) {
 
 export function negotiationJewelleryItemsToWorkspaceLines(items) {
   return items.map(negotiationJewelleryItemToWorkspaceLine).filter(Boolean);
+}
+
+/**
+ * Recompute negotiation row state when jewellery weight (workspace grams input) changes.
+ * @returns {null | { cleaned: string, d: ReturnType<typeof getJewelleryWorkspaceDerivedState>, ourSale: number|null }} 
+ */
+export function deriveNegotiationJewelleryWeightUpdate(item, nextWeightRaw, useVoucherOffers, jewelleryRuleSettings) {
+  const cleaned = String(nextWeightRaw ?? '').replace(/[^0-9.]/g, '');
+  const workspaceLine = negotiationJewelleryItemToWorkspaceLine(item);
+  if (!workspaceLine) return null;
+  const updatedLine = { ...workspaceLine, weight: cleaned };
+  const d = getJewelleryWorkspaceDerivedState(updatedLine, useVoucherOffers, jewelleryRuleSettings);
+  const ourSale = d.ourSalePrice != null && d.ourSalePrice > 0 ? d.ourSalePrice : item.ourSalePrice;
+  return { cleaned, d, ourSale };
 }

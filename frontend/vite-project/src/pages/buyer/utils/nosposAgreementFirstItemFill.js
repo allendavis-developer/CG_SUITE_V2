@@ -7,6 +7,88 @@ import {
 } from '@/utils/nosposCategoryMappings';
 import { getDisplayOffers, resolveOurSalePrice } from '@/pages/buyer/utils/negotiationHelpers';
 
+function stockFieldLabelDedupeKey(label) {
+  return String(label || '')
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+/** NosPos linked-field label for jewellery mass (must match site text). */
+export const NOSPOS_JEWELLERY_WEIGHT_LABEL = 'Weight (g)';
+
+/**
+ * Grams string for NosPos **Weight (g)** from a jewellery negotiation line (reference + top-level weight).
+ * Returns null when unsuitable (e.g. per-unit coin lines).
+ */
+export function resolveJewelleryWeightGramsStringForNospos(item) {
+  if (!item || item.isJewelleryItem !== true) return null;
+  const ref = item.referenceData;
+  let rawW;
+  let unit;
+  if (ref?.jewellery_line === true && ref.weight != null && String(ref.weight).trim() !== '') {
+    rawW = ref.weight;
+    unit = ref.weight_unit;
+  } else if (item.weight != null && String(item.weight).trim() !== '') {
+    rawW = item.weight;
+    unit = item.weightUnit ?? item.weight_unit ?? 'g';
+  } else {
+    return null;
+  }
+  const w = parseFloat(String(rawW).replace(/,/g, ''));
+  if (!Number.isFinite(w) || w <= 0) return null;
+  const u = String(unit ?? 'g').trim().toLowerCase();
+  if (u === 'each') return null;
+  let grams;
+  if (u === 'kg') grams = w * 1000;
+  else if (u === 'g' || u === '') grams = w;
+  else return null;
+  const rounded = Math.round(grams * 10000) / 10000;
+  if (Number.isInteger(rounded)) return String(rounded);
+  const s = String(rounded);
+  return s.replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, '');
+}
+
+export function isNosposJewelleryWeightStockLabel(label) {
+  return stockFieldLabelDedupeKey(label) === stockFieldLabelDedupeKey(NOSPOS_JEWELLERY_WEIGHT_LABEL);
+}
+
+/** Resolve NosPos linked-field id for a stock label (e.g. Weight (g)) on a leaf category. */
+export function findNosposStockLinkedFieldIdForLabel(leafNosposId, labelText, categoriesResults) {
+  if (leafNosposId == null || !Array.isArray(categoriesResults) || categoriesResults.length === 0) return null;
+  const linked = linkedFieldsForCategory(Number(leafNosposId), categoriesResults);
+  const target = stockFieldLabelDedupeKey(labelText);
+  for (const lf of linked) {
+    const label = String(lf.name || '').trim();
+    if (stockFieldLabelDedupeKey(label) !== target) continue;
+    const fid = lf.nosposFieldId ?? lf.nospos_field_id;
+    if (fid != null && String(fid).trim()) return String(fid);
+  }
+  return null;
+}
+
+/**
+ * Leaf id, field id, and grams display for persisting jewellery weight into `aiSuggestedNosposStockFieldValues`.
+ */
+export function getJewelleryNosposWeightSyncPlan(item, categoriesResults, categoryMappings) {
+  if (!item || item.isJewelleryItem !== true) return null;
+  if (!Array.isArray(categoriesResults) || categoriesResults.length === 0) return null;
+  const leafRaw = resolveNosposStockLeafIdForNegotiationLine(item, {
+    categoryMappings: Array.isArray(categoryMappings) ? categoryMappings : [],
+    nosposCategoriesResults: categoriesResults,
+  });
+  if (leafRaw == null || !Number.isFinite(Number(leafRaw)) || Number(leafRaw) <= 0) return null;
+  const leaf = Number(leafRaw);
+  const fieldId = findNosposStockLinkedFieldIdForLabel(leaf, NOSPOS_JEWELLERY_WEIGHT_LABEL, categoriesResults);
+  if (!fieldId) return null;
+  const grams = resolveJewelleryWeightGramsStringForNospos(item);
+  return {
+    leafNosposId: leaf,
+    fieldId,
+    gramsString: grams == null ? '' : String(grams).trim(),
+  };
+}
+
 /**
  * Map CG Suite / jewellery workspace data → NosPos stock field labels on the agreement line.
  * `nosposLabel` must match the label text NosPos shows (extension finds controls by label).
@@ -24,42 +106,14 @@ const OUR_ATTR_TO_NOSPOS_STOCK = [
     },
   },
   {
-    nosposLabel: 'Weight (g)',
-    resolveValue(item) {
-      if (!item || item.isJewelleryItem !== true) return null;
-      const ref = item.referenceData;
-      let rawW;
-      let unit;
-      if (ref?.jewellery_line === true && ref.weight != null && String(ref.weight).trim() !== '') {
-        rawW = ref.weight;
-        unit = ref.weight_unit;
-      } else if (item.weight != null && String(item.weight).trim() !== '') {
-        rawW = item.weight;
-        unit = item.weightUnit ?? item.weight_unit ?? 'g';
-      } else {
-        return null;
-      }
-      const w = parseFloat(String(rawW).replace(/,/g, ''));
-      if (!Number.isFinite(w) || w <= 0) return null;
-      const u = String(unit ?? 'g').trim().toLowerCase();
-      if (u === 'each') return null;
-      let grams;
-      if (u === 'kg') grams = w * 1000;
-      else if (u === 'g' || u === '') grams = w;
-      else return null;
-      const rounded = Math.round(grams * 10000) / 10000;
-      if (Number.isInteger(rounded)) return String(rounded);
-      const s = String(rounded);
-      return s.replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, '');
-    },
+    nosposLabel: NOSPOS_JEWELLERY_WEIGHT_LABEL,
+    resolveValue: resolveJewelleryWeightGramsStringForNospos,
   },
 ];
 
-function stockFieldLabelDedupeKey(label) {
-  return String(label || '')
-    .toLowerCase()
-    .replace(/\s+/g, '')
-    .replace(/[^a-z0-9]/g, '');
+/** Jewellery weight is edited in the NosPos modal and mirrored to the line — not a read-only preset. */
+function jewelleryNosposWeightIsEditableSyncRow(item, dedupeKey) {
+  return item?.isJewelleryItem === true && dedupeKey === stockFieldLabelDedupeKey(NOSPOS_JEWELLERY_WEIGHT_LABEL);
 }
 
 function presetValueForLinkedFieldDedupeKey(item, dedupeKey) {
@@ -105,7 +159,9 @@ export function buildRequiredNosposFieldEditorModel(item, negotiationIndex, opti
   for (const row of OUR_ATTR_TO_NOSPOS_STOCK) {
     const v = row.resolveValue(item);
     if (v == null || String(v).trim() === '') continue;
-    presetLabelKeys.add(stockFieldLabelDedupeKey(String(row.nosposLabel).trim()));
+    const rowLabelKey = stockFieldLabelDedupeKey(String(row.nosposLabel).trim());
+    if (jewelleryNosposWeightIsEditableSyncRow(item, rowLabelKey)) continue;
+    presetLabelKeys.add(rowLabelKey);
   }
 
   const requiredRows = [];
@@ -124,7 +180,11 @@ export function buildRequiredNosposFieldEditorModel(item, negotiationIndex, opti
       });
       continue;
     }
-    const val = fieldMap[fid] ? String(fieldMap[fid]).trim() : '';
+    let val = fieldMap[fid] ? String(fieldMap[fid]).trim() : '';
+    if (!val && jewelleryNosposWeightIsEditableSyncRow(item, dedupeKey)) {
+      const fallback = resolveJewelleryWeightGramsStringForNospos(item);
+      val = fallback != null && String(fallback).trim() ? String(fallback).trim() : '';
+    }
     requiredRows.push({
       nosposFieldId: fid,
       label,
@@ -307,14 +367,21 @@ export function buildNosposAgreementFirstItemFillPayload(item, negotiationIndex,
 
   const stockFields = [];
   const presetLabelKeys = new Set();
+  const stockFieldKeys = new Set();
 
   for (const row of OUR_ATTR_TO_NOSPOS_STOCK) {
     const v = row.resolveValue(item);
     if (v == null || String(v).trim() === '') continue;
     const label = String(row.nosposLabel).trim();
     if (!label) continue;
-    stockFields.push({ label, value: String(v).trim() });
-    presetLabelKeys.add(stockFieldLabelDedupeKey(label));
+    const dk = stockFieldLabelDedupeKey(label);
+    if (jewelleryNosposWeightIsEditableSyncRow(item, dk)) {
+      /* Defer to linked-field pass so persisted NosPos + jewellery stay one row. */
+    } else {
+      stockFields.push({ label, value: String(v).trim() });
+      stockFieldKeys.add(dk);
+    }
+    if (!jewelleryNosposWeightIsEditableSyncRow(item, dk)) presetLabelKeys.add(dk);
   }
 
   const requiredWithData = [];
@@ -333,9 +400,16 @@ export function buildNosposAgreementFirstItemFillPayload(item, negotiationIndex,
       continue;
     }
 
-    const val = fieldMap[fid];
+    let val = fieldMap[fid] ? String(fieldMap[fid]).trim() : '';
+    if (!val && jewelleryNosposWeightIsEditableSyncRow(item, dedupeKey)) {
+      const fallback = resolveJewelleryWeightGramsStringForNospos(item);
+      val = fallback != null && String(fallback).trim() ? String(fallback).trim() : '';
+    }
     if (val) {
-      stockFields.push({ label, value: val });
+      if (!stockFieldKeys.has(dedupeKey)) {
+        stockFields.push({ label, value: val });
+        stockFieldKeys.add(dedupeKey);
+      }
       if (isReq) requiredWithData.push(label);
       else optionalFilled.push(label);
     } else if (isReq) {

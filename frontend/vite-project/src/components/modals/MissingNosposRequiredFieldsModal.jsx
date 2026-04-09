@@ -120,6 +120,7 @@ export default function MissingNosposRequiredFieldsModal({
           item,
           leafNosposId: model.leafNosposId,
           draftByFieldId,
+          labelByFieldId: Object.fromEntries(editRows.map((er) => [er.nosposFieldId, er.label])),
         });
       } finally {
         setSaveBusyId(null);
