@@ -957,56 +957,67 @@ export const Sidebar = ({ onCategorySelect, onAddFromCeX, isCeXLoading, onQuickR
 // ==================== PRODUCT COMPONENTS ====================
 
 // Offer Card Component
-export const OfferCard = ({ title, price, margin, isHighlighted, onClick }) => (
-  <div
-    onClick={onClick}
-    className={`
-      p-6 rounded-xl bg-white cursor-pointer text-center relative overflow-hidden
-      border-2
-      transition-all duration-200 ease-out
-      ${
-        isHighlighted
-          ? `
-            border-brand-blue
-            ring-2 ring-brand-blue ring-offset-2 ring-offset-white
-            shadow-xl shadow-brand-blue/10
-            scale-[1.03]
-          `
-          : `
-            border-brand-blue/40
-            hover:border-brand-blue
-            hover:shadow-lg
-          `
-      }
-    `}
-  >
-    {/* Top accent bar */}
+export const OfferCard = ({ title, price, margin, isHighlighted, onClick, size = 'default' }) => {
+  const compact = size === 'compact';
+  return (
     <div
-      className={`absolute top-0 left-0 w-full ${
-        isHighlighted
-          ? 'h-1.5 bg-brand-orange'
-          : 'h-1 bg-brand-orange/60'
-      }`}
-    />
+      onClick={onClick}
+      className={`
+        ${compact ? 'p-3 h-full min-h-0 flex flex-col justify-center' : 'p-6'} rounded-xl bg-white cursor-pointer text-center relative overflow-hidden
+        border-2
+        transition-all duration-200 ease-out
+        ${
+          isHighlighted
+            ? `
+              border-brand-blue
+              ring-2 ring-brand-blue ring-offset-2 ring-offset-white
+              shadow-xl shadow-brand-blue/10
+              ${compact ? 'scale-[1.02]' : 'scale-[1.03]'}
+            `
+            : `
+              border-brand-blue/40
+              hover:border-brand-blue
+              hover:shadow-lg
+            `
+        }
+      `}
+    >
+      {/* Top accent bar */}
+      <div
+        className={`absolute top-0 left-0 w-full ${
+          isHighlighted
+            ? 'h-1.5 bg-brand-orange'
+            : 'h-1 bg-brand-orange/60'
+        }`}
+      />
 
-    <h4 className="text-[10px] font-black uppercase text-brand-blue mb-4 tracking-wider">
-      {title}
-    </h4>
+      <h4
+        className={`font-black uppercase text-brand-blue tracking-wider ${
+          compact ? 'text-[9px] mb-2' : 'text-[10px] mb-4'
+        }`}
+      >
+        {title}
+      </h4>
 
-    <p className="text-4xl font-extrabold text-brand-blue mb-2">
-      {price}
-    </p>
+      <p
+        className={`font-extrabold text-brand-blue ${
+          compact ? 'text-2xl mb-1' : 'text-4xl mb-2'
+        }`}
+      >
+        {price}
+      </p>
 
-    <div className="flex items-center justify-center gap-1.5">
-      <span className="text-[10px] font-bold text-gray-500 uppercase">
-        Margin
-      </span>
-      <span className="text-xs font-extrabold text-brand-orange">
-        {margin}%
-      </span>
+      <div className="flex items-center justify-center gap-1.5">
+        <span className="text-[10px] font-bold text-gray-500 uppercase">
+          Margin
+        </span>
+        <span className="text-xs font-extrabold text-brand-orange">
+          {margin}%
+        </span>
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 
 // ==================== TABLE CHECKBOX ====================

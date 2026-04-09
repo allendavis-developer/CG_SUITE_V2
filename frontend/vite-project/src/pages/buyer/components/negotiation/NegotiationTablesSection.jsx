@@ -29,14 +29,15 @@ export default function NegotiationTablesSection({
   nosposCategoriesResults,
   nosposCategoryMappings,
   onOpenNosposRequiredFieldsEditor,
+  onOpenNosposCategoryPicker,
   hideNosposRequiredColumn = false,
 }) {
   const colSpan =
     (researchSandboxBookedView ? 17 : 16) + (hideNosposRequiredColumn ? 0 : 1);
 
   return (
-    <section className="flex-1 bg-white flex flex-col overflow-hidden">
-      <div className="min-h-0 flex-1 overflow-auto">
+    <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-white">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-auto buyer-panel-scroll">
         {jewelleryNegotiationItems.length > 0 ? (
           <div className="bg-white">
             <div className="sticky top-0 z-[5] bg-white px-6 py-3">
@@ -136,6 +137,7 @@ export default function NegotiationTablesSection({
                   nosposCategoryMappings={nosposCategoryMappings}
                   actualRequestId={actualRequestId}
                   onOpenNosposRequiredFieldsEditor={onOpenNosposRequiredFieldsEditor}
+                  onOpenNosposCategoryPicker={onOpenNosposCategoryPicker}
                   hideNosposRequiredColumn={hideNosposRequiredColumn}
                 />
               ))}

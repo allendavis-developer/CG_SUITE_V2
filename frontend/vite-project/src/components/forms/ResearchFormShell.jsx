@@ -226,6 +226,7 @@ export default function ResearchFormShell({
 
   // ─── Existing state ───────────────────────────────────────────────────────
   const [selectedOfferIndex, setSelectedOfferIndex] = useState(null);
+  const [hoveredOfferIndex, setHoveredOfferIndex] = useState(null);
   const [showOnlyRelevant, setShowOnlyRelevant] = useState(false);
   const [sortOrder, setSortOrder] = useState('low_to_high');
   const manualOfferClearedOnModalOpenRef = useRef(false);
@@ -907,7 +908,7 @@ export default function ResearchFormShell({
             const inner = (
               <>
                 <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider leading-none">{offerLabels[idx]}</span>
-                <span className={`text-lg font-extrabold leading-tight ${isSelected ? 'text-brand-blue' : 'text-brand-blue group-hover:text-green-600'}`}>
+                <span className="text-lg font-extrabold leading-tight text-inherit">
                   £{formatStat(price)}
                 </span>
                 {pctOfSale != null && (
@@ -917,6 +918,7 @@ export default function ResearchFormShell({
             );
 
             const isBlocked = researchBlockedIndices.has(idx);
+            const isHovered = hoveredOfferIndex === idx && !isBlocked && !isSelected;
             const slot = `offer${idx + 1}`;
 
             return (
@@ -934,11 +936,15 @@ export default function ResearchFormShell({
                       type="button"
                       className={`flex flex-col text-left transition-all focus:outline-none rounded-lg border px-2.5 py-1.5 shadow-sm ${
                         isBlocked
-                          ? 'cursor-not-allowed bg-red-50/70 border-red-200/70 opacity-70'
+                          ? 'cursor-not-allowed bg-red-50/70 border-red-200/70 opacity-70 text-brand-blue'
                           : isSelected
-                          ? 'ring-2 ring-brand-blue bg-brand-blue/10 border-brand-blue/30 cursor-pointer'
-                          : 'group bg-brand-blue/5 border-brand-blue/20 hover:bg-green-50 hover:border-green-200 active:scale-[0.99] cursor-pointer'
+                          ? 'ring-2 ring-brand-blue bg-brand-blue/10 border-brand-blue/30 cursor-pointer text-brand-blue'
+                          : isHovered
+                          ? 'bg-green-50 border-green-200 text-green-600 active:scale-[0.99] cursor-pointer'
+                          : 'bg-brand-blue/5 border-brand-blue/20 text-brand-blue active:scale-[0.99] cursor-pointer'
                       }`}
+                      onMouseEnter={() => setHoveredOfferIndex(idx)}
+                      onMouseLeave={() => setHoveredOfferIndex((prev) => (prev === idx ? null : prev))}
                       onClick={
                         isBlocked
                           ? () => {
@@ -972,7 +978,25 @@ export default function ResearchFormShell({
                     </button>
                   </div>
                 ) : (
-                  <div className="flex flex-col">{inner}</div>
+                  <div
+                    className={`flex flex-col rounded-lg border px-2.5 py-1.5 shadow-sm ${
+                      isBlocked
+                        ? 'cursor-not-allowed bg-red-50/70 border-red-200/70 opacity-70'
+                        : isHovered
+                        ? 'bg-green-50 border-green-200 text-green-600 cursor-default'
+                        : 'bg-brand-blue/5 border-brand-blue/20 text-brand-blue cursor-default'
+                    }`}
+                    onMouseEnter={() => setHoveredOfferIndex(idx)}
+                    onMouseLeave={() => setHoveredOfferIndex((prev) => (prev === idx ? null : prev))}
+                  >
+                    {inner}
+                    {isBlocked && (
+                      <span className="text-[9px] font-bold text-red-500 flex items-center gap-0.5 mt-0.5">
+                        <span className="material-symbols-outlined text-[11px]">lock</span>
+                        Auth required
+                      </span>
+                    )}
+                  </div>
                 )}
               </React.Fragment>
             );
@@ -1058,7 +1082,7 @@ export default function ResearchFormShell({
         </div>
       </React.Fragment>
     );
-  }, [buyOffers, showManualOffer, selectedOfferIndex, manualOffer, manualOfferPctOfSale, onManualOfferChange, readOnly, handleOfferClick, handleManualOfferCardClick, handleManualOfferChange, onAddToCartWithOffer, formatStat, enableRightClickManualOffer, openManualOfferDialog, hideOfferCards, addActionLabel, disableAddAction, useVoucherOffers, activeStats?.suggestedPrice, showInlineOfferAction, prominentAddClass, hidePrimaryAddAction, handleComplete, onBlockedOfferClick, researchBlockedIndices, useAddWithOfferFlow, requestManualOfferAuthorisationIfNeeded]);
+  }, [buyOffers, showManualOffer, selectedOfferIndex, hoveredOfferIndex, manualOffer, manualOfferPctOfSale, onManualOfferChange, readOnly, handleOfferClick, handleManualOfferCardClick, handleManualOfferChange, onAddToCartWithOffer, formatStat, enableRightClickManualOffer, openManualOfferDialog, hideOfferCards, addActionLabel, disableAddAction, useVoucherOffers, activeStats?.suggestedPrice, showInlineOfferAction, prominentAddClass, hidePrimaryAddAction, handleComplete, onBlockedOfferClick, researchBlockedIndices, useAddWithOfferFlow, requestManualOfferAuthorisationIfNeeded]);
 
   // ─── Action buttons (shared between banners) ──────────────────────────────
   const othersPanelOpen = Boolean(

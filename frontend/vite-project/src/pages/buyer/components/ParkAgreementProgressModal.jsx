@@ -257,6 +257,7 @@ function EditableNosposCell({ row, lineIndex, patchEnabled, onPatch }) {
  * @param {string|null} [props.parkedAgreementId]
  * @param {() => void|Promise<void>} [props.onViewParkedAgreement] — when the run finished cleanly; opens saved agreement URL in a new tab (no extension)
  * @param {() => Promise<void>} [props.onDownloadLog] — downloads the park agreement diagnostic log as a .txt file
+ * @param {boolean} [props.hidePerItemTableRetry] — when true (e.g. request view mode), hide per-line &ldquo;Retry / re-sync&rdquo; in Progress and under each field table
  */
 export default function ParkAgreementProgressModal({
   open,
@@ -272,6 +273,7 @@ export default function ParkAgreementProgressModal({
   parkedAgreementId = null,
   onViewParkedAgreement,
   onDownloadLog,
+  hidePerItemTableRetry = false,
 }) {
   const noopPatch = useCallback(() => {}, []);
   const patch = onPatchField || noopPatch;
@@ -324,10 +326,15 @@ export default function ParkAgreementProgressModal({
           </h2>
           <p className="mt-2 text-sm leading-relaxed text-[var(--text-muted)]">
             NoSpos opens in a new tab (inactive). Each step shows what the extension is doing (reload waits are capped at 20
-            seconds). Tap a line in Progress or use &ldquo;Retry / re-sync&rdquo; under a table to find the row by description
-            marker (request + item id), or add it and fill fields again. Category, name, quantity, retail, offer, and rate are
-            read-only here; other fields patch the NoSpos tab when you edit them. Optional fields are grouped below—expand to
-            review or edit.
+            seconds).{' '}
+            {hidePerItemTableRetry ? null : (
+              <>
+                Tap a line in Progress or use &ldquo;Retry / re-sync&rdquo; under a table to find the row by description
+                marker (request + item id), or add it and fill fields again.{' '}
+              </>
+            )}
+            Category, name, quantity, retail, offer, and rate are read-only here; other fields patch the NoSpos tab when you
+            edit them. Optional fields are grouped below—expand to review or edit.
           </p>
         </div>
         {allowClose ? (
@@ -351,7 +358,12 @@ export default function ParkAgreementProgressModal({
             {systemSteps.map((row) => {
               const isParkItem = row.itemIndex != null && Number.isFinite(Number(row.itemIndex));
               const isExcluded = isParkItem && row.excluded === true;
-              const canRetryHere = isParkItem && canRetryLine && parkLineRetryEnabled && !parkRetryBusy;
+              const canRetryHere =
+                isParkItem &&
+                canRetryLine &&
+                parkLineRetryEnabled &&
+                !parkRetryBusy &&
+                !hidePerItemTableRetry;
               return (
                 <li key={row.key} className="flex gap-4">
                   <StepIcon status={row.status} />
@@ -380,10 +392,14 @@ export default function ParkAgreementProgressModal({
                         ) : null}
                       </>
                     )}
-                    {isParkItem && !isExcluded && parkRetryBusy ? (
+                    {!hidePerItemTableRetry && isParkItem && !isExcluded && parkRetryBusy ? (
                       <p className="mt-1 text-[11px] text-[var(--text-muted)]">Working on a line…</p>
                     ) : null}
-                    {isParkItem && !isExcluded && !parkLineRetryEnabled && !parkRetryBusy ? (
+                    {!hidePerItemTableRetry &&
+                    isParkItem &&
+                    !isExcluded &&
+                    !parkLineRetryEnabled &&
+                    !parkRetryBusy ? (
                       <p className="mt-1 text-[11px] text-[var(--text-muted)]">
                         Retry is available after this run pauses or finishes.
                       </p>
@@ -459,7 +475,7 @@ export default function ParkAgreementProgressModal({
                 {tbl.footNote ? (
                   <p className="mt-2 text-xs leading-relaxed text-[var(--text-muted)]">{tbl.footNote}</p>
                 ) : null}
-                {canRetryLine && parkLineRetryEnabled && !tbl.excluded ? (
+                {!hidePerItemTableRetry && canRetryLine && parkLineRetryEnabled && !tbl.excluded ? (
                   <div className="mt-2">
                     <button
                       type="button"

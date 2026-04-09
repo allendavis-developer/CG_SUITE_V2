@@ -25,6 +25,8 @@ export default function CexProductView({
   onAddToCart,
   createOrAppendRequestItem,
   onClearCeXProduct,
+  /** Called when the X button is pressed to cancel without adding. Falls back to onClearCeXProduct. */
+  onCancelCeXProduct = null,
   cartItems = [],
   setCexProductData,
   onItemAddedToCart,
@@ -77,16 +79,32 @@ export default function CexProductView({
 
     return (
       <section className="buyer-main-content w-3/5 min-w-0 min-h-0 flex-1 bg-white flex flex-col overflow-y-auto buyer-panel-scroll">
-        <div className="flex items-center justify-between px-8 bg-gray-50 border-b border-gray-200 sticky top-0 z-40">
-          <div className="flex items-center gap-3 py-4">
-            <div className="bg-brand-blue p-1.5 rounded">
+        <div className="flex flex-col gap-4 px-8 py-4 bg-gray-50 border-b border-gray-200 sticky top-0 z-40 sm:flex-row sm:items-stretch sm:gap-6">
+          <div className="flex min-w-0 shrink-0 items-center gap-3 self-stretch sm:max-w-[min(100%,20rem)]">
+            <div className="bg-brand-blue p-1.5 rounded shrink-0 self-center">
               <span className="material-symbols-outlined text-brand-orange text-sm">add_link</span>
             </div>
-            <div>
+            <div className="min-w-0 flex flex-col justify-center">
               <h2 className="text-sm font-bold text-brand-blue">{item.title || 'CeX Product'}</h2>
               <p className="text-[10px] text-gray-500 uppercase tracking-wider">Viewing saved item</p>
             </div>
           </div>
+          {!isRepricing && displayOffers.length > 0 && (
+            <div className="flex min-w-0 w-full flex-1 flex-col justify-center self-stretch">
+              <OfferSelection
+                className="min-w-0 w-full"
+                variant="cex" offers={displayOffers} referenceData={refWithOurSale}
+                offerType={useVoucherOffers ? 'voucher' : 'cash'}
+                initialSelectedOfferId={item?.selectedOfferId ?? null}
+                syncKey={`${item?.id ?? 'cex'}:${useVoucherOffers ? 'voucher' : 'cash'}`}
+                onAddToCart={onSelectOfferForCartItem}
+                showAddActionCard={false}
+                toolbarLayout
+                toolbarFillWidth
+                hideSectionHeader
+              />
+            </div>
+          )}
         </div>
         <div className="p-8 space-y-8">
           <ProductDetailsCard title={item.title} imageUrl={imageUrl} specs={specs} stockStatus={item.cexProductData?.isOutOfStock || item.cexProductData?.stockStatus} />
@@ -103,16 +121,6 @@ export default function CexProductView({
             cexSku={item.cexProductData?.id || item.cexSku}
             hideBuyInPrice={isRepricing}
           />
-          {!isRepricing && displayOffers.length > 0 && (
-            <OfferSelection
-              variant="cex" offers={displayOffers} referenceData={refWithOurSale}
-              offerType={useVoucherOffers ? 'voucher' : 'cash'}
-              initialSelectedOfferId={item?.selectedOfferId ?? null}
-              syncKey={`${item?.id ?? 'cex'}:${useVoucherOffers ? 'voucher' : 'cash'}`}
-              onAddToCart={onSelectOfferForCartItem}
-              showAddActionCard={false}
-            />
-          )}
 
           {isCeXEbayModalOpen && (
             <EbayResearchForm
@@ -255,15 +263,40 @@ export default function CexProductView({
 
   return (
     <section className="buyer-main-content w-3/5 min-w-0 min-h-0 flex-1 bg-white flex flex-col overflow-y-auto buyer-panel-scroll">
-      <div className="px-8 py-6 border-b border-gray-200 bg-gray-50/50">
-        <div className="flex items-center justify-between">
-          <div>
-            <Breadcrumb items={['CeX', data.category || 'Product'].filter(Boolean)} />
-            <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight mt-2">{data.title || 'CeX Product'}</h1>
+      <div className="border-b border-gray-200 bg-gray-50/50 px-8 py-4">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch lg:gap-6">
+          <div className="flex min-w-0 shrink-0 flex-col justify-center self-stretch lg:max-w-[min(100%,28rem)] xl:max-w-[32rem]">
+            <Breadcrumb items={['CeX']} />
+            <h1 className="mt-2 text-2xl font-extrabold tracking-tight text-gray-900">{data.title || 'CeX Product'}</h1>
           </div>
-          {onClearCeXProduct && (
-            <WorkspaceCloseButton title="Close CeX product" onClick={onClearCeXProduct} />
-          )}
+          <div className="flex min-w-0 flex-1 items-stretch gap-3 self-stretch">
+            {!isRepricing && offers.length > 0 && (
+              <div className="flex min-w-0 flex-1 flex-col justify-center">
+                <OfferSelection
+                  className="min-w-0 w-full"
+                  variant="cex"
+                  offers={offers}
+                  referenceData={refWithOurSale}
+                  offerType={useVoucherOffers ? 'voucher' : 'cash'}
+                  onAddToCart={handleAdd}
+                  blockedOfferSlots={blockedOfferSlots}
+                  onBlockedOfferClick={onBlockedOfferClick}
+                  toolbarLayout
+                  toolbarFillWidth
+                  hideSectionHeader
+                />
+              </div>
+            )}
+            {(onCancelCeXProduct || onClearCeXProduct) && (
+              <div className="flex shrink-0 items-center">
+                <WorkspaceCloseButton
+                  title="Close CeX product"
+                  onClick={onCancelCeXProduct ?? onClearCeXProduct}
+                  className="shrink-0"
+                />
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -284,28 +317,16 @@ export default function CexProductView({
           showEbayCcResearchActions={false}
         />
 
-        {isRepricing ? (
-          !cartItems.some((ci) => ci.isCustomCeXItem && ci.title === data.title && ci.subtitle === (data.category || '')) && (
-            <button
-              type="button"
-              onClick={() => handleAdd(null)}
-              className="w-full py-4 rounded-xl font-bold text-sm uppercase tracking-wide transition-colors flex items-center justify-center gap-2"
-              style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
-            >
-              <span className="material-symbols-outlined text-[20px]">sell</span>
-              Add to reprice list
-            </button>
-          )
-        ) : offers.length > 0 && (
-          <OfferSelection
-            variant="cex"
-            offers={offers}
-            referenceData={refWithOurSale}
-            offerType={useVoucherOffers ? 'voucher' : 'cash'}
-            onAddToCart={handleAdd}
-            blockedOfferSlots={blockedOfferSlots}
-            onBlockedOfferClick={onBlockedOfferClick}
-          />
+        {isRepricing && !cartItems.some((ci) => ci.isCustomCeXItem && ci.title === data.title && ci.subtitle === (data.category || '')) && (
+          <button
+            type="button"
+            onClick={() => handleAdd(null)}
+            className="w-full py-4 rounded-xl font-bold text-sm uppercase tracking-wide transition-colors flex items-center justify-center gap-2"
+            style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
+          >
+            <span className="material-symbols-outlined text-[20px]">sell</span>
+            Add to reprice list
+          </button>
         )}
       </div>
     </section>

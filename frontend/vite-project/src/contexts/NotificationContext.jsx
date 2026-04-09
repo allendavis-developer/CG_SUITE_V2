@@ -33,7 +33,7 @@ export const NotificationProvider = ({ children }) => {
   return (
     <NotificationContext.Provider value={value}>
       {children}
-      <div className="pointer-events-none fixed top-3 right-3 z-[1000] flex max-w-[min(100vw-1.5rem,20rem)] flex-col items-end gap-1.5 sm:max-w-xs">
+      <div className="pointer-events-none fixed top-3 right-3 z-[1000] flex max-w-[min(100vw-1.5rem,28rem)] flex-col items-end gap-2 sm:max-w-md">
         {notifications.map((notif) => (
           <div key={notif.id} className="pointer-events-auto w-full">
             <NotificationToast

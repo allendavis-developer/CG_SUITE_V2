@@ -23,6 +23,13 @@ const OfferSelection = ({
   showAddActionCard = true,
   blockedOfferSlots = null,
   onBlockedOfferClick = null,
+  /** Compact cards in a horizontal row; Add to Cart matches card height (builder / CeX workspace). */
+  toolbarLayout = false,
+  /** Omit the “Available … Valuations” heading (use beside title/model name; region has aria-label). */
+  hideSectionHeader = false,
+  /** With toolbarLayout: let offer + cart cells grow to fill the row (no max-width cap per cell). */
+  toolbarFillWidth = false,
+  className = '',
 }) => {
   const formatPriceInput = (value) => {
     const parsed = Number(value);
@@ -102,6 +109,7 @@ const OfferSelection = ({
   const ourSalePrice = referenceData?.our_sale_price;
   const showAddToCart = Boolean(onAddToCart) && !editMode;
   const showAddAction = showAddToCart && showAddActionCard;
+  const useToolbarLayout = toolbarLayout && !editMode;
 
   const handleOfferClick = (offerId) => {
     const slot = offerId ? `offer${String(offerId).match(/_(\d)$/)?.[1] || ''}` : null;
@@ -177,13 +185,25 @@ const OfferSelection = ({
             : 'grid-cols-1 max-w-sm mx-auto sm:mx-0';
 
   return (
-    <div>
-      <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">
-        {headerText}
-      </h3>
+    <div className={className || undefined} role="region" aria-label={headerText}>
+      {!hideSectionHeader && (
+        <h3
+          className={`text-xs font-bold text-gray-400 uppercase tracking-widest ${
+            useToolbarLayout ? 'mb-2' : 'mb-4'
+          }`}
+        >
+          {headerText}
+        </h3>
+      )}
 
-      <div className="space-y-4">
-      <div className={`grid gap-4 ${offersOnlyGridCols}`}>
+      <div className={useToolbarLayout ? '' : 'space-y-4'}>
+      <div
+        className={
+          useToolbarLayout
+            ? 'flex min-w-0 w-full items-center gap-2 flex-wrap'
+            : `grid gap-4 ${offersOnlyGridCols}`
+        }
+      >
         {offers.map((offer, index) => {
           const displayPrice = editMode
             ? parseFloat(localPrices[offer.id] ?? offer.price)
@@ -259,11 +279,80 @@ const OfferSelection = ({
             );
           }
 
+          if (useToolbarLayout) {
+            const priceNumber = Number.parseFloat(offer.price);
+            const displayPrice = Number.isFinite(priceNumber) ? formatOfferPrice(priceNumber) : '0.00';
+            const content = (
+              <>
+                <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider leading-none">
+                  {offer.title}
+                </span>
+                <span className="text-lg font-extrabold leading-tight text-inherit">
+                  £{displayPrice}
+                </span>
+                {recalculatedMargin != null ? (
+                  <span className="text-[10px] font-bold text-brand-orange-hover">{recalculatedMargin}% sale</span>
+                ) : null}
+              </>
+            );
+
+            return (
+              <React.Fragment key={offer.id}>
+                {index > 0 && <div className="w-px h-8 bg-gray-200 shrink-0" />}
+                <div
+                  onContextMenu={showAddToCart ? (e) => openContextMenu(e, index) : undefined}
+                  className="relative shrink-0"
+                  title={isBlocked ? 'Blocked — requires senior management authorisation' : undefined}
+                >
+                  {onAddToCart ? (
+                    <button
+                      type="button"
+                      className={`flex flex-col text-left transition-all focus:outline-none rounded-lg border px-2.5 py-1.5 shadow-sm ${
+                        isBlocked
+                          ? 'cursor-not-allowed bg-red-50/70 border-red-200/70 opacity-70 text-brand-blue'
+                          : isHighlighted
+                          ? 'ring-2 ring-brand-blue bg-brand-blue/10 border-brand-blue/30 cursor-pointer text-brand-blue'
+                          : 'bg-brand-blue/5 border-brand-blue/20 text-brand-blue hover:bg-green-50 hover:border-green-200 hover:text-green-600 active:scale-[0.99] cursor-pointer'
+                      }`}
+                      onClick={() => handleOfferClick(offer.id)}
+                    >
+                      {content}
+                      {isBlocked && (
+                        <span className="text-[9px] font-bold text-red-500 flex items-center gap-0.5 mt-0.5">
+                          <span className="material-symbols-outlined text-[11px]">lock</span>
+                          Auth required
+                        </span>
+                      )}
+                    </button>
+                  ) : (
+                    <div
+                      className={`flex flex-col rounded-lg border px-2.5 py-1.5 shadow-sm ${
+                        isBlocked
+                          ? 'cursor-not-allowed bg-red-50/70 border-red-200/70 opacity-70 text-brand-blue'
+                          : isHighlighted
+                          ? 'ring-2 ring-brand-blue bg-brand-blue/10 border-brand-blue/30 text-brand-blue'
+                          : 'bg-brand-blue/5 border-brand-blue/20 text-brand-blue'
+                      }`}
+                    >
+                      {content}
+                    </div>
+                  )}
+                </div>
+              </React.Fragment>
+            );
+          }
+
+          const offerWrapClass = [
+            isBlocked ? 'relative cg-animate-list-item' : 'cg-animate-list-item',
+          ]
+            .filter(Boolean)
+            .join(' ');
+
           return (
             <div
               key={offer.id}
               onContextMenu={showAddToCart ? (e) => openContextMenu(e, index) : undefined}
-              className={isBlocked ? 'relative cg-animate-list-item' : 'cg-animate-list-item'}
+              className={offerWrapClass}
               title={isBlocked ? 'Blocked — requires senior management authorisation' : undefined}
             >
               <OfferCard
@@ -272,10 +361,15 @@ const OfferSelection = ({
                 margin={recalculatedMargin}
                 isHighlighted={isHighlighted}
                 onClick={onAddToCart ? () => handleOfferClick(offer.id) : null}
+                size="default"
               />
               {isBlocked ? <div className="absolute inset-0 rounded-xl bg-red-50/55 pointer-events-none" /> : null}
               {isBlocked ? (
-                <div className="pointer-events-none -mt-6 mb-2 flex items-center justify-center">
+                <div
+                  className={`pointer-events-none flex items-center justify-center ${
+                    useToolbarLayout ? 'mt-1.5' : '-mt-6 mb-2'
+                  }`}
+                >
                   <span className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-600">
                     <span className="material-symbols-outlined text-[12px]">lock</span>
                     Auth required
@@ -285,13 +379,31 @@ const OfferSelection = ({
             </div>
           );
         })}
+        {showAddAction && useToolbarLayout && (
+          <>
+            <div className="w-px h-8 bg-gray-200 shrink-0" />
+            <button
+              type="button"
+              onClick={() => onAddToCart(null)}
+              className="flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-extrabold uppercase tracking-wide text-brand-blue transition-all shrink-0 bg-brand-orange hover:bg-brand-orange-hover cursor-pointer shadow-lg shadow-brand-orange/30"
+            >
+              <Icon name="add_shopping_cart" className="text-[22px]" />
+              Add to Cart
+            </button>
+          </>
+        )}
       </div>
-        {showAddAction && (
+        {showAddAction && !useToolbarLayout && (
           <div
             role="button"
             tabIndex={0}
             onClick={() => onAddToCart(null)}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onAddToCart(null); } }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onAddToCart(null);
+              }
+            }}
             className="w-full min-w-0 p-6 rounded-xl bg-brand-orange cursor-pointer text-center relative overflow-hidden border-2 border-brand-orange transition-all duration-200 ease-out hover:bg-brand-orange-hover hover:border-brand-orange shadow-md shadow-brand-orange/10 active:scale-[0.98]"
           >
             <h4 className="text-[10px] font-black uppercase text-brand-blue mb-4 tracking-wider">

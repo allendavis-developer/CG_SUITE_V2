@@ -687,10 +687,52 @@ const MainContent = ({ mode = 'buyer' }) => {
                 />
               )}
             </div>
-              <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:gap-6">
+              <h1 className="min-w-0 shrink-0 text-2xl font-extrabold tracking-tight text-gray-900 lg:max-w-[min(100%,26rem)] xl:max-w-[30rem]">
                 {selectedModel?.name || selectedCategory.name}
-              {Object.keys(attributeValues).length > 0 && <span> - {Object.values(attributeValues).filter((v) => v).join(' / ')}</span>}
+                {Object.keys(attributeValues).length > 0 && (
+                  <span> - {Object.values(attributeValues).filter((v) => v).join(' / ')}</span>
+                )}
               </h1>
+              {variant && !isRepricing && (
+                isLoadingOffers ? (
+                  <div className="flex min-w-0 flex-1 items-center py-2">
+                    <Icon name="sync" className="mr-3 animate-spin text-2xl text-brand-blue" />
+                    <span className="text-sm text-gray-600">Loading {useVoucherOffers ? 'voucher' : 'cash'} offers…</span>
+                  </div>
+                ) : isViewingCartItem ? (
+                  <div className="min-w-0 flex-1">
+                    <OfferSelection
+                      className="min-w-0 w-full"
+                      variant={variant}
+                      offers={useVoucherOffers ? (selectedCartItem.voucherOffers?.length ? selectedCartItem.voucherOffers : offers) : (selectedCartItem.cashOffers?.length ? selectedCartItem.cashOffers : offers)}
+                      referenceData={referenceData} offerType={useVoucherOffers ? 'voucher' : 'cash'}
+                      initialSelectedOfferId={selectedCartItem?.selectedOfferId ?? null}
+                      syncKey={`${selectedCartItem?.id ?? variant ?? 'item'}:${useVoucherOffers ? 'voucher' : 'cash'}`}
+                      onAddToCart={handleSelectOfferForSelectedItem}
+                      showAddActionCard={false}
+                      toolbarLayout
+                      toolbarFillWidth
+                      hideSectionHeader
+                    />
+                  </div>
+                ) : (
+                  <div className="min-w-0 flex-1">
+                    <OfferSelection
+                      className="min-w-0 w-full"
+                      variant={variant}
+                      offers={offers}
+                      referenceData={referenceData}
+                      offerType={useVoucherOffers ? 'voucher' : 'cash'}
+                      onAddToCart={handleAddToCart}
+                      toolbarLayout
+                      toolbarFillWidth
+                      hideSectionHeader
+                    />
+                  </div>
+                )
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -747,31 +789,12 @@ const MainContent = ({ mode = 'buyer' }) => {
               />
             )}
 
-            {isRepricing ? (
-              variant && !isAlreadyInCart && (
-                <div className="flex justify-end pt-4">
-                  <Button variant="primary" icon="sell" className="px-6 py-3 font-bold uppercase tracking-tight" onClick={() => handleAddToCart(null)}>
-                    Add to Reprice List
-                  </Button>
-                </div>
-              )
-            ) : isLoadingOffers ? (
-              <div className="flex items-center justify-center py-8">
-                <Icon name="sync" className="animate-spin text-2xl text-brand-blue mr-3" />
-                <span className="text-sm text-gray-600">Loading {useVoucherOffers ? 'voucher' : 'cash'} offers...</span>
+            {isRepricing && variant && !isAlreadyInCart && (
+              <div className="flex justify-end pt-4">
+                <Button variant="primary" icon="sell" className="px-6 py-3 font-bold uppercase tracking-tight" onClick={() => handleAddToCart(null)}>
+                  Add to Reprice List
+                </Button>
               </div>
-            ) : isViewingCartItem ? (
-              <OfferSelection
-                variant={variant}
-                offers={useVoucherOffers ? (selectedCartItem.voucherOffers?.length ? selectedCartItem.voucherOffers : offers) : (selectedCartItem.cashOffers?.length ? selectedCartItem.cashOffers : offers)}
-                referenceData={referenceData} offerType={useVoucherOffers ? 'voucher' : 'cash'}
-                initialSelectedOfferId={selectedCartItem?.selectedOfferId ?? null}
-                syncKey={`${selectedCartItem?.id ?? variant ?? 'item'}:${useVoucherOffers ? 'voucher' : 'cash'}`}
-                onAddToCart={handleSelectOfferForSelectedItem}
-                showAddActionCard={false}
-              />
-            ) : (
-              <OfferSelection variant={variant} offers={offers} referenceData={referenceData} offerType={useVoucherOffers ? 'voucher' : 'cash'} onAddToCart={handleAddToCart} />
             )}
           </div>
 

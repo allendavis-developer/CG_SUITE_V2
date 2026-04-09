@@ -53,6 +53,7 @@ import {
   negotiationLineHasMissingRequiredNosposStockFields,
   negotiationLineNosposFieldAiPending,
 } from './utils/nosposAgreementFirstItemFill';
+import { resolveNosposStockLeafIdForNegotiationLine } from '@/utils/nosposCategoryMappings';
 
 const Negotiation = ({ mode }) => {
   const navigate = useNavigate();
@@ -118,6 +119,10 @@ const Negotiation = ({ mode }) => {
   const [showJewelleryReferenceModal, setShowJewelleryReferenceModal] = useState(false);
   /** Lines missing required NosPos stock fields — blocks book-for-testing until filled (see modal). */
   const [missingRequiredNosposModal, setMissingRequiredNosposModal] = useState(null);
+  /** Lines with no resolved NosPos category — blocks book-for-testing until all are set. */
+  const [missingNosposCategoryModal, setMissingNosposCategoryModal] = useState(null);
+  /** `{ item, currentNosposId }` — NosPos category picker popup state. */
+  const [nosposCategoryPickerModal, setNosposCategoryPickerModal] = useState(null);
   /** `{ categories, mappings }` for NosPos linked fields — warmed from session cache when available. */
   const [nosposSchema, setNosposSchema] = useState(() => {
     const cat = peekNosposCategoriesCache();
@@ -498,6 +503,70 @@ const Negotiation = ({ mode }) => {
     [items, useVoucherOffers, showNotification, setItems, setMissingRequiredNosposModal]
   );
 
+  // ─── NosPos category picker ──────────────────────────────────────────────
+
+  const handleOpenNosposCategoryPicker = useCallback((item) => {
+    const currentId = resolveNosposStockLeafIdForNegotiationLine(item, {
+      categoryMappings: nosposSchema.mappings ?? [],
+      nosposCategoriesResults: nosposSchema.categories ?? [],
+    });
+    setNosposCategoryPickerModal({ item, currentNosposId: currentId ?? null });
+  }, [nosposSchema]);
+
+  const handleNosposCategorySelected = useCallback(
+    async (item, category) => {
+      if (!item || !category) return;
+      const newHint = {
+        fullName: category.fullName,
+        nosposId: category.nosposId ?? category.nospos_id,
+        fromInternalProductCategory: false,
+        manuallySelected: true,
+      };
+      // Update in-memory state immediately
+      setItems((prev) =>
+        prev.map((it) => {
+          if (it.id !== item.id) return it;
+          const nextRaw =
+            it.rawData != null && typeof it.rawData === 'object'
+              ? { ...it.rawData, aiSuggestedNosposStockCategory: newHint, aiSuggestedNosposStockFieldValues: null }
+              : { aiSuggestedNosposStockCategory: newHint, aiSuggestedNosposStockFieldValues: null };
+          return {
+            ...it,
+            aiSuggestedNosposStockCategory: newHint,
+            aiSuggestedNosposStockFieldValues: null,
+            rawData: nextRaw,
+            ...(it.ebayResearchData != null && typeof it.ebayResearchData === 'object'
+              ? { ebayResearchData: { ...it.ebayResearchData, aiSuggestedNosposStockCategory: newHint, aiSuggestedNosposStockFieldValues: null } }
+              : {}),
+          };
+        })
+      );
+      setNosposCategoryPickerModal(null);
+      // Persist to API if the item has been saved
+      const reqId = item.request_item_id;
+      if (reqId) {
+        try {
+          await updateRequestItemRawData(reqId, {
+            raw_data: { aiSuggestedNosposStockCategory: newHint, aiSuggestedNosposStockFieldValues: null },
+          });
+          showNotification('NosPos category updated.', 'success');
+        } catch (e) {
+          console.error('[CG Suite] save NosPos category override', e);
+          showNotification('Category updated in session but could not save to server — will persist on finalize.', 'warning');
+        }
+      }
+    },
+    [setItems, showNotification]
+  );
+
+  const handleOpenCategoryPickerForItem = useCallback(
+    (itemId) => {
+      const item = items.find((it) => it.id === itemId);
+      if (item) handleOpenNosposCategoryPicker(item);
+    },
+    [items, handleOpenNosposCategoryPicker]
+  );
+
   const {
     parkProgressModal,
     setParkProgressModal,
@@ -631,6 +700,7 @@ const Negotiation = ({ mode }) => {
   const {
     applyManualOffer,
     handleFinalizeTransaction,
+    handleMissingNosposCategoryRecheckContinue,
     handleMissingNosposRecheckContinue,
     handleNewCustomerDetailsSubmit,
     handleConfirmNewBuy,
@@ -653,6 +723,7 @@ const Negotiation = ({ mode }) => {
     completedRef,
     pendingFinishPayload,
     setMissingRequiredNosposModal,
+    setMissingNosposCategoryModal,
   });
 
   const {
@@ -677,6 +748,8 @@ const Negotiation = ({ mode }) => {
     notifyEbayResearchMergedForNosposAi,
     handleNegotiationBuilderOffersDisplayed,
     handleNegotiationCexProductDisplayed,
+    handleCancelCeXPreview,
+    handleCancelJewelleryPreview,
   } = useNegotiationItemHandlers({
     mode,
     items,
@@ -868,7 +941,7 @@ const Negotiation = ({ mode }) => {
   // ─── Render ────────────────────────────────────────────────────────────
 
   return (
-    <div className="bg-ui-bg text-text-main min-h-screen flex flex-col text-sm overflow-hidden">
+    <div className="flex min-h-0 h-dvh flex-col overflow-hidden bg-ui-bg text-text-main text-sm">
       <NegotiationDocumentHead />
 
       {mode === 'negotiate' && (
@@ -885,6 +958,7 @@ const Negotiation = ({ mode }) => {
         />
       )}
 
+      <div className="shrink-0">
       <AppHeader
         buyerControls={mode === 'negotiate' ? {
           enabled: true,
@@ -910,6 +984,12 @@ const Negotiation = ({ mode }) => {
             mode === 'negotiate' ? handleNegotiationBuilderPreviewWrapped : undefined,
           onNegotiationCexProductDisplayed:
             mode === 'negotiate' ? handleNegotiationCexProductDisplayed : undefined,
+          onCancelCeXWorkspace:
+            mode === 'negotiate' ? handleCancelCeXPreview : undefined,
+          onCancelBuilderWorkspace:
+            mode === 'negotiate' ? handleCancelCeXPreview : undefined,
+          onCancelJewelleryWorkspace:
+            mode === 'negotiate' ? handleCancelJewelleryPreview : undefined,
           jewelleryWorkspaceLines,
           setJewelleryWorkspaceLines: handleJewelleryWorkspaceLinesChange,
           onRemoveJewelleryWorkspaceRow: handleRemoveJewelleryWorkspaceRow,
@@ -919,8 +999,10 @@ const Negotiation = ({ mode }) => {
           onHeaderEbayResearchOffersLiveChange: handleHeaderEbayResearchOffersLive,
           onNegotiationBuilderOffersLiveChange: handleHeaderBuilderOffersLive,
           onCloseTransientPanels: handleCloseTransientPanels,
+          onNewBuy: () => setShowNewBuyConfirm(true),
         } : null}
       />
+      </div>
 
       <div
         ref={negotiationWorkspaceOverlayBottomRef}
@@ -953,7 +1035,6 @@ const Negotiation = ({ mode }) => {
           offerMax={offerMax}
           parsedTarget={parsedTarget}
           setShowTargetModal={setShowTargetModal}
-          setShowNewBuyConfirm={setShowNewBuyConfirm}
           actualRequestId={actualRequestId}
           researchSandboxBookedView={researchSandboxBookedView}
           hasJewelleryReferenceData={Boolean(jewelleryReferenceScrape?.sections?.length)}
@@ -965,7 +1046,7 @@ const Negotiation = ({ mode }) => {
       </div>
 
       <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div className="relative flex min-h-0 flex-1 overflow-hidden">
+        <div className="relative flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
           <NegotiationTablesSection
             mode={mode}
             actualRequestId={actualRequestId}
@@ -993,6 +1074,7 @@ const Negotiation = ({ mode }) => {
             nosposCategoriesResults={nosposSchema.categories}
             nosposCategoryMappings={nosposSchema.mappings ?? []}
             onOpenNosposRequiredFieldsEditor={handleOpenNosposRequiredFieldsEditor}
+            onOpenNosposCategoryPicker={mode === 'negotiate' ? handleOpenNosposCategoryPicker : undefined}
             hideNosposRequiredColumn={mode === 'negotiate'}
           />
           <ResearchOverlayPanel
@@ -1096,6 +1178,14 @@ const Negotiation = ({ mode }) => {
         onCloseNosposRequiredFieldsEditor={() => setNosposRequiredFieldsEditor(null)}
         onSaveNosposRequiredFieldsFromModal={handleSaveNosposRequiredFieldsFromModal}
         nosposRequiredFieldsRequireCompletion={mode === 'negotiate'}
+        parkHidePerItemTableRetry={mode === 'view'}
+        nosposCategoryPickerModal={nosposCategoryPickerModal}
+        onCloseCategoryPicker={() => setNosposCategoryPickerModal(null)}
+        onNosposCategorySelected={handleNosposCategorySelected}
+        nosposPickerCategories={nosposSchema.categories}
+        missingNosposCategoryModal={missingNosposCategoryModal}
+        handleMissingNosposCategoryRecheckContinue={handleMissingNosposCategoryRecheckContinue}
+        onOpenCategoryPickerForItem={handleOpenCategoryPickerForItem}
       />
 
     </div>

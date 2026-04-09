@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import useAppStore from '@/store/useAppStore';
 import ProductSelection from '@/pages/buyer/components/ProductSelection';
 import AttributeConfiguration from '@/pages/buyer/components/AttributeConfiguration';
@@ -34,7 +34,6 @@ function isJewelleryCategoryName(name) {
 const AppHeader = ({
   buyerControls = null,
 }) => {
-  const location = useLocation();
   const [categories, setCategories] = useState([]);
   const [activeTopLevelId, setActiveTopLevelId] = useState(null);
   const [expandedIds, setExpandedIds] = useState([]);
@@ -72,14 +71,20 @@ const AppHeader = ({
   const lastBuilderNosposPreviewKeyRef = useRef(null);
   const lastCexNosposPreviewKeyRef = useRef(null);
 
-  const isActive = (to) =>
-    location.pathname === to || location.pathname.startsWith(to + '/');
+  const navigate = useNavigate();
 
-  const path = location.pathname;
   const showBuyerControls = Boolean(buyerControls?.enabled);
   const showNegotiationItemBuilder = Boolean(buyerControls?.enableNegotiationItemBuilder);
   const useVoucherOffers = Boolean(buyerControls?.useVoucherOffers);
   const isRepricingWorkspace = Boolean(buyerControls?.onQuickReprice);
+
+  const handleNewBuy = useCallback(() => {
+    if (typeof buyerControls?.onNewBuy === 'function') {
+      buyerControls.onNewBuy();
+      return;
+    }
+    navigate('/buyer');
+  }, [buyerControls, navigate]);
 
   const buyerControlsRef = useRef(buyerControls);
   buyerControlsRef.current = buyerControls;
@@ -324,7 +329,14 @@ const AppHeader = ({
   }, [showNegotiationItemBuilder, variant, useVoucherOffers]);
 
   useEffect(() => {
+    const oldLineId = builderNegotiationClientLineIdRef.current;
     builderNegotiationClientLineIdRef.current = null;
+    // Clean up any preview item that was silently added for the old selection.
+    // When X is pressed or an item is formally added, clearHeaderBuilderState() already
+    // nullifies the ref synchronously, so oldLineId will be null here and this is a no-op.
+    if (oldLineId) {
+      buyerControlsRef.current?.onCancelBuilderWorkspace?.(oldLineId);
+    }
   }, [variant, selectedModel?.product_id]);
 
   useEffect(() => {
@@ -334,11 +346,19 @@ const AppHeader = ({
       lastCexNosposPreviewKeyRef.current = null;
       return;
     }
+    // A different CeX product is now showing. cexNegotiationClientLineId still holds the
+    // OLD line id here (state hasn't been updated yet by this effect run), so we can use
+    // it to remove the old preview. Intentionally not in the deps array so we always get
+    // the value from the render that triggered this effect (i.e. the old value).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (cexNegotiationClientLineId) {
+      buyerControlsRef.current?.onCancelCeXWorkspace?.(cexNegotiationClientLineId);
+    }
     setCexNegotiationClientLineId(
       crypto.randomUUID?.() ?? `cex-ws-${pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`
     );
     lastCexNosposPreviewKeyRef.current = null;
-  }, [buyerControls?.cexProductData?.id]);
+  }, [buyerControls?.cexProductData?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const activeTopLevelCategory = useMemo(
     () => categories.find((cat) => String(cat.category_id) === String(activeTopLevelId)) || null,
@@ -737,26 +757,6 @@ const AppHeader = ({
     );
   };
 
-  const NavIcon = ({ to, icon, label, tooltip, hardNav }) => {
-    const cls = `flex size-10 cursor-pointer items-center justify-center rounded-lg transition-colors ${
-      isActive(to) ? 'bg-white/30 text-white' : 'bg-white/20 text-white hover:bg-white/30'
-    }`;
-
-    if (hardNav) {
-      return (
-        <a href={to} title={tooltip} className={cls} aria-label={label}>
-          <span className="material-symbols-outlined">{icon}</span>
-        </a>
-      );
-    }
-
-    return (
-      <Link to={to} title={tooltip} className={cls} aria-label={label}>
-        <span className="material-symbols-outlined">{icon}</span>
-      </Link>
-    );
-  };
-
   const brandLink = (
     <Link
       to="/"
@@ -769,41 +769,6 @@ const AppHeader = ({
         Internal Tool
       </h2>
     </Link>
-  );
-
-  const navIconsRow = (
-    <div className="flex items-center gap-2">
-      <NavIcon
-        to="/buyer"
-        icon="shopping_cart_checkout"
-        label="Buying Module"
-        tooltip="Buying Module"
-      />
-      <NavIcon
-        to="/repricing"
-        icon="analytics"
-        label="Repricing Module"
-        tooltip="Repricing Module"
-      />
-      <NavIcon
-        to="/reports"
-        icon="summarize"
-        label="Reports"
-        tooltip="Reports"
-      />
-      <NavIcon
-        to="/data"
-        icon="dataset_linked"
-        label="Data"
-        tooltip="Data"
-      />
-      <NavIcon
-        to="/pricing-rules"
-        icon="tune"
-        label="Pricing Rules"
-        tooltip="Pricing Rules"
-      />
-    </div>
   );
 
   return (
@@ -851,7 +816,7 @@ const AppHeader = ({
                   </button>
                 );
               })}
-              <div className="flex h-11 min-w-[380px] md:min-w-[480px] lg:min-w-[580px] xl:min-w-[680px] max-w-4xl flex-1 items-stretch overflow-hidden rounded-lg border-2 border-slate-200/95 bg-white shadow-[0_4px_20px_rgba(0,0,0,0.18)] ring-2 ring-white/70">
+              <div className="flex h-11 min-w-0 w-full max-w-[19.375rem] md:max-w-[23.5rem] lg:max-w-[26.625rem] xl:max-w-[29.75rem] shrink-0 items-stretch overflow-hidden rounded-lg border-2 border-slate-200/95 bg-white shadow-[0_4px_20px_rgba(0,0,0,0.18)] ring-2 ring-white/70">
                 <input
                   type="text"
                   value={headerSearch}
@@ -1019,7 +984,11 @@ const AppHeader = ({
                       <div className="flex shrink-0 items-center justify-end border-b border-gray-200 bg-gray-50 px-3 py-2">
                         <WorkspaceCloseButton
                           title="Close workspace"
-                          onClick={resetHeaderWorkspaceChrome}
+                          onClick={() => {
+                            const lineId = builderNegotiationClientLineIdRef.current;
+                            buyerControls?.onCancelBuilderWorkspace?.(lineId);
+                            resetHeaderWorkspaceChrome();
+                          }}
                         />
                       </div>
                     ) : null}
@@ -1051,7 +1020,11 @@ const AppHeader = ({
                             workspaceLines={buyerControls?.jewelleryWorkspaceLines}
                             onWorkspaceLinesChange={buyerControls?.setJewelleryWorkspaceLines}
                             onRemoveJewelleryWorkspaceRow={buyerControls?.onRemoveJewelleryWorkspaceRow}
-                            onCloseWorkspace={resetHeaderWorkspaceChrome}
+                            onCloseWorkspace={() => {
+                              const lines = buyerControls?.jewelleryWorkspaceLines ?? [];
+                              buyerControls?.onCancelJewelleryWorkspace?.(lines);
+                              resetHeaderWorkspaceChrome();
+                            }}
                           />
                         )}
                       </div>
@@ -1096,6 +1069,12 @@ const AppHeader = ({
                             }
                             createOrAppendRequestItem={buyerControls?.createOrAppendRequestItem}
                             onClearCeXProduct={resetHeaderWorkspaceChrome}
+                            onCancelCeXProduct={() => {
+                              const lineId = cexNegotiationClientLineId;
+                              buyerControls?.clearCexProduct?.();
+                              buyerControls?.onCancelCeXWorkspace?.(lineId);
+                              resetHeaderWorkspaceChrome();
+                            }}
                             cartItems={buyerControls?.existingItems || []}
                             setCexProductData={buyerControls?.setCexProductData}
                             onItemAddedToCart={() => {}}
@@ -1173,29 +1152,55 @@ const AppHeader = ({
                       />
                     ) : (
                       <div className="space-y-4 p-4">
-                        <div className="flex flex-wrap items-stretch gap-2">
-                          <div className="flex min-w-[12rem] flex-1 flex-col justify-center gap-0.5 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
-                            <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Selected model</p>
-                            <p className="truncate text-sm font-semibold text-gray-900" title={selectedModel.name}>
-                              {selectedModel.name}
-                            </p>
-                            <p className="pt-1 text-[10px] font-bold uppercase tracking-wider text-gray-500">Category</p>
-                            <p
-                              className="text-xs font-medium leading-snug text-gray-700"
-                              title={(buyerControls.selectedCategory.path || []).join(' / ')}
-                            >
-                              {(buyerControls.selectedCategory.path || []).join(' / ')}
-                            </p>
-                          </div>
+                        <div className="flex min-w-0 flex-wrap items-stretch gap-2">
                           <button
                             type="button"
                             onClick={handleBackToModelList}
                             title="Return to the model list for this category"
-                            className="inline-flex shrink-0 items-center justify-center gap-1.5 self-center rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-brand-blue shadow-sm transition-colors hover:bg-gray-50"
+                            className="flex shrink-0 self-stretch items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-brand-blue shadow-sm transition-colors hover:bg-gray-50"
                           >
                             <span className="material-symbols-outlined text-[18px]">arrow_back</span>
-                            Change model
+                            <span className="whitespace-nowrap">Change model</span>
                           </button>
+                          <div className="flex max-w-[18rem] min-w-[10rem] shrink-0 flex-col justify-center gap-0.5 self-stretch rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Selected model</p>
+                            <p className="truncate text-sm font-semibold text-gray-900" title={selectedModel.name}>
+                              {selectedModel.name}
+                            </p>
+                          </div>
+                          {variant && !isRepricingWorkspace && (
+                            isLoadingOffers ? (
+                              <p className="flex min-w-0 flex-1 basis-full items-center self-stretch text-sm text-gray-500 sm:basis-0">
+                                Loading offers…
+                              </p>
+                            ) : (
+                              <div className="flex min-w-0 w-full flex-1 basis-full flex-col justify-center self-stretch sm:basis-0">
+                                <OfferSelection
+                                  className="min-w-0 w-full"
+                                  variant={variant}
+                                  offers={offers}
+                                  referenceData={referenceData}
+                                  offerType={useVoucherOffers ? 'voucher' : 'cash'}
+                                  onAddToCart={handleAddNegotiationItem}
+                                  blockedOfferSlots={buyerControls?.blockedOfferSlots}
+                                  toolbarLayout
+                                  toolbarFillWidth
+                                  hideSectionHeader
+                                  onBlockedOfferClick={(slot, offer, blockedSelectionArg) => {
+                                    const blockedItem = buildWorkspaceNegotiationItem(
+                                      blockedSelectionArg === undefined ? offer?.id : blockedSelectionArg
+                                    );
+                                    if (!blockedItem) return;
+                                    buyerControls?.onWorkspaceBlockedOfferAttempt?.({
+                                      slot,
+                                      offer,
+                                      item: blockedItem,
+                                    });
+                                  }}
+                                />
+                              </div>
+                            )
+                          )}
                         </div>
                         <AttributeConfiguration
                           attributes={attributes}
@@ -1221,41 +1226,17 @@ const AppHeader = ({
                             showEbayCcResearchActions={false}
                           />
                         )}
-                        {variant && (
-                          isRepricingWorkspace ? (
-                            <button
-                              type="button"
-                              disabled={isLoadingOffers}
-                              onClick={() => handleAddNegotiationItem(null)}
-                              className="w-full py-4 rounded-xl font-bold text-sm uppercase tracking-wide transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                              style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
-                            >
-                              <span className="material-symbols-outlined text-[20px]">sell</span>
-                              Add to reprice list
-                            </button>
-                          ) : isLoadingOffers ? (
-                            <p className="text-sm text-gray-500">Loading offers...</p>
-                          ) : (
-                            <OfferSelection
-                              variant={variant}
-                              offers={offers}
-                              referenceData={referenceData}
-                              offerType={useVoucherOffers ? 'voucher' : 'cash'}
-                              onAddToCart={handleAddNegotiationItem}
-                              blockedOfferSlots={buyerControls?.blockedOfferSlots}
-                              onBlockedOfferClick={(slot, offer, blockedSelectionArg) => {
-                                const blockedItem = buildWorkspaceNegotiationItem(
-                                  blockedSelectionArg === undefined ? offer?.id : blockedSelectionArg
-                                );
-                                if (!blockedItem) return;
-                                buyerControls?.onWorkspaceBlockedOfferAttempt?.({
-                                  slot,
-                                  offer,
-                                  item: blockedItem,
-                                });
-                              }}
-                            />
-                          )
+                        {variant && isRepricingWorkspace && (
+                          <button
+                            type="button"
+                            disabled={isLoadingOffers}
+                            onClick={() => handleAddNegotiationItem(null)}
+                            className="w-full py-4 rounded-xl font-bold text-sm uppercase tracking-wide transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                            style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
+                          >
+                            <span className="material-symbols-outlined text-[20px]">sell</span>
+                            Add to reprice list
+                          </button>
                         )}
                       </div>
                     )}
@@ -1265,17 +1246,31 @@ const AppHeader = ({
               </div>
             )}
           </div>
-          <div className="flex shrink-0 items-center gap-4 self-center">
-            {navIconsRow}
+          <div className="flex shrink-0 items-center justify-end gap-3 self-center">
+            <button
+              type="button"
+              onClick={handleNewBuy}
+              className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg border border-white/25 bg-brand-orange px-3 text-xs font-black uppercase tracking-wide text-brand-blue shadow-sm transition-colors hover:opacity-95 focus-visible:outline focus-visible:ring-2 focus-visible:ring-white/40"
+              title="Start a fresh buying session"
+            >
+              <span className="material-symbols-outlined text-[18px] leading-none">refresh</span>
+              New Buy
+            </button>
             {brandLink}
           </div>
         </div>
       ) : (
-        <div className="flex items-center whitespace-nowrap">
-          <div className="flex items-center gap-6">
-            {brandLink}
-            {navIconsRow}
-          </div>
+        <div className="flex w-full items-center justify-end gap-3 whitespace-nowrap">
+          <button
+            type="button"
+            onClick={handleNewBuy}
+            className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg border border-white/25 bg-brand-orange px-3 text-xs font-black uppercase tracking-wide text-brand-blue shadow-sm transition-colors hover:opacity-95 focus-visible:outline focus-visible:ring-2 focus-visible:ring-white/40"
+            title="Start a fresh buying session"
+          >
+            <span className="material-symbols-outlined text-[18px] leading-none">refresh</span>
+            New Buy
+          </button>
+          {brandLink}
         </div>
       )}
       {showBuyerControls && marketplaceSearchDialog && (

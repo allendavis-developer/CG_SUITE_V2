@@ -2311,6 +2311,54 @@ async function handleBridgeForward(message, sender) {
     }
   }
 
+  /**
+   * Fetch https://nospos.com/buying and extract every agreement ID shown in the table
+   * (via data-key attributes on <tr> rows). Returns { ok, ids } where ids is an array
+   * of numeric strings. Used before creating a new agreement to detect duplicate drafts.
+   */
+  async function fetchNosposBuyingAgreementIds(fetchTimeoutMs = 15000) {
+    const buyingUrl = 'https://nospos.com/buying';
+    logPark('fetchNosposBuyingAgreementIds', 'enter', { buyingUrl }, 'Fetching buying hub to collect pre-existing agreement IDs');
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), fetchTimeoutMs);
+      let response;
+      try {
+        response = await fetch(buyingUrl, {
+          credentials: 'include',
+          headers: NOSPOS_HTML_FETCH_HEADERS,
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
+      const finalUrl = response.url || '';
+      if (nosposHtmlFetchIndicatesNotLoggedIn(response, finalUrl)) {
+        logPark('fetchNosposBuyingAgreementIds', 'error', { finalUrl }, 'Not logged in to NosPos — cannot read buying list');
+        return { ok: false, loginRequired: true, ids: [] };
+      }
+      const html = await response.text();
+      // Extract all data-key="<id>" attributes from <tr> elements in the buying table.
+      // Service workers don't have DOMParser, so we use a regex.
+      const ids = [];
+      const re = /<tr[^>]+\bdata-key="(\d+)"/g;
+      let m;
+      while ((m = re.exec(html)) !== null) {
+        ids.push(m[1]);
+      }
+      logPark('fetchNosposBuyingAgreementIds', 'exit', { count: ids.length, ids }, `Found ${ids.length} pre-existing agreement IDs on buying hub`);
+      return { ok: true, ids };
+    } catch (e) {
+      const isAbort = e?.name === 'AbortError';
+      logPark('fetchNosposBuyingAgreementIds', 'error', { error: e?.message, isAbort }, 'Failed to fetch buying hub');
+      return {
+        ok: false,
+        error: isAbort ? 'Timed out fetching nospos.com/buying' : (e?.message || 'Could not fetch buying hub'),
+        ids: [],
+      };
+    }
+  }
+
   // Diagnostic log: return all accumulated park agreement log entries.
   if (payload.action === 'getParkAgreementLog') {
     return { ok: true, entries: cgParkLog.slice(), startTs: cgParkLogStartTs };
@@ -2340,6 +2388,16 @@ async function handleBridgeForward(message, sender) {
     const createUrl = `https://nospos.com/newagreement/agreement/create?type=${agreementType}&customer_id=${id}`;
     logPark('handleBridgeForward', 'enter', { action: 'openNosposNewAgreementCreateBackground', nosposCustomerId: id, agreementType, createUrl }, 'Step 2: opening new agreement tab');
     try {
+      // ── STEP 2a: Snapshot the buying hub BEFORE creating the new agreement ──
+      const buyingSnapshot = await fetchNosposBuyingAgreementIds();
+      const preExistingIds = new Set(buyingSnapshot.ids || []);
+      logPark('handleBridgeForward', 'step', {
+        buyingSnapshotOk: buyingSnapshot.ok,
+        preExistingCount: preExistingIds.size,
+        preExistingIds: [...preExistingIds],
+      }, 'Pre-existing agreement IDs collected from nospos.com/buying');
+      // ───────────────────────────────────────────────────────────────────────
+
       const { tabId } = await openNosposParkAgreementTab(createUrl, appTabId);
       if (tabId == null) {
         logPark('handleBridgeForward', 'error', {}, 'openNosposParkAgreementTab returned null tabId');
@@ -2350,8 +2408,41 @@ async function handleBridgeForward(message, sender) {
         NOSPOS_OPEN_AGREEMENT_ITEMS_URL_WAIT_MS
       );
       logPark('handleBridgeForward', 'result', { urlRes, tabId }, 'waitForNosposNewAgreementItemsTabUrl result');
+
       if (urlRes.ok && urlRes.url) {
-        logPark('handleBridgeForward', 'exit', { tabId, agreementItemsUrl: urlRes.url }, 'Step 2 complete — items URL obtained');
+        // ── STEP 2b: Extract the new agreement ID and check for duplicates ──
+        const newAgreementIdMatch = /\/newagreement\/(\d+)\/items/i.exec(urlRes.url || '');
+        const newAgreementId = newAgreementIdMatch?.[1] ?? null;
+        logPark('handleBridgeForward', 'step', {
+          newAgreementId,
+          newAgreementItemsUrl: urlRes.url,
+        }, 'New agreement ID extracted from items URL');
+
+        if (newAgreementId && preExistingIds.has(newAgreementId)) {
+          logPark('handleBridgeForward', 'error', {
+            newAgreementId,
+            preExistingIds: [...preExistingIds],
+            duplicateDraftDetected: true,
+          }, 'DUPLICATE DRAFT DETECTED — NosPos returned a pre-existing agreement ID; a draft already exists for this customer');
+          console.error(`[CG Suite] Park Agreement FAILED: NosPos returned agreement #${newAgreementId} which already existed on the buying hub before this run. A draft is likely already open for this customer.`);
+          try {
+            await chrome.tabs.remove(tabId);
+          } catch (_) { /* already closed */ }
+          return {
+            ok: false,
+            duplicateDraftDetected: true,
+            newAgreementId,
+            error: `Parking failed — NosPos did not create a new agreement (returned existing #${newAgreementId}). An agreement is likely already in draft for this customer. Please resolve or delete that draft.`,
+          };
+        }
+        logPark('handleBridgeForward', 'step', {
+          newAgreementId,
+          existsInPreExistingBuyingIds: newAgreementId ? preExistingIds.has(newAgreementId) : null,
+          preExistingCount: preExistingIds.size,
+        }, 'NEW AGREEMENT CONFIRMED — extracted agreement ID was not present in pre-existing buying IDs');
+        // ─────────────────────────────────────────────────────────────────────
+
+        logPark('handleBridgeForward', 'exit', { tabId, agreementItemsUrl: urlRes.url, newAgreementId }, 'Step 2 complete — items URL obtained');
         return { ok: true, tabId, agreementItemsUrl: urlRes.url };
       }
       logPark('handleBridgeForward', 'exit', { tabId, warning: urlRes.error }, 'Step 2 complete — items URL not confirmed (warning)');

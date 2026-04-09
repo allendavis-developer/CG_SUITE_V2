@@ -41,7 +41,6 @@ export default function NegotiationOfferMetricsBar({
   offerMax,
   parsedTarget,
   setShowTargetModal,
-  setShowNewBuyConfirm,
   actualRequestId,
   researchSandboxBookedView,
   hasJewelleryReferenceData,
@@ -182,17 +181,6 @@ export default function NegotiationOfferMetricsBar({
           </div>
         </StripField>
 
-        {mode === 'negotiate' && (
-          <button
-            type="button"
-            onClick={() => setShowNewBuyConfirm(true)}
-            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-white/25 bg-brand-orange px-2.5 text-xs font-black uppercase tracking-wide text-brand-blue transition-colors hover:opacity-95 focus-visible:outline focus-visible:ring-2 focus-visible:ring-white/40"
-            title="Clear cart/customer and start a fresh buying session"
-          >
-            <span className="material-symbols-outlined text-[18px] leading-none">refresh</span>
-            New Buy
-          </button>
-        )}
       </div>
     </div>
   );

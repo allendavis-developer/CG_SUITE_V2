@@ -2,6 +2,7 @@ import { fetchNosposCategories, fetchNosposCategoryMappings } from '@/services/a
 import {
   resolveNosposLeafCategoryIdForAgreementItem,
   getAiSuggestedNosposStockFieldValuesFromItem,
+  getNosposCategoryHierarchyLabelFromItem,
 } from '@/utils/nosposCategoryMappings';
 import { buildNosposAgreementFirstItemFillPayload } from './nosposAgreementFirstItemFill';
 
@@ -68,6 +69,51 @@ export async function fetchMissingRequiredNosposLines(items, useVoucherOffers) {
     useVoucherOffers,
     categoryMappings,
   });
+}
+
+/**
+ * Lines that have NO resolved NosPos leaf category.
+ * Jewellery items (`isJewelleryItem === true`) are excluded.
+ *
+ * @param {object[]} items
+ * @param {object[]|null|undefined} categoriesResults
+ * @param {{ categoryMappings?: object[]|null }} [options]
+ * @returns {{ itemId: string, itemName: string, currentCategory: string|null }[]}
+ */
+export function listNegotiationLinesWithNoNosposCategory(items, categoriesResults, options = {}) {
+  const categoryMappings = Array.isArray(options.categoryMappings) ? options.categoryMappings : null;
+  const results = Array.isArray(categoriesResults) ? categoriesResults : [];
+  const out = [];
+  if (!Array.isArray(items)) return out;
+
+  items.forEach((item) => {
+    if (!item || item.isRemoved || item.isJewelleryItem === true) return;
+    const catId = resolveNosposLeafCategoryIdForAgreementItem(item, {
+      categoryMappings,
+      nosposCategoriesResults: results,
+    });
+    if (catId == null || Number(catId) <= 0) {
+      out.push({
+        itemId: item.id,
+        itemName: negotiationItemDisplayName(item),
+        currentCategory: getNosposCategoryHierarchyLabelFromItem(item) || null,
+      });
+    }
+  });
+
+  return out;
+}
+
+/**
+ * Loads NosPos categories + mappings and returns lines with no resolved NosPos category.
+ * @param {object[]} items
+ * @returns {Promise<{ itemId: string, itemName: string, currentCategory: string|null }[]>}
+ */
+export async function fetchLinesWithNoNosposCategory(items) {
+  const [catRes, mapRes] = await Promise.all([fetchNosposCategories(), fetchNosposCategoryMappings()]);
+  const nosposCategoriesResults = Array.isArray(catRes?.results) ? catRes.results : [];
+  const categoryMappings = Array.isArray(mapRes) ? mapRes : [];
+  return listNegotiationLinesWithNoNosposCategory(items, nosposCategoriesResults, { categoryMappings });
 }
 
 /**

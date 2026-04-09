@@ -289,6 +289,40 @@ export function useNegotiationItemHandlers({
     [showNotification, storeRequest, setRequest, setItems, setJewelleryWorkspaceLines, setContextMenu]
   );
 
+  const handleCancelWorkspacePreviewItem = useCallback(
+    async (lineId) => {
+      if (!lineId) return;
+      const item = items.find((i) => i.id === lineId);
+      if (!item) return;
+      if (item.request_item_id) {
+        try {
+          await deleteRequestItem(item.request_item_id);
+        } catch (err) {
+          console.error('[CG Suite] Failed to clean up cancelled workspace preview item:', err);
+        }
+      }
+      setItems((prev) => prev.filter((i) => i.id !== lineId));
+    },
+    [items, setItems]
+  );
+
+  const handleCancelCeXPreview = handleCancelWorkspacePreviewItem;
+
+  /** Close jewellery workspace (X): drop only draft rows not yet on the quote — never remove saved lines. */
+  const handleCancelJewelleryPreview = useCallback(
+    async (lines) => {
+      const list = Array.isArray(lines) ? lines : [];
+      const draftIds = new Set(
+        list.filter((l) => l?.id && !l.request_item_id).map((l) => l.id)
+      );
+      if (draftIds.size > 0) {
+        setItems((prev) => prev.filter((i) => !draftIds.has(i.id)));
+      }
+      setJewelleryWorkspaceLines((prev) => prev.filter((l) => l.request_item_id));
+    },
+    [setItems, setJewelleryWorkspaceLines]
+  );
+
   const handleJewelleryItemNameChange = useCallback((item, value) => {
     const nextName = value ?? '';
     setItems((prev) =>
@@ -1175,5 +1209,7 @@ export function useNegotiationItemHandlers({
     notifyEbayResearchMergedForNosposAi,
     handleNegotiationBuilderOffersDisplayed,
     handleNegotiationCexProductDisplayed,
+    handleCancelCeXPreview,
+    handleCancelJewelleryPreview,
   };
 }

@@ -129,6 +129,7 @@ export default function NegotiationItemRow({
   nosposCategoryMappings = null,
   actualRequestId = null,
   onOpenNosposRequiredFieldsEditor = null,
+  onOpenNosposCategoryPicker = null,
   hideNosposRequiredColumn = false,
 }) {
   const quantity = item.quantity || 1;
@@ -225,7 +226,7 @@ export default function NegotiationItemRow({
         </div>
       </td>
 
-      {/* AI-resolved NosPos stock category (breadcrumb) */}
+      {/* AI-resolved NosPos stock category (breadcrumb) — clickable to change in negotiate mode */}
       <td className="align-top max-w-[220px]" onContextMenu={ctxRemoveOnly} title={nosposCategoryBreadcrumb || undefined}>
         {item.isRemoved ? (
           <div className="text-[10px] text-slate-400">—</div>
@@ -235,9 +236,35 @@ export default function NegotiationItemRow({
           </div>
         ) : (
           <div className="flex flex-col gap-0.5">
-            <div className="text-[10px] font-medium leading-snug break-words" style={{ color: 'var(--text-muted)' }}>
-              {nosposCategoryBreadcrumb || '—'}
-            </div>
+            {mode === 'negotiate' && onOpenNosposCategoryPicker ? (
+              <button
+                type="button"
+                onClick={() => onOpenNosposCategoryPicker(item)}
+                className={`group flex w-full items-start gap-1 rounded px-1 py-0.5 text-left transition-colors hover:bg-slate-100 ${
+                  nosposCategoryBreadcrumb ? '' : 'border border-dashed border-amber-300 bg-amber-50/60 hover:bg-amber-50'
+                }`}
+                title={nosposCategoryBreadcrumb ? `Change NosPos category (current: ${nosposCategoryBreadcrumb})` : 'No NosPos category — click to set one'}
+              >
+                {nosposCategoryBreadcrumb ? (
+                  <>
+                    <span className="min-w-0 flex-1 break-words text-[10px] font-medium leading-snug" style={{ color: 'var(--text-muted)' }}>
+                      {nosposCategoryBreadcrumb}
+                    </span>
+                    <span className="material-symbols-outlined mt-0.5 shrink-0 text-[10px] text-slate-300 opacity-0 transition-opacity group-hover:opacity-100">
+                      edit
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-[10px] font-semibold leading-snug text-amber-700">
+                    No category set
+                  </span>
+                )}
+              </button>
+            ) : (
+              <div className="text-[10px] font-medium leading-snug break-words" style={{ color: 'var(--text-muted)' }}>
+                {nosposCategoryBreadcrumb || '—'}
+              </div>
+            )}
             {hideNosposRequiredColumn ? (
               <NosposRequiredFieldsEditorTriggerButton
                 item={item}

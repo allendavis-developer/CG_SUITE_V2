@@ -2,7 +2,10 @@ import { useCallback } from 'react';
 import useAppStore from '@/store/useAppStore';
 import { updateCustomer, finishRequest } from '@/services/api';
 import { resolveOurSalePrice, buildFinishPayload } from '../utils/negotiationHelpers';
-import { fetchMissingRequiredNosposLines } from '../utils/negotiationMissingNosposRequired';
+import {
+  fetchMissingRequiredNosposLines,
+  fetchLinesWithNoNosposCategory,
+} from '../utils/negotiationMissingNosposRequired';
 
 export function useNegotiationFinalize({
   items,
@@ -23,6 +26,7 @@ export function useNegotiationFinalize({
   completedRef,
   pendingFinishPayload,
   setMissingRequiredNosposModal,
+  setMissingNosposCategoryModal,
 }) {
   const applyManualOffer = useCallback(
     (item, proposedPerUnit, seniorMgmtConfirmedBy = null) => {
@@ -145,6 +149,24 @@ export function useNegotiationFinalize({
       }
     }
 
+    // Gate 1: every non-jewellery item must have a resolved NosPos category
+    let missingCategories = [];
+    try {
+      missingCategories = await fetchLinesWithNoNosposCategory(items);
+    } catch (e) {
+      console.error('[CG Suite] fetch NosPos categories before finalize (category check)', e);
+      showNotification('Could not load NosPos categories. Check your connection and try again.', 'error');
+      return;
+    }
+
+    if (missingCategories.length > 0) {
+      if (typeof setMissingNosposCategoryModal === 'function') {
+        setMissingNosposCategoryModal(missingCategories);
+      }
+      return;
+    }
+
+    // Gate 2: all required NosPos linked fields must be filled
     let missingNosposRequired = [];
     try {
       missingNosposRequired = await fetchMissingRequiredNosposLines(items, useVoucherOffers);
@@ -191,7 +213,31 @@ export function useNegotiationFinalize({
     setPendingFinishPayload,
     setShowNewCustomerDetailsModal,
     setMissingRequiredNosposModal,
+    setMissingNosposCategoryModal,
   ]);
+
+  /**
+   * Re-checks missing NosPos categories; if clear, proceeds to the required-fields gate.
+   * Modal must stay open until this succeeds.
+   */
+  const handleMissingNosposCategoryRecheckContinue = useCallback(async () => {
+    try {
+      const missing = await fetchLinesWithNoNosposCategory(items);
+      if (missing.length > 0) {
+        setMissingNosposCategoryModal(missing);
+        showNotification(
+          'Some items still have no NosPos category. Set a category for each item, then try again.',
+          'warning'
+        );
+        return;
+      }
+      setMissingNosposCategoryModal(null);
+      await handleFinalizeTransaction();
+    } catch (e) {
+      console.error('[CG Suite] NosPos category recheck', e);
+      showNotification('Could not verify NosPos categories. Check your connection and try again.', 'error');
+    }
+  }, [items, setMissingNosposCategoryModal, showNotification, handleFinalizeTransaction]);
 
   /**
    * Re-checks required NosPos fields; only when clear does it close the gate and resume finalize
@@ -256,6 +302,7 @@ export function useNegotiationFinalize({
     applyManualOffer,
     doFinishRequest,
     handleFinalizeTransaction,
+    handleMissingNosposCategoryRecheckContinue,
     handleMissingNosposRecheckContinue,
     handleNewCustomerDetailsSubmit,
     handleConfirmNewBuy,

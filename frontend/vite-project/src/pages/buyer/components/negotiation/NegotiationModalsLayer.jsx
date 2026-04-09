@@ -8,6 +8,8 @@ import { TargetOfferModal, ItemOfferModal, SeniorMgmtModal, MarginResultModal, B
 import NegotiationRowContextMenu from '../NegotiationRowContextMenu';
 import ParkAgreementProgressModal from '../ParkAgreementProgressModal';
 import MissingNosposRequiredFieldsModal from '@/components/modals/MissingNosposRequiredFieldsModal';
+import MissingNosposCategoryModal from '@/components/modals/MissingNosposCategoryModal';
+import NosposCategoryPickerModal from '@/components/modals/NosposCategoryPickerModal';
 import NosposRequiredFieldsEditorModal from '@/components/modals/NosposRequiredFieldsEditorModal';
 import { handlePriceSourceAsRrpOffersSource } from '../../utils/priceSourceAsRrpOffers';
 
@@ -70,6 +72,17 @@ export default function NegotiationModalsLayer({
   onCloseNosposRequiredFieldsEditor,
   onSaveNosposRequiredFieldsFromModal,
   nosposRequiredFieldsRequireCompletion = false,
+  /** When true, park modal hides per-line &ldquo;Retry / re-sync&rdquo; in Progress and under each item table. */
+  parkHidePerItemTableRetry = false,
+  // NosPos category picker
+  nosposCategoryPickerModal,
+  onCloseCategoryPicker,
+  onNosposCategorySelected,
+  nosposPickerCategories,
+  // Missing NosPos category gate
+  missingNosposCategoryModal,
+  handleMissingNosposCategoryRecheckContinue,
+  onOpenCategoryPickerForItem,
 }) {
   return (
     <>
@@ -243,6 +256,24 @@ export default function NegotiationModalsLayer({
           parkedAgreementId={persistedNosposAgreementId}
           onViewParkedAgreement={handleViewParkedAgreement}
           onDownloadLog={handleDownloadParkLog}
+          hidePerItemTableRetry={parkHidePerItemTableRetry}
+        />
+      ) : null}
+
+      {missingNosposCategoryModal?.length ? (
+        <MissingNosposCategoryModal
+          lines={missingNosposCategoryModal}
+          onSetCategory={onOpenCategoryPickerForItem}
+          onRecheckContinue={handleMissingNosposCategoryRecheckContinue}
+        />
+      ) : null}
+
+      {nosposCategoryPickerModal ? (
+        <NosposCategoryPickerModal
+          nosposCategoriesResults={nosposPickerCategories}
+          currentNosposId={nosposCategoryPickerModal.currentNosposId}
+          onSelect={(cat) => onNosposCategorySelected(nosposCategoryPickerModal.item, cat)}
+          onClose={onCloseCategoryPicker}
         />
       ) : null}
 

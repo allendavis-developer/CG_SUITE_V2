@@ -13,338 +13,13 @@ import {
   runNosposStockCategoryAiMatchBackground,
 } from '@/services/aiCategoryPathCascade';
 
-// ─── Category Picker (hierarchical; all DB categories including ready_for_builder=false) ──
+import HierarchicalCategoryPickerPanel from '@/components/pickers/HierarchicalCategoryPickerPanel';
+import {
+  flatCategoriesToNestedRoots,
+  ebayPickerFilterChildren,
+  resolveSkipCategoryFromFlat,
+} from '@/utils/categoryPickerTree';
 
-/** Build nested `{ category_id, name, children }` from `/all-categories/` (flat) for eBay/CC pickers. */
-function flatCategoriesToNestedRoots(flat) {
-  if (!Array.isArray(flat) || flat.length === 0) return [];
-  const byId = new Map();
-  for (const row of flat) {
-    const id = row.category_id;
-    if (id == null) continue;
-    byId.set(id, {
-      category_id: id,
-      name: row.name,
-      parent_category_id: row.parent_category_id ?? null,
-      children: [],
-    });
-  }
-  const roots = [];
-  for (const node of byId.values()) {
-    const pid = node.parent_category_id;
-    if (pid == null || !byId.has(pid)) {
-      roots.push(node);
-    } else {
-      byId.get(pid).children.push(node);
-    }
-  }
-  const sortName = (a, b) =>
-    String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' });
-  function sortRec(n) {
-    n.children.sort(sortName);
-    n.children.forEach(sortRec);
-  }
-  roots.sort(sortName);
-  roots.forEach(sortRec);
-  return roots;
-}
-
-/** Placeholder DB row named "eBay" — used for skip/default margins; not listed in the table. */
-function withoutEbayPickerPlaceholder(nodes) {
-  return (nodes || []).filter((c) => String(c.name || '').trim().toLowerCase() !== 'ebay');
-}
-
-/**
- * Every category node with `pathNodes` / `pathNames` from root → node (same object refs as the nested tree).
- * Excludes the eBay placeholder; used for global search across all levels.
- */
-function flattenCategoryTreeWithPaths(roots) {
-  const rows = [];
-  function walk(node, ancestorNodes) {
-    const pathNodes = [...ancestorNodes, node];
-    rows.push({
-      node,
-      pathNodes,
-      pathNames: pathNodes.map((n) => String(n.name ?? '')),
-      category_id: node.category_id,
-    });
-    const kids = withoutEbayPickerPlaceholder(node.children || []);
-    for (const child of kids) {
-      walk(child, pathNodes);
-    }
-  }
-  for (const r of withoutEbayPickerPlaceholder(roots || [])) {
-    walk(r, []);
-  }
-  return rows;
-}
-
-function resolveSkipCategoryFromFlat(flat) {
-  const row = flat.find((c) => String(c.name || '').trim().toLowerCase() === 'ebay');
-  if (!row) return null;
-  const pathArr = String(row.path || row.name || 'eBay')
-    .split(' > ')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  return {
-    id: row.category_id,
-    name: row.name || 'eBay',
-    path: pathArr.length ? pathArr : ['eBay'],
-  };
-}
-
-function categoryPickerDisplayName(cat) {
-  return cat?.name ?? '';
-}
-
-/** `aiSuggestion` — top-level only: optional strip above search (spinner / suggested row / error). */
-function CategoryPickerList({
-  items,
-  isLoading,
-  onSelect,
-  query,
-  setQuery,
-  statsHeading,
-  entitySingular,
-  entityPlural,
-  aiSuggestion = null,
-  onSkip = null,
-  onClose = null,
-  globalSearchEntries = null,
-  onPickGlobalSearch = null,
-}) {
-  const searchRef = useRef(null);
-
-  const searchQ = query.trim().toLowerCase();
-  const isGlobalSearch = Boolean(searchQ && globalSearchEntries?.length && onPickGlobalSearch);
-
-  useEffect(() => {
-    if (isLoading) return;
-    if (items.length > 0 || (globalSearchEntries && globalSearchEntries.length > 0)) {
-      searchRef.current?.focus({ preventScroll: true });
-    }
-  }, [isLoading, items.length, globalSearchEntries?.length]);
-
-  const filteredLevelItems = useMemo(() => {
-    if (!searchQ) return items;
-    return items.filter((c) => {
-      const name = String(c.name || '').toLowerCase();
-      const label = categoryPickerDisplayName(c).toLowerCase();
-      return name.includes(searchQ) || label.includes(searchQ);
-    });
-  }, [items, searchQ]);
-
-  const filteredGlobalEntries = useMemo(() => {
-    if (!searchQ || !globalSearchEntries?.length) return [];
-    const matches = globalSearchEntries.filter((entry) => {
-      const name = String(entry.node?.name || '').toLowerCase();
-      if (name.includes(searchQ)) return true;
-      if (entry.pathNames.some((p) => String(p).toLowerCase().includes(searchQ))) return true;
-      return entry.pathNames.join(' ').toLowerCase().includes(searchQ);
-    });
-    matches.sort((a, b) =>
-      a.pathNames.join('\u0000').localeCompare(b.pathNames.join('\u0000'), undefined, { sensitivity: 'base' })
-    );
-    return matches;
-  }, [globalSearchEntries, searchQ]);
-
-  const visibleRows = isGlobalSearch ? filteredGlobalEntries : filteredLevelItems;
-
-  if (isLoading) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-2 py-6 text-gray-500">
-        <span className="material-symbols-outlined animate-spin text-2xl text-brand-blue">sync</span>
-        <p className="text-xs">Loading categories…</p>
-      </div>
-    );
-  }
-
-  const listHeading = isGlobalSearch ? 'Search results' : statsHeading;
-  const countLabel = isGlobalSearch
-    ? `${filteredGlobalEntries.length} match${filteredGlobalEntries.length === 1 ? '' : 'es'} of ${globalSearchEntries.length} ${entityPlural}`
-    : filteredLevelItems.length === items.length
-      ? `${items.length} ${items.length === 1 ? entitySingular : entityPlural}`
-      : `${filteredLevelItems.length} match${filteredLevelItems.length === 1 ? '' : 'es'} of ${items.length}`;
-
-  const rowMinH = 'min-h-[2.75rem]';
-  const sharedText = 'text-xs font-semibold leading-snug sm:text-sm';
-
-  const showSuggestionBar = Boolean(aiSuggestion || onSkip || onClose);
-
-  return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-      {showSuggestionBar ? (
-        <div
-          className={`flex w-full shrink-0 items-stretch gap-2 border-b border-brand-blue/20 bg-brand-blue/[0.07] px-2 py-1.5 sm:gap-2.5 sm:px-3 sm:py-2 ${aiSuggestion ? '' : 'justify-end'}`}
-        >
-          {aiSuggestion ? (
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col justify-center" aria-live="polite">
-              {aiSuggestion.phase === 'running' ? (
-                <div
-                  className={`flex ${rowMinH} items-center gap-1.5 rounded-md border border-transparent px-2 text-brand-blue ${sharedText}`}
-                >
-                  <span
-                    className="inline-block h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-brand-blue border-t-transparent"
-                    aria-hidden
-                  />
-                  Finding suggested category…
-                </div>
-              ) : null}
-              {aiSuggestion.phase === 'ready' && aiSuggestion.breadcrumb ? (
-                <button
-                  type="button"
-                  onClick={aiSuggestion.onConfirm}
-                  className={`flex ${rowMinH} w-full cursor-pointer items-center gap-2 rounded-md border border-brand-blue bg-brand-blue px-2 text-left text-xs font-semibold leading-snug text-white shadow-sm transition-colors hover:bg-brand-blue-hover sm:px-3 sm:text-sm`}
-                  aria-label={`Use suggested category: ${aiSuggestion.breadcrumb}`}
-                >
-                  <span className="shrink-0 whitespace-nowrap uppercase tracking-wide text-white">
-                    Suggested
-                  </span>
-                  <span className="min-w-0 flex-1 truncate text-white">
-                    {aiSuggestion.breadcrumb}
-                  </span>
-                  <span className="material-symbols-outlined shrink-0 text-[18px] leading-none text-white/90">chevron_right</span>
-                </button>
-              ) : null}
-              {aiSuggestion.phase === 'error' && aiSuggestion.message ? (
-                <p className={`${rowMinH} flex items-center px-2 text-amber-900 ${sharedText}`}>{aiSuggestion.message}</p>
-              ) : null}
-            </div>
-          ) : null}
-          {(onSkip || onClose) ? (
-            <div className="flex shrink-0 items-stretch gap-2">
-              {onSkip ? (
-                <button
-                  type="button"
-                  onClick={onSkip}
-                  className={`flex ${rowMinH} shrink-0 items-center justify-center self-stretch rounded-md border-2 border-gray-500 bg-white px-3 font-bold text-gray-900 shadow-sm transition-colors hover:border-brand-blue hover:bg-brand-blue/5 hover:text-brand-blue sm:px-4 ${sharedText}`}
-                >
-                  Skip — default margins
-                </button>
-              ) : null}
-              {onClose ? (
-                <button
-                  type="button"
-                  onClick={onClose}
-                  aria-label="Close research"
-                  title="Close research"
-                  className={`flex ${rowMinH} min-w-[2.75rem] shrink-0 items-center justify-center self-stretch rounded-md bg-red-500 px-3 text-white shadow-sm transition-colors hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-400/70 focus:ring-offset-2 focus:ring-offset-white`}
-                >
-                  <span className="material-symbols-outlined text-[20px] leading-none">close</span>
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-      <div className="shrink-0 border-b border-gray-200 bg-white px-2 py-2 sm:px-3">
-        <div className="relative">
-          <span className="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-[16px] text-gray-400">search</span>
-          <input
-            ref={searchRef}
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key !== 'Enter') return;
-              if (isGlobalSearch) {
-                if (filteredGlobalEntries.length === 1) onPickGlobalSearch(filteredGlobalEntries[0]);
-              } else if (filteredLevelItems.length === 1) {
-                onSelect(filteredLevelItems[0]);
-              }
-            }}
-            placeholder="Search categories…"
-            className="w-full rounded-md border border-gray-300 bg-white py-1.5 pl-8 pr-8 text-xs text-gray-900 placeholder:text-gray-400 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-orange sm:text-sm"
-          />
-          {query ? (
-            <button type="button" onClick={() => setQuery('')} className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600">
-              <span className="material-symbols-outlined text-[15px]">close</span>
-            </button>
-          ) : null}
-        </div>
-        <div className="mt-1.5 flex min-w-0 flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5 text-[10px] leading-tight text-gray-600">
-          <span className="min-w-0 shrink font-bold uppercase tracking-wide text-gray-500">{listHeading}</span>
-          <span className="shrink-0 tabular-nums">
-            <span className="font-semibold text-brand-blue">{countLabel}</span>
-          </span>
-        </div>
-      </div>
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain [-webkit-overflow-scrolling:touch]">
-        {visibleRows.length === 0 ? (
-          <div className="flex flex-col items-center justify-center px-4 py-8 text-center text-gray-500">
-            <span className="material-symbols-outlined mb-2 text-3xl text-gray-400">{query.trim() ? 'search_off' : 'category'}</span>
-            {query.trim() ? (
-              <>
-                <p className="text-xs font-semibold text-gray-800">No matches</p>
-                <p className="mt-0.5 max-w-sm text-xs text-gray-600">Try different keywords or clear the search.</p>
-              </>
-            ) : (
-              <p className="text-xs font-semibold text-gray-800">Nothing to show</p>
-            )}
-          </div>
-        ) : (
-          <table className="w-full border-collapse text-xs sm:text-sm">
-            <tbody>
-              {isGlobalSearch
-                ? filteredGlobalEntries.map((entry, i) => {
-                    const names = entry.pathNames;
-                    const ancestors = names.slice(0, -1);
-                    const leaf = names.length > 0 ? names[names.length - 1] : '';
-                    const subCount = withoutEbayPickerPlaceholder(entry.node.children || []).length;
-                    return (
-                      <tr
-                        key={entry.node.category_id}
-                        onClick={() => onPickGlobalSearch(entry)}
-                        className={`cursor-pointer border-b border-gray-200/80 transition-colors hover:bg-brand-blue/5 hover:text-brand-blue ${i % 2 === 0 ? 'bg-white' : 'bg-brand-blue/10'}`}
-                      >
-                        <td className="px-2 py-1.5 pl-3 leading-snug sm:px-3 sm:py-2">
-                          <span className="text-gray-900">
-                            {ancestors.length > 0 ? (
-                              <span className="text-gray-500">{ancestors.join(' › ')} › </span>
-                            ) : null}
-                            <span className="font-medium">{leaf}</span>
-                            {subCount > 0 ? (
-                              <span className="ml-1.5 text-[10px] font-normal text-gray-400 sm:text-[11px]">
-                                {subCount} sub-{subCount === 1 ? 'category' : 'categories'}
-                              </span>
-                            ) : null}
-                          </span>
-                        </td>
-                        <td className="w-8 px-1 py-1.5 text-right sm:w-9 sm:px-2 sm:py-2">
-                          <span className="material-symbols-outlined align-middle text-[18px] text-gray-400 sm:text-[19px]">chevron_right</span>
-                        </td>
-                      </tr>
-                    );
-                  })
-                : filteredLevelItems.map((cat, i) => {
-                    const subCount = withoutEbayPickerPlaceholder(cat.children || []).length;
-                    return (
-                      <tr
-                        key={cat.category_id}
-                        onClick={() => onSelect(cat)}
-                        className={`cursor-pointer border-b border-gray-200/80 transition-colors hover:bg-brand-blue/5 hover:text-brand-blue ${i % 2 === 0 ? 'bg-white' : 'bg-brand-blue/10'}`}
-                      >
-                        <td className="px-2 py-1.5 pl-3 font-medium leading-snug text-gray-900 sm:px-3 sm:py-2">
-                          {categoryPickerDisplayName(cat)}
-                          {subCount > 0 ? (
-                            <span className="ml-1.5 text-[10px] font-normal text-gray-400 sm:text-[11px]">
-                              {subCount} sub-{subCount === 1 ? 'category' : 'categories'}
-                            </span>
-                          ) : null}
-                        </td>
-                        <td className="w-8 px-1 py-1.5 text-right sm:w-9 sm:px-2 sm:py-2">
-                          <span className="material-symbols-outlined align-middle text-[18px] text-gray-400 sm:text-[19px]">chevron_right</span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-            </tbody>
-          </table>
-        )}
-      </div>
-    </div>
-  );
-}
 
 /**
  * Hierarchical category picker shown as a step inside the research form
@@ -364,18 +39,12 @@ function CategoryPickerStep({
   const [skipCategoryPayload, setSkipCategoryPayload] = useState(null);
   const [loadError, setLoadError] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [path, setPath] = useState([]); // stack of category nodes
-  const [query, setQuery] = useState('');
+  const [pickerDepth, setPickerDepth] = useState(0);
   const [aiSlotPhase, setAiSlotPhase] = useState('waiting');
   const [aiBreadcrumb, setAiBreadcrumb] = useState('');
   const [aiAutoError, setAiAutoError] = useState(null);
-  const onSelectRef = useRef(onSelect);
   const aiPendingSelectRef = useRef(null);
   const allCategoriesFlatRef = useRef([]);
-
-  useEffect(() => {
-    onSelectRef.current = onSelect;
-  }, [onSelect]);
 
   const itemSummaryForAi = useMemo(() => {
     if (lineItemForAi) return summariseNegotiationItemForAi(lineItemForAi);
@@ -473,49 +142,12 @@ function CategoryPickerStep({
     };
   }, [loading, loadError, allCategories, itemSummaryForAi]);
 
-  const currentLevelItems = useMemo(() => {
-    const raw =
-      path.length === 0 ? allCategories : path[path.length - 1]?.children || [];
-    return withoutEbayPickerPlaceholder(raw);
-  }, [path, allCategories]);
-  const currentCategory = path.length > 0 ? path[path.length - 1] : null;
-
-  const globalSearchEntries = useMemo(
-    () => flattenCategoryTreeWithPaths(allCategories),
-    [allCategories]
-  );
-
-  const handleSelectItem = (cat) => {
-    const kids = withoutEbayPickerPlaceholder(cat.children || []);
-    if (kids.length > 0) {
-      setPath([...path, cat]);
-      setQuery('');
-    } else {
-      const resolvedPath = [...path.map((p) => p.name), cat.name];
-      onSelect({ id: cat.category_id, name: cat.name, path: resolvedPath });
-    }
-  };
-
-  const handleGlobalSearchPick = useCallback((entry) => {
-    const { node, pathNames } = entry;
-    const kids = withoutEbayPickerPlaceholder(node.children || []);
-    setQuery('');
-    if (kids.length > 0) {
-      setPath(entry.pathNodes);
-    } else {
+  const handlePanelSelect = useCallback(
+    ({ node, pathNames }) => {
       onSelect({ id: node.category_id, name: node.name, path: pathNames });
-    }
-  }, [onSelect]);
-
-  const handleUseCurrentCategory = () => {
-    if (!currentCategory) return;
-    onSelect({ id: currentCategory.category_id, name: currentCategory.name, path: path.map((p) => p.name) });
-  };
-
-  const navigateTo = (index) => {
-    setPath(path.slice(0, index + 1));
-    setQuery('');
-  };
+    },
+    [onSelect]
+  );
 
   const handleAiSuggestedConfirm = useCallback(() => {
     const payload = aiPendingSelectRef.current;
@@ -554,7 +186,7 @@ function CategoryPickerStep({
   ]);
 
   const listAiSuggestion =
-    !loadError && path.length === 0 && !loading
+    !loadError && pickerDepth === 0 && !loading
       ? aiSlotPhase === 'running'
         ? { phase: 'running' }
         : aiSlotPhase === 'ready' && aiBreadcrumb
@@ -565,64 +197,17 @@ function CategoryPickerStep({
       : null;
 
   return (
-    <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col gap-2 overflow-hidden p-2 sm:p-3">
-      {/* Breadcrumb navigation */}
-      {path.length > 0 && (
-        <div className="shrink-0 flex flex-wrap items-center gap-1 text-xs font-medium">
-          <button type="button" onClick={() => { setPath([]); setQuery(''); }} className="text-brand-blue hover:underline">All Categories</button>
-          {path.map((p, i) => (
-            <React.Fragment key={p.category_id}>
-              <span className="text-gray-400">›</span>
-              {i < path.length - 1 ? (
-                <button type="button" onClick={() => navigateTo(i)} className="text-brand-blue hover:underline">{categoryPickerDisplayName(p)}</button>
-              ) : (
-                <span className="font-bold text-gray-800">{categoryPickerDisplayName(p)}</span>
-              )}
-            </React.Fragment>
-          ))}
-        </div>
-      )}
-
-      {/* "Use this category" when drilled into a non-leaf */}
-      {currentCategory && (currentCategory.children?.length > 0) && (
-        <button
-          type="button"
-          onClick={handleUseCurrentCategory}
-          className="shrink-0 flex items-center gap-1.5 rounded-md border border-brand-blue/30 bg-brand-blue/5 px-2 py-1.5 text-[11px] font-bold text-brand-blue transition-colors hover:bg-brand-blue/10 sm:text-xs"
-        >
-          <span className="material-symbols-outlined text-[15px]">check_circle</span>
-          Use &ldquo;{categoryPickerDisplayName(currentCategory)}&rdquo; as category
-        </button>
-      )}
-
-      {/* Back button + error */}
-      {path.length > 0 && (
-        <button type="button" onClick={() => { setPath(path.slice(0, -1)); setQuery(''); }} className="shrink-0 inline-flex w-fit items-center gap-1 text-xs font-bold text-brand-blue hover:underline">
-          <span className="material-symbols-outlined text-[16px]">arrow_back</span>
-          Back
-        </button>
-      )}
-
-      {loadError && <p className="shrink-0 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{loadError}</p>}
-
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-gray-200">
-        <CategoryPickerList
-          items={currentLevelItems}
-          isLoading={loading}
-          onSelect={handleSelectItem}
-          query={query}
-          setQuery={setQuery}
-          statsHeading={path.length === 0 ? 'Top-level categories' : `Sub-categories of "${currentCategory ? categoryPickerDisplayName(currentCategory) : ''}"`}
-          entitySingular="category"
-          entityPlural="categories"
-          aiSuggestion={listAiSuggestion}
-          onSkip={skipCategoryPayload ? () => onSelect(skipCategoryPayload) : null}
-          onClose={onClose}
-          globalSearchEntries={globalSearchEntries}
-          onPickGlobalSearch={handleGlobalSearchPick}
-        />
-      </div>
-    </div>
+    <HierarchicalCategoryPickerPanel
+      roots={allCategories}
+      isLoading={loading}
+      loadError={loadError}
+      filterChildren={ebayPickerFilterChildren}
+      onSelect={handlePanelSelect}
+      aiSuggestion={listAiSuggestion}
+      onSkip={skipCategoryPayload ? () => onSelect(skipCategoryPayload) : null}
+      onClose={onClose}
+      onPathDepthChange={setPickerDepth}
+    />
   );
 }
 
@@ -1397,9 +982,13 @@ function ExtensionResearchForm({
       onComplete={handleShellOnComplete}
       onCompleteWithSelection={showManualOffer ? handleCompleteWithSelection : undefined}
       onAddToCartWithOffer={
-        isEbay && !readOnly
-          ? (onOfferSelect ? handleOfferSelect : (onComplete && !showManualOffer ? handleAddToCartWithOffer : undefined))
-          : undefined
+        readOnly
+          ? undefined
+          : onOfferSelect
+            ? handleOfferSelect
+            : onComplete && !showManualOffer
+              ? handleAddToCartWithOffer
+              : undefined
       }
       showInlineOfferAction={isEbay ? (mode === 'page' ? !onAddNewItem : !onOfferSelect) : undefined}
       enableRightClickManualOffer={isEbay && mode === 'page'}

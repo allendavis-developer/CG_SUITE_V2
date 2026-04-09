@@ -57,74 +57,88 @@ const CustomerTransactionHeader = ({
     const pillCls = `flex shrink-0 ${rowMinH} items-center gap-2 whitespace-nowrap rounded-md border border-white/25 bg-white/10 px-3 text-sm text-white`;
 
     const joinedRow = detailRows.find((r) => r.label === 'Joined');
-    const stripRows = detailRows.filter((r) => r.label !== 'Joined');
+    const lastTransactedRow = detailRows.find((r) => r.label === 'Last Transacted');
+    const otherRows = detailRows.filter(
+      (r) => r.label !== 'Joined' && r.label !== 'Last Transacted'
+    );
 
-    const joinedTitle =
-      joinedRow?.value && typeof joinedRow.value === 'object' && joinedRow.value.base
-        ? `${joinedRow.label}: ${joinedRow.value.base}`
-        : joinedRow
-          ? `${joinedRow.label}: ${joinedRow.value}`
-          : '';
+    const hasDateRow = Boolean(joinedRow || lastTransactedRow);
+    const hasMetricsSecondRow = otherRows.length > 0 || Boolean(customer.bypassReason);
+
+    const rowTitle = (row) => {
+      if (!row) return '';
+      const v = row.value;
+      if (v && typeof v === 'object' && v.base) return `${row.label}: ${v.base}`;
+      return `${row.label}: ${v}`;
+    };
+
+    const renderPillValue = (row) => (
+      <span className="font-bold text-white">
+        {row.value && typeof row.value === 'object' && row.value.base && row.value.age ? (
+          <>
+            <span>{row.value.base}</span>
+            <span className="text-white/70"> ({row.value.age})</span>
+          </>
+        ) : (
+          row.value
+        )}
+      </span>
+    );
+
+    const metricPill = (row) => (
+      <div key={row.label} className={pillCls} title={rowTitle(row)}>
+        <span className="font-semibold text-white/75">{row.label}</span>
+        {renderPillValue(row)}
+      </div>
+    );
+
+    const nameBlock = (
+      <div
+        className={`flex ${rowMinH} max-w-[min(100%,28rem)] min-w-0 shrink-0 items-center overflow-hidden rounded-md border border-white/25 bg-white/10 px-3`}
+      >
+        <h2 className="min-w-0 truncate text-base font-extrabold leading-tight tracking-tight text-white md:text-lg">
+          {customer.name}
+        </h2>
+      </div>
+    );
+
+    const bypassPill = customer.bypassReason ? (
+      <div className={`${pillCls} border-white/40 bg-white/15`} title={bypassText}>
+        <span className="material-symbols-outlined flex size-6 shrink-0 items-center justify-center text-[22px] leading-none text-white">
+          info
+        </span>
+        <span className="min-w-0 whitespace-normal font-semibold leading-snug text-white sm:whitespace-nowrap">
+          {bypassText}
+        </span>
+      </div>
+    ) : null;
 
     return (
       <div
         className={`shrink-0 border-t-4 border-t-white/35 bg-brand-blue px-6 pt-2 pb-1 ${containerClassName}`}
       >
-        <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:h-0">
-          <div
-            className={`flex shrink-0 ${rowMinH} max-w-full min-w-0 overflow-hidden rounded-md border border-white/25 bg-white/10 ${joinedRow ? '' : 'pl-1.5 pr-3'}`}
-          >
-            <div
-              className={`flex min-w-0 flex-1 items-center ${joinedRow ? 'border-r border-white/25 pl-1.5 pr-3' : ''}`}
-            >
-              <h2 className="min-w-0 truncate text-base font-extrabold leading-tight tracking-tight text-white md:text-lg">
-                {customer.name}
-              </h2>
+        <div className="min-w-0 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:h-0">
+          {!hasDateRow ? (
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              {nameBlock}
+              {otherRows.map((row) => metricPill(row))}
+              {bypassPill}
             </div>
-            {joinedRow && (
-              <div
-                className="flex shrink-0 items-center gap-2 whitespace-nowrap px-3 text-sm text-white"
-                title={joinedTitle}
-              >
-                <span className="font-semibold text-white/75">{joinedRow.label}</span>
-                <span className="font-bold text-white">
-                  {joinedRow.value &&
-                  typeof joinedRow.value === 'object' &&
-                  joinedRow.value.base &&
-                  joinedRow.value.age ? (
-                    <>
-                      <span>{joinedRow.value.base}</span>
-                      <span className="text-white/70"> ({joinedRow.value.age})</span>
-                    </>
-                  ) : (
-                    joinedRow.value
-                  )}
-                </span>
+          ) : (
+            <div className="grid w-full min-w-0 grid-cols-[minmax(0,max-content)_minmax(0,1fr)] gap-x-2 gap-y-2 items-start">
+              <div className="col-start-1 row-start-1 min-w-0 self-start">
+                {nameBlock}
               </div>
-            )}
-          </div>
-          {stripRows.length > 0 &&
-            stripRows.map((row) => (
-              <div key={row.label} className={pillCls} title={`${row.label}: ${row.value && typeof row.value === 'object' && row.value.base ? row.value.base : row.value}`}>
-                <span className="font-semibold text-white/75">{row.label}</span>
-                <span className="font-bold text-white">
-                  {row.value && typeof row.value === 'object' && row.value.base && row.value.age ? (
-                    <>
-                      <span>{row.value.base}</span>
-                      <span className="text-white/70"> ({row.value.age})</span>
-                    </>
-                  ) : (
-                    row.value
-                  )}
-                </span>
+              <div className="col-start-2 row-start-1 flex min-w-0 flex-wrap items-center gap-2">
+                {joinedRow ? metricPill(joinedRow) : null}
+                {lastTransactedRow ? metricPill(lastTransactedRow) : null}
               </div>
-            ))}
-          {customer.bypassReason && (
-            <div className={`${pillCls} border-white/40 bg-white/15`} title={bypassText}>
-              <span className="material-symbols-outlined flex size-6 shrink-0 items-center justify-center text-[22px] leading-none text-white">
-                info
-              </span>
-              <span className="whitespace-nowrap font-semibold leading-none text-white">{bypassText}</span>
+              {hasMetricsSecondRow ? (
+                <div className="col-start-2 row-start-2 flex min-w-0 flex-wrap items-center gap-2">
+                  {otherRows.map((row) => metricPill(row))}
+                  {bypassPill}
+                </div>
+              ) : null}
             </div>
           )}
         </div>
@@ -158,9 +172,7 @@ const CustomerTransactionHeader = ({
 
       {detailRows.length > 0 && (
         <div className="mt-3 grid grid-cols-1 gap-2 text-sm">
-          {detailRows.map((row) => {
-            const isDateRow = row.label === 'Joined' || row.label === 'Last Transacted';
-            return (
+          {detailRows.map((row) => (
             <div key={row.label} className="flex items-center justify-between gap-3 rounded-md bg-brand-blue/5 px-2.5 py-1.5">
               <span className="font-semibold text-brand-blue/75">{row.label}</span>
               <span className="text-right font-bold text-brand-blue">
@@ -174,7 +186,7 @@ const CustomerTransactionHeader = ({
                 )}
               </span>
             </div>
-          )})}
+          ))}
         </div>
       )}
 

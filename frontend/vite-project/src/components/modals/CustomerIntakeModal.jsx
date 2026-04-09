@@ -196,9 +196,9 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
       <div className="cg-animate-modal-backdrop absolute inset-0 bg-black/60 backdrop-blur-sm" />
 
-      <div className="cg-animate-modal-panel relative z-10 bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+      <div className="cg-animate-modal-panel relative z-10 flex max-h-[min(92vh,52rem)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
         {/* Header */}
-        <header className="bg-brand-blue px-8 py-6 flex items-center justify-between text-white">
+        <header className="shrink-0 bg-brand-blue px-8 py-6 flex items-center justify-between text-white">
           <div className="flex items-center gap-3">
             <span className="material-symbols-outlined text-brand-orange text-2xl">person_add</span>
             <div>
@@ -221,7 +221,7 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
         </header>
 
         {/* New vs Existing Toggle */}
-        <div className="px-8 pt-6">
+        <div className="shrink-0 px-8 pt-6">
           <div className="bg-gray-100 p-1 rounded-xl grid grid-cols-2 gap-1 border border-gray-200 mb-6">
             <label className="cursor-pointer">
               <input
@@ -253,7 +253,7 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
         </div>
 
         {/* Transaction Type Toggle */}
-        <div className="px-8 pb-6">
+        <div className="shrink-0 px-8 pb-6">
           <div className="bg-gray-100 p-1 rounded-xl grid grid-cols-3 gap-1 border border-gray-200">
             {[
               { value: "sale", icon: "point_of_sale", label: "Direct Sale" },
@@ -277,8 +277,8 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
           </div>
         </div>
 
-        {/* Body */}
-        <div className="px-8 pb-8 flex-1 overflow-y-auto">
+        {/* Body — scrolls; min-h-0 so flex child can shrink inside max-h panel */}
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-8 pb-8">
           {/* Error */}
           {error && (
             <div className="mb-5 bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
@@ -489,7 +489,7 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
 
         {/* Footer */}
         {customerType === "existing" && (
-          <footer className="p-8 border-t border-gray-100 flex items-center justify-end bg-white/50">
+          <footer className="shrink-0 border-t border-gray-100 bg-white/50 p-8 flex items-center justify-end">
             <button
               onClick={handleConfirm}
               disabled={!c || confirming}

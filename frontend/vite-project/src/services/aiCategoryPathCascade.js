@@ -384,18 +384,6 @@ export async function runAiCategoryCascadeMapTree({
   return { success: true, path: currentPath, leafNode: node };
 }
 
-/**
- * Same level-by-level AI as the eBay extension category picker: walk the NosposCategory tree
- * using {@link suggestNosposCategory} at each depth. Fire-and-forget from UI; results are for
- * persistence / mirror prefill only.
- *
- * @param {object} params
- * @param {number|null|undefined} params.internalCategoryId - ProductCategory id (leaf or any ancestor)
- * @param {import('./aiCategoryService').ItemSummary} params.itemSummary
- * @param {Array<{ category_id: number, parent_category_id: number|null, ready_for_builder?: boolean }>|null} [params.allCategoriesFlat]
- * @param {string} [params.logTag]
- * @returns {Promise<{ nosposId: number, fullName: string, pathSegments: string[]|null }|null>}
- */
 function logNosposPathCategoryOnce({
   logTag,
   itemName,
@@ -416,6 +404,23 @@ function logNosposPathCategoryOnce({
   });
 }
 
+/** Initial try plus two retries when the NosPos path AI returns incomplete or throws. */
+const NOSPOS_CATEGORY_AI_MAX_ATTEMPTS = 3;
+
+/**
+ * Same level-by-level AI as the eBay extension category picker: walk the NosposCategory tree
+ * using {@link suggestNosposCategory} at each depth. Fire-and-forget from UI; results are for
+ * persistence / mirror prefill only.
+ *
+ * @param {object} params
+ * @param {number|null|undefined} params.internalCategoryId - ProductCategory id (leaf or any ancestor)
+ * @param {import('./aiCategoryService').ItemSummary} params.itemSummary
+ * @param {Array<{ category_id: number, parent_category_id: number|null, ready_for_builder?: boolean }>|null} [params.allCategoriesFlat]
+ * @param {string} [params.logTag]
+ * @returns {Promise<{ nosposId: number, fullName: string, pathSegments: string[]|null }|null>}
+ *   Retries up to three times in total (one initial attempt and two more) when the cascade does not
+ *   reach a leaf or throws; if all fail, returns `null` and logs outcome `failed_after_retries`.
+ */
 export async function runNosposStockCategoryAiMatchBackground({
   internalCategoryId,
   itemSummary,
@@ -442,53 +447,60 @@ export async function runNosposStockCategoryAiMatchBackground({
   const productCategoryRoot =
     internalCategoryId != null ? getInternalProductCategoryRootMeta(flat, internalCategoryId) : null;
 
-  try {
-    const data = await fetchNosposCategories();
-    const results = Array.isArray(data?.results) ? data.results : [];
-    const nosposRoots = nosposApiResultsToAiTreeRoots(results);
-    const res = await runAiCategoryCascadeArrayTree({
-      rootNodes: nosposRoots,
-      itemSummary,
-      startPath: [],
-      logTag: `${logTag}[perLevel]`,
-      quiet: true,
-    });
-    if (res.success && res.leaf) {
-      const fullName = res.leaf.fullName || (res.path || []).join(' › ');
-      const nosposId = res.leaf.nosposId ?? res.leaf.category_id;
-      const pathSegments = Array.isArray(res.path) ? res.path : null;
-      logNosposPathCategoryOnce({
-        logTag,
-        itemName,
-        internalCategoryId,
-        productCategoryRoot,
-        outcome: 'matched',
-        nospos: { nosposId, fullName, pathSegments },
-      });
-      return {
-        nosposId,
-        fullName,
-        pathSegments,
-      };
+  let lastErrorMsg = null;
+
+  for (let attempt = 0; attempt < NOSPOS_CATEGORY_AI_MAX_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      await new Promise((r) => setTimeout(r, 400 * attempt));
     }
-    logNosposPathCategoryOnce({
-      logTag,
-      itemName,
-      internalCategoryId,
-      productCategoryRoot,
-      outcome: 'cascade_incomplete',
-      error: res.error?.message ?? null,
-    });
-    return null;
-  } catch (e) {
-    logNosposPathCategoryOnce({
-      logTag,
-      itemName,
-      internalCategoryId,
-      productCategoryRoot,
-      outcome: 'error',
-      error: e instanceof Error ? e.message : String(e),
-    });
-    return null;
+    try {
+      const data = await fetchNosposCategories();
+      const results = Array.isArray(data?.results) ? data.results : [];
+      const nosposRoots = nosposApiResultsToAiTreeRoots(results);
+      const res = await runAiCategoryCascadeArrayTree({
+        rootNodes: nosposRoots,
+        itemSummary,
+        startPath: [],
+        logTag: `${logTag}[perLevel][try${attempt + 1}]`,
+        quiet: true,
+      });
+      if (res.success && res.leaf) {
+        const fullName = res.leaf.fullName || (res.path || []).join(' › ');
+        const nosposId = res.leaf.nosposId ?? res.leaf.category_id;
+        const pathSegments = Array.isArray(res.path) ? res.path : null;
+        logNosposPathCategoryOnce({
+          logTag,
+          itemName,
+          internalCategoryId,
+          productCategoryRoot,
+          outcome: 'matched',
+          nospos: { nosposId, fullName, pathSegments },
+        });
+        return {
+          nosposId,
+          fullName,
+          pathSegments,
+        };
+      }
+      lastErrorMsg = res.error?.message ?? 'cascade_incomplete';
+      if (attempt < NOSPOS_CATEGORY_AI_MAX_ATTEMPTS - 1) {
+        console.warn(`${logTag} NosPos category AI incomplete (${attempt + 1}/${NOSPOS_CATEGORY_AI_MAX_ATTEMPTS}), retrying…`, lastErrorMsg);
+      }
+    } catch (e) {
+      lastErrorMsg = e instanceof Error ? e.message : String(e);
+      if (attempt < NOSPOS_CATEGORY_AI_MAX_ATTEMPTS - 1) {
+        console.warn(`${logTag} NosPos category AI error (${attempt + 1}/${NOSPOS_CATEGORY_AI_MAX_ATTEMPTS}), retrying…`, lastErrorMsg);
+      }
+    }
   }
+
+  logNosposPathCategoryOnce({
+    logTag,
+    itemName,
+    internalCategoryId,
+    productCategoryRoot,
+    outcome: 'failed_after_retries',
+    error: lastErrorMsg,
+  });
+  return null;
 }
