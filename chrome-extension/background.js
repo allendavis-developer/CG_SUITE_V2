@@ -116,6 +116,75 @@ async function openNosposParkAgreementTab(url, appTabId = null) {
   return result;
 }
 
+const NOSPOS_PARK_UI_STORAGE_KEY = 'cgNosposParkUiLock';
+const NOSPOS_PARK_OVERLAY_DEFAULT_MSG =
+  'CG Suite is updating this agreement — please wait. Do not use this tab until finished.';
+
+async function sendNosposParkOverlayToTab(tabId, show, message) {
+  try {
+    await chrome.tabs.sendMessage(tabId, {
+      type: 'NOSPOS_PARK_OVERLAY',
+      show,
+      message: message || NOSPOS_PARK_OVERLAY_DEFAULT_MSG,
+    });
+  } catch (_) {
+    /* Content script may not be ready yet; onUpdated + pageshow sync will re-apply. */
+  }
+}
+
+async function focusNosposTabForPark(tabId) {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    await chrome.tabs.update(tabId, { active: true });
+    if (tab.windowId != null) {
+      await chrome.windows.update(tab.windowId, { focused: true });
+    }
+  } catch (e) {
+    logPark('focusNosposTabForPark', 'error', { tabId, error: e?.message }, 'Could not focus NoSpos tab');
+  }
+}
+
+async function activateNosposParkAgreementUi(tabId, appTabId) {
+  const msg = NOSPOS_PARK_OVERLAY_DEFAULT_MSG;
+  await chrome.storage.session.set({
+    [NOSPOS_PARK_UI_STORAGE_KEY]: {
+      active: true,
+      tabId,
+      appTabId: appTabId ?? null,
+      message: msg,
+    },
+  });
+  await focusNosposTabForPark(tabId);
+  await sendNosposParkOverlayToTab(tabId, true, msg);
+}
+
+async function clearNosposParkAgreementUiLock(options = {}) {
+  const focusApp = options.focusApp !== false;
+  const data = await chrome.storage.session.get(NOSPOS_PARK_UI_STORAGE_KEY);
+  const lock = data[NOSPOS_PARK_UI_STORAGE_KEY];
+  if (!lock || !lock.active) return;
+  await chrome.storage.session.remove(NOSPOS_PARK_UI_STORAGE_KEY);
+  if (lock.tabId != null) {
+    await sendNosposParkOverlayToTab(lock.tabId, false);
+  }
+  if (focusApp && lock.appTabId != null) {
+    await focusAppTab(lock.appTabId);
+  }
+}
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status !== 'complete' || !tab?.url) return;
+  if (!/nospos\.com/i.test(tab.url)) return;
+  void (async () => {
+    try {
+      const data = await chrome.storage.session.get(NOSPOS_PARK_UI_STORAGE_KEY);
+      const lock = data[NOSPOS_PARK_UI_STORAGE_KEY];
+      if (!lock?.active || lock.tabId !== tabId) return;
+      await sendNosposParkOverlayToTab(tabId, true, lock.message);
+    } catch (_) {}
+  })();
+});
+
 /**
  * Bring the parked NoSpos tab to the foreground; if it was closed, open fallbackCreateUrl (new agreement).
  */
@@ -1839,6 +1908,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'NOSPOS_PARK_UI_SYNC') {
+    const tabId = sender.tab?.id;
+    if (tabId == null) {
+      sendResponse({ show: false });
+      return true;
+    }
+    chrome.storage.session
+      .get(NOSPOS_PARK_UI_STORAGE_KEY)
+      .then((data) => {
+        const lock = data[NOSPOS_PARK_UI_STORAGE_KEY];
+        const show = !!(lock && lock.active && lock.tabId === tabId);
+        sendResponse({
+          show,
+          message: lock?.message || NOSPOS_PARK_OVERLAY_DEFAULT_MSG,
+        });
+      })
+      .catch(() => sendResponse({ show: false }));
+    return true;
+  }
+
   return false;
 });
 
@@ -2052,6 +2141,11 @@ async function handleBridgeForward(message, sender) {
     return nosposFetchCustomerBuyingSession(payload.nosposCustomerId);
   }
 
+  if (payload.action === 'clearNosposParkAgreementUi') {
+    await clearNosposParkAgreementUiLock({ focusApp: payload.focusApp !== false });
+    return { ok: true };
+  }
+
   // Park agreement (step 2): open create URL in background; call after checkNosposCustomerBuyingSession succeeds.
   if (payload.action === 'openNosposNewAgreementCreateBackground') {
     // ── Clear log for each new park run ──────────────────────────────────────
@@ -2125,9 +2219,15 @@ async function handleBridgeForward(message, sender) {
         // ─────────────────────────────────────────────────────────────────────
 
         logPark('handleBridgeForward', 'exit', { tabId, agreementItemsUrl: urlRes.url, newAgreementId }, 'Step 2 complete — items URL obtained');
+        try {
+          await activateNosposParkAgreementUi(tabId, appTabId);
+        } catch (_) {}
         return { ok: true, tabId, agreementItemsUrl: urlRes.url };
       }
       logPark('handleBridgeForward', 'exit', { tabId, warning: urlRes.error }, 'Step 2 complete — items URL not confirmed (warning)');
+      try {
+        await activateNosposParkAgreementUi(tabId, appTabId);
+      } catch (_) {}
       return {
         ok: true,
         tabId,

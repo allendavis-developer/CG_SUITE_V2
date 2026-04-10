@@ -66,6 +66,46 @@ import {
 } from './utils/nosposAgreementFirstItemFill';
 import { resolveNosposStockLeafIdForNegotiationLine } from '@/utils/nosposCategoryMappings';
 
+const HEADER_JEWELLERY_CUSTOMER_EXPECTATION_KEY = '__header_jewellery__';
+
+function parseCurrencyInput(value) {
+  const parsed = parseFloat(String(value ?? '').replace(/[£,]/g, '').trim());
+  return Number.isFinite(parsed) ? parsed : NaN;
+}
+
+function getNegotiationItemOfferTotal(item, useVoucherOffers) {
+  if (!item || item.isRemoved) return 0;
+  const qty = Number(item.quantity) || 1;
+  if (item.selectedOfferId === 'manual' && item.manualOffer) {
+    return (parseFloat(String(item.manualOffer).replace(/[£,]/g, '')) || 0) * qty;
+  }
+  const offerRows = useVoucherOffers ? item.voucherOffers : item.cashOffers;
+  const selected = Array.isArray(offerRows)
+    ? offerRows.find((o) => o?.id === item.selectedOfferId)
+    : null;
+  return selected ? (Number(selected.price) || 0) * qty : 0;
+}
+
+function distributeAmountByWeights(totalAmount, weights) {
+  const normalizedTotal = Number.isFinite(totalAmount) ? Math.max(0, totalAmount) : 0;
+  const totalCents = Math.round(normalizedTotal * 100);
+  const safeWeights = Array.isArray(weights) ? weights.map((w) => (Number.isFinite(w) && w > 0 ? w : 0)) : [];
+  if (safeWeights.length === 0) return [];
+  const weightSum = safeWeights.reduce((sum, w) => sum + w, 0);
+  const effectiveWeights = weightSum > 0 ? safeWeights : safeWeights.map(() => 1);
+  const effectiveSum = effectiveWeights.reduce((sum, w) => sum + w, 0);
+  const floors = effectiveWeights.map((w) => Math.floor((totalCents * w) / effectiveSum));
+  let remaining = totalCents - floors.reduce((sum, cents) => sum + cents, 0);
+  const fractionalOrder = effectiveWeights
+    .map((w, idx) => ({ idx, frac: (totalCents * w) / effectiveSum - floors[idx] }))
+    .sort((a, b) => b.frac - a.frac || a.idx - b.idx);
+  for (let i = 0; i < fractionalOrder.length && remaining > 0; i += 1) {
+    floors[fractionalOrder[i].idx] += 1;
+    remaining -= 1;
+  }
+  return floors.map((cents) => (cents / 100).toFixed(2));
+}
+
 const Negotiation = ({ mode }) => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -382,6 +422,10 @@ const Negotiation = ({ mode }) => {
   );
   const jewelleryNegotiationItems = useMemo(
     () => items.filter((i) => i.isJewelleryItem === true),
+    [items]
+  );
+  const activeJewelleryNegotiationItems = useMemo(
+    () => items.filter((i) => isNegotiationJewelleryLine(i)),
     [items]
   );
   const negotiationJewelleryWorkspaceModalLines = useMemo(
@@ -1059,6 +1103,9 @@ const Negotiation = ({ mode }) => {
     if (headerWorkspaceOpen && headerWorkspaceMode === 'other') {
       return HEADER_OTHER_CUSTOMER_EXPECTATION_KEY;
     }
+    if (headerWorkspaceOpen && headerWorkspaceMode === 'jewellery') {
+      return HEADER_JEWELLERY_CUSTOMER_EXPECTATION_KEY;
+    }
     return null;
   }, [
     mode,
@@ -1084,6 +1131,9 @@ const Negotiation = ({ mode }) => {
         items.find((i) => i.id === cashConvertersResearchItem.id) ?? cashConvertersResearchItem;
       return row.customerExpectation ?? '';
     }
+    if (mode === 'negotiate' && headerWorkspaceOpen && headerWorkspaceMode === 'jewellery') {
+      return formatSumLineCustomerExpectations(activeJewelleryNegotiationItems);
+    }
     const key = stripCustomerExpectationTargetKey;
     if (key) {
       const pend = pendingCustomerExpectationByTarget[key];
@@ -1100,6 +1150,9 @@ const Negotiation = ({ mode }) => {
     items,
     researchItem,
     cashConvertersResearchItem,
+    headerWorkspaceOpen,
+    headerWorkspaceMode,
+    activeJewelleryNegotiationItems,
     stripCustomerExpectationTargetKey,
     pendingCustomerExpectationByTarget,
   ]);
@@ -1113,6 +1166,34 @@ const Negotiation = ({ mode }) => {
       }
       if (cashConvertersResearchItem?.id) {
         handleCustomerExpectationChange(cashConvertersResearchItem.id, value);
+        return;
+      }
+      if (headerWorkspaceOpen && headerWorkspaceMode === 'jewellery') {
+        const raw = String(value ?? '').trim();
+        const jewelleryLines = items.filter((i) => isNegotiationJewelleryLine(i));
+        if (jewelleryLines.length === 0) return;
+        if (raw === '') {
+          setItems((prev) =>
+            prev.map((row) =>
+              isNegotiationJewelleryLine(row) ? { ...row, customerExpectation: '' } : row
+            )
+          );
+          return;
+        }
+        const parsed = parseCurrencyInput(raw);
+        if (!Number.isFinite(parsed) || parsed < 0) return;
+        const lineTotals = jewelleryLines.map((line) => getNegotiationItemOfferTotal(line, useVoucherOffers));
+        const allocations = distributeAmountByWeights(parsed, lineTotals);
+        const allocationById = new Map(
+          jewelleryLines.map((line, idx) => [line.id, allocations[idx] ?? '0.00'])
+        );
+        setItems((prev) =>
+          prev.map((row) =>
+            allocationById.has(row.id)
+              ? { ...row, customerExpectation: allocationById.get(row.id) }
+              : row
+          )
+        );
         return;
       }
       const key = stripCustomerExpectationTargetKey;
@@ -1132,9 +1213,13 @@ const Negotiation = ({ mode }) => {
       mode,
       researchItem?.id,
       cashConvertersResearchItem?.id,
+      headerWorkspaceOpen,
+      headerWorkspaceMode,
       stripCustomerExpectationTargetKey,
       handleCustomerExpectationChange,
       items,
+      useVoucherOffers,
+      setItems,
     ]
   );
 
@@ -1287,7 +1372,10 @@ const Negotiation = ({ mode }) => {
           customerExpectationValue={metricsCustomerExpectationValue}
           onCustomerExpectationChange={handleMetricsCustomerExpectationChange}
           customerExpectationLocked={
-            mode === 'view' || (mode === 'negotiate' && stripCustomerExpectationTargetKey == null)
+            mode === 'view' ||
+            (mode === 'negotiate' &&
+              stripCustomerExpectationTargetKey == null &&
+              !(headerWorkspaceOpen && headerWorkspaceMode === 'jewellery' && activeJewelleryNegotiationItems.length > 0))
           }
           offerMin={offerMin}
           offerMax={offerMax}

@@ -15,6 +15,7 @@ import {
   closeNosposParkAgreementTab,
   getParkAgreementLog,
   OPEN_NOSPOS_NEW_AGREEMENT_ITEMS_TAB_TIMEOUT_MS,
+  clearNosposParkAgreementUi,
 } from "@/services/extensionClient";
 import { resolveNosposLeafCategoryIdForAgreementItem } from "@/utils/nosposCategoryMappings";
 import {
@@ -510,6 +511,9 @@ export function useNegotiationParkAgreement({
 
     void (async () => {
       try {
+        try {
+          await clearNosposParkAgreementUi({ focusApp: false });
+        } catch (_) {}
         const check = await withExtensionCallTimeout(
           checkNosposCustomerBuyingSession(nid),
           undefined,
@@ -1062,6 +1066,10 @@ export function useNegotiationParkAgreement({
             'Chrome extension is required for Park Agreement, or the request timed out — try again.',
           'error'
         );
+      } finally {
+        try {
+          await clearNosposParkAgreementUi();
+        } catch (_) {}
       }
     })();
   }, [

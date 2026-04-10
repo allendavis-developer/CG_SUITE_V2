@@ -62,12 +62,12 @@
     },
     {
       "matches": ["https://nospos.com/*", "https://*.nospos.com/*"],
-      "js": ["shared/dom-utils.js", "shared/constants.js", "content-nospos.js"],
+      "js": ["shared/dom-utils.js", "shared/constants.js", "shared/nospos-park-overlay.js", "content-nospos.js"],
       "run_at": "document_idle"
     },
     {
       "matches": ["https://nospos.com/newagreement/*", "https://*.nospos.com/newagreement/*"],
-      "js": ["shared/dom-utils.js", "shared/constants.js", "content-nospos-agreement-fill.js"],
+      "js": ["shared/dom-utils.js", "shared/constants.js", "shared/nospos-park-overlay.js", "content-nospos-agreement-fill.js"],
       "run_at": "document_idle"
     }
   ]

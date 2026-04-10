@@ -198,6 +198,14 @@ export async function openNosposNewAgreementCreateBackground(nosposCustomerId, o
   });
 }
 
+/** Remove NosPos full-page park overlay, refocus CG Suite tab (end of Park Agreement run). */
+export async function clearNosposParkAgreementUi(options = {}) {
+  return sendMessage({
+    action: 'clearNosposParkAgreementUi',
+    focusApp: options.focusApp !== false,
+  });
+}
+
 /**
  * Step 3 — Wait for items page, set category (if provided), then fill name, quantity, retail, offer, and stock fields.
  * @param {{ tabId: number, categoryId?: string, name?: string, quantity?: string, retailPrice?: string|null, boughtFor?: string|null, stockFields?: Array<{ label: string, value: string }> }} payload
