@@ -1,7 +1,7 @@
 from decimal import Decimal, ROUND_HALF_UP
 
 
-def round_offer_price(value):
+def round_price(value):
     """Nearest £5 if above £50, else nearest £2."""
     amount = Decimal(str(value or 0))
     if amount > Decimal("50"):
@@ -15,18 +15,8 @@ def round_offer_price(value):
     )
 
 
-def round_sale_price(value):
-    """Nearest £5 if above £50, else nearest £2."""
-    amount = Decimal(str(value or 0))
-    if amount > Decimal("50"):
-        return float(
-            ((amount / Decimal("5")).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
-            * Decimal("5")
-        )
-    return float(
-        ((amount / Decimal("2")).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
-        * Decimal("2")
-    )
+round_offer_price = round_price
+round_sale_price = round_price
 
 
 def calculate_margin_percentage(offer_price, sale_price):

@@ -113,6 +113,11 @@ function tableRowsFromResearchSnapshot(
 }
 
 function cexStatRows(item, useVoucherOffers) {
+  const ref =
+    item.referenceData ||
+    item.cexProductData?.referenceData ||
+    item.cexProductData?.reference_data ||
+    {};
   const has =
     item.isCustomCeXItem ||
     item.cexSku ||
@@ -124,6 +129,24 @@ function cexStatRows(item, useVoucherOffers) {
   const rows = [];
   const sell = fmtMoney(item.cexSellPrice);
   if (sell) rows.push({ kind: 'keyValue', metric: 'Sell (£)', value: sell });
+  const suggested =
+    fmtMoney(item.ourSalePrice) ||
+    fmtMoney(ref.cex_based_sale_price) ||
+    fmtMoney(ref.our_sale_price);
+  if (suggested) {
+    rows.push({ kind: 'keyValue', metric: 'Suggested RRP (£)', value: suggested });
+  }
+  const methodRaw =
+    ref.percentage_used ??
+    ref.percentageUsed ??
+    item.variant_details?.percentage_used ??
+    item.variantDetails?.percentage_used;
+  if (methodRaw != null && String(methodRaw).trim() !== '') {
+    const methodLabel = String(methodRaw).includes('%')
+      ? String(methodRaw)
+      : `${String(methodRaw).trim()}%`;
+    rows.push({ kind: 'keyValue', metric: 'Method', value: methodLabel });
+  }
   const buyCash = fmtMoney(item.cexBuyPrice);
   const buyVouch = fmtMoney(item.cexVoucherPrice);
   if (!useVoucherOffers && buyCash) {

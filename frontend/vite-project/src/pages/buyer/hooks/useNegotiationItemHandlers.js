@@ -6,6 +6,7 @@ import {
 } from '@/components/jewellery/jewelleryNegotiationCart';
 import {
   negotiationJewelleryItemToWorkspaceLine,
+  deriveNegotiationJewelleryCoinUnitsUpdate,
   deriveNegotiationJewelleryWeightUpdate,
 } from '@/components/jewellery/jewelleryWorkspaceMapping';
 import { titleForEbayCcOfferIndex } from '@/components/forms/researchStats';
@@ -462,6 +463,72 @@ export function useNegotiationItemHandlers({
     ]
   );
 
+  const handleJewelleryCoinUnitsChange = useCallback(
+    (item, nextCoinUnitsRaw) => {
+      const derived = deriveNegotiationJewelleryCoinUnitsUpdate(
+        item,
+        nextCoinUnitsRaw,
+        useVoucherOffers,
+        customerOfferRulesData?.settings
+      );
+      if (!derived) return;
+      const { cleaned, d } = derived;
+      const updatedLine = negotiationJewelleryItemToWorkspaceLine(item);
+      const itemName =
+        updatedLine?.itemName || updatedLine?.categoryLabel || updatedLine?.variantTitle || null;
+      const ourSale = d.ourSalePrice != null && d.ourSalePrice > 0 ? d.ourSalePrice : item.ourSalePrice;
+
+      setItems((prev) =>
+        prev.map((row) => {
+          if (row.id !== item.id) return row;
+          return {
+            ...row,
+            cashOffers: d.cashOffers,
+            voucherOffers: d.voucherOffers,
+            offers: d.offers,
+            selectedOfferId: d.selectedOfferId,
+            manualOffer: d.manualOffer,
+            manualOfferUsed: d.manualOfferUsed,
+            ourSalePrice: ourSale,
+            referenceData: d.referenceData,
+            rawData:
+              row.rawData != null && typeof row.rawData === 'object'
+                ? { ...row.rawData, referenceData: d.referenceData }
+                : { referenceData: d.referenceData },
+          };
+        })
+      );
+      setJewelleryWorkspaceLines((prev) => prev.map((l) => (l.id === item.id ? { ...l, coinUnits: cleaned } : l)));
+      if (item.request_item_id) {
+        updateRequestItemOffer(item.request_item_id, {
+          selected_offer_id: d.selectedOfferId,
+          manual_offer_used: d.selectedOfferId === 'manual',
+          manual_offer_gbp:
+            d.selectedOfferId === 'manual' && d.manualOffer
+              ? normalizeExplicitSalePrice(parseFloat(String(d.manualOffer).replace(/[£,]/g, '')))
+              : null,
+          our_sale_price_at_negotiation: ourSale ?? null,
+          cash_offers_json: normalizeOffersForApi(d.cashOffers),
+          voucher_offers_json: normalizeOffersForApi(d.voucherOffers),
+        }).catch(() => {});
+        const rawPayload = {
+          referenceData: {
+            ...d.referenceData,
+            item_name: itemName,
+          },
+        };
+        updateRequestItemRawData(item.request_item_id, { raw_data: rawPayload }).catch(() => {});
+      }
+    },
+    [
+      useVoucherOffers,
+      customerOfferRulesData?.settings,
+      normalizeOffersForApi,
+      setItems,
+      setJewelleryWorkspaceLines,
+    ]
+  );
+
   /** Run NosPos stock path AI + optional field AI; persist to `request_item_id` and merge into `items`. */
   const scheduleNosposStockAiForNegotiationLine = useCallback((normalizedItem, meta) => {
     const reqItemId = normalizedItem?.request_item_id;
@@ -700,6 +767,8 @@ export function useNegotiationItemHandlers({
         skipSuccessNotification = false,
         addedFromBuilder = false,
         runNosposCategoryAiForInternalLeaf = false,
+        /** When true, do not run post-add NosPos stock field AI (e.g. Other workspace — fields already chosen). */
+        skipNosposStockFieldAi = false,
         onCommitted = null,
       } = options;
       const pendingMap =
@@ -858,7 +927,7 @@ export function useNegotiationItemHandlers({
           }
         }
 
-        if (ENABLE_NOSPOS_STOCK_FIELD_AI && !scheduledFullNosposAi && reqItemId) {
+        if (ENABLE_NOSPOS_STOCK_FIELD_AI && !scheduledFullNosposAi && reqItemId && !skipNosposStockFieldAi) {
           const hint = getAiSuggestedNosposStockCategoryFromItem(normalizedItem);
           const nid = hint?.nosposId != null ? Number(hint.nosposId) : null;
           const existingFv = getAiSuggestedNosposStockFieldValuesFromItem(normalizedItem);
@@ -1279,6 +1348,7 @@ export function useNegotiationItemHandlers({
     handleRemoveFromNegotiation,
     handleJewelleryItemNameChange,
     handleJewelleryWeightChange,
+    handleJewelleryCoinUnitsChange,
     handleAddNegotiationItem,
     handleWorkspaceBlockedOfferAttempt,
     handleAddJewelleryItemsFromWorkspace,

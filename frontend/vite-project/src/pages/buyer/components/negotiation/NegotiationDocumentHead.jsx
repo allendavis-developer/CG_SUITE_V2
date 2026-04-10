@@ -1,5 +1,5 @@
 import React from 'react';
-import { SPREADSHEET_TABLE_STYLES } from '../../spreadsheetTableStyles';
+import { SPREADSHEET_TABLE_STYLES } from '@/styles/spreadsheetTableStyles';
 
 export default function NegotiationDocumentHead() {
   return (

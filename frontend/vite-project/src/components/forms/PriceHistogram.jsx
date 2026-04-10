@@ -111,6 +111,7 @@ const PriceHistogram = React.memo(function PriceHistogram({ listings, onBucketSe
         {renderedBuckets.map((bucket, i) => {
           const bucketIndex = i;
           const widthPct = maxFreq > 0 ? (bucket.count / maxFreq) * 100 : 0;
+          const isPeakBucket = bucket.count > 0 && bucket.count === maxFreq;
           return (
             <div
               key={bucketIndex}
@@ -124,7 +125,13 @@ const PriceHistogram = React.memo(function PriceHistogram({ listings, onBucketSe
               <div className="flex-1 h-full flex items-center border-l border-gray-300 pl-2">
                 <div className="flex items-center justify-start h-full w-full">
                   <div
-                    className={`h-full transition-all duration-500 ${bucket.count > 0 ? 'bg-brand-orange group-hover:bg-brand-blue group-hover:shadow-lg shadow-sm' : 'bg-gray-50'}`}
+                    className={`h-full transition-all duration-500 ${
+                      bucket.count <= 0
+                        ? 'bg-gray-50'
+                        : isPeakBucket
+                          ? 'bg-emerald-600 group-hover:bg-emerald-700 group-hover:shadow-lg shadow-sm'
+                          : 'bg-brand-orange group-hover:bg-brand-blue group-hover:shadow-lg shadow-sm'
+                    }`}
                     style={{ width: bucket.count > 0 ? `${Math.max(widthPct, 4)}%` : '2px', transformOrigin: 'left' }}
                   />
                   {bucket.count > 0 && (

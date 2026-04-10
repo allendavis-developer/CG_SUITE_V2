@@ -5,6 +5,12 @@ import { formatOfferPrice } from '@/utils/helpers';
 import useAppStore, { useCartItems, useCustomerData, useOfferTotals, useIsRepricing } from '@/store/useAppStore';
 import TinyModal from '@/components/ui/TinyModal';
 
+/** Cart quantity as integer ≥ 1 (`item.quantity` may be string "0", which is truthy and breaks `qty || 1`). */
+function normalizedCartItemQuantity(item) {
+  const n = Math.floor(Number(item?.quantity));
+  return Number.isFinite(n) && n >= 1 ? n : 1;
+}
+
 const CartSidebar = ({ mode = 'buyer', onTransactionTypeChange = null }) => {
   const isRepricing = useIsRepricing();
   const cartItems = useCartItems();
@@ -39,12 +45,13 @@ const CartSidebar = ({ mode = 'buyer', onTransactionTypeChange = null }) => {
   }, [cartItems.length]);
 
   const updateQuantity = (id, newQty) => {
-    if (newQty < 1) {
+    const n = Math.floor(Number(newQty));
+    if (!Number.isFinite(n) || n < 1) {
       const item = cartItems.find((i) => i.id === id);
       if (item) removeFromCart(item);
       return;
     }
-    updateCartItem(id, { quantity: newQty });
+    updateCartItem(id, { quantity: n });
   };
 
   const allItemsHaveOffer = cartItems.length > 0 && totalOffer !== null;
@@ -112,14 +119,22 @@ const CartSidebar = ({ mode = 'buyer', onTransactionTypeChange = null }) => {
               <CartItemCard
                 key={item.id}
                 item={item}
+                displayQuantity={normalizedCartItemQuantity(item)}
                 isSelected={selectedCartItemId === item.id}
                 isRepricing={isRepricing}
                 customerData={customerData}
                 onSelect={() => selectCartItem(item)}
                 onRemove={() => removeFromCart(item)}
-                onIncrement={() => updateQuantity(item.id, (item.quantity || 1) + 1)}
-                onDecrement={() => updateQuantity(item.id, (item.quantity || 1) - 1)}
-                onQuantityChange={(val) => updateQuantity(item.id, parseInt(val) || 1)}
+                onIncrement={() => updateQuantity(item.id, normalizedCartItemQuantity(item) + 1)}
+                onDecrement={() => updateQuantity(item.id, normalizedCartItemQuantity(item) - 1)}
+                onQuantityChange={(val) => {
+                  const parsed = parseInt(String(val).trim(), 10);
+                  if (!Number.isFinite(parsed) || parsed < 1) {
+                    updateCartItem(item.id, { quantity: 1 });
+                    return;
+                  }
+                  updateQuantity(item.id, parsed);
+                }}
               />
             ))}
           </>
@@ -197,7 +212,18 @@ const CartSidebar = ({ mode = 'buyer', onTransactionTypeChange = null }) => {
   );
 };
 
-function CartItemCard({ item, isSelected, isRepricing, customerData, onSelect, onRemove, onIncrement, onDecrement, onQuantityChange }) {
+function CartItemCard({
+  item,
+  isSelected,
+  isRepricing,
+  customerData,
+  onSelect,
+  onRemove,
+  onIncrement,
+  onDecrement,
+  onQuantityChange,
+  displayQuantity,
+}) {
   const displayOffers = item.offers?.length
     ? item.offers
     : (customerData?.transactionType === 'store_credit' ? item.voucherOffers : item.cashOffers) || [];
@@ -241,7 +267,7 @@ function CartItemCard({ item, isSelected, isRepricing, customerData, onSelect, o
             <input
               type="number"
               min="1"
-              value={item.quantity || 1}
+              value={displayQuantity}
               onChange={(e) => onQuantityChange(e.target.value)}
               onClick={(e) => e.stopPropagation()}
               className="w-12 h-7 text-center text-sm font-semibold text-brand-blue border-x border-brand-blue/20 focus:outline-none focus:bg-brand-blue/5"

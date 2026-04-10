@@ -35,6 +35,7 @@ import {
   isNegotiationBuilderWorkspaceLine,
   isNegotiationEbayWorkspaceLine,
   HEADER_EBAY_CUSTOMER_EXPECTATION_KEY,
+  HEADER_OTHER_CUSTOMER_EXPECTATION_KEY,
   formatSumLineCustomerExpectations,
 } from './utils/negotiationHelpers';
 import {
@@ -45,10 +46,13 @@ import {
   peekNosposCategoriesCache,
   peekNosposMappingsCache,
 } from '@/services/api';
-import { normalizeExplicitSalePrice } from '@/utils/helpers';
+import { normalizeExplicitSalePrice, roundOfferPrice, toVoucherOfferPrice } from '@/utils/helpers';
+import JewelleryLineDetailsBlockingModal from '@/components/jewellery/JewelleryLineDetailsBlockingModal';
 import {
   deriveNegotiationJewelleryWeightUpdate,
   negotiationJewelleryItemToWorkspaceLine,
+  negotiationJewelleryItemsToWorkspaceLines,
+  negotiationJewelleryLineNeedsWorkspaceDetail,
 } from '@/components/jewellery/jewelleryWorkspaceMapping';
 import { isNosposJewelleryWeightStockLabel } from '@/pages/buyer/utils/nosposAgreementFirstItemFill';
 import {
@@ -161,6 +165,8 @@ const Negotiation = ({ mode }) => {
   const [headerEbayLiveBuyOffers, setHeaderEbayLiveBuyOffers] = useState(null);
   /** Live CeX tier rows from header builder while variant/offers are shown — drives Offer min/max (scoped like eBay header). */
   const [headerBuilderLiveOffers, setHeaderBuilderLiveOffers] = useState(null);
+  /** Live offer draft (cash, per-unit) from header Other workspace. */
+  const [headerOtherLiveCashOffer, setHeaderOtherLiveCashOffer] = useState(null);
   const useVoucherOffers = transactionType === 'store_credit';
 
   const blockedOfferSlots = useMemo(() => {
@@ -274,6 +280,12 @@ const Negotiation = ({ mode }) => {
     }
   }, [headerWorkspaceOpen, headerWorkspaceMode]);
 
+  useEffect(() => {
+    if (!headerWorkspaceOpen || headerWorkspaceMode !== 'other') {
+      setHeaderOtherLiveCashOffer(null);
+    }
+  }, [headerWorkspaceOpen, headerWorkspaceMode]);
+
   const handleOverlayEbayResearchOffersLive = useCallback((payload) => {
     setOverlayEbayLiveBuyOffers(payload?.buyOffers ?? null);
   }, []);
@@ -332,6 +344,16 @@ const Negotiation = ({ mode }) => {
   }, [headerWorkspaceOpen, headerWorkspaceMode]);
 
   useEffect(() => {
+    if (headerWorkspaceOpen && headerWorkspaceMode === 'other') return;
+    setPendingCustomerExpectationByTarget((prev) => {
+      if (!(HEADER_OTHER_CUSTOMER_EXPECTATION_KEY in prev)) return prev;
+      const next = { ...prev };
+      delete next[HEADER_OTHER_CUSTOMER_EXPECTATION_KEY];
+      return next;
+    });
+  }, [headerWorkspaceOpen, headerWorkspaceMode]);
+
+  useEffect(() => {
     if (headerWorkspaceOpen && headerWorkspaceMode === 'cex') return;
     setPendingCustomerExpectationByTarget((prev) => {
       const stale = Object.keys(prev).filter((k) => k.startsWith('__cex__'));
@@ -362,6 +384,19 @@ const Negotiation = ({ mode }) => {
     () => items.filter((i) => i.isJewelleryItem === true),
     [items]
   );
+  const negotiationJewelleryWorkspaceModalLines = useMemo(
+    () => negotiationJewelleryItemsToWorkspaceLines(jewelleryNegotiationItems),
+    [jewelleryNegotiationItems]
+  );
+  const negotiationNeedsJewelleryDetail = useMemo(
+    () => jewelleryNegotiationItems.some(negotiationJewelleryLineNeedsWorkspaceDetail),
+    [jewelleryNegotiationItems]
+  );
+  const [negotiationJewelleryDetailsModalOpen, setNegotiationJewelleryDetailsModalOpen] = useState(false);
+
+  useEffect(() => {
+    if (negotiationNeedsJewelleryDetail) setNegotiationJewelleryDetailsModalOpen(true);
+  }, [negotiationNeedsJewelleryDetail]);
 
   useLayoutEffect(() => {
     const el = negotiationFooterRef.current;
@@ -384,11 +419,20 @@ const Negotiation = ({ mode }) => {
     }
   }, [nosposRequiredFieldsEditor, nosposRequiredEditorLiveItem]);
 
+  useEffect(() => {
+    if (!nosposRequiredFieldsEditor?.item?.id) return;
+    const live = items.find((i) => i.id === nosposRequiredFieldsEditor.item.id);
+    if (live?.isJewelleryItem === true && negotiationJewelleryLineNeedsWorkspaceDetail(live)) {
+      setNosposRequiredFieldsEditor(null);
+    }
+  }, [items, nosposRequiredFieldsEditor?.item?.id]);
+
   const handleOpenNosposRequiredFieldsEditor = useCallback(
     (item, negotiationIndex) => {
       if (!item) return;
       const live = items.find((i) => i.id === item.id) ?? item;
       if (negotiationLineNosposFieldAiPending(live)) return;
+      if (live.isJewelleryItem === true && negotiationJewelleryLineNeedsWorkspaceDetail(live)) return;
       setNosposRequiredFieldsEditor({ item: live, negotiationIndex });
     },
     [items]
@@ -415,6 +459,8 @@ const Negotiation = ({ mode }) => {
       if (negotiationIndex < 0) continue;
 
       if (negotiationLineNosposFieldAiPending(item)) continue;
+
+      if (isJewellery && negotiationJewelleryLineNeedsWorkspaceDetail(item)) continue;
 
       if (
         !negotiationLineHasMissingRequiredNosposStockFields(item, negotiationIndex, {
@@ -833,6 +879,16 @@ const Negotiation = ({ mode }) => {
       return { offerMin: null, offerMax: null };
     }
 
+    if (mode === 'negotiate' && headerWorkspaceOpen && headerWorkspaceMode === 'other') {
+      if (!Number.isFinite(headerOtherLiveCashOffer) || headerOtherLiveCashOffer <= 0) {
+        return { offerMin: null, offerMax: null };
+      }
+      const perUnit = useVoucherOffers
+        ? toVoucherOfferPrice(headerOtherLiveCashOffer)
+        : roundOfferPrice(headerOtherLiveCashOffer);
+      return { offerMin: perUnit, offerMax: perUnit };
+    }
+
     if (activeItems.length === 0) return { offerMin: null, offerMax: null };
 
     let scoped = activeItems;
@@ -869,6 +925,7 @@ const Negotiation = ({ mode }) => {
     headerEbayLiveBuyOffers,
     headerBuilderLiveOffers,
     builderWorkspaceLineId,
+    headerOtherLiveCashOffer,
     mode,
     headerWorkspaceOpen,
     headerWorkspaceMode,
@@ -917,6 +974,7 @@ const Negotiation = ({ mode }) => {
     handleRemoveFromNegotiation,
     handleJewelleryItemNameChange,
     handleJewelleryWeightChange,
+    handleJewelleryCoinUnitsChange,
     handleAddNegotiationItem,
     handleWorkspaceBlockedOfferAttempt,
     handleAddJewelleryItemsFromWorkspace,
@@ -958,6 +1016,19 @@ const Negotiation = ({ mode }) => {
   });
   notifyEbayResearchMergedForNosposAiRef.current = notifyEbayResearchMergedForNosposAi;
 
+  const handleJewelleryDetailsModalCommit = useCallback(
+    (commits) => {
+      for (const { id, itemName, weight, coinUnits } of commits) {
+        const item = items.find((i) => i.id === id);
+        if (!item?.isJewelleryItem) continue;
+        handleJewelleryItemNameChange(item, itemName);
+        if (coinUnits !== undefined) handleJewelleryCoinUnitsChange(item, coinUnits);
+        else if (weight !== undefined) handleJewelleryWeightChange(item, weight);
+      }
+    },
+    [items, handleJewelleryItemNameChange, handleJewelleryWeightChange, handleJewelleryCoinUnitsChange]
+  );
+
   const stripCustomerExpectationTargetKey = useMemo(() => {
     if (mode !== 'negotiate') return null;
     if (researchItem?.id) return researchItem.id;
@@ -984,6 +1055,9 @@ const Negotiation = ({ mode }) => {
       const builders = items.filter((i) => !i.isRemoved && isNegotiationBuilderWorkspaceLine(i));
       if (builders.length === 1) return builders[0].id;
       return builderWorkspaceLineId;
+    }
+    if (headerWorkspaceOpen && headerWorkspaceMode === 'other') {
+      return HEADER_OTHER_CUSTOMER_EXPECTATION_KEY;
     }
     return null;
   }, [
@@ -1178,8 +1252,12 @@ const Negotiation = ({ mode }) => {
           workspaceOverlayBottomRef: negotiationWorkspaceOverlayBottomRef,
           onHeaderEbayResearchOffersLiveChange: handleHeaderEbayResearchOffersLive,
           onNegotiationBuilderOffersLiveChange: handleHeaderBuilderOffersLive,
+          onOtherWorkspaceOfferPreviewChange: setHeaderOtherLiveCashOffer,
           onCloseTransientPanels: handleCloseTransientPanels,
           onNewBuy: () => setShowNewBuyConfirm(true),
+          nosposCategoriesResults: nosposSchema.categories ?? [],
+          nosposCategoryMappings: nosposSchema.mappings ?? [],
+          actualRequestId,
         } : null}
       />
       </div>
@@ -1218,6 +1296,7 @@ const Negotiation = ({ mode }) => {
           actualRequestId={actualRequestId}
           researchSandboxBookedView={researchSandboxBookedView}
           hasJewelleryReferenceData={Boolean(jewelleryReferenceScrape?.sections?.length)}
+          jewelleryReferenceScrapedAt={jewelleryReferenceScrape?.scrapedAt ?? null}
           headerWorkspaceOpen={headerWorkspaceOpen}
           headerWorkspaceMode={headerWorkspaceMode}
           onOpenJewelleryReferenceModal={() => setShowJewelleryReferenceModal(true)}
@@ -1238,6 +1317,7 @@ const Negotiation = ({ mode }) => {
             handleCustomerExpectationChange={handleCustomerExpectationChange}
             handleJewelleryItemNameChange={handleJewelleryItemNameChange}
             handleJewelleryWeightChange={handleJewelleryWeightChange}
+            handleJewelleryCoinUnitsChange={handleJewelleryCoinUnitsChange}
             blockedOfferSlots={blockedOfferSlots}
             handleBlockedOfferClick={handleBlockedOfferClick}
             parkExcludedItems={parkExcludedItems}
@@ -1298,6 +1378,17 @@ const Negotiation = ({ mode }) => {
           handleFinalizeTransaction={handleFinalizeTransaction}
         />
       </div>
+
+      {mode === 'negotiate' ? (
+        <JewelleryLineDetailsBlockingModal
+          open={negotiationJewelleryDetailsModalOpen}
+          onClose={() => setNegotiationJewelleryDetailsModalOpen(false)}
+          lines={negotiationJewelleryWorkspaceModalLines}
+          onCommitLines={handleJewelleryDetailsModalCommit}
+          showNotification={showNotification}
+          zClass="z-[325]"
+        />
+      ) : null}
 
       <NegotiationModalsLayer
         contextMenu={contextMenu}

@@ -26,6 +26,26 @@ function StripField({
 }
 
 const numCls = 'text-sm font-black tabular-nums tracking-tight text-white';
+function jewelleryScrapeTimestampUi(rawValue) {
+  if (!rawValue) return null;
+  const dt = new Date(rawValue);
+  if (Number.isNaN(dt.getTime())) return null;
+  const now = new Date();
+  const stale =
+    dt.getFullYear() !== now.getFullYear() ||
+    dt.getMonth() !== now.getMonth() ||
+    dt.getDate() !== now.getDate();
+  return {
+    stale,
+    title: `Reference scraped: ${dt.toLocaleString()}`,
+    label: dt.toLocaleString([], {
+      day: '2-digit',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+    }),
+  };
+}
 
 /**
  * Buying / negotiation: transaction + metrics — bordered controls on white strip under customer header.
@@ -44,6 +64,7 @@ export default function NegotiationOfferMetricsBar({
   actualRequestId,
   researchSandboxBookedView,
   hasJewelleryReferenceData,
+  jewelleryReferenceScrapedAt = null,
   headerWorkspaceOpen = false,
   headerWorkspaceMode = 'builder',
   onOpenJewelleryReferenceModal,
@@ -51,12 +72,12 @@ export default function NegotiationOfferMetricsBar({
 }) {
   const showJewelleryReferenceCta =
     hasJewelleryReferenceData &&
-    headerWorkspaceOpen &&
-    headerWorkspaceMode === 'jewellery';
+    (mode === 'view' || (headerWorkspaceOpen && headerWorkspaceMode === 'jewellery'));
   const transaction = TRANSACTION_META[transactionType] || {
     label: 'Unknown',
     className: 'text-gray-400',
   };
+  const jewelleryStampUi = jewelleryScrapeTimestampUi(jewelleryReferenceScrapedAt);
 
   const targetHint = parsedTarget > 0 ? 'Exact total offer required' : 'Not set';
   const txLabels = TRANSACTION_OPTIONS.map((o) => o.label);
@@ -146,40 +167,56 @@ export default function NegotiationOfferMetricsBar({
           </div>
         </StripField>
 
-        {showJewelleryReferenceCta ? (
-          <button
-            type="button"
-            onClick={onOpenJewelleryReferenceModal}
-            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-white/30 bg-white/10 px-2.5 text-[10px] font-black uppercase tracking-wide text-white transition-colors hover:bg-white/15 focus-visible:outline focus-visible:ring-2 focus-visible:ring-white/35"
-            title="Mastermelt reference prices for this request"
-          >
-            <span className="material-symbols-outlined text-[18px] leading-none text-white/90">table_view</span>
-            Reference prices
-          </button>
-        ) : null}
-
-        <StripField label="Request ID">
-          <div className="flex min-w-0 max-w-[20rem] items-center gap-2">
-            <span className="shrink-0 text-sm font-black tabular-nums tracking-tight text-white">
-              #{actualRequestId || 'N/A'}
-            </span>
-            {mode === 'view' &&
-              (researchSandboxBookedView ? (
+        <div className="ml-auto flex min-w-0 items-center gap-2">
+          {showJewelleryReferenceCta ? (
+            <div className="inline-flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={onOpenJewelleryReferenceModal}
+                className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-white/30 bg-white/10 px-2.5 text-[10px] font-black uppercase tracking-wide text-white transition-colors hover:bg-white/15 focus-visible:outline focus-visible:ring-2 focus-visible:ring-white/35"
+                title="Mastermelt reference prices for this request"
+              >
+                <span className="material-symbols-outlined text-[18px] leading-none text-white/90">table_view</span>
+                Reference prices
+              </button>
+              {jewelleryStampUi ? (
                 <span
-                  className="inline-flex min-w-0 items-center gap-0.5 truncate text-[9px] font-bold uppercase tracking-wide text-amber-200"
-                  title="In-store testing — Park Agreement opens NoSpos and fills the first line category when CG Suite has one"
+                  className={`inline-flex h-9 shrink-0 items-center rounded-md border px-2.5 text-[10px] font-black uppercase tracking-wide ${
+                    jewelleryStampUi.stale
+                      ? 'animate-[pulse_0.32s_ease-in-out_infinite] border-red-300/70 bg-red-500/15 text-red-100'
+                      : 'border-emerald-300/70 bg-emerald-500/15 text-emerald-100'
+                  }`}
+                  title={jewelleryStampUi.title}
                 >
-                  <span className="material-symbols-outlined shrink-0 text-[12px]">science</span>
-                  <span className="truncate">In-store testing</span>
+                  {jewelleryStampUi.label}
                 </span>
-              ) : (
-                <span className="inline-flex shrink-0 items-center gap-0.5 text-[9px] font-bold uppercase tracking-wide text-red-200">
-                  <span className="material-symbols-outlined text-[12px]">visibility_off</span>
-                  View Only
-                </span>
-              ))}
-          </div>
-        </StripField>
+              ) : null}
+            </div>
+          ) : null}
+
+          <StripField label="Request ID">
+            <div className="flex min-w-0 max-w-[20rem] items-center gap-2">
+              <span className="shrink-0 text-sm font-black tabular-nums tracking-tight text-white">
+                #{actualRequestId || 'N/A'}
+              </span>
+              {mode === 'view' &&
+                (researchSandboxBookedView ? (
+                  <span
+                    className="inline-flex min-w-0 items-center gap-0.5 truncate text-[9px] font-bold uppercase tracking-wide text-amber-200"
+                    title="In-store testing — Park Agreement opens NoSpos and fills the first line category when CG Suite has one"
+                  >
+                    <span className="material-symbols-outlined shrink-0 text-[12px]">science</span>
+                    <span className="truncate">In-store testing</span>
+                  </span>
+                ) : (
+                  <span className="inline-flex shrink-0 items-center gap-0.5 text-[9px] font-bold uppercase tracking-wide text-red-200">
+                    <span className="material-symbols-outlined text-[12px]">visibility_off</span>
+                    View Only
+                  </span>
+                ))}
+            </div>
+          </StripField>
+        </div>
 
       </div>
     </div>

@@ -10,8 +10,9 @@ Rules:
 
 ProductCategory rows use one segment per node: each `name` is a single path part (e.g. `Mobile & Smart Phones`),
 never the whole NosPos `full_name` string.
-- All created/linked categories get `ready_for_builder=False` (existing rows with the same
-  parent+name keep their current `ready_for_builder`, e.g. Gaming/phones/tablets stay True).
+- Optional: roots in `_BUILDER_READY_NOSPOS_ROOTS` get `ready_for_builder=True` for new rows;
+  roots in `_NOT_BUILDER_READY_NOSPOS_ROOTS` are always `ready_for_builder=False` (and existing
+  rows in that subtree are cleared after import).
 
 Requires NosPos categories to be in the DB first (Data → Update from NoSpos / sync).
 
@@ -33,10 +34,19 @@ _PATH_SPLIT = re.compile(r"\s*>\s*")
 # are excluded. Include spelling variants if NosPos strings differ.
 _EXCLUDED_SEGMENTS = frozenset(
     {
-        "Computers/Tablets & Networking",
         "Mobile Phones & Communication",
         "Mobile Phones & Communications",
         "Video Games & Consoles",
+    }
+)
+
+# NosPos root segment (first path part) — mirrored subtree gets ready_for_builder=True for new rows.
+_BUILDER_READY_NOSPOS_ROOTS = frozenset()
+
+# Always hidden from the buyer/repricing category header (`ready_for_builder=False` for whole subtree).
+_NOT_BUILDER_READY_NOSPOS_ROOTS = frozenset(
+    {
+        "Computers/Tablets & Networking",
     }
 )
 
@@ -70,6 +80,24 @@ def _prefix_paths(full_name: str) -> list[str]:
     for i in range(1, len(parts) + 1):
         out.append(" > ".join(parts[:i]))
     return out
+
+
+def _clear_builder_ready_subtree(root: ProductCategory) -> int:
+    """Set ready_for_builder=False on root and all descendants. Returns count updated."""
+    n = 0
+    stack = [root]
+    seen: set[int] = set()
+    while stack:
+        cat = stack.pop()
+        pk = int(cat.pk)
+        if pk in seen:
+            continue
+        seen.add(pk)
+        if cat.ready_for_builder:
+            ProductCategory.objects.filter(pk=pk).update(ready_for_builder=False)
+            n += 1
+        stack.extend(cat.children.all())
+    return n
 
 
 class Command(BaseCommand):
@@ -126,16 +154,37 @@ class Command(BaseCommand):
                 parent_path = " > ".join(segs[:-1]) if len(segs) > 1 else None
                 parent = path_to_cat.get(parent_path) if parent_path else None
 
+                root_segment = segs[0]
+                builder_ready = (
+                    root_segment in _BUILDER_READY_NOSPOS_ROOTS
+                    and root_segment not in _NOT_BUILDER_READY_NOSPOS_ROOTS
+                )
                 obj, was_created = ProductCategory.objects.get_or_create(
                     parent_category=parent,
                     name=segment,
-                    defaults={"ready_for_builder": False},
+                    defaults={"ready_for_builder": builder_ready},
                 )
+                if builder_ready and not obj.ready_for_builder:
+                    obj.ready_for_builder = True
+                    obj.save(update_fields=["ready_for_builder"])
+                if root_segment in _NOT_BUILDER_READY_NOSPOS_ROOTS and obj.ready_for_builder:
+                    obj.ready_for_builder = False
+                    obj.save(update_fields=["ready_for_builder"])
                 path_to_cat[full_path] = obj
                 if was_created:
                     created += 1
                 else:
                     reused += 1
+
+            for root_name in _NOT_BUILDER_READY_NOSPOS_ROOTS:
+                root_path = root_name
+                root_cat = path_to_cat.get(root_path)
+                if root_cat is not None:
+                    cleared = _clear_builder_ready_subtree(root_cat)
+                    if cleared:
+                        self.stdout.write(
+                            f"Cleared ready_for_builder on {cleared} row(s) under NosPos root “{root_name}”."
+                        )
 
         self.stdout.write(
             self.style.SUCCESS(

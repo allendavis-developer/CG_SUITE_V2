@@ -2,7 +2,10 @@ import {
   JEWELLERY_TIER_MARGINS_PCT,
   getJewelleryWorkspaceDerivedState,
   isJewelleryCoinLine,
+  lineNeedsJewelleryWorkspaceDetail,
+  finalizeJewelleryCoinUnitsInput,
   resolveJewelleryTierMarginsPct,
+  sanitizeJewelleryWeightInput,
 } from '@/components/jewellery/jewelleryNegotiationCart';
 
 /**
@@ -45,6 +48,12 @@ export function negotiationJewelleryItemToWorkspaceLine(item) {
   const runtimeAuthorisedSlots = Array.isArray(item?.authorisedOfferSlots) ? item.authorisedOfferSlots : [];
 
   const coin = isJewelleryCoinLine({ productName: ref.product_name, materialGrade: ref.material_grade });
+  let coinUnits = '1';
+  if (coin) {
+    const fromRef = ref.jewellery_coin_units;
+    const n = fromRef != null ? Math.floor(Number(fromRef)) : NaN;
+    if (Number.isInteger(n) && n >= 1) coinUnits = String(n);
+  }
 
   return {
     id: item.id,
@@ -70,8 +79,9 @@ export function negotiationJewelleryItemToWorkspaceLine(item) {
     sourceKind: ref.reference_price_source_kind,
     ratePerGram: ref.rate_per_gram != null ? Number(ref.rate_per_gram) : null,
     unitPrice: ref.unit_price != null ? Number(ref.unit_price) : null,
-    weight: coin ? '1' : ref.weight != null ? String(ref.weight) : '1',
+    weight: coin ? '1' : ref.weight != null && String(ref.weight).trim() !== '' ? String(ref.weight) : '0',
     weightUnit: coin ? 'each' : ref.weight_unit || 'g',
+    ...(coin ? { coinUnits } : {}),
     selectedOfferTierPct,
     selectedOfferTierAuthBy: !isManual && item.seniorMgmtApprovedBy ? item.seniorMgmtApprovedBy : null,
     manualOfferInput,
@@ -84,16 +94,45 @@ export function negotiationJewelleryItemsToWorkspaceLines(items) {
   return items.map(negotiationJewelleryItemToWorkspaceLine).filter(Boolean);
 }
 
+/** True when a saved negotiation jewellery row still needs name and/or minimum weight (same rules as workspace). */
+export function negotiationJewelleryLineNeedsWorkspaceDetail(item) {
+  const wl = negotiationJewelleryItemToWorkspaceLine(item);
+  if (!wl) return false;
+  return lineNeedsJewelleryWorkspaceDetail(wl);
+}
+
 /**
  * Recompute negotiation row state when jewellery weight (workspace grams input) changes.
  * @returns {null | { cleaned: string, d: ReturnType<typeof getJewelleryWorkspaceDerivedState>, ourSale: number|null }} 
  */
 export function deriveNegotiationJewelleryWeightUpdate(item, nextWeightRaw, useVoucherOffers, jewelleryRuleSettings) {
-  const cleaned = String(nextWeightRaw ?? '').replace(/[^0-9.]/g, '');
   const workspaceLine = negotiationJewelleryItemToWorkspaceLine(item);
   if (!workspaceLine) return null;
-  const updatedLine = { ...workspaceLine, weight: cleaned };
+  const coin = isJewelleryCoinLine({
+    productName: workspaceLine.productName,
+    materialGrade: workspaceLine.materialGrade,
+  });
+  const cleaned = sanitizeJewelleryWeightInput(nextWeightRaw, coin);
+  const updatedLine = { ...workspaceLine, weight: coin ? '1' : cleaned };
   const d = getJewelleryWorkspaceDerivedState(updatedLine, useVoucherOffers, jewelleryRuleSettings);
   const ourSale = d.ourSalePrice != null && d.ourSalePrice > 0 ? d.ourSalePrice : item.ourSalePrice;
   return { cleaned, d, ourSale };
+}
+
+/**
+ * Recompute negotiation row state when coin unit count changes.
+ * @returns {null | { cleaned: string, d: ReturnType<typeof getJewelleryWorkspaceDerivedState> }}
+ */
+export function deriveNegotiationJewelleryCoinUnitsUpdate(item, nextCoinUnitsRaw, useVoucherOffers, jewelleryRuleSettings) {
+  const workspaceLine = negotiationJewelleryItemToWorkspaceLine(item);
+  if (!workspaceLine) return null;
+  const coin = isJewelleryCoinLine({
+    productName: workspaceLine.productName,
+    materialGrade: workspaceLine.materialGrade,
+  });
+  if (!coin) return null;
+  const cleaned = finalizeJewelleryCoinUnitsInput(nextCoinUnitsRaw);
+  const updatedLine = { ...workspaceLine, coinUnits: cleaned };
+  const d = getJewelleryWorkspaceDerivedState(updatedLine, useVoucherOffers, jewelleryRuleSettings);
+  return { cleaned, d };
 }

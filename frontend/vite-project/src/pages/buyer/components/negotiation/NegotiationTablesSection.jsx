@@ -13,6 +13,7 @@ export default function NegotiationTablesSection({
   handleCustomerExpectationChange,
   handleJewelleryItemNameChange,
   handleJewelleryWeightChange,
+  handleJewelleryCoinUnitsChange,
   blockedOfferSlots,
   handleBlockedOfferClick,
   parkExcludedItems,
@@ -65,6 +66,7 @@ export default function NegotiationTablesSection({
               onCustomerExpectationChange={handleCustomerExpectationChange}
               onJewelleryItemNameChange={handleJewelleryItemNameChange}
               onJewelleryWeightChange={handleJewelleryWeightChange}
+              onJewelleryCoinUnitsChange={handleJewelleryCoinUnitsChange}
               blockedOfferSlots={blockedOfferSlots}
               onBlockedOfferClick={(slot, offer, bItem) => handleBlockedOfferClick(slot, offer, bItem)}
               testingPassedColumnMode={null}

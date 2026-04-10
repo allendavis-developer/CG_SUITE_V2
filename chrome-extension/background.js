@@ -16,82 +16,14 @@
  * 5. We send WAITING_FOR_DATA to that tab so the content script shows "Have you got the data yet?". We retry a few times in case the content script isn't ready yet.
  */
 
-importScripts('jewellery-scrap/constants.js', 'jewellery-scrap/worker-session.js');
-
-// ── Park agreement diagnostic log ─────────────────────────────────────────────
-
-/** Accumulated log entries for the current/last park agreement run. Cleared each new run. */
-let cgParkLog = [];
-let cgParkLogStartTs = null;
-
-/**
- * Append a structured log entry for park-agreement diagnostics.
- * @param {string} fn     - originating function name
- * @param {string} phase  - 'enter' | 'step' | 'decision' | 'call' | 'result' | 'exit' | 'error'
- * @param {object} [data] - key variable values at this point
- * @param {string} [msg]  - short human-readable description
- */
-function logPark(fn, phase, data, msg) {
-  const now = Date.now();
-  if (cgParkLogStartTs == null) cgParkLogStartTs = now;
-  let safe = {};
-  try {
-    safe = JSON.parse(
-      JSON.stringify(data ?? {}, (_k, v) => {
-        if (v === undefined) return null;
-        if (typeof v === 'function') return '[Function]';
-        if (
-          typeof v === 'object' && v !== null && !Array.isArray(v) &&
-          Object.keys(v).length > 30
-        ) return '[Object]';
-        return v;
-      })
-    );
-  } catch (_) {}
-  const entry = { ts: now, rel: now - cgParkLogStartTs, fn, phase, msg: msg || '', data: safe };
-  cgParkLog.push(entry);
-  console.log(`[CG Park Log] [${fn}] [${phase}]${msg ? ' ' + msg : ''}`, safe);
-}
-
-// ── eBay filter enforcement ────────────────────────────────────────────────────
-
-/**
- * Ensure the three required eBay filters are present in the URL:
- *   LH_Complete=1  (Completed items)
- *   LH_Sold=1      (Sold items)
- *   LH_PrefLoc=1   (UK Only)
- * Returns the (possibly modified) URL unchanged for non-eBay URLs.
- */
-function ensureEbayFilters(url) {
-  if (!url || !url.includes('ebay.co.uk')) return url;
-  try {
-    const u = new URL(url);
-    u.searchParams.set('LH_Complete', '1');
-    u.searchParams.set('LH_Sold', '1');
-    u.searchParams.set('LH_PrefLoc', '1');
-    return u.toString();
-  } catch (e) {
-    return url;
-  }
-}
-
-// ── Tab group styling (yellow) for extension-opened eBay/CC/CeX tabs ─────────────
-
-/**
- * Put a tab into a yellow tab group so users can distinguish extension-opened
- * tabs (eBay, Cash Converters, CeX) from other tabs.
- */
-async function putTabInYellowGroup(tabId) {
-  try {
-    const groupId = await chrome.tabs.group({ tabIds: tabId });
-    await chrome.tabGroups.update(groupId, {
-      color: 'yellow',
-      title: 'CG Suite'
-    });
-  } catch (e) {
-    console.warn('[CG Suite] Could not add tab to yellow group:', e?.message);
-  }
-}
+importScripts(
+  'bg/park-log.js',
+  'bg/tab-utils.js',
+  'bg/nospos-url-utils.js',
+  'bg/nospos-html.js',
+  'jewellery-scrap/constants.js',
+  'jewellery-scrap/worker-session.js',
+);
 
 /**
  * Open NosPos (or any URL) in a separate background window — same path as repricing `openNosposAndWait`.
@@ -241,77 +173,12 @@ async function focusOrOpenNosposParkTabImpl({ tabId, fallbackCreateUrl, appTabId
   return { ok: true, tabId: newTab.id, mode: 'opened' };
 }
 
-// ── Storage helpers ────────────────────────────────────────────────────────────
-
-async function getPending() {
-  const data = await chrome.storage.session.get('cgPending');
-  return data.cgPending || {};
-}
-
-async function setPending(obj) {
-  return chrome.storage.session.set({ cgPending: obj });
-}
-
-function isNosposSearchPath(path) {
-  return /^\/stock\/search(?:\/index)?\/?$/i.test((path || '').trim());
-}
-
-function isNosposAgreementItemsUrl(url) {
-  try {
-    const u = new URL(url || '');
-    const host = u.hostname.replace(/^www\./i, '').toLowerCase();
-    if (host !== 'nospos.com' && !host.endsWith('.nospos.com')) return false;
-    return /\/newagreement\/\d+\/items\/?$/i.test(u.pathname || '');
-  } catch (e) {
-    return false;
-  }
-}
-
-/** Any step under /newagreement/{id}/… (items, next wizard step, etc.). */
-function isNosposNewAgreementWorkflowUrl(url) {
-  try {
-    const u = new URL(url || '');
-    const host = u.hostname.replace(/^www\./i, '').toLowerCase();
-    if (host !== 'nospos.com' && !host.endsWith('.nospos.com')) return false;
-    return /\/newagreement\/\d+\//i.test(u.pathname || '');
-  } catch (e) {
-    return false;
-  }
-}
-
-/** After a successful Park Agreement, NosPos returns the tab to the Buying hub (`/buying`). */
-function isNosposBuyingHubUrl(url) {
-  try {
-    const u = new URL(url || '');
-    const host = u.hostname.replace(/^www\./i, '').toLowerCase();
-    if (host !== 'nospos.com' && !host.endsWith('.nospos.com')) return false;
-    return /^\/buying\/?$/i.test(u.pathname || '') || /^\/customer\/\d+\/buying\/?$/i.test(u.pathname || '');
-  } catch (e) {
-    return false;
-  }
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+// Storage helpers, URL utils, sleep, tab utils — imported from bg/ modules
 
 /** Max time to wait for a NosPos full tab reload after Add or category change (user can retry after). */
 const NOSPOS_RELOAD_WAIT_MS = 20000;
 
-async function sendMessageToTabWithRetries(tabId, message, retries, delayMs) {
-  let lastErr = null;
-  for (let i = 0; i <= retries; i += 1) {
-    try {
-      return await chrome.tabs.sendMessage(tabId, message);
-    } catch (e) {
-      lastErr = e;
-      if (i < retries) {
-        await sleep(delayMs);
-      }
-    }
-  }
-  throw lastErr || new Error('Could not reach target tab');
-}
+// sendMessageToTabWithRetries — imported from bg/tab-utils.js
 
 async function scrapeNosposGridMessage(tabId, messageType) {
   try {
@@ -1704,48 +1571,11 @@ async function failNosposRequestAndCloseTab(requestId, entry, message) {
   }
 }
 
-async function focusAppTab(appTabId) {
-  if (!appTabId) return;
-  const appTab = await chrome.tabs.get(appTabId).catch(() => null);
-  if (!appTab) return;
-  await chrome.tabs.update(appTabId, { active: true }).catch(() => {});
-  if (appTab.windowId) {
-    await chrome.windows.update(appTab.windowId, { focused: true }).catch(() => {});
-  }
-}
+// focusAppTab, waitForTabLoadComplete — imported from bg/tab-utils.js
 
 importScripts('tasks/jewellery-scrap-prices-tab.js');
 
 // ── CeX nav scrape (super-categories) — see cex-scrape/ in repo ──────────────
-
-function waitForTabLoadComplete(tabId, timeoutMs, timeoutErrorMessage) {
-  const ms = timeoutMs == null ? 90000 : timeoutMs;
-  const timeoutMsg = timeoutErrorMessage || 'CeX tab load timed out';
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      chrome.tabs.onUpdated.removeListener(onUpdated);
-      reject(new Error(timeoutMsg));
-    }, ms);
-
-    function onUpdated(updatedTabId, info) {
-      if (updatedTabId !== tabId) return;
-      if (info.status === 'complete') {
-        chrome.tabs.onUpdated.removeListener(onUpdated);
-        clearTimeout(timer);
-        resolve();
-      }
-    }
-
-    chrome.tabs.onUpdated.addListener(onUpdated);
-    chrome.tabs.get(tabId).then((tab) => {
-      if (tab && tab.status === 'complete') {
-        chrome.tabs.onUpdated.removeListener(onUpdated);
-        clearTimeout(timer);
-        resolve();
-      }
-    }).catch(() => {});
-  });
-}
 
 importScripts('tasks/nospos-stock-category-pagination.js');
 
@@ -1883,137 +1713,7 @@ async function sendRepricingComplete(appTabId, payload) {
   }).catch(() => {});
 }
 
-// ── NosPos stock search result parser ─────────────────────────────────────────
-
-/**
- * Parse the NosPos /stock/search/index HTML page and extract result rows.
- * Returns an array of { barserial, href, name, costPrice, retailPrice, quantity }.
- */
-function decodeNosposHtmlText(value) {
-  return (value || '')
-    .replace(/&amp;/g, '&')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function getStockNameFromEditHtml(html) {
-  // Try every ordering of attributes on the stock-name input.
-  // The input looks like: <input type="text" id="stock-name" class="..." name="Stock[name]" value="xbox series x" ...>
-  // We match the whole input tag first, then pull value= out of it.
-  const byId = html.match(/<input[^>]+id="stock-name"[^>]*>/i);
-  const byName = html.match(/<input[^>]+name="Stock\[name\]"[^>]*>/i);
-  const tag = (byId || byName)?.[0] || '';
-  const valueMatch = tag.match(/\bvalue="([^"]*)"/i);
-  return decodeNosposHtmlText(valueMatch?.[1] || '');
-}
-
-function parseNosposSearchResults(html) {
-  const results = [];
-  // Match <tr data-key="..."> rows
-  const rowRe = /<tr[^>]+data-key="\d+"[^>]*>([\s\S]*?)<\/tr>/gi;
-  let rowMatch;
-  while ((rowMatch = rowRe.exec(html)) !== null) {
-    const rowHtml = rowMatch[1];
-    // Extract all <td>...</td> cells
-    const cells = [];
-    const cellRe = /<td[^>]*>([\s\S]*?)<\/td>/gi;
-    let cellMatch;
-    while ((cellMatch = cellRe.exec(rowHtml)) !== null) {
-      cells.push(cellMatch[1]);
-    }
-    if (cells.length < 5) continue;
-
-    // Cell 0: barserial + href
-    const linkMatch = cells[0].match(/<a[^>]+href="([^"]+)"[^>]*>([^<]*)<\/a>/i);
-    const href = linkMatch ? linkMatch[1].replace(/&amp;/g, '&') : '';
-    const barserial = linkMatch ? linkMatch[2].trim() : '';
-
-    // Cell 1: item name (prefer title attribute for full text, handles HTML entities)
-    const titleAttr = cells[1].match(/(?:data-original-title|title)="([^"]+)"/i);
-    const name = titleAttr
-      ? decodeNosposHtmlText(titleAttr[1])
-      : cells[1].replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-
-    // Cells 2-4: prices + quantity (strip all tags)
-    const costPrice = cells[2].replace(/<[^>]*>/g, '').trim();
-    const retailPrice = cells[3].replace(/<[^>]*>/g, '').trim();
-    const quantity = cells[4].replace(/<[^>]*>/g, '').trim();
-
-    if (barserial || href) {
-      results.push({ barserial, href, name, costPrice, retailPrice, quantity });
-    }
-  }
-  return results;
-}
-
-/**
- * Parse a direct /stock/:id/edit hit when NosPos bypasses the search results page.
- * Returns a single result row if the page contains a Barserial detail.
- */
-function parseNosposStockEditResult(html, finalUrl) {
-  const barserialMatch = html.match(
-    /<div[^>]*class="detail"[^>]*>\s*<strong>\s*Barserial\s*<\/strong>\s*<span>([\s\S]*?)<\/span>\s*<\/div>/i
-  );
-  const barserial = decodeNosposHtmlText(
-    (barserialMatch?.[1] || '').replace(/<[^>]*>/g, ' ')
-  );
-  if (!barserial) return [];
-
-  let href = '';
-  try {
-    href = new URL(finalUrl).pathname || '';
-  } catch {
-    href = '';
-  }
-
-  const titleMatch = html.match(/<title>([\s\S]*?)<\/title>/i);
-  const stockNameFromInput = getStockNameFromEditHtml(html);
-  const name = stockNameFromInput || decodeNosposHtmlText((titleMatch?.[1] || '').replace(/\s*-\s*Nospos\s*$/i, ''));
-
-  return [{
-    barserial,
-    href,
-    name,
-    costPrice: '',
-    retailPrice: '',
-    quantity: ''
-  }];
-}
-
-// ── Address lookup (getAddress.io via Django proxy) ─────────────────────────────
-
-const ADDRESS_API_BASE = 'http://127.0.0.1:8000';
-
-async function handleFetchAddressSuggestions(message) {
-  // Normalize postcode: trim, collapse whitespace (including nbsp), uppercase
-  const raw = (message.postcode || '').trim().replace(/\s+/g, ' ').replace(/\u00A0/g, ' ');
-  const postcode = raw.toUpperCase();
-  if (!postcode || postcode.replace(/\s/g, '').length < 4) {
-    return { ok: true, addresses: [] };
-  }
-  const bases = ['http://127.0.0.1:8000', 'http://localhost:8000'];
-  for (const base of bases) {
-    try {
-      const url = `${base}/api/address-lookup/${encodeURIComponent(postcode)}/`;
-      const resp = await fetch(url);
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({}));
-        return { ok: false, error: err.error || `HTTP ${resp.status}` };
-      }
-      const data = await resp.json();
-      const addresses = data.addresses || [];
-      return { ok: true, addresses: Array.isArray(addresses) ? addresses : [] };
-    } catch (e) {
-      if (bases.indexOf(base) < bases.length - 1) continue;
-      return { ok: false, error: (e?.message || 'Network error') + '. Is Django running at http://127.0.0.1:8000?' };
-    }
-  }
-  return { ok: false, error: 'Could not reach address lookup service' };
-}
+// NosPos HTML parsers, address lookup — imported from bg/nospos-html.js
 
 // ── Message router ─────────────────────────────────────────────────────────────
 
@@ -2142,25 +1842,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return false;
 });
 
-// ── NosPos session (HTML fetch + redirect detection; shared by stock search & customer profile) ──
-
-const NOSPOS_HTML_FETCH_HEADERS = {
-  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-};
-
-/**
- * True when a credentialed NosPos HTML response looks unauthenticated (same rules as stock search).
- */
-function nosposHtmlFetchIndicatesNotLoggedIn(response, finalUrl) {
-  const url = (finalUrl || response?.url || '').toLowerCase();
-  if (!response?.ok) return true;
-  return (
-    url.includes('/login') ||
-    url.includes('/signin') ||
-    url.includes('/site/standard-login') ||
-    url.includes('/twofactor')
-  );
-}
+// NOSPOS_HTML_FETCH_HEADERS, nosposHtmlFetchIndicatesNotLoggedIn — imported from bg/nospos-html.js
 
 // ── Handlers ───────────────────────────────────────────────────────────────────
 

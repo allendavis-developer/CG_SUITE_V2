@@ -63,7 +63,7 @@ const CustomerTransactionHeader = ({
     );
 
     const hasDateRow = Boolean(joinedRow || lastTransactedRow);
-    const hasMetricsSecondRow = otherRows.length > 0 || Boolean(customer.bypassReason);
+    const hasMetricsSecondRow = otherRows.length > 0;
 
     const rowTitle = (row) => {
       if (!row) return '';
@@ -132,11 +132,11 @@ const CustomerTransactionHeader = ({
               <div className="col-start-2 row-start-1 flex min-w-0 flex-wrap items-center gap-2">
                 {joinedRow ? metricPill(joinedRow) : null}
                 {lastTransactedRow ? metricPill(lastTransactedRow) : null}
+                {bypassPill}
               </div>
               {hasMetricsSecondRow ? (
                 <div className="col-start-2 row-start-2 flex min-w-0 flex-wrap items-center gap-2">
                   {otherRows.map((row) => metricPill(row))}
-                  {bypassPill}
                 </div>
               ) : null}
             </div>

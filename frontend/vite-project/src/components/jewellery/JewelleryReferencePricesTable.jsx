@@ -3,7 +3,7 @@ import { formatOfferPrice } from '@/utils/helpers';
 import {
   SPREADSHEET_TABLE_STYLES,
   SPREADSHEET_TABLE_WORKSPACE_PERF_STYLES,
-} from '@/pages/buyer/spreadsheetTableStyles';
+} from '@/styles/spreadsheetTableStyles';
 import JewelleryLineItems from '@/components/jewellery/JewelleryLineItems';
 
 const TROY_OZ_GRAMS = 31.1034768;

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Icon, Breadcrumb } from '@/components/ui/components';
 import WorkspaceCloseButton from '@/components/ui/WorkspaceCloseButton';
 import CexMarketPricingStrip from './CexMarketPricingStrip';
+import WorkspacePricingStatCards from './WorkspacePricingStatCards';
 import OfferSelection from './OfferSelection';
 import EbayResearchForm from '@/components/forms/EbayResearchForm.jsx';
 import CashConvertersResearchForm from '@/components/forms/CashConvertersResearchForm.jsx';
@@ -79,7 +80,7 @@ export default function CexProductView({
 
     return (
       <section className="buyer-main-content w-3/5 min-w-0 min-h-0 flex-1 bg-white flex flex-col overflow-y-auto buyer-panel-scroll">
-        <div className="flex flex-col gap-4 px-8 py-4 bg-gray-50 border-b border-gray-200 sticky top-0 z-40 sm:flex-row sm:items-stretch sm:gap-6">
+        <div className="flex flex-col gap-4 px-8 py-4 bg-gray-50 border-b border-gray-200 sticky top-0 z-40 sm:flex-row sm:items-stretch sm:gap-4">
           <div className="flex min-w-0 shrink-0 items-center gap-3 self-stretch sm:max-w-[min(100%,20rem)]">
             <div className="bg-brand-blue p-1.5 rounded shrink-0 self-center">
               <span className="material-symbols-outlined text-brand-orange text-sm">add_link</span>
@@ -89,22 +90,38 @@ export default function CexProductView({
               <p className="text-[10px] text-gray-500 uppercase tracking-wider">Viewing saved item</p>
             </div>
           </div>
-          {!isRepricing && displayOffers.length > 0 && (
-            <div className="flex min-w-0 w-full flex-1 flex-col justify-center self-stretch">
-              <OfferSelection
-                className="min-w-0 w-full"
-                variant="cex" offers={displayOffers} referenceData={refWithOurSale}
-                offerType={useVoucherOffers ? 'voucher' : 'cash'}
-                initialSelectedOfferId={item?.selectedOfferId ?? null}
-                syncKey={`${item?.id ?? 'cex'}:${useVoucherOffers ? 'voucher' : 'cash'}`}
-                onAddToCart={onSelectOfferForCartItem}
-                showAddActionCard={false}
-                toolbarLayout
-                toolbarFillWidth
-                hideSectionHeader
-              />
-            </div>
-          )}
+          <div className="flex min-w-0 w-full flex-1 flex-col gap-3 self-stretch sm:flex-row sm:items-stretch">
+            <WorkspacePricingStatCards
+              referenceData={refData}
+              ourSalePrice={resolvedOurSalePrice}
+              hideBuyInPrice={isRepricing}
+              cexOutOfStock={item.cexProductData?.isOutOfStock || item.cexOutOfStock}
+            />
+            {!isRepricing && displayOffers.length > 0 ? (
+              <>
+                <div
+                  className="mx-1 hidden w-px shrink-0 self-stretch rounded-full bg-gray-200/70 sm:block"
+                  aria-hidden
+                />
+                <div className="flex min-w-0 w-full flex-1 flex-col justify-center self-stretch">
+                <OfferSelection
+                  className="min-w-0 w-full"
+                  variant="cex"
+                  offers={displayOffers}
+                  referenceData={refWithOurSale}
+                  offerType={useVoucherOffers ? 'voucher' : 'cash'}
+                  initialSelectedOfferId={item?.selectedOfferId ?? null}
+                  syncKey={`${item?.id ?? 'cex'}:${useVoucherOffers ? 'voucher' : 'cash'}`}
+                  onAddToCart={onSelectOfferForCartItem}
+                  showAddActionCard={false}
+                  toolbarLayout
+                  toolbarFillWidth
+                  hideSectionHeader
+                />
+                </div>
+              </>
+            ) : null}
+          </div>
         </div>
         <div className="p-8 space-y-8">
           <ProductDetailsCard title={item.title} imageUrl={imageUrl} specs={specs} stockStatus={item.cexProductData?.isOutOfStock || item.cexProductData?.stockStatus} />
@@ -120,6 +137,7 @@ export default function CexProductView({
             onOpenCashConvertersResearch={() => setCeXCashConvertersModalOpen(true)}
             cexSku={item.cexProductData?.id || item.cexSku}
             hideBuyInPrice={isRepricing}
+            omitCorePricing
           />
 
           {isCeXEbayModalOpen && (
@@ -264,14 +282,25 @@ export default function CexProductView({
   return (
     <section className="buyer-main-content w-3/5 min-w-0 min-h-0 flex-1 bg-white flex flex-col overflow-y-auto buyer-panel-scroll">
       <div className="border-b border-gray-200 bg-gray-50/50 px-8 py-4">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch lg:gap-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch lg:gap-4">
           <div className="flex min-w-0 shrink-0 flex-col justify-center self-stretch lg:max-w-[min(100%,28rem)] xl:max-w-[32rem]">
             <Breadcrumb items={['CeX']} />
             <h1 className="mt-2 text-2xl font-extrabold tracking-tight text-gray-900">{data.title || 'CeX Product'}</h1>
           </div>
-          <div className="flex min-w-0 flex-1 items-stretch gap-3 self-stretch">
-            {!isRepricing && offers.length > 0 && (
-              <div className="flex min-w-0 flex-1 flex-col justify-center">
+          <div className="flex min-w-0 flex-1 flex-col gap-3 self-stretch sm:flex-row sm:items-stretch">
+            <WorkspacePricingStatCards
+              referenceData={refData}
+              ourSalePrice={cexBasedRounded != null ? String(cexBasedRounded) : ''}
+              hideBuyInPrice={isRepricing}
+              cexOutOfStock={data.isOutOfStock ?? false}
+            />
+            {!isRepricing && offers.length > 0 ? (
+              <>
+                <div
+                  className="mx-1 hidden w-px shrink-0 self-stretch rounded-full bg-gray-200/70 sm:block"
+                  aria-hidden
+                />
+                <div className="flex min-w-0 flex-1 flex-col justify-center self-stretch">
                 <OfferSelection
                   className="min-w-0 w-full"
                   variant="cex"
@@ -285,10 +314,11 @@ export default function CexProductView({
                   toolbarFillWidth
                   hideSectionHeader
                 />
-              </div>
-            )}
+                </div>
+              </>
+            ) : null}
             {(onCancelCeXProduct || onClearCeXProduct) && (
-              <div className="flex shrink-0 items-center">
+              <div className="flex shrink-0 items-center sm:self-center">
                 <WorkspaceCloseButton
                   title="Close CeX product"
                   onClick={onCancelCeXProduct ?? onClearCeXProduct}
@@ -302,20 +332,6 @@ export default function CexProductView({
 
       <div className="p-8 space-y-8">
         <ProductDetailsCard title={data.title} imageUrl={imageUrl} specs={data.specifications} stockStatus={data.isOutOfStock || data.stockStatus} />
-
-        <CexMarketPricingStrip
-          variant="cex"
-          competitorStats={
-            refData.cex_sale_price != null
-              ? [{ salePrice: refData.cex_sale_price, buyPrice: refData.cex_tradein_cash }]
-              : []
-          }
-          ourSalePrice={cexBasedRounded != null ? String(cexBasedRounded) : ''}
-          referenceData={refData}
-          cexSku={data.id}
-          hideBuyInPrice={isRepricing}
-          showEbayCcResearchActions={false}
-        />
 
         {isRepricing && !cartItems.some((ci) => ci.isCustomCeXItem && ci.title === data.title && ci.subtitle === (data.category || '')) && (
           <button

@@ -311,8 +311,8 @@ const OfferSelection = ({
                         isBlocked
                           ? 'cursor-not-allowed bg-red-50/70 border-red-200/70 opacity-70 text-brand-blue'
                           : isHighlighted
-                          ? 'ring-2 ring-brand-blue bg-brand-blue/10 border-brand-blue/30 cursor-pointer text-brand-blue'
-                          : 'bg-brand-blue/5 border-brand-blue/20 text-brand-blue hover:bg-green-50 hover:border-green-200 hover:text-green-600 active:scale-[0.99] cursor-pointer'
+                          ? 'ring-2 ring-brand-blue bg-brand-blue/10 border-brand-blue/30 cursor-pointer text-brand-blue hover:bg-emerald-50 hover:border-emerald-400 hover:text-emerald-700'
+                          : 'bg-brand-blue/5 border-brand-blue/20 text-brand-blue hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-700 active:scale-[0.99] cursor-pointer'
                       }`}
                       onClick={() => handleOfferClick(offer.id)}
                     >
@@ -330,7 +330,7 @@ const OfferSelection = ({
                         isBlocked
                           ? 'cursor-not-allowed bg-red-50/70 border-red-200/70 opacity-70 text-brand-blue'
                           : isHighlighted
-                          ? 'ring-2 ring-brand-blue bg-brand-blue/10 border-brand-blue/30 text-brand-blue'
+                          ? 'ring-2 ring-brand-blue bg-brand-blue/10 border-brand-blue/30 text-brand-blue hover:bg-emerald-50 hover:border-emerald-400 hover:text-emerald-700'
                           : 'bg-brand-blue/5 border-brand-blue/20 text-brand-blue'
                       }`}
                     >

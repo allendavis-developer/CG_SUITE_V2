@@ -6,14 +6,18 @@ import { NEGOTIATION_ROW_CONTEXT } from '@/pages/buyer/rowContextZones';
 import {
   SPREADSHEET_TABLE_STYLES,
   SPREADSHEET_TABLE_WORKSPACE_PERF_STYLES,
-} from '@/pages/buyer/spreadsheetTableStyles';
+} from '@/styles/spreadsheetTableStyles';
 import { formatOfferPrice, roundOfferPrice } from '@/utils/helpers';
+import JewelleryLineDetailsBlockingModal from '@/components/jewellery/JewelleryLineDetailsBlockingModal';
 import {
   tierOfferGbpFromReference,
   computeWorkspaceLineTotal,
   isJewelleryCoinLine,
   isJewelleryCoinSilverOzLine,
+  lineNeedsJewelleryWorkspaceDetail,
   resolveJewelleryTierMarginsPct,
+  sanitizeJewelleryCoinUnitsInput,
+  sanitizeJewelleryWeightInput,
 } from '@/components/jewellery/jewelleryNegotiationCart';
 import { troyOzSilverReferenceFromCatalog } from '@/components/jewellery/jewellerySilverCoinReference';
 import { fetchJewelleryCatalog } from '@/services/api';
@@ -498,6 +502,19 @@ export default function JewelleryLineItems({
   );
   const [jewelleryOfferAuthModal, setJewelleryOfferAuthModal] = useState(null);
   const [jewelleryOfferAuthName, setJewelleryOfferAuthName] = useState('');
+  const draftJewelleryLines = useMemo(
+    () => lines.filter((l) => l.request_item_id == null || String(l.request_item_id).trim() === ''),
+    [lines]
+  );
+  const draftNeedsJewelleryDetail = useMemo(
+    () => draftJewelleryLines.some(lineNeedsJewelleryWorkspaceDetail),
+    [draftJewelleryLines]
+  );
+  const [jewelleryDraftDetailsModalOpen, setJewelleryDraftDetailsModalOpen] = useState(false);
+
+  useEffect(() => {
+    if (draftNeedsJewelleryDetail) setJewelleryDraftDetailsModalOpen(true);
+  }, [draftNeedsJewelleryDetail]);
 
   useEffect(() => {
     if (!controlled) {
@@ -551,6 +568,7 @@ export default function JewelleryLineItems({
     if (!ref) return;
     const wu = defaultWeightUnit(ref.sourceKind);
     const id = crypto.randomUUID?.() ?? `jewellery-item-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const coin = isJewelleryCoinLine({ productName: v.product_name, materialGrade: v.material_grade });
     setLines((prev) => [
       ...prev,
       {
@@ -568,7 +586,8 @@ export default function JewelleryLineItems({
         ratePerGram: ref.ratePerGram,
         unitPrice: ref.unitPrice,
         weightUnit: ref.sourceKind === 'UNIT' ? 'each' : wu,
-        weight: '1',
+        weight: coin ? '1' : '0',
+        ...(coin ? { coinUnits: '0' } : {}),
         selectedOfferTierPct: null,
         manualOfferInput: '',
         manualOfferAuthBy: null,
@@ -908,16 +927,29 @@ export default function JewelleryLineItems({
                     </td>
                     <td>
                       {isCoinLine ? (
-                        <span
-                          className="flex h-8 items-center px-2 font-semibold tabular-nums text-gray-600"
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={line.coinUnits ?? '0'}
+                          onChange={(e) =>
+                            updateLine(line.id, {
+                              coinUnits: sanitizeJewelleryCoinUnitsInput(e.target.value),
+                            })
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              e.currentTarget.blur();
+                            }
+                          }}
+                          className="h-8 w-full min-w-[3.5rem] rounded border border-gray-300 px-2 font-semibold tabular-nums text-gray-900 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-blue/30"
                           title={
                             isSilverOzCoin
-                              ? 'Silver coin lines use 1 troy oz at the reference silver £/oz price'
-                              : 'Coin lines use one piece at the reference table price'
+                              ? 'Number of troy ounces at the reference silver £/oz price'
+                              : 'Number of coins at the reference table price per unit'
                           }
-                        >
-                          1 unit
-                        </span>
+                          aria-label="Coin or bullion unit count"
+                        />
                       ) : (
                         <input
                           type="number"
@@ -926,7 +958,7 @@ export default function JewelleryLineItems({
                           step="any"
                           value={line.weight}
                           onChange={(e) => {
-                            const cleaned = String(e.target.value || '').replace(/[^0-9.]/g, '');
+                            const cleaned = sanitizeJewelleryWeightInput(e.target.value, false);
                             updateLine(line.id, { weight: cleaned });
                           }}
                           onKeyDown={(e) => {
@@ -1179,6 +1211,23 @@ export default function JewelleryLineItems({
           removeLabel="Remove jewellery item"
         />
       ) : null}
+
+      <JewelleryLineDetailsBlockingModal
+        open={jewelleryDraftDetailsModalOpen}
+        onClose={() => setJewelleryDraftDetailsModalOpen(false)}
+        lines={draftJewelleryLines}
+        onCommitLines={(commits) => {
+          for (const c of commits) {
+            updateLine(c.id, {
+              itemName: c.itemName,
+              ...(c.weight !== undefined ? { weight: c.weight } : {}),
+              ...(c.coinUnits !== undefined ? { coinUnits: c.coinUnits } : {}),
+            });
+          }
+        }}
+        showNotification={showNotification}
+        zClass="z-[310]"
+      />
 
       {jewelleryOfferAuthModal ? (
         <TinyModal

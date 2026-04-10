@@ -4,17 +4,20 @@ import useAppStore from '@/store/useAppStore';
 import ProductSelection from '@/pages/buyer/components/ProductSelection';
 import AttributeConfiguration from '@/pages/buyer/components/AttributeConfiguration';
 import OfferSelection from '@/pages/buyer/components/OfferSelection';
-import CexMarketPricingStrip from '@/pages/buyer/components/CexMarketPricingStrip';
+import WorkspacePricingStatCards from '@/pages/buyer/components/WorkspacePricingStatCards';
 import EbayResearchForm from '@/components/forms/EbayResearchForm';
 import CexProductView from '@/pages/buyer/components/CexProductView';
 import { useProductAttributes } from '@/pages/buyer/hooks/useProductAttributes';
 import {
+  fetchNosposCategories,
   fetchProductCategories,
   fetchProductModels,
   fetchProductVariants,
   fetchVariantPrices,
+  peekNosposCategoriesCache,
 } from '@/services/api';
 import { formatOfferPrice, roundSalePrice } from '@/utils/helpers';
+import { nosposCategoriesToNestedRoots } from '@/utils/categoryPickerTree';
 import { filterCategoryTree, getCategoryPath } from '@/utils/categoryTree';
 import {
   referenceDataWithNormalizedCexOffers,
@@ -23,12 +26,85 @@ import {
 } from '@/utils/cexOfferMapping';
 import WorkspaceCloseButton from '@/components/ui/WorkspaceCloseButton';
 import JewelleryReferencePricesTable from '@/components/jewellery/JewelleryReferencePricesTable';
+import OtherNosposManualAddPanel from '@/components/nospos/OtherNosposManualAddPanel';
 import { useJewelleryScrapWorkspace } from '@/hooks/useJewelleryScrapWorkspace';
 
 /** Jewellery is only added via the header Jewellery button, not the category tree. */
 function isJewelleryCategoryName(name) {
   const n = String(name || '').trim().toLowerCase();
   return n === 'jewellery' || n === 'jewelry';
+}
+
+function findCategoryNodeById(nodes, categoryId) {
+  const want = String(categoryId);
+  for (const cat of nodes || []) {
+    if (String(cat.category_id) === want) return cat;
+    if (cat.children?.length) {
+      const found = findCategoryNodeById(cat.children, categoryId);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+/**
+ * Builder / NosPos “Other” column — same interaction model as the original `renderCategoryNode` in this header.
+ * @param {object} category
+ * @param {object} ctx
+ */
+function renderCategoryTreeNode(category, ctx) {
+  const {
+    expandedIds,
+    setExpandedIds,
+    selectedCategoryId,
+    treeOnBrandBlue,
+    showNegotiationItemBuilder,
+    onActivate,
+  } = ctx;
+  const hasChildren = Boolean(category.children?.length);
+  /** User-controlled expand/collapse even while filtering (search only auto-expands branches; chevrons still work). */
+  const isExpanded = expandedIds.includes(category.category_id);
+  /** Always show orange selection for the active category (including under filter). */
+  const isSelected = selectedCategoryId === String(category.category_id);
+
+  return (
+    <div key={category.category_id} className="space-y-1">
+      <button
+        type="button"
+        className={`flex w-full cursor-pointer items-center rounded-lg p-2 text-left text-sm ${
+          isSelected
+            ? 'border-l-2 border-brand-orange bg-brand-orange/10 font-semibold text-brand-orange'
+            : treeOnBrandBlue
+              ? 'text-white hover:bg-white/10'
+              : 'text-brand-blue hover:bg-[var(--brand-blue-alpha-10)]'
+        } ${!isSelected && isExpanded ? (treeOnBrandBlue ? 'bg-white/10' : 'bg-[var(--brand-blue-alpha-05)]') : ''}`}
+        onClick={() => {
+          onActivate(category, { hasChildren });
+        }}
+      >
+        <div className="w-5 flex-shrink-0 flex items-center justify-start">
+          {hasChildren && (
+            <span className={`material-symbols-outlined transition-transform text-sm ${isExpanded ? 'rotate-90' : ''}`}>
+              chevron_right
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="material-symbols-outlined text-sm flex-shrink-0">
+            {hasChildren ? 'folder' : 'smartphone'}
+          </span>
+          <span className="truncate">{category.name}</span>
+        </div>
+      </button>
+      {hasChildren && isExpanded && (
+        <div
+          className={`ml-4 space-y-1 border-l ${treeOnBrandBlue ? 'border-white/25' : 'border-[var(--ui-border)]'}`}
+        >
+          {category.children.map((child) => renderCategoryTreeNode(child, ctx))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 const AppHeader = ({
@@ -51,12 +127,19 @@ const AppHeader = ({
   const [isLoadingOffers, setIsLoadingOffers] = useState(false);
   const [referenceData, setReferenceData] = useState(null);
   const [ourSalePrice, setOurSalePrice] = useState('');
-  const [workspaceMode, setWorkspaceMode] = useState('builder'); // builder | ebay | cex | jewellery
+  const [workspaceMode, setWorkspaceMode] = useState('builder'); // builder | other | ebay | cex | jewellery
   /** Matches negotiation preview row for CeX workspace (`Negotiation` early NosPos AI). */
   const [cexNegotiationClientLineId, setCexNegotiationClientLineId] = useState(null);
   const popupRef = useRef(null);
   const headerRef = useRef(null);
   const categoryFilterInputRef = useRef(null);
+  const otherCategoryFilterInputRef = useRef(null);
+  const [otherExpandedIds, setOtherExpandedIds] = useState([]);
+  const [otherCategorySearch, setOtherCategorySearch] = useState('');
+  const [otherSelectedNosposId, setOtherSelectedNosposId] = useState('');
+  const [nosposOtherResults, setNosposOtherResults] = useState(null);
+  const [nosposOtherLoading, setNosposOtherLoading] = useState(false);
+  const [nosposOtherLoadError, setNosposOtherLoadError] = useState(null);
   const {
     scrape: jewelleryScrape,
     loading: jewelleryScrapeLoading,
@@ -116,6 +199,10 @@ const AppHeader = ({
     resetJewelleryScrape();
     clearHeaderBuilderState();
     setActiveTopLevelId(null);
+    setOtherExpandedIds([]);
+    setOtherCategorySearch('');
+    setOtherSelectedNosposId('');
+    setNosposOtherLoadError(null);
     setWorkspaceMode('builder');
     setMarketplaceSearchDialog(null);
     setEbayHeaderResearchQuery('');
@@ -395,12 +482,69 @@ const AppHeader = ({
     if (!isFilteringCategories || !visibleActiveTopLevelCategory) return [];
     return collectLeaves([visibleActiveTopLevelCategory], []);
   }, [isFilteringCategories, visibleActiveTopLevelCategory]);
+
+  const nosposOtherRoots = useMemo(
+    () => nosposCategoriesToNestedRoots(Array.isArray(nosposOtherResults) ? nosposOtherResults : []),
+    [nosposOtherResults]
+  );
+  const visibleOtherRoots = useMemo(() => {
+    const q = otherCategorySearch.trim();
+    if (!q) return nosposOtherRoots;
+    return filterCategoryTree(nosposOtherRoots, q);
+  }, [nosposOtherRoots, otherCategorySearch]);
+  const otherIsFilteringCategories = Boolean(otherCategorySearch.trim());
+  const otherFilteredLeafMatches = useMemo(() => {
+    const collectLeaves = (nodes, acc = []) => {
+      for (const node of nodes || []) {
+        if (node.children?.length) collectLeaves(node.children, acc);
+        else acc.push(node);
+      }
+      return acc;
+    };
+    if (!otherIsFilteringCategories || !visibleOtherRoots.length) return [];
+    return collectLeaves(visibleOtherRoots, []);
+  }, [otherIsFilteringCategories, visibleOtherRoots]);
+
+  // With filter text: expand every branch in the filtered tree so matches are visible; user can still collapse via row click.
+  useEffect(() => {
+    if (!activeTopLevelId || workspaceMode !== 'builder') return;
+    const q = categorySearch.trim();
+    if (!q || !visibleActiveTopLevelCategory) return;
+    const ids = [];
+    const walk = (n) => {
+      if (n.children?.length) {
+        ids.push(n.category_id);
+        n.children.forEach(walk);
+      }
+    };
+    walk(visibleActiveTopLevelCategory);
+    setExpandedIds((prev) => Array.from(new Set([...prev, ...ids])));
+  }, [categorySearch, activeTopLevelId, workspaceMode, visibleActiveTopLevelCategory]);
+
+  useEffect(() => {
+    if (workspaceMode !== 'other') return;
+    const q = otherCategorySearch.trim();
+    if (!q || !visibleOtherRoots.length) return;
+    const ids = [];
+    const walk = (n) => {
+      if (n.children?.length) {
+        ids.push(n.category_id);
+        n.children.forEach(walk);
+      }
+    };
+    for (const root of visibleOtherRoots) walk(root);
+    setOtherExpandedIds((prev) => Array.from(new Set([...prev, ...ids])));
+  }, [workspaceMode, otherCategorySearch, visibleOtherRoots]);
+
   /** Keep builder mounted after a leaf category is chosen, even if the left-tree popup loses `activeTopLevelId` (e.g. mousedown on negotiation customer/metrics strip). */
   const hasBuilderLeafCategory =
     buyerControls?.selectedCategory?.id != null && String(buyerControls.selectedCategory.id).trim() !== '';
   const showMountedWorkspace =
     showNegotiationItemBuilder &&
-    (Boolean(activeTopLevelCategory) || workspaceMode !== 'builder' || hasBuilderLeafCategory);
+    (workspaceMode === 'other' ||
+      Boolean(activeTopLevelCategory) ||
+      workspaceMode !== 'builder' ||
+      hasBuilderLeafCategory);
 
   // Expose workspace-open state to the rest of the app (e.g. disable finalize buttons)
   useEffect(() => {
@@ -475,6 +619,47 @@ const AppHeader = ({
   }, [activeTopLevelId, workspaceMode, showNegotiationItemBuilder]);
 
   useEffect(() => {
+    if (!showNegotiationItemBuilder || workspaceMode !== 'other') return;
+    let cancelled = false;
+    const cached = peekNosposCategoriesCache();
+    const cachedResults = cached?.results;
+    if (Array.isArray(cachedResults) && cachedResults.length > 0) {
+      setNosposOtherResults(cachedResults);
+      setNosposOtherLoadError(null);
+      setNosposOtherLoading(false);
+      return;
+    }
+    setNosposOtherLoading(true);
+    setNosposOtherLoadError(null);
+    fetchNosposCategories()
+      .then((data) => {
+        if (cancelled) return;
+        const results = data?.results ?? data;
+        setNosposOtherResults(Array.isArray(results) ? results : []);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setNosposOtherLoadError(err?.message || 'Failed to load NosPos categories');
+          setNosposOtherResults([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setNosposOtherLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showNegotiationItemBuilder, workspaceMode]);
+
+  useEffect(() => {
+    if (workspaceMode !== 'other' || !showNegotiationItemBuilder) return;
+    const t = window.setTimeout(() => {
+      otherCategoryFilterInputRef.current?.focus({ preventScroll: true });
+    }, 0);
+    return () => window.clearTimeout(t);
+  }, [workspaceMode, showNegotiationItemBuilder]);
+
+  useEffect(() => {
     if (!marketplaceSearchDialog || !showBuyerControls) return;
     const onKey = (e) => {
       if (e.key === 'Escape') setMarketplaceSearchDialog(null);
@@ -510,6 +695,9 @@ const AppHeader = ({
     buyerControlsRef.current?.onCloseTransientPanels?.();
     clearHeaderBuilderState();
     setActiveTopLevelId(null);
+    setOtherExpandedIds([]);
+    setOtherCategorySearch('');
+    setOtherSelectedNosposId('');
     setMarketplaceSearchDialog(null);
   }, [clearHeaderBuilderState]);
 
@@ -548,6 +736,17 @@ const AppHeader = ({
     }, 300);
     return () => clearTimeout(t);
   }, [isFilteringCategories, filteredLeafMatches, selectedCategoryId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (workspaceMode !== 'other') return;
+    if (!otherIsFilteringCategories || otherFilteredLeafMatches.length !== 1) return;
+    const only = otherFilteredLeafMatches[0];
+    if (String(only.category_id) === otherSelectedNosposId) return;
+    const t = setTimeout(() => {
+      setOtherSelectedNosposId(String(only.category_id));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [workspaceMode, otherIsFilteringCategories, otherFilteredLeafMatches, otherSelectedNosposId]);
 
   const buildWorkspaceNegotiationItem = useCallback((offerArg) => {
     if (!showNegotiationItemBuilder || !selectedModel || !variant) return null;
@@ -701,61 +900,62 @@ const AppHeader = ({
     resetHeaderWorkspaceChrome();
   };
 
-  const renderCategoryNode = (category) => {
-    const hasChildren = Boolean(category.children?.length);
-    const isExpanded = isFilteringCategories ? hasChildren : expandedIds.includes(category.category_id);
-    const suppressSelectedState = isFilteringCategories && filteredLeafMatches.length > 1;
-    const isSelected = !suppressSelectedState && selectedCategoryId === String(category.category_id);
-    const treeOnBrandBlue = showNegotiationItemBuilder;
+  const selectedOtherNosposNode = useMemo(
+    () =>
+      otherSelectedNosposId
+        ? findCategoryNodeById(nosposOtherRoots, otherSelectedNosposId)
+        : null,
+    [otherSelectedNosposId, nosposOtherRoots]
+  );
 
-    return (
-      <div key={category.category_id} className="space-y-1">
-        <button
-          type="button"
-          className={`flex w-full cursor-pointer items-center rounded-lg p-2 text-left text-sm ${
-            isSelected
-              ? 'border-l-2 border-brand-orange bg-brand-orange/10 font-semibold text-brand-orange'
-              : treeOnBrandBlue
-                ? 'text-white hover:bg-white/10'
-                : 'text-brand-blue hover:bg-[var(--brand-blue-alpha-10)]'
-          } ${!isSelected && isExpanded ? (treeOnBrandBlue ? 'bg-white/10' : 'bg-[var(--brand-blue-alpha-05)]') : ''}`}
-          onClick={() => {
-            handleCategorySelect(category);
-            if (hasChildren) {
-              setExpandedIds((prev) =>
-                prev.includes(category.category_id)
-                  ? prev.filter((id) => id !== category.category_id)
-                  : [...prev, category.category_id]
-              );
-            } else if (!showNegotiationItemBuilder) {
-              setActiveTopLevelId(null);
-            }
-          }}
-        >
-          <div className="w-5 flex-shrink-0 flex items-center justify-start">
-            {hasChildren && (
-              <span className={`material-symbols-outlined transition-transform text-sm ${isExpanded ? 'rotate-90' : ''}`}>
-                chevron_right
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="material-symbols-outlined text-sm flex-shrink-0">
-              {hasChildren ? 'folder' : 'smartphone'}
-            </span>
-            <span className="truncate">{category.name}</span>
-          </div>
-        </button>
-        {hasChildren && isExpanded && (
-          <div
-            className={`ml-4 space-y-1 border-l ${treeOnBrandBlue ? 'border-white/25' : 'border-[var(--ui-border)]'}`}
-          >
-            {category.children.map((child) => renderCategoryNode(child))}
-          </div>
-        )}
-      </div>
-    );
+  const otherNosposPathNames = useMemo(() => {
+    if (!otherSelectedNosposId || !nosposOtherRoots.length) return null;
+    return getCategoryPath(otherSelectedNosposId, nosposOtherRoots);
+  }, [otherSelectedNosposId, nosposOtherRoots]);
+
+  const builderTreeCtx = {
+    expandedIds,
+    setExpandedIds,
+    selectedCategoryId,
+    treeOnBrandBlue: showNegotiationItemBuilder,
+    showNegotiationItemBuilder,
+    onActivate: (category, { hasChildren }) => {
+      handleCategorySelect(category);
+      if (hasChildren) {
+        setExpandedIds((prev) =>
+          prev.includes(category.category_id)
+            ? prev.filter((id) => id !== category.category_id)
+            : [...prev, category.category_id]
+        );
+      } else if (!showNegotiationItemBuilder) {
+        setActiveTopLevelId(null);
+      }
+    },
   };
+
+  const otherTreeCtx = {
+    expandedIds: otherExpandedIds,
+    setExpandedIds: setOtherExpandedIds,
+    selectedCategoryId: otherSelectedNosposId,
+    treeOnBrandBlue: showNegotiationItemBuilder,
+    showNegotiationItemBuilder,
+    onActivate: (category, { hasChildren }) => {
+      setOtherSelectedNosposId(String(category.category_id));
+      if (hasChildren) {
+        setOtherExpandedIds((prev) =>
+          prev.includes(category.category_id)
+            ? prev.filter((id) => id !== category.category_id)
+            : [...prev, category.category_id]
+        );
+      }
+    },
+  };
+
+  const otherCategoriesForFields = useMemo(() => {
+    const bc = buyerControls?.nosposCategoriesResults;
+    if (Array.isArray(bc) && bc.length > 0) return bc;
+    return Array.isArray(nosposOtherResults) ? nosposOtherResults : [];
+  }, [buyerControls?.nosposCategoriesResults, nosposOtherResults]);
 
   const brandLink = (
     <Link
@@ -794,6 +994,9 @@ const AppHeader = ({
                     type="button"
                     onClick={() => {
                       clearHeaderBuilderState();
+                      setOtherExpandedIds([]);
+                      setOtherCategorySearch('');
+                      setOtherSelectedNosposId('');
                       setWorkspaceMode('builder');
                       setActiveTopLevelId((prev) =>
                         String(prev) === String(category.category_id) ? null : category.category_id
@@ -816,6 +1019,31 @@ const AppHeader = ({
                   </button>
                 );
               })}
+              {showNegotiationItemBuilder && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    buyerControlsRef.current?.onCloseTransientPanels?.();
+                    clearHeaderBuilderState();
+                    setActiveTopLevelId(null);
+                    setOtherExpandedIds([]);
+                    setOtherCategorySearch('');
+                    setOtherSelectedNosposId('');
+                    setWorkspaceMode('other');
+                  }}
+                  className={`min-h-11 inline-flex items-center gap-2 px-2.5 py-2 text-left text-sm font-bold no-underline transition-colors ${
+                    workspaceMode === 'other' ? 'text-brand-orange/90' : 'text-white/90 hover:text-white'
+                  }`}
+                >
+                  <span className="inline-flex flex-col items-center gap-1 leading-none">
+                    <span className="material-symbols-outlined text-[18px] opacity-85">category_search</span>
+                    {workspaceMode === 'other' ? (
+                      <span className="h-0.5 w-[1.125rem] shrink-0 rounded-full bg-brand-orange/85" />
+                    ) : null}
+                  </span>
+                  <span className="truncate no-underline">Other</span>
+                </button>
+              )}
               <div className="flex h-11 min-w-0 w-full max-w-[19.375rem] md:max-w-[23.5rem] lg:max-w-[26.625rem] xl:max-w-[29.75rem] shrink-0 items-stretch overflow-hidden rounded-lg border-2 border-slate-200/95 bg-white shadow-[0_4px_20px_rgba(0,0,0,0.18)] ring-2 ring-white/70">
                 <input
                   type="text"
@@ -868,6 +1096,9 @@ const AppHeader = ({
                   onClick={() => {
                     clearHeaderBuilderState();
                     setActiveTopLevelId(null);
+                    setOtherExpandedIds([]);
+                    setOtherCategorySearch('');
+                    setOtherSelectedNosposId('');
                     setWorkspaceMode('jewellery');
                     resetJewelleryScrape();
                     const bc = buyerControlsRef.current;
@@ -910,7 +1141,7 @@ const AppHeader = ({
                   showNegotiationItemBuilder ? { top: 'var(--workspace-overlay-top, 64px)' } : undefined
                 }
               >
-                {workspaceMode === 'builder' && (
+                {(workspaceMode === 'builder' || workspaceMode === 'other') && (
                 <div
                   className={
                     showNegotiationItemBuilder
@@ -928,7 +1159,11 @@ const AppHeader = ({
                       showNegotiationItemBuilder ? 'text-white' : 'text-brand-blue'
                     }`}
                   >
-                    <span>{activeTopLevelCategory.name}</span>
+                    <span>
+                      {workspaceMode === 'other'
+                        ? 'NosPos'
+                        : (activeTopLevelCategory?.name ?? '')}
+                    </span>
                     <span className="ml-2 text-brand-orange">Categories</span>
                   </p>
                 </div>
@@ -941,20 +1176,42 @@ const AppHeader = ({
                     >
                       filter_list
                     </span>
-                    <input
-                      ref={categoryFilterInputRef}
-                      className="w-full rounded-lg border border-[var(--ui-border)] bg-white py-2 pl-9 text-sm text-[var(--text-main)] shadow-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-blue/25"
-                      placeholder="Filter categories..."
-                      type="text"
-                      value={categorySearch}
-                      onChange={(e) => setCategorySearch(e.target.value)}
-                    />
+                    {workspaceMode === 'other' ? (
+                      <input
+                        ref={otherCategoryFilterInputRef}
+                        className="w-full rounded-lg border border-[var(--ui-border)] bg-white py-2 pl-9 text-sm text-[var(--text-main)] shadow-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-blue/25"
+                        placeholder="Filter categories..."
+                        type="text"
+                        value={otherCategorySearch}
+                        onChange={(e) => setOtherCategorySearch(e.target.value)}
+                      />
+                    ) : (
+                      <input
+                        ref={categoryFilterInputRef}
+                        className="w-full rounded-lg border border-[var(--ui-border)] bg-white py-2 pl-9 text-sm text-[var(--text-main)] shadow-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-blue/25"
+                        placeholder="Filter categories..."
+                        type="text"
+                        value={categorySearch}
+                        onChange={(e) => setCategorySearch(e.target.value)}
+                      />
+                    )}
                   </div>
                 </div>
                 <div className="space-y-1">
-                  {visibleActiveTopLevelCategory
-                    ? renderCategoryNode(visibleActiveTopLevelCategory)
-                    : (
+                  {workspaceMode === 'other' ? (
+                    nosposOtherLoading ? (
+                      <p
+                        className={`px-2 py-3 text-sm font-semibold ${
+                          showNegotiationItemBuilder ? 'text-white/80' : 'text-[var(--text-muted)]'
+                        }`}
+                      >
+                        Loading NosPos categories…
+                      </p>
+                    ) : nosposOtherLoadError ? (
+                      <p className="px-2 py-2 text-xs font-medium text-red-200">{nosposOtherLoadError}</p>
+                    ) : visibleOtherRoots.length ? (
+                      visibleOtherRoots.map((root) => renderCategoryTreeNode(root, otherTreeCtx))
+                    ) : (
                       <p
                         className={`px-2 py-1 text-xs ${
                           showNegotiationItemBuilder ? 'text-white/65' : 'text-[var(--text-muted)]'
@@ -962,7 +1219,28 @@ const AppHeader = ({
                       >
                         No matching categories.
                       </p>
-                    )}
+                    )
+                  ) : activeTopLevelCategory ? (
+                    visibleActiveTopLevelCategory ? (
+                      renderCategoryTreeNode(visibleActiveTopLevelCategory, builderTreeCtx)
+                    ) : (
+                      <p
+                        className={`px-2 py-1 text-xs ${
+                          showNegotiationItemBuilder ? 'text-white/65' : 'text-[var(--text-muted)]'
+                        }`}
+                      >
+                        No matching categories.
+                      </p>
+                    )
+                  ) : (
+                    <p
+                      className={`px-2 py-1 text-xs ${
+                        showNegotiationItemBuilder ? 'text-white/65' : 'text-[var(--text-muted)]'
+                      }`}
+                    >
+                      Pick a category button above to browse the catalogue tree.
+                    </p>
+                  )}
                 </div>
                 {!showNegotiationItemBuilder && (
                   <div className="mt-2 border-t border-[var(--ui-border)] px-2 pt-2">
@@ -980,13 +1258,15 @@ const AppHeader = ({
                 )}
                 {showNegotiationItemBuilder && (
                   <div className="flex h-full min-h-0 flex-1 flex-col border-l-0 border-gray-200 bg-white">
-                    {workspaceMode === 'builder' ? (
+                    {workspaceMode === 'builder' || workspaceMode === 'other' ? (
                       <div className="flex shrink-0 items-center justify-end border-b border-gray-200 bg-gray-50 px-3 py-2">
                         <WorkspaceCloseButton
                           title="Close workspace"
                           onClick={() => {
-                            const lineId = builderNegotiationClientLineIdRef.current;
-                            buyerControls?.onCancelBuilderWorkspace?.(lineId);
+                            if (workspaceMode === 'builder') {
+                              const lineId = builderNegotiationClientLineIdRef.current;
+                              buyerControls?.onCancelBuilderWorkspace?.(lineId);
+                            }
                             resetHeaderWorkspaceChrome();
                           }}
                         />
@@ -1026,6 +1306,61 @@ const AppHeader = ({
                               resetHeaderWorkspaceChrome();
                             }}
                           />
+                        )}
+                      </div>
+                    ) : workspaceMode === 'other' ? (
+                      <div className="flex h-full min-h-[280px] flex-col">
+                        {!otherSelectedNosposId ? (
+                          <div className="flex h-full min-h-[280px] flex-col items-center justify-center px-6 py-10 text-center">
+                            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full border border-gray-200 bg-gray-50">
+                              <span className="material-symbols-outlined text-3xl text-brand-blue">category_search</span>
+                            </div>
+                            <h3 className="text-lg font-extrabold tracking-tight text-gray-900">
+                              Browse NosPos stock categories
+                            </h3>
+                            <p className="mt-2 max-w-md text-sm leading-relaxed text-gray-600">
+                              Use the tree on the left—the same controls as the builder category picker—to find a NosPos
+                              category. Select a row to see its full path and ID here.
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+                            <div className="shrink-0 border-b border-gray-200 bg-gray-50 px-6 py-3">
+                              <h3 className="text-xs font-extrabold uppercase tracking-wide text-gray-500">
+                                NosPos category
+                              </h3>
+                              <p className="mt-1 text-sm font-semibold text-gray-900">
+                                {otherNosposPathNames?.length
+                                  ? otherNosposPathNames.join(' → ')
+                                  : selectedOtherNosposNode?.name ?? '—'}
+                              </p>
+                              <p className="mt-1 text-[11px] text-gray-600">
+                                <span className="font-semibold text-gray-700">ID </span>
+                                {otherSelectedNosposId}
+                                {selectedOtherNosposNode?._sourceRow?.fullName ? (
+                                  <>
+                                    <span className="mx-1.5 text-gray-300">·</span>
+                                    <span className="font-semibold text-gray-700">Full name </span>
+                                    {selectedOtherNosposNode._sourceRow.fullName}
+                                  </>
+                                ) : null}
+                              </p>
+                            </div>
+                            <OtherNosposManualAddPanel
+                              leafNosposId={Number(otherSelectedNosposId)}
+                              selectedNode={selectedOtherNosposNode}
+                              pathNames={otherNosposPathNames}
+                              categoriesResults={otherCategoriesForFields}
+                              categoryMappings={buyerControls?.nosposCategoryMappings ?? []}
+                              useVoucherOffers={useVoucherOffers}
+                              actualRequestId={buyerControls?.actualRequestId ?? null}
+                              showNotification={buyerControls?.showNotification}
+                              onAddNegotiationItem={buyerControls?.onAddNegotiationItem}
+                              onOfferPreviewChange={buyerControls?.onOtherWorkspaceOfferPreviewChange}
+                              onAdded={resetHeaderWorkspaceChrome}
+                              addButtonLabel={isRepricingWorkspace ? 'Add to reprice list' : 'Add to negotiation'}
+                            />
+                          </div>
                         )}
                       </div>
                     ) : workspaceMode === 'ebay' ? (
@@ -1168,38 +1503,59 @@ const AppHeader = ({
                               {selectedModel.name}
                             </p>
                           </div>
-                          {variant && !isRepricingWorkspace && (
-                            isLoadingOffers ? (
-                              <p className="flex min-w-0 flex-1 basis-full items-center self-stretch text-sm text-gray-500 sm:basis-0">
-                                Loading offers…
-                              </p>
-                            ) : (
-                              <div className="flex min-w-0 w-full flex-1 basis-full flex-col justify-center self-stretch sm:basis-0">
-                                <OfferSelection
-                                  className="min-w-0 w-full"
-                                  variant={variant}
-                                  offers={offers}
-                                  referenceData={referenceData}
-                                  offerType={useVoucherOffers ? 'voucher' : 'cash'}
-                                  onAddToCart={handleAddNegotiationItem}
-                                  blockedOfferSlots={buyerControls?.blockedOfferSlots}
-                                  toolbarLayout
-                                  toolbarFillWidth
-                                  hideSectionHeader
-                                  onBlockedOfferClick={(slot, offer, blockedSelectionArg) => {
-                                    const blockedItem = buildWorkspaceNegotiationItem(
-                                      blockedSelectionArg === undefined ? offer?.id : blockedSelectionArg
-                                    );
-                                    if (!blockedItem) return;
-                                    buyerControls?.onWorkspaceBlockedOfferAttempt?.({
-                                      slot,
-                                      offer,
-                                      item: blockedItem,
-                                    });
-                                  }}
-                                />
-                              </div>
-                            )
+                          {variant && (
+                            <>
+                              <WorkspacePricingStatCards
+                                referenceData={referenceData}
+                                ourSalePrice={ourSalePrice}
+                                hideBuyInPrice={isRepricingWorkspace}
+                                cexOutOfStock={referenceData?.cex_out_of_stock ?? false}
+                              />
+                              {!isRepricingWorkspace &&
+                                (isLoadingOffers ? (
+                                  <>
+                                    <div
+                                      className="mx-1 hidden w-px shrink-0 self-stretch rounded-full bg-gray-200/70 sm:block"
+                                      aria-hidden
+                                    />
+                                    <p className="flex min-w-0 flex-1 basis-full items-center self-stretch text-sm text-gray-500 sm:basis-0">
+                                      Loading offers…
+                                    </p>
+                                  </>
+                                ) : (
+                                  <>
+                                    <div
+                                      className="mx-1 hidden w-px shrink-0 self-stretch rounded-full bg-gray-200/70 sm:block"
+                                      aria-hidden
+                                    />
+                                    <div className="flex min-w-0 w-full flex-1 basis-full flex-col justify-center self-stretch sm:basis-0">
+                                      <OfferSelection
+                                        className="min-w-0 w-full"
+                                        variant={variant}
+                                        offers={offers}
+                                        referenceData={referenceData}
+                                        offerType={useVoucherOffers ? 'voucher' : 'cash'}
+                                        onAddToCart={handleAddNegotiationItem}
+                                        blockedOfferSlots={buyerControls?.blockedOfferSlots}
+                                        toolbarLayout
+                                        toolbarFillWidth
+                                        hideSectionHeader
+                                        onBlockedOfferClick={(slot, offer, blockedSelectionArg) => {
+                                          const blockedItem = buildWorkspaceNegotiationItem(
+                                            blockedSelectionArg === undefined ? offer?.id : blockedSelectionArg
+                                          );
+                                          if (!blockedItem) return;
+                                          buyerControls?.onWorkspaceBlockedOfferAttempt?.({
+                                            slot,
+                                            offer,
+                                            item: blockedItem,
+                                          });
+                                        }}
+                                      />
+                                    </div>
+                                  </>
+                                ))}
+                            </>
                           )}
                         </div>
                         <AttributeConfiguration
@@ -1216,16 +1572,6 @@ const AppHeader = ({
                             || referenceData?.cex_image_urls?.small
                           }
                         />
-                        {variant && (
-                          <CexMarketPricingStrip
-                            variant={variant}
-                            competitorStats={[]}
-                            ourSalePrice={ourSalePrice}
-                            referenceData={referenceData}
-                            cexSku={variant}
-                            showEbayCcResearchActions={false}
-                          />
-                        )}
                         {variant && isRepricingWorkspace && (
                           <button
                             type="button"

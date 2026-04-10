@@ -6,7 +6,7 @@ import CashConvertersResearchForm from "@/components/forms/CashConvertersResearc
 import { useNotification } from "@/contexts/NotificationContext";
 import { fetchRepricingSessionDetail, updateRepricingSession } from "@/services/api";
 import { formatMoney, getResearchMedian } from "./utils/repricingDisplay";
-import { SPREADSHEET_TABLE_STYLES } from "./spreadsheetTableStyles";
+import { SPREADSHEET_TABLE_STYLES } from '@/styles/spreadsheetTableStyles';
 import { TableCheckbox } from "@/components/ui/components";
 import { attachBarcodesFromSessionItems } from "./utils/repricingSessionMapping";
 

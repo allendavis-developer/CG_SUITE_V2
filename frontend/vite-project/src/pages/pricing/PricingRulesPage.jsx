@@ -17,7 +17,7 @@ import {
 import { useNotification } from '@/contexts/NotificationContext';
 import useAppStore from '@/store/useAppStore';
 import { CUSTOMER_TYPE_LABELS } from '@/utils/customerOfferRules';
-import { SPREADSHEET_TABLE_STYLES } from '@/pages/buyer/spreadsheetTableStyles';
+import { SPREADSHEET_TABLE_STYLES } from '@/styles/spreadsheetTableStyles';
 import { parseNosposPath } from '@/utils/nosposCategoryMappings';
 
 const inputFocus =

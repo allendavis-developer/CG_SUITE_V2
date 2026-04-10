@@ -49,13 +49,16 @@ from . import research_storage
 from .offer_rows import get_selected_offer_code, sync_request_item_offer_rows_from_payload
 from .services.offer_engine import (
     generate_offer_set as build_offer_set,
-    round_offer_price,
-    round_sale_price,
+    round_price,
 )
+from .utils.decorators import require_nospos_sync_secret
+from .utils.parsing import parse_decimal, coerce_bool
+from .services.cex_client import fetch_cex_box_detail as _fetch_cex_box_detail
 
-from .serializers import ( RequestSerializer, RequestItemSerializer, CustomerSerializer,
-ProductCategorySerializer, ProductSerializer, CustomerSerializer, VariantMarketStatsSerializer,
-RepricingSessionSerializer
+from .serializers import (
+    RequestSerializer, RequestItemSerializer, CustomerSerializer,
+    ProductCategorySerializer, ProductSerializer, VariantMarketStatsSerializer,
+    RepricingSessionSerializer,
 )
 
 _RESEARCH_SESSION_PREFETCH = Prefetch(
@@ -93,13 +96,7 @@ def _resolve_cex_sku_to_variant(item_payload):
         pass
 
 
-def _decimal_or_none(value, field_name):
-    if value in (None, ""):
-        return None
-    try:
-        return Decimal(str(value))
-    except (InvalidOperation, TypeError):
-        raise ValueError(f"Invalid format for {field_name}")
+_decimal_or_none = parse_decimal
 
 
 def _create_repricing_session_item_from_payload(session, item_data, idx):
@@ -173,14 +170,8 @@ def _sync_request_jewellery_reference_snapshot(existing_request, jewellery_refer
     existing_request.current_jewellery_reference_snapshot = snapshot
 
 
-def _round_offer_price(value):
-    """Nearest £5 if above £50, else nearest £2 (matches frontend `roundOfferPrice`)."""
-    return round_offer_price(value)
-
-
-def _round_sale_price(value):
-    """Nearest £5 if above £50, else nearest £2 (matches frontend `roundSalePrice`)."""
-    return round_sale_price(value)
+_round_offer_price = round_price
+_round_sale_price = round_price
 
 
 @api_view(['GET'])
@@ -1243,33 +1234,8 @@ def variant_market_stats(request):
     serializer = VariantMarketStatsSerializer(variant)
     return Response(serializer.data)
 
-CEX_BOX_DETAIL_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/118.0.5993.117 Safari/537.36"
-    ),
-    "Accept": "application/json, text/javascript, */*; q=0.01",
-    "Referer": "https://www.cex.uk/",
-}
 
-
-def _fetch_cex_box_detail(sku):
-    """Fetch live box details from CEX API. Returns dict or None on failure."""
-    url = f"https://wss2.cex.uk.webuy.io/v3/boxes/{sku}/detail"
-    try:
-        resp = requests.get(url, headers=CEX_BOX_DETAIL_HEADERS, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-        response = data.get("response", {})
-        if response.get("ack") != "Success":
-            return None
-        box_details = response.get("data", {}).get("boxDetails", [])
-        if not box_details:
-            return None
-        return box_details[0]
-    except Exception:
-        return None
+# _fetch_cex_box_detail imported from pricing.services.cex_client
 
 
 @api_view(['GET'])
@@ -2581,11 +2547,9 @@ def _parent_path_from_full_name(full_name):
 
 
 def _parse_optional_decimal(value):
-    if value is None or value == "":
-        return None
     try:
-        return Decimal(str(value))
-    except (InvalidOperation, TypeError, ValueError):
+        return parse_decimal(value)
+    except ValueError:
         return None
 
 
@@ -2671,21 +2635,9 @@ def nospos_categories_list(request):
 
 @csrf_exempt
 @api_view(["POST"])
+@require_nospos_sync_secret
 def nospos_categories_sync(request):
-    """
-    Upsert rows scraped from NosPos /stock/category/index.
-    Extension returns data to the app; the React client POSTs here with CSRF.
-    Optional header X-CG-Nospos-Sync-Secret must match NOSPOS_CATEGORY_SYNC_SECRET when that env var is set.
-    """
-    secret = getattr(settings, "NOSPOS_CATEGORY_SYNC_SECRET", "") or ""
-    if secret:
-        if (request.headers.get("X-CG-Nospos-Sync-Secret") or "") != secret:
-            return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
-    elif not settings.DEBUG:
-        return Response(
-            {"error": "NOSPOS_CATEGORY_SYNC_SECRET must be set when DEBUG is False"},
-            status=status.HTTP_503_SERVICE_UNAVAILABLE,
-        )
+    """Upsert rows scraped from NosPos /stock/category/index."""
 
     rows = _normalize_nospos_category_payload_rows(request.data)
     if not rows:
@@ -2781,20 +2733,9 @@ def nospos_fields_list(request):
 
 @csrf_exempt
 @api_view(["POST"])
+@require_nospos_sync_secret
 def nospos_fields_sync(request):
-    """
-    Upsert field rows scraped from NosPos /stock/category/modify (CategoryFieldForm checkboxes).
-    Same auth as nospos_categories_sync (NOSPOS_CATEGORY_SYNC_SECRET / DEBUG).
-    """
-    secret = getattr(settings, "NOSPOS_CATEGORY_SYNC_SECRET", "") or ""
-    if secret:
-        if (request.headers.get("X-CG-Nospos-Sync-Secret") or "") != secret:
-            return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
-    elif not settings.DEBUG:
-        return Response(
-            {"error": "NOSPOS_CATEGORY_SYNC_SECRET must be set when DEBUG is False"},
-            status=status.HTTP_503_SERVICE_UNAVAILABLE,
-        )
+    """Upsert field rows scraped from NosPos /stock/category/modify."""
 
     rows = _normalize_nospos_field_payload_rows(request.data)
     if not rows:
@@ -2816,19 +2757,7 @@ def nospos_fields_sync(request):
     return Response({"ok": True, "created": created, "updated": updated, "total_received": len(rows)})
 
 
-def _coerce_bool(val, default=False):
-    if val is None:
-        return default
-    if isinstance(val, bool):
-        return val
-    if isinstance(val, (int, float)):
-        return bool(val) and val != 0
-    s = str(val).strip().lower()
-    if s in ("1", "true", "yes", "on"):
-        return True
-    if s in ("0", "false", "no", "off", ""):
-        return False
-    return default
+_coerce_bool = coerce_bool
 
 
 def _normalize_nospos_category_field_sync_payload(data):
@@ -2893,25 +2822,9 @@ def _normalize_nospos_category_field_sync_payload(data):
 
 @csrf_exempt
 @api_view(["POST"])
+@require_nospos_sync_secret
 def nospos_category_fields_sync(request):
-    """
-    Upsert global NosposField rows and per-category NosposCategoryField links from
-    a /stock/category/modify scrape (one category). Only rows with `active: true` get a
-    NosposCategoryField link; others only update the global NosposField name if present.
-    Removes any existing link for this category whose field is not in that active set.
-    Optional `buybackRatePercent` / `offerRatePercent` update `NosposCategory.buyback_rate` /
-    `NosposCategory.offer_rate` (percentages as on NosPos).
-    Same auth as nospos_categories_sync.
-    """
-    secret = getattr(settings, "NOSPOS_CATEGORY_SYNC_SECRET", "") or ""
-    if secret:
-        if (request.headers.get("X-CG-Nospos-Sync-Secret") or "") != secret:
-            return Response({"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN)
-    elif not settings.DEBUG:
-        return Response(
-            {"error": "NOSPOS_CATEGORY_SYNC_SECRET must be set when DEBUG is False"},
-            status=status.HTTP_503_SERVICE_UNAVAILABLE,
-        )
+    """Upsert NosposField rows and per-category NosposCategoryField links from a /stock/category/modify scrape."""
 
     category_nospos_id, rows, buyback_dec, offer_dec = _normalize_nospos_category_field_sync_payload(
         request.data

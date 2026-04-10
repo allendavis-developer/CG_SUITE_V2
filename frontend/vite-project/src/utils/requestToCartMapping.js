@@ -8,6 +8,11 @@ import { titleForEbayCcOfferIndex } from '@/components/forms/researchStats';
 import { NEGOTIATION_ROW_CONTEXT } from '@/pages/buyer/rowContextZones';
 import { resolvePersistedResearchCategory } from '@/utils/researchPersistence';
 
+function normalizedRequestItemQuantity(item) {
+  const q = Math.floor(Number(item?.quantity));
+  return Number.isFinite(q) && q >= 1 ? q : 1;
+}
+
 /** DB → cart: default source highlight when `raw_data` has no `rrpOffersSource` (see `withDefaultRrpOffersSource`). */
 function applyDefaultRrpSourceToMappedCartItem(cartItem) {
   if (cartItem.rrpOffersSource != null && cartItem.rrpOffersSource !== '') return cartItem;
@@ -146,7 +151,7 @@ export function mapRequestItemsToCartItems(items, transactionType) {
         authorisedOfferSlots: Array.isArray(rawData?.authorisedOfferSlots) ? rawData.authorisedOfferSlots : [],
         title,
         subtitle,
-        quantity: item.quantity,
+        quantity: normalizedRequestItemQuantity(item),
         selectedOfferId: item.selected_offer_id,
         manualOffer: item.manual_offer_gbp != null ? formatOfferPrice(item.manual_offer_gbp) : '',
         manualOfferUsed: item.manual_offer_used ?? item.selected_offer_id === 'manual',
@@ -347,12 +352,14 @@ export function mapRequestItemsToCartItems(items, transactionType) {
       authorisedOfferSlots: Array.isArray(rawData?.authorisedOfferSlots) ? rawData.authorisedOfferSlots : [],
       title,
       subtitle,
-      quantity: item.quantity,
+      quantity: normalizedRequestItemQuantity(item),
       selectedOfferId: item.selected_offer_id,
       manualOffer: item.manual_offer_gbp != null ? formatOfferPrice(item.manual_offer_gbp) : '',
       manualOfferUsed: item.manual_offer_used ?? item.selected_offer_id === 'manual',
       seniorMgmtApprovedBy: item.senior_mgmt_approved_by || null,
       customerExpectation: item.customer_expectation_gbp?.toString() || '',
+      isOtherNosposManualItem:
+        rawData?.other_workspace_manual_item === true || rawData?.otherWorkspaceManualItem === true,
       ebayResearchData: hasPersistedExtensionEbayResearch ? ebayResearchBlob : null,
       cashConvertersResearchData,
       cashOffers: savedCashOffers,

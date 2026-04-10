@@ -38,6 +38,8 @@ export default function CexMarketPricingStrip({
   onOpenEbayResearch,
   onOpenCashConvertersResearch,
   showEbayCcResearchActions = true,
+  /** When true, only eBay / Cash Converters row (pricing is shown elsewhere, e.g. workspace header stat cards). */
+  omitCorePricing = false,
 }) {
   const cexSalePrice = referenceData?.cex_sale_price ?? competitorStats?.[0]?.salePrice ?? null;
   const cexBuyPrice = referenceData?.cex_tradein_cash ?? competitorStats?.[0]?.buyPrice ?? null;
@@ -116,90 +118,102 @@ export default function CexMarketPricingStrip({
       <span className="text-lg font-bold text-gray-400 sm:text-xl">—</span>
     );
 
+  const corePricing = !omitCorePricing ? (
+    <>
+      {cexOutOfStock && (
+        <span className="mr-1 inline-flex items-center rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-red-700 sm:text-sm">
+          Out of stock
+        </span>
+      )}
+
+      {kv('CeX sell', cexSellNode)}
+      <Sep />
+      {kv('Our sale', ourNode)}
+      <Sep />
+      {kv(
+        'Method',
+        <span className="text-lg font-bold text-gray-800 sm:text-xl">{methodLabel}</span>
+      )}
+
+      {!hideBuyInPrice && (
+        <>
+          <Sep />
+          {kv('Buy cash', buyCashNode)}
+          <Sep />
+          {kv('Buy voucher', buyVoucherNode)}
+        </>
+      )}
+    </>
+  ) : null;
+
+  const ebayRow = showEbayBlock ? (
+    <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-2">
+      {kv(
+        'eBay',
+        hasEbayResearch && ebayData?.stats?.median != null ? (
+          formatGBP(parseFloat(ebayData.stats.median))
+        ) : (
+          <span className="text-base font-semibold text-gray-500 sm:text-lg">No data</span>
+        )
+      )}
+      {typeof onOpenEbayResearch === 'function' && (
+        <Button
+          variant={hasEbayResearch ? 'outline' : 'primary'}
+          size="sm"
+          icon={hasEbayResearch ? 'refresh' : 'search_insights'}
+          onClick={() => onOpenEbayResearch()}
+          className="!h-10 !min-h-0 !px-4 text-sm font-bold sm:!h-11 sm:!px-5 sm:text-base"
+        >
+          {hasEbayResearch ? 'Refine' : 'Research'}
+        </Button>
+      )}
+    </span>
+  ) : null;
+
+  const ccRow = showCcBlock ? (
+    <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-2">
+      {kv(
+        'Cash Conv.',
+        hasCcResearch && cashConvertersData?.stats?.median != null ? (
+          formatGBP(parseFloat(cashConvertersData.stats.median))
+        ) : (
+          <span className="text-base font-semibold text-gray-500 sm:text-lg">No data</span>
+        )
+      )}
+      {typeof onOpenCashConvertersResearch === 'function' && (
+        <Button
+          variant={hasCcResearch ? 'outline' : 'primary'}
+          size="sm"
+          icon={hasCcResearch ? 'refresh' : 'store'}
+          onClick={() => onOpenCashConvertersResearch()}
+          className="!h-10 !min-h-0 !px-4 text-sm font-bold sm:!h-11 sm:!px-5 sm:text-base"
+        >
+          {hasCcResearch ? 'Refine' : 'Research'}
+        </Button>
+      )}
+    </span>
+  ) : null;
+
+  const hasAncillary = Boolean(showEbayBlock || showCcBlock);
+  /** Pipe after CeX pricing when eBay and/or CC blocks follow (including CC-only after core). */
+  const sepAfterCore = Boolean(corePricing && hasAncillary);
+
+  if (omitCorePricing && !hasAncillary) {
+    return null;
+  }
+
   return (
     <div
       className="rounded-2xl border-2 border-gray-200/90 bg-gradient-to-r from-slate-50/95 via-white to-slate-50/80 px-4 py-4 shadow-md sm:px-6 sm:py-5"
       role="region"
-      aria-label="Market pricing"
+      aria-label={omitCorePricing ? 'Additional market research' : 'Market pricing'}
     >
       <div className="flex flex-wrap items-center gap-x-2 gap-y-3 sm:gap-x-3 sm:gap-y-3">
-        {cexOutOfStock && (
-          <span className="mr-1 inline-flex items-center rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-red-700 sm:text-sm">
-            Out of stock
-          </span>
-        )}
-
-        {kv('CeX sell', cexSellNode)}
-        <Sep />
-        {kv('Our sale', ourNode)}
-        <Sep />
-        {kv(
-          'Method',
-          <span className="text-lg font-bold text-gray-800 sm:text-xl">{methodLabel}</span>
-        )}
-
-        {!hideBuyInPrice && (
-          <>
-            <Sep />
-            {kv('Buy cash', buyCashNode)}
-            <Sep />
-            {kv('Buy voucher', buyVoucherNode)}
-          </>
-        )}
-
-        {showEbayBlock && (
-          <>
-            <Sep />
-            <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-2">
-              {kv(
-                'eBay',
-                hasEbayResearch && ebayData?.stats?.median != null ? (
-                  formatGBP(parseFloat(ebayData.stats.median))
-                ) : (
-                  <span className="text-base font-semibold text-gray-500 sm:text-lg">No data</span>
-                )
-              )}
-              {typeof onOpenEbayResearch === 'function' && (
-                <Button
-                  variant={hasEbayResearch ? 'outline' : 'primary'}
-                  size="sm"
-                  icon={hasEbayResearch ? 'refresh' : 'search_insights'}
-                  onClick={() => onOpenEbayResearch()}
-                  className="!h-10 !min-h-0 !px-4 text-sm font-bold sm:!h-11 sm:!px-5 sm:text-base"
-                >
-                  {hasEbayResearch ? 'Refine' : 'Research'}
-                </Button>
-              )}
-            </span>
-          </>
-        )}
-
-        {showCcBlock && (
-          <>
-            <Sep />
-            <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-2">
-              {kv(
-                'Cash Conv.',
-                hasCcResearch && cashConvertersData?.stats?.median != null ? (
-                  formatGBP(parseFloat(cashConvertersData.stats.median))
-                ) : (
-                  <span className="text-base font-semibold text-gray-500 sm:text-lg">No data</span>
-                )
-              )}
-              {typeof onOpenCashConvertersResearch === 'function' && (
-                <Button
-                  variant={hasCcResearch ? 'outline' : 'primary'}
-                  size="sm"
-                  icon={hasCcResearch ? 'refresh' : 'store'}
-                  onClick={() => onOpenCashConvertersResearch()}
-                  className="!h-10 !min-h-0 !px-4 text-sm font-bold sm:!h-11 sm:!px-5 sm:text-base"
-                >
-                  {hasCcResearch ? 'Refine' : 'Research'}
-                </Button>
-              )}
-            </span>
-          </>
-        )}
+        {corePricing}
+        {sepAfterCore ? <Sep /> : null}
+        {ebayRow}
+        {showEbayBlock && showCcBlock ? <Sep /> : null}
+        {ccRow}
       </div>
     </div>
   );

@@ -23,13 +23,9 @@ import { withDefaultRrpOffersSource } from '@/pages/buyer/utils/negotiationHelpe
 import { validateBuyerCartItemOffers } from '@/utils/cartOfferValidation';
 import { revokeManualOfferAuthorisationIfSwitchingAway } from '@/utils/customerOfferRules';
 import { matchCexCategoryNameToDb } from '@/utils/cexCategoryMatch';
+import { ROUTE_ENTRY_CUSTOMER } from '@/store/workspaceRouteBootstrap';
 
-const DEFAULT_CUSTOMER = {
-  id: null,
-  name: 'No Customer Selected',
-  cancelRate: 0,
-  transactionType: 'sale',
-};
+const DEFAULT_CUSTOMER = ROUTE_ENTRY_CUSTOMER;
 
 function normalizeOffers(offers) {
   if (!Array.isArray(offers)) return [];
@@ -40,7 +36,7 @@ function generateId() {
   return crypto.randomUUID?.() ?? `cart-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-function findDuplicateIndex(items, newItem, isRepricing) {
+function findDuplicateIndex(items, newItem) {
   return items.findIndex((ci) => {
     if (!newItem.isCustomEbayItem && !newItem.isCustomCashConvertersItem && newItem.variantId != null) {
       return ci.variantId === newItem.variantId;
@@ -86,8 +82,6 @@ function recalcOffersForTransactionType(item, prevUseVoucher, newUseVoucher) {
     selectedOfferId,
   };
 }
-
-try { sessionStorage.removeItem('cg-suite-store'); } catch {}
 
 const useAppStore = create(
     (set, get) => {
@@ -306,19 +300,25 @@ const useAppStore = create(
         const { mode } = get();
         const isRepricing = mode === 'repricing';
 
+        const nextUpdates = { ...updates };
+        if (nextUpdates.quantity != null) {
+          const n = Math.floor(Number(nextUpdates.quantity));
+          nextUpdates.quantity = Number.isFinite(n) && n >= 1 ? n : 1;
+        }
+
         // Persist quantity changes to the backend immediately so reopening
         // the request form always shows the latest quantity.
-        if (!isRepricing && updates.quantity != null) {
+        if (!isRepricing && nextUpdates.quantity != null) {
           const item = get()[key]?.find((i) => i.id === itemId);
           if (item?.request_item_id) {
-            updateRequestItemOffer(item.request_item_id, { quantity: updates.quantity }).catch((err) => {
+            updateRequestItemOffer(item.request_item_id, { quantity: nextUpdates.quantity }).catch((err) => {
               console.error('[Store] Failed to persist quantity:', err);
             });
           }
         }
 
         set((state) => ({
-          [key]: state[key].map((i) => (i.id === itemId ? { ...i, ...updates } : i)),
+          [key]: state[key].map((i) => (i.id === itemId ? { ...i, ...nextUpdates } : i)),
         }));
       },
 

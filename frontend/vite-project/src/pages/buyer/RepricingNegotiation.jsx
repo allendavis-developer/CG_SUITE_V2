@@ -7,14 +7,14 @@ import SalePriceConfirmModal from "@/components/modals/SalePriceConfirmModal";
 import ResearchOverlayPanel from './components/ResearchOverlayPanel';
 import TinyModal from "@/components/ui/TinyModal";
 import { cancelNosposRepricing, clearLastRepricingResult, getLastRepricingResult, getNosposRepricingStatus, openNospos, searchNosposBarcode } from "@/services/extensionClient";
-import { saveRepricingSession, createRepricingSessionDraft, updateRepricingSession } from "@/services/api";
+import { saveRepricingSession, updateRepricingSession } from "@/services/api";
 import { getCartKey, loadRepricingProgress, saveRepricingProgress, clearRepricingProgress } from "@/utils/repricingProgress";
 import { getEditableSalePriceState, resolveRepricingSalePrice } from "./utils/repricingDisplay";
 import useAppStore from '@/store/useAppStore';
 import { normalizeExplicitSalePrice, formatOfferPrice, roundSalePrice } from '@/utils/helpers';
 import { withDefaultRrpOffersSource, logCategoryRuleDecision } from './utils/negotiationHelpers';
 import { EBAY_TOP_LEVEL_CATEGORY } from './constants';
-import { SPREADSHEET_CEX_TH_STYLES, RRP_SOURCE_CELL_STYLES } from './spreadsheetTableStyles';
+import { SPREADSHEET_CEX_TH_STYLES, RRP_SOURCE_CELL_STYLES } from '@/styles/spreadsheetTableStyles';
 import { useResearchOverlay } from './hooks/useResearchOverlay';
 import { useRefreshCexRowData } from './hooks/useRefreshCexRowData';
 import NegotiationRowContextMenu from './components/NegotiationRowContextMenu';
@@ -240,7 +240,7 @@ const RepricingNegotiation = () => {
     if (prevLen > 0 || items.length === 0) return;
     if (dbSessionId || isCreatingSession.current) return;
     isCreatingSession.current = true;
-    createRepricingSessionDraft({
+    saveRepricingSession({
       cart_key: getCartKey(items),
       item_count: items.length,
       session_data: buildSessionDataSnapshot({ items, barcodes: {}, nosposLookups: {} }),
@@ -423,7 +423,7 @@ const RepricingNegotiation = () => {
       }));
       const restoredBarcodes = saved?.barcodes || sessionBarcodes || {};
       const restoredLookups = saved?.nosposLookups || sessionNosposLookups || {};
-      createRepricingSessionDraft({
+      saveRepricingSession({
         cart_key: cartKey,
         item_count: cartItems.length,
         session_data: { items: itemsSnapshot, barcodes: restoredBarcodes, nosposLookups: restoredLookups },

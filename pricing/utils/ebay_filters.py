@@ -1,40 +1,16 @@
 from urllib.parse import urlparse, parse_qsl
 
-# eBay category mapping - maps category path segments to eBay category IDs
-EBAY_CATEGORY_MAP = {
-    "phones": "9355",
-    "games": "139973",
-    "tablets": "58058",
-    "laptops": "175672",
-    "gaming consoles": "139971",
-    "guitars & basses": "3858",
-    "smartphones and mobile": "9355",
-    "games (discs & cartridges)": "139973",
-    "cameras": "31388",
-    "headphones": "15052",
-    "smartwatches": "178893",
-}
+from pricing.utils.marketplace import (
+    MARKETPLACE_CATEGORY_MAP,
+    resolve_marketplace_category,
+    normalize_filter_id,
+)
+
+EBAY_CATEGORY_MAP = MARKETPLACE_CATEGORY_MAP
+
 
 def resolve_ebay_category(category_path):
-    """
-    Finds the most specific eBay category ID by checking path items from right-to-left
-    
-    Args:
-        category_path: List of category path segments, e.g., ["Electronics", "Mobile Phones", "Smartphones"]
-    
-    Returns:
-        eBay category ID string or None
-    """
-    if not category_path or not isinstance(category_path, list):
-        return None
-    
-    # Search from most specific (end of array) to most general (start)
-    for i in range(len(category_path) - 1, -1, -1):
-        segment = category_path[i].lower()
-        if segment in EBAY_CATEGORY_MAP:
-            return EBAY_CATEGORY_MAP[segment]
-    
-    return None
+    return resolve_marketplace_category(category_path)
 
 def build_ebay_search_url(search_term, category_path=None):
     """
@@ -135,12 +111,7 @@ def extract_range_filter(group, label):
 
 
 def normalize_id(value):
-    return (
-        value
-        .lower()
-        .replace(" ", "_")
-        .replace("&", "")
-    )
+    return normalize_filter_id(value)
 
 
 def extract_label(group):

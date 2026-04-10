@@ -25,20 +25,15 @@ load_dotenv(BASE_DIR / '.env')  # load .env from project root
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-sejy(f$g##4iz)6!y%3#-+h$&f^)5cekrh^tz(med@4luj-b=9'
+SECRET_KEY = os.environ.get(
+    'DJANGO_SECRET_KEY',
+    'django-insecure-sejy(f$g##4iz)6!y%3#-+h$&f^)5cekrh^tz(med@4luj-b=9',
+)
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() in ('true', '1', 'yes')
 
 ALLOWED_HOSTS = ['cashgensuite.onrender.com', '127.0.0.1', '0.0.0.0']
-# Increase to 50 MB (adjust as needed)
 DATA_UPLOAD_MAX_MEMORY_SIZE = 50 * 1024 * 1024
-
-
-# Application definition
-
-DEBUG = True
 
 INSTALLED_APPS = [
      'dal',

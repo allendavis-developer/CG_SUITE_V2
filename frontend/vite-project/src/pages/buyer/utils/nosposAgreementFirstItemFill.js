@@ -1,4 +1,5 @@
 import { linkedFieldsForCategory } from '@/pages/buyer/utils/nosposFieldAiAtAdd';
+import { negotiationJewelleryLineNeedsWorkspaceDetail } from '@/components/jewellery/jewelleryWorkspaceMapping';
 import { nosposCaratHallmarkValueForMaterialGrade } from '@/pages/buyer/utils/jewelleryNosposMaterialGradeMap';
 import {
   normalizePersistedNosposFieldValue,
@@ -184,6 +185,15 @@ export function buildRequiredNosposFieldEditorModel(item, negotiationIndex, opti
     if (!val && jewelleryNosposWeightIsEditableSyncRow(item, dedupeKey)) {
       const fallback = resolveJewelleryWeightGramsStringForNospos(item);
       val = fallback != null && String(fallback).trim() ? String(fallback).trim() : '';
+    }
+    if (jewelleryNosposWeightIsEditableSyncRow(item, dedupeKey) && negotiationJewelleryLineNeedsWorkspaceDetail(item)) {
+      requiredRows.push({
+        nosposFieldId: fid,
+        label,
+        value: val,
+        satisfiedByPreset: true,
+      });
+      continue;
     }
     requiredRows.push({
       nosposFieldId: fid,
@@ -413,6 +423,12 @@ export function buildNosposAgreementFirstItemFillPayload(item, negotiationIndex,
       if (isReq) requiredWithData.push(label);
       else optionalFilled.push(label);
     } else if (isReq) {
+      if (
+        jewelleryNosposWeightIsEditableSyncRow(item, dedupeKey) &&
+        negotiationJewelleryLineNeedsWorkspaceDetail(item)
+      ) {
+        continue;
+      }
       requiredMissing.push(label);
     }
   }

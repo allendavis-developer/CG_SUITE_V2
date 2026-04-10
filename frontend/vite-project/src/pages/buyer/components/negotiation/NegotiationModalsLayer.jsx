@@ -309,6 +309,7 @@ export default function NegotiationModalsLayer({
         open={Boolean(showJewelleryReferenceModal)}
         onClose={() => setShowJewelleryReferenceModal(false)}
         sections={jewelleryReferenceScrape?.sections}
+        scrapedAt={jewelleryReferenceScrape?.scrapedAt ?? null}
       />
     </>
   );

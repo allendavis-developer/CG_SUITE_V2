@@ -1,12 +1,10 @@
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import TinyModal from '@/components/ui/TinyModal';
-import { SPREADSHEET_TABLE_STYLES } from '@/styles/spreadsheetTableStyles';
 import { buildRequiredNosposFieldEditorModel } from '@/pages/buyer/utils/nosposAgreementFirstItemFill';
 import { negotiationItemDisplayName } from '@/pages/buyer/utils/negotiationMissingNosposRequired';
-import { getBoundedNosposStockFieldSelect } from '@/pages/buyer/utils/nosposStockFieldBoundedSelects';
-import { SearchablePortalSelect } from '@/components/ui/components';
-
-const BOUNDED_FIELD_PLACEHOLDER = 'Choose…';
+import NosposRequiredFieldsInlineTable, {
+  NOSPOS_STOCK_FIELD_BOUNDED_PLACEHOLDER,
+} from '@/components/nospos/NosposRequiredFieldsInlineTable';
 
 /**
  * Small spreadsheet-style editor for required NosPos stock field values on a negotiation line.
@@ -98,7 +96,6 @@ export default function NosposRequiredFieldsEditorModal({
       closeOnBackdrop={!dismissLocked}
       showCloseButton={!dismissLocked}
     >
-      <style>{SPREADSHEET_TABLE_STYLES}</style>
       <p className="mb-2 text-[11px] text-slate-600">
         <span className="font-semibold text-brand-blue">{negotiationItemDisplayName(item)}</span>
         <span className="text-slate-500">
@@ -111,68 +108,13 @@ export default function NosposRequiredFieldsEditorModal({
           No required stock fields for this NosPos category.
         </p>
       ) : (
-        <div className="max-h-[min(55vh,380px)] overflow-auto rounded-lg border border-slate-200">
-          <table className="w-full spreadsheet-table border-collapse text-left text-xs">
-            <thead>
-              <tr>
-                <th className="min-w-[120px]">Field</th>
-                <th>Value</th>
-              </tr>
-            </thead>
-            <tbody>
-              {model.requiredRows.map((row) => (
-                <tr key={row.nosposFieldId}>
-                  <td className="align-top font-semibold text-gray-900">{row.label}</td>
-                  <td className="align-top">
-                    {row.satisfiedByPreset ? (
-                      <span
-                        className="text-[11px] text-slate-600"
-                        title="Filled from workspace / line data — read only"
-                      >
-                        {row.value || '—'}
-                      </span>
-                    ) : (() => {
-                      const bounded = getBoundedNosposStockFieldSelect(row.label);
-                      const rawVal = String(draft[row.nosposFieldId] ?? '').trim();
-                      if (bounded?.options?.length) {
-                        const portalOptions = bounded.options.map((o) => ({
-                          value: String(o.value ?? '').trim(),
-                          label: String(o.text ?? o.value ?? '').trim(),
-                        }));
-                        return (
-                          <div className="min-w-[160px] max-w-full">
-                            <SearchablePortalSelect
-                              value={rawVal}
-                              options={portalOptions}
-                              placeholder={BOUNDED_FIELD_PLACEHOLDER}
-                              onChange={(v) =>
-                                setDraft((d) => ({
-                                  ...d,
-                                  [row.nosposFieldId]: v,
-                                }))
-                              }
-                            />
-                          </div>
-                        );
-                      }
-                      return (
-                        <input
-                          type="text"
-                          className="w-full rounded border border-gray-300 px-2 py-1 text-xs font-medium text-gray-900 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-blue/30"
-                          value={draft[row.nosposFieldId] ?? ''}
-                          onChange={(e) =>
-                            setDraft((d) => ({ ...d, [row.nosposFieldId]: e.target.value }))
-                          }
-                          placeholder="Required"
-                        />
-                      );
-                    })()}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <NosposRequiredFieldsInlineTable
+          requiredRows={model.requiredRows}
+          draft={draft}
+          onChange={(fieldId, value) => setDraft((d) => ({ ...d, [fieldId]: value }))}
+          tableClassName="max-h-[min(55vh,380px)]"
+          boundedSelectPlaceholder={NOSPOS_STOCK_FIELD_BOUNDED_PLACEHOLDER}
+        />
       )}
       {saveBlocked ? (
         <p className="mt-2 text-[10px] font-semibold text-amber-800">Fill every editable required field to save.</p>

@@ -538,8 +538,23 @@ export function calculateNonJewelleryOfferTotal(items, useVoucherOffers) {
 /** Header eBay workspace: pending customer expectation before the line exists in cart. */
 export const HEADER_EBAY_CUSTOMER_EXPECTATION_KEY = '__header_ebay__';
 
+/** Header Other (NosPos manual) workspace: pending expectation before the line is added. */
+export const HEADER_OTHER_CUSTOMER_EXPECTATION_KEY = '__header_other__';
+
 /**
- * Strip / metrics bar draft to apply on add — tries CeX placeholder, line id, then header eBay session key.
+ * Negotiation table line to scope metrics to while the Other workspace is open (last added if several).
+ * @returns {object | null}
+ */
+export function getNegotiationOtherNosposScopeLine(items) {
+  const active = (Array.isArray(items) ? items : []).filter(
+    (i) => i && !i.isRemoved && i.isOtherNosposManualItem === true
+  );
+  if (active.length === 0) return null;
+  return active[active.length - 1];
+}
+
+/**
+ * Strip / metrics bar draft to apply on add — tries CeX placeholder, line id, then header Other / eBay session keys.
  * @returns {{ value: string | null, consumeKeys: string[] }}
  */
 export function resolveCustomerExpectationDraftForAdd(cartItem, pendingByTarget) {
@@ -550,6 +565,7 @@ export function resolveCustomerExpectationDraftForAdd(cartItem, pendingByTarget)
   const pid = cartItem.cexSku ?? cartItem.cexProductData?.id;
   if (pid != null && pid !== '') tryKeys.push(`__cex__${pid}`);
   if (cartItem.id != null) tryKeys.push(cartItem.id);
+  tryKeys.push(HEADER_OTHER_CUSTOMER_EXPECTATION_KEY);
   tryKeys.push(HEADER_EBAY_CUSTOMER_EXPECTATION_KEY);
   const seen = new Set();
   for (const k of tryKeys) {

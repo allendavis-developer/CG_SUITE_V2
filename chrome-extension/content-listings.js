@@ -24,16 +24,7 @@
   let currentRequestId = null;
 
   /** Load Inter to match the CG Suite web app (panel UI only; monospace unchanged). */
-  function ensureCgSuiteInter() {
-    if (document.getElementById('cg-suite-font-inter')) return;
-    var link = document.createElement('link');
-    link.id = 'cg-suite-font-inter';
-    link.rel = 'stylesheet';
-    link.href =
-      'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap';
-    (document.head || document.documentElement).appendChild(link);
-  }
-  ensureCgSuiteInter();
+  CG_DOM_UTILS.ensureCgSuiteInter();
 
   /**
    * eBay SRP: "6 results for rode m1" in h1.srp-controls__count-heading — strict keyword matches.
@@ -834,13 +825,7 @@
     return '£' + n.toFixed(2);
   }
 
-  function escapeHtml(str) {
-    return String(str || '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
-  }
+  var escapeHtml = CG_DOM_UTILS.escapeHtml;
 
   function buildContextHtml(ctx) {
     if (!ctx) return '';
@@ -1457,21 +1442,22 @@
       <div style="
         position: fixed; top: 50%; right: 0; transform: translateY(-50%);
         z-index: 2147483647; background: #1e3a8a; color: white;
-        padding: 28px 32px; border-radius: 18px 0 0 18px; box-shadow: -8px 8px 32px rgba(0,0,0,0.45);
-        font-family: Inter, sans-serif; min-width: 380px; max-width: 460px;
+        padding: 18px 20px; border-radius: 14px 0 0 14px; box-shadow: -8px 8px 28px rgba(0,0,0,0.42);
+        font-family: Inter, sans-serif; width: 250px; min-width: 220px; max-width: 420px;
+        resize: horizontal; overflow: auto; box-sizing: border-box;
       ">
-        <p style="margin: 0 0 16px 0; font-weight: 800; font-size: 20px;">${heading}</p>
+        <p style="margin: 0 0 12px 0; font-weight: 800; font-size: 17px;">${heading}</p>
         ${contextSectionHtml}
         <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 4px;">
           <button id="cg-suite-research-yes" style="
-            width: 100%; padding: 16px 24px; background: #facc15; color: #020617;
-            border: none; border-radius: 9999px; font-weight: 900; cursor: pointer; font-size: 18px;
-            box-shadow: 0 12px 28px rgba(0,0,0,0.5); text-transform: uppercase; letter-spacing: 0.08em;
+            width: 100%; padding: 12px 16px; background: #facc15; color: #020617;
+            border: none; border-radius: 9999px; font-weight: 900; cursor: pointer; font-size: 15px;
+            box-shadow: 0 8px 18px rgba(0,0,0,0.45); text-transform: uppercase; letter-spacing: 0.06em;
           ">${buttonLabel}</button>
           <button id="cg-suite-research-cancel" style="
-            width: 100%; padding: 12px 20px; background: transparent; color: #e5e7eb;
+            width: 100%; padding: 10px 14px; background: transparent; color: #e5e7eb;
             border: 1px solid rgba(248,250,252,0.5); border-radius: 9999px;
-            font-weight: 600; cursor: pointer; font-size: 15px;
+            font-weight: 600; cursor: pointer; font-size: 13px;
           ">Cancel research</button>
         </div>
       </div>

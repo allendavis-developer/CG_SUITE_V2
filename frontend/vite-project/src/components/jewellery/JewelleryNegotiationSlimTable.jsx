@@ -1,5 +1,5 @@
-import React from 'react';
-import { SPREADSHEET_TABLE_STYLES } from '@/pages/buyer/spreadsheetTableStyles';
+import React, { useCallback, useEffect, useState } from 'react';
+import { SPREADSHEET_TABLE_STYLES } from '@/styles/spreadsheetTableStyles';
 import {
   getDisplayOffers,
   resolveOurSalePrice,
@@ -7,8 +7,11 @@ import {
 import { NEGOTIATION_ROW_CONTEXT } from '@/pages/buyer/rowContextZones';
 import { formatOfferPrice } from '@/utils/helpers';
 import {
+  finalizeJewelleryCoinUnitsInput,
   isJewelleryCoinLine,
   isJewelleryCoinSilverOzLine,
+  sanitizeJewelleryCoinUnitsInput,
+  sanitizeJewelleryWeightInput,
 } from '@/components/jewellery/jewelleryNegotiationCart';
 import { isBlockedForItem, offerIdToSlot } from '@/utils/customerOfferRules';
 import TestingPassedCell from '@/pages/buyer/components/TestingPassedCell';
@@ -18,6 +21,84 @@ import NosposRequiredFieldsColumnCell, {
   NosposRequiredFieldsEditorTriggerButton,
   NosposSchemaCellSpinner,
 } from '@/pages/buyer/components/NosposRequiredFieldsColumnCell';
+
+/** Keeps local draft while focused so clearing "0" / empty is not overwritten by parent re-renders. */
+function NegotiationJewelleryWeightField({ weightFromParent, onCommit }) {
+  const wStr =
+    weightFromParent === null || weightFromParent === undefined ? '' : String(weightFromParent);
+  const [focused, setFocused] = useState(false);
+  const [draft, setDraft] = useState(wStr);
+
+  useEffect(() => {
+    if (!focused) setDraft(wStr);
+  }, [wStr, focused]);
+
+  const commit = useCallback(() => {
+    const t = draft.trim();
+    onCommit(t === '' ? '' : sanitizeJewelleryWeightInput(draft, false));
+  }, [draft, onCommit]);
+
+  return (
+    <input
+      className="h-8 w-full rounded border border-gray-300 bg-white px-2 text-xs font-semibold tabular-nums text-gray-900 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-blue/30"
+      type="text"
+      inputMode="decimal"
+      value={draft}
+      onFocus={() => setFocused(true)}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => {
+        setFocused(false);
+        commit();
+      }}
+      onKeyDown={(e) => {
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+        setFocused(false);
+        commit();
+        e.currentTarget.blur();
+      }}
+    />
+  );
+}
+
+function NegotiationJewelleryCoinUnitsField({ coinUnitsFromParent, onCommit }) {
+  const wStr =
+    coinUnitsFromParent === null || coinUnitsFromParent === undefined
+      ? ''
+      : String(coinUnitsFromParent);
+  const [focused, setFocused] = useState(false);
+  const [draft, setDraft] = useState(wStr);
+
+  useEffect(() => {
+    if (!focused) setDraft(wStr);
+  }, [wStr, focused]);
+
+  const commit = useCallback(() => {
+    onCommit(finalizeJewelleryCoinUnitsInput(draft));
+  }, [draft, onCommit]);
+
+  return (
+    <input
+      className="h-8 w-full rounded border border-gray-300 bg-white px-2 text-xs font-semibold tabular-nums text-gray-900 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-blue/30"
+      type="text"
+      inputMode="numeric"
+      value={draft}
+      onFocus={() => setFocused(true)}
+      onChange={(e) => setDraft(sanitizeJewelleryCoinUnitsInput(e.target.value))}
+      onBlur={() => {
+        setFocused(false);
+        commit();
+      }}
+      onKeyDown={(e) => {
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+        setFocused(false);
+        commit();
+        e.currentTarget.blur();
+      }}
+    />
+  );
+}
 
 function SlimOfferCell({
   offer,
@@ -104,6 +185,7 @@ export default function JewelleryNegotiationSlimTable({
   onCustomerExpectationChange,
   onJewelleryItemNameChange,
   onJewelleryWeightChange,
+  onJewelleryCoinUnitsChange,
   blockedOfferSlots = null,
   onBlockedOfferClick = null,
   showNosposAction = false,
@@ -229,6 +311,16 @@ export default function JewelleryNegotiationSlimTable({
               ref.unit_price != null ? Number(ref.unit_price) : null;
             const isUnitPricedRow =
               refSrc === 'UNIT' || ref.weight_unit === 'each';
+            const refCoinUnitsRaw = ref.jewellery_coin_units;
+            const refCoinN =
+              refCoinUnitsRaw != null ? Math.floor(Number(refCoinUnitsRaw)) : NaN;
+            const refTotalGbp = ref.computed_total_gbp != null ? Number(ref.computed_total_gbp) : 0;
+            const negotiationCoinUnitsStr =
+              Number.isInteger(refCoinN) && refCoinN >= 1
+                ? String(refCoinN)
+                : refTotalGbp > 0
+                  ? '1'
+                  : '0';
 
             const manualValue = item.manualOffer
               ? parseFloat(String(item.manualOffer).replace(/[£,]/g, ''))
@@ -316,23 +408,20 @@ export default function JewelleryNegotiationSlimTable({
                 </td>
                 <td className="tabular-nums text-gray-900" onContextMenu={ctxRemoveOnly(item)}>
                   {isCoinRow ? (
-                    '1 unit'
+                    isView ? (
+                      negotiationCoinUnitsStr
+                    ) : (
+                      <NegotiationJewelleryCoinUnitsField
+                        coinUnitsFromParent={negotiationCoinUnitsStr}
+                        onCommit={(value) => onJewelleryCoinUnitsChange?.(item, value)}
+                      />
+                    )
                   ) : isView ? (
                     ref.weight ?? '—'
                   ) : (
-                    <input
-                      className="h-8 w-full rounded border border-gray-300 bg-white px-2 text-xs font-semibold tabular-nums text-gray-900 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-blue/30"
-                      type="number"
-                      min="0"
-                      step="any"
-                      value={ref.weight ?? ''}
-                      onChange={(e) => onJewelleryWeightChange?.(item, e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          e.currentTarget.blur();
-                        }
-                      }}
+                    <NegotiationJewelleryWeightField
+                      weightFromParent={ref.weight}
+                      onCommit={(value) => onJewelleryWeightChange?.(item, value)}
                     />
                   )}
                 </td>

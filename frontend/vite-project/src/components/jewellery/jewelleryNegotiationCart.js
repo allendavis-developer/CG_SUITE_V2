@@ -1,5 +1,84 @@
 import { formatOfferPrice, roundOfferPrice, toVoucherOfferPrice } from '@/utils/helpers';
 
+/** Minimum editable weight (g or kg field value) for non-coin jewellery lines. */
+export const MIN_JEWELLERY_WEIGHT = 0.01;
+
+/**
+ * True when the string may still be edited toward a value ≥ {@link MIN_JEWELLERY_WEIGHT} (e.g. typing 0.05),
+ * including clearing through "0", "00", "0." etc. (not a committed sub-minimum value like 0.005).
+ */
+export function isIntermediateJewelleryWeightString(cleaned) {
+  const s = String(cleaned ?? '');
+  if (s === '' || s === '.') return true;
+  if (s === '0.') return true;
+  // One or more leading zeros only, optional dot and fractional zeros (0, 00, 0.0 — not 0.05 or 0.01).
+  return /^0+\.?0*$/.test(s);
+}
+
+/** Strip junk; clamp complete values below minimum. Coin lines are always one unit. */
+export function sanitizeJewelleryWeightInput(raw, isCoin) {
+  if (isCoin) return '1';
+  let cleaned = String(raw ?? '').replace(/[^0-9.]/g, '');
+  if (cleaned === '' || cleaned === '.') return cleaned;
+  const n = parseFloat(cleaned);
+  if (!Number.isFinite(n)) return cleaned;
+  if (isIntermediateJewelleryWeightString(cleaned)) return cleaned;
+  if (n < MIN_JEWELLERY_WEIGHT) return String(MIN_JEWELLERY_WEIGHT);
+  return cleaned;
+}
+
+/** Commit field: empty, invalid, or below minimum becomes {@link MIN_JEWELLERY_WEIGHT}. */
+export function finalizeJewelleryWeightInput(raw, isCoin) {
+  if (isCoin) return '1';
+  const s = sanitizeJewelleryWeightInput(raw, false);
+  const n = parseFloat(s);
+  if (s === '' || !Number.isFinite(n) || n < MIN_JEWELLERY_WEIGHT) return String(MIN_JEWELLERY_WEIGHT);
+  return s;
+}
+
+function effectiveJewelleryWeightNumeric(line) {
+  if (isJewelleryCoinLine(line)) return 1;
+  const raw = parseFloat(line.weight);
+  if (!Number.isFinite(raw) || raw < MIN_JEWELLERY_WEIGHT) return 0;
+  return raw;
+}
+
+/** Digits only while typing coin unit counts. */
+export function sanitizeJewelleryCoinUnitsInput(raw) {
+  return String(raw ?? '').replace(/\D/g, '');
+}
+
+/** Commit coin units: empty, zero, or invalid values become 1. */
+export function finalizeJewelleryCoinUnitsInput(raw) {
+  const s = sanitizeJewelleryCoinUnitsInput(raw);
+  const n = Number(s);
+  if (!Number.isInteger(n) || n < 1) return '1';
+  return String(n);
+}
+
+/**
+ * Billable unit count for coin lines (integer ≥ 1). Returns 0 if empty or invalid.
+ * Non-coin lines are treated as 1 for callers that branch on coin only.
+ */
+export function effectiveJewelleryCoinUnitsCount(line) {
+  if (!isJewelleryCoinLine(line)) return 1;
+  const raw = String(line.coinUnits ?? '').trim();
+  if (raw === '') return 0;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1) return 0;
+  return n;
+}
+
+/** Workspace row still needs item name and/or weight (or coin unit count) before the user can continue. */
+export function lineNeedsJewelleryWorkspaceDetail(line) {
+  const coin = isJewelleryCoinLine(line);
+  const nameOk = String(line.itemName ?? '').trim() !== '';
+  if (!nameOk) return true;
+  if (coin) return effectiveJewelleryCoinUnitsCount(line) < 1;
+  const w = parseFloat(String(line.weight ?? '').replace(/[^0-9.]/g, ''));
+  return !Number.isFinite(w) || w < MIN_JEWELLERY_WEIGHT;
+}
+
 export const JEWELLERY_DEFAULT_TIER_MARGINS_PCT = [30, 20, 10, 5];
 /** Backward export name for existing imports. */
 export const JEWELLERY_TIER_MARGINS_PCT = JEWELLERY_DEFAULT_TIER_MARGINS_PCT;
@@ -113,10 +192,10 @@ export function isJewelleryCoinSilverOzLine(line) {
 
 export function computeWorkspaceLineTotal(line) {
   if (line.sourceKind === 'UNIT') {
-    const n = isJewelleryCoinLine(line) ? 1 : parseFloat(line.weight) || 0;
+    const n = isJewelleryCoinLine(line) ? effectiveJewelleryCoinUnitsCount(line) : effectiveJewelleryWeightNumeric(line);
     return Math.round(n * (line.unitPrice || 0) * 100) / 100;
   }
-  const w = parseFloat(line.weight) || 0;
+  const w = effectiveJewelleryWeightNumeric(line);
   const rate = line.ratePerGram;
   if (rate == null || !Number.isFinite(rate)) return 0;
   const grams = line.weightUnit === 'kg' ? w * 1000 : w;
@@ -135,6 +214,7 @@ function buildJewelleryReferencePayload(line, total) {
   const categoryLabel = line.categoryLabel || line.variantTitle || null;
   const itemName = line.itemName || categoryLabel;
   const coin = isJewelleryCoinLine(line);
+  const coinUnitsPersist = coin ? effectiveJewelleryCoinUnitsCount(line) : null;
   return {
     jewellery_line: true,
     variant_id: line.variantId,
@@ -149,8 +229,9 @@ function buildJewelleryReferencePayload(line, total) {
     reference_price_source_kind: ref?.sourceKind ?? null,
     rate_per_gram: coin ? null : ref?.ratePerGram ?? null,
     unit_price: ref?.unitPrice ?? null,
-    weight: coin ? '1' : line.weight,
+    weight: coin ? '1' : line.weight != null ? String(line.weight) : '0',
     weight_unit: coin ? 'each' : line.weightUnit,
+    jewellery_coin_units: coin && coinUnitsPersist >= 1 ? coinUnitsPersist : null,
     computed_total_gbp: total,
   };
 }
@@ -231,10 +312,15 @@ export function buildJewelleryNegotiationCartItem(
 
   const categoryLabel = line.categoryLabel || line.variantTitle;
   const itemName = line.itemName || categoryLabel;
+  const coinN = isJewelleryCoinLine(line) ? effectiveJewelleryCoinUnitsCount(line) : 0;
   const qtySubtitle = isJewelleryCoinSilverOzLine(line)
-    ? '1 troy oz'
+    ? coinN >= 1
+      ? `${coinN} troy oz`
+      : '0 troy oz'
     : isJewelleryCoinLine(line)
-      ? '1 coin'
+      ? coinN === 1
+        ? '1 coin'
+        : `${coinN} coins`
       : `${line.weight}${line.weightUnit === 'each' ? ' ea' : line.weightUnit}`;
   const jewInternalId =
     line.jewelleryDbCategoryId != null && Number(line.jewelleryDbCategoryId) > 0

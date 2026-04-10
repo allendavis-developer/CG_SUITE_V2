@@ -963,7 +963,7 @@ export const OfferCard = ({ title, price, margin, isHighlighted, onClick, size =
     <div
       onClick={onClick}
       className={`
-        ${compact ? 'p-3 h-full min-h-0 flex flex-col justify-center' : 'p-6'} rounded-xl bg-white cursor-pointer text-center relative overflow-hidden
+        ${compact ? 'p-3 h-full min-h-0 flex flex-col justify-center' : 'p-6'} rounded-xl bg-white cursor-pointer text-center relative overflow-hidden group
         border-2
         transition-all duration-200 ease-out
         ${
@@ -972,12 +972,16 @@ export const OfferCard = ({ title, price, margin, isHighlighted, onClick, size =
               border-brand-blue
               ring-2 ring-brand-blue ring-offset-2 ring-offset-white
               shadow-xl shadow-brand-blue/10
+              hover:border-emerald-500
+              hover:bg-emerald-50/60
+              hover:shadow-lg hover:shadow-emerald-500/20
               ${compact ? 'scale-[1.02]' : 'scale-[1.03]'}
             `
             : `
               border-brand-blue/40
-              hover:border-brand-blue
-              hover:shadow-lg
+              hover:border-emerald-500
+              hover:bg-emerald-50/60
+              hover:shadow-lg hover:shadow-emerald-500/20
             `
         }
       `}
@@ -987,22 +991,22 @@ export const OfferCard = ({ title, price, margin, isHighlighted, onClick, size =
         className={`absolute top-0 left-0 w-full ${
           isHighlighted
             ? 'h-1.5 bg-brand-orange'
-            : 'h-1 bg-brand-orange/60'
+            : 'h-1 bg-brand-orange/60 group-hover:bg-emerald-500/80'
         }`}
       />
 
       <h4
-        className={`font-black uppercase text-brand-blue tracking-wider ${
-          compact ? 'text-[9px] mb-2' : 'text-[10px] mb-4'
-        }`}
+        className={`font-black uppercase tracking-wider ${
+          isHighlighted ? 'text-brand-blue' : 'text-brand-blue group-hover:text-emerald-700'
+        } ${compact ? 'text-[9px] mb-2' : 'text-[10px] mb-4'}`}
       >
         {title}
       </h4>
 
       <p
-        className={`font-extrabold text-brand-blue ${
-          compact ? 'text-2xl mb-1' : 'text-4xl mb-2'
-        }`}
+        className={`font-extrabold ${
+          isHighlighted ? 'text-brand-blue' : 'text-brand-blue group-hover:text-emerald-700'
+        } ${compact ? 'text-2xl mb-1' : 'text-4xl mb-2'}`}
       >
         {price}
       </p>

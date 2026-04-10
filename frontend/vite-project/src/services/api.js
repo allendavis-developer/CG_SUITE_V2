@@ -261,12 +261,6 @@ export const finishRequest = async (requestId, payload) => {
   return apiFetch(`/requests/${requestId}/finish/`, { method: 'POST', body: payload });
 };
 
-/** Mark a BOOKED_FOR_TESTING request as COMPLETE (testing passed). */
-export const markRequestPassedTesting = async (requestId) => {
-  if (!requestId) throw new Error('Request ID required');
-  return apiFetch(`/requests/${requestId}/complete-testing/`, { method: 'POST', body: {} });
-};
-
 /**
  * Persist park agreement state for a request.
  * @param {string|number} requestId
@@ -296,15 +290,6 @@ export const deleteRequestItem = async (requestItemId) => {
 export const updateRequestItemOffer = async (requestItemId, data) => {
   if (!requestItemId || !data) return;
   await apiFetch(`/request-items/${requestItemId}/update-offer/`, { method: 'PATCH', body: data });
-};
-
-/** PATCH testing_passed on a line (BOOKED_FOR_TESTING requests only). Returns updated item JSON. */
-export const setRequestItemTestingPassed = async (requestItemId, testingPassed) => {
-  if (requestItemId == null) throw new Error('Request item ID required');
-  return apiFetch(`/request-items/${requestItemId}/update-offer/`, {
-    method: 'PATCH',
-    body: { testing_passed: Boolean(testingPassed) },
-  });
 };
 
 export const updateRequestItemRawData = async (requestItemId, data) => {
@@ -391,16 +376,10 @@ export const updateCustomer = async (customerId, updates) => {
 
 // ─── Repricing ─────────────────────────────────────────────────────────────────
 
+/** POST /repricing-sessions/ — full session with items, or draft with `{ cart_key, item_count, session_data }` only. */
 export const saveRepricingSession = async (payload) => {
   if (!payload) return null;
   return apiFetch('/repricing-sessions/', { method: 'POST', body: payload });
-};
-
-export const createRepricingSessionDraft = async ({ cart_key, item_count, session_data }) => {
-  return apiFetch('/repricing-sessions/', {
-    method: 'POST',
-    body: { cart_key, item_count, session_data },
-  });
 };
 
 export const updateRepricingSession = async (sessionId, updates, { keepalive = false } = {}) => {
@@ -440,7 +419,6 @@ export const fetchEbayOfferMargins = (categoryId) =>
 export const fetchCustomerOfferRules = () => apiFetch('/customer-offer-rules/');
 export const updateCustomerOfferRule = (customerType, data) =>
   apiFetch(`/customer-offer-rules/${customerType}/`, { method: 'PUT', body: data });
-export const fetchCustomerRuleSettings = () => apiFetch('/customer-rule-settings/');
 export const updateCustomerRuleSettings = (data) =>
   apiFetch('/customer-rule-settings/', { method: 'PUT', body: data });
 
@@ -469,12 +447,6 @@ export const createNosposCategoryMapping = (data) => apiFetch('/nospos-category-
 export const updateNosposCategoryMapping = (id, data) => apiFetch(`/nospos-category-mappings/${id}/`, { method: 'PATCH', body: data });
 export const deleteNosposCategoryMapping = (id) => apiFetch(`/nospos-category-mappings/${id}/`, { method: 'DELETE' });
 
-/** Upsert rows scraped from NosPos stock category index (Data page / extension). */
-export const syncNosposCategories = (categories) =>
-  apiFetch('/nospos-categories/sync/', { method: 'POST', body: { categories } });
-
-export const fetchNosposCategoriesCount = () => apiFetch('/nospos-categories/?count_only=1');
-
 /**
  * Large, mostly-static payloads — cache for the browser session so reopening a request does not
  * refetch before the NosPos required column can resolve (was showing "…" for a long time).
@@ -489,12 +461,6 @@ export const peekNosposCategoriesCache = () => _nosposCategoriesPayload;
 
 /** @returns {unknown|null} last successful /nospos-category-mappings/ response (or null). */
 export const peekNosposMappingsCache = () => _nosposMappingsPayload;
-
-/** Call after NosPos sync if fresh linked fields are required without full page reload. */
-export function clearNosposStaticDataCache() {
-  _nosposCategoriesPayload = null;
-  _nosposMappingsPayload = null;
-}
 
 export const fetchNosposCategories = () => {
   if (_nosposCategoriesPayload != null) {
@@ -516,15 +482,16 @@ export const fetchNosposCategories = () => {
   return _nosposCategoriesInflight;
 };
 
-/** Upsert category field rows from NosPos /stock/category/modify (Data page / extension). */
+/** Data admin: list global NosPos fields (GET /nospos-fields/). */
+export const fetchNosposFields = () => apiFetch('/nospos-fields/');
+
+/** Data admin: upsert fields from extension scrape (POST /nospos-fields/sync/). */
 export const syncNosposFields = (body) =>
   apiFetch('/nospos-fields/sync/', { method: 'POST', body });
 
-/** Body: { categoryNosposId, fields: [{ nosposFieldId, name, active, editable, sensitive, required }] } */
-export const syncNosposCategoryFields = (body) =>
-  apiFetch('/nospos-category-fields/sync/', { method: 'POST', body });
-
-export const fetchNosposFields = () => apiFetch('/nospos-fields/');
+/** Data admin: upsert category tree from extension scrape (POST /nospos-categories/sync/). */
+export const syncNosposCategories = (categories) =>
+  apiFetch('/nospos-categories/sync/', { method: 'POST', body: { categories } });
 
 // ─── Categories ────────────────────────────────────────────────────────────────
 
