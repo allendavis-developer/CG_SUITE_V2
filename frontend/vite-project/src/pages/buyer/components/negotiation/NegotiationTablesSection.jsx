@@ -93,12 +93,12 @@ export default function NegotiationTablesSection({
                 <th className="w-24 spreadsheet-th-cex">Sell</th>
                 <th className="w-24 spreadsheet-th-cex">Voucher</th>
                 <th className="w-24 spreadsheet-th-cex">Cash</th>
+                <th className="w-32">Customer Expectation</th>
                 <th className="w-24 spreadsheet-th-offer-tier">1st</th>
                 <th className="w-24 spreadsheet-th-offer-tier">2nd</th>
                 <th className="w-24 spreadsheet-th-offer-tier">3rd</th>
                 <th className="w-24 spreadsheet-th-offer-tier">4th</th>
                 <th className="w-36">Manual</th>
-                <th className="w-32">Customer Expectation</th>
                 <th className="w-24">Our RRP</th>
                 <th className="w-36">eBay Price</th>
                 <th className="w-36">Cash Converters</th>

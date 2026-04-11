@@ -271,6 +271,12 @@ export const saveParkAgreementState = async (requestId, state) => {
   return apiFetch(`/requests/${requestId}/park-state/`, { method: 'PATCH', body: state });
 };
 
+/** PATCH QUOTE request: overall_expectation_gbp (number or null to clear). */
+export const updateRequestNegotiationFields = async (requestId, data) => {
+  if (!requestId || !data) return null;
+  return apiFetch(`/requests/${requestId}/negotiation-fields/`, { method: 'PATCH', body: data });
+};
+
 export const saveQuoteDraft = async (requestId, payload, { keepalive = false } = {}) => {
   if (!requestId || !payload) return null;
   return apiFetch(`/requests/${requestId}/finish/`, {

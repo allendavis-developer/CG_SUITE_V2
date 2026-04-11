@@ -767,6 +767,26 @@ def update_request_item(request, request_item_id):
         val = request.data['manual_offer_gbp']
         existing_item.manual_offer_gbp = Decimal(str(val)) if val is not None and val != '' else None
         update_fields.append('manual_offer_gbp')
+    if 'customer_expectation_gbp' in request.data:
+        val = request.data['customer_expectation_gbp']
+        try:
+            if val is None or val == '':
+                existing_item.customer_expectation_gbp = None
+            else:
+                dec = Decimal(str(val))
+                RequestItem._meta.get_field('customer_expectation_gbp').clean(dec, existing_item)
+                existing_item.customer_expectation_gbp = dec
+            update_fields.append('customer_expectation_gbp')
+        except (InvalidOperation, TypeError):
+            return Response(
+                {'error': 'Invalid format for customer_expectation_gbp'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except DjangoValidationError as e:
+            return Response(
+                {'error': e.messages[0] if e.messages else 'Invalid customer_expectation_gbp'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
     if 'our_sale_price_at_negotiation' in request.data:
         val = request.data['our_sale_price_at_negotiation']
         try:

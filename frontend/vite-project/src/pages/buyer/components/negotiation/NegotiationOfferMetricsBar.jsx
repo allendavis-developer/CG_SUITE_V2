@@ -68,6 +68,8 @@ export default function NegotiationOfferMetricsBar({
   headerWorkspaceOpen = false,
   headerWorkspaceMode = 'builder',
   onOpenJewelleryReferenceModal,
+  /** When true, per-line expectation is edited in the jewellery grid only (no aggregate field on the strip). */
+  hideCustomerExpectation = false,
   className = '',
 }) {
   const showJewelleryReferenceCta =
@@ -101,31 +103,33 @@ export default function NegotiationOfferMetricsBar({
           )}
         </StripField>
 
-        <StripField label="Customer expectation" valueClassName="px-0">
-          <div className="relative h-9 w-[8.25rem] min-w-[6.75rem] max-w-[11rem]">
-            <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-sm font-bold text-white">
-              £
-            </span>
-            <input
-              className="h-9 w-full min-w-[5.75rem] border-0 bg-transparent py-0 pl-6 pr-2 text-sm font-bold text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white/35"
-              type="text"
-              value={customerExpectationValue}
-              onChange={(e) => onCustomerExpectationChange?.(e.target.value)}
-              onKeyDown={
-                mode === 'negotiate' && !customerExpectationLocked
-                  ? (e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        e.currentTarget.blur();
+        {!hideCustomerExpectation ? (
+          <StripField label="Customer expectation" valueClassName="px-0">
+            <div className="relative h-9 w-[8.25rem] min-w-[6.75rem] max-w-[11rem]">
+              <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-sm font-bold text-white">
+                £
+              </span>
+              <input
+                className="h-9 w-full min-w-[5.75rem] border-0 bg-transparent py-0 pl-6 pr-2 text-sm font-bold text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white/35"
+                type="text"
+                value={customerExpectationValue}
+                onChange={(e) => onCustomerExpectationChange?.(e.target.value)}
+                onKeyDown={
+                  mode === 'negotiate' && !customerExpectationLocked
+                    ? (e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          e.currentTarget.blur();
+                        }
                       }
-                    }
-                  : undefined
-              }
-              placeholder="0.00"
-              readOnly={mode === 'view' || customerExpectationLocked}
-            />
-          </div>
-        </StripField>
+                    : undefined
+                }
+                placeholder="0.00"
+                readOnly={mode === 'view' || customerExpectationLocked}
+              />
+            </div>
+          </StripField>
+        ) : null}
 
         <StripField label="Offer Min" valueJustify="justify-end">
           <span className={`${numCls} flex items-baseline gap-0.5`}>

@@ -593,6 +593,7 @@ export default function JewelleryLineItems({
         manualOfferAuthBy: null,
         selectedOfferTierAuthBy: null,
         authorisedOfferSlots: [],
+        customerExpectation: '',
       },
     ]);
     setModalOpen(false);
@@ -869,6 +870,9 @@ export default function JewelleryLineItems({
                 <th scope="col" className="w-28">
                   Scrap
                 </th>
+                <th scope="col" className="w-32">
+                  Customer expectation
+                </th>
                 <th scope="col" className="w-24 spreadsheet-th-offer-tier">
                   1st
                 </th>
@@ -990,6 +994,23 @@ export default function JewelleryLineItems({
                       )}
                     </td>
                     <ScrapReferenceCell line={line} />
+                    <td className="p-0">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={line.customerExpectation ?? ''}
+                        onChange={(e) => updateLine(line.id, { customerExpectation: e.target.value })}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            e.currentTarget.blur();
+                          }
+                        }}
+                        placeholder="£0.00"
+                        className="h-8 w-full min-w-[4.5rem] border-0 bg-slate-50 px-2 text-xs font-semibold tabular-nums text-gray-900 placeholder:text-gray-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-inset focus:ring-brand-blue/35"
+                        aria-label="Customer expectation GBP"
+                      />
+                    </td>
                     {jewelleryTierMargins.map((pct, tierIdx) => {
                       const slot = `offer${tierIdx + 1}`;
                       const tierBlocked = isBlockedForItem(slot, jewelleryBlockedSlots, line);

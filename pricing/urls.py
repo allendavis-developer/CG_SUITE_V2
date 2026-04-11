@@ -31,6 +31,7 @@ urlpatterns = [
     path('requests/<int:request_id>/complete-testing/', views.complete_request_after_testing, name='complete_request_after_testing'),
     path('requests/<int:request_id>/cancel/', views.cancel_request, name='cancel_request'),
     path('requests/<int:request_id>/update-intent/', views.update_request_intent, name='update_request_intent'),
+
     path('requests/<int:request_id>/park-state/', views.update_park_agreement_state, name='update_park_agreement_state'),
     path('request-items/<int:request_item_id>/update-raw/', views.update_request_item_raw_data, name='update_request_item_raw_data'),
     path('request-items/<int:request_item_id>/update-offer/', views.update_request_item, name='update_request_item'),

@@ -43,6 +43,31 @@ function applyDefaultRrpSourceToMappedCartItem(cartItem) {
  * @param {Array} items - request.items from API
  * @param {string} transactionType - 'sale' | 'buyback' | 'store_credit'
  */
+/** Map Django Request.intent to transaction type used by {@link mapRequestItemsToCartItems}. */
+export function intentToBuyerTransactionType(intent) {
+  if (intent === 'DIRECT_SALE') return 'sale';
+  if (intent === 'BUYBACK') return 'buyback';
+  return 'store_credit';
+}
+
+/**
+ * Comma-separated line titles for a request (same labels as the Buyer negotiation table).
+ * @param {{ items?: unknown[], intent?: string } | null | undefined} request
+ * @returns {string}
+ */
+export function formatRequestItemNamesList(request) {
+  const items = request?.items;
+  if (!Array.isArray(items) || items.length === 0) return '';
+  const tx = intentToBuyerTransactionType(request?.intent);
+  const cartItems = mapRequestItemsToCartItems(items, tx);
+  return cartItems
+    .map((c) => {
+      const t = c.title != null && String(c.title).trim() !== '' ? String(c.title).trim() : '';
+      return t || 'Item';
+    })
+    .join(', ');
+}
+
 export function mapRequestItemsToCartItems(items, transactionType) {
   if (!items || !Array.isArray(items)) return [];
 
@@ -520,12 +545,7 @@ export function mapRequestItemsToCartItems(items, transactionType) {
 export function mapRequestToCustomerData(request) {
   const cd = request.customer_details || request.customer;
   const enrichment = request.customer_enrichment_json || {};
-  const transactionType =
-    request.intent === 'DIRECT_SALE'
-      ? 'sale'
-      : request.intent === 'BUYBACK'
-        ? 'buyback'
-        : 'store_credit';
+  const transactionType = intentToBuyerTransactionType(request.intent);
 
   return {
     id: cd?.customer_id ?? cd?.id ?? enrichment.id ?? null,
@@ -552,8 +572,10 @@ export function mapRequestToCustomerData(request) {
     bypassReason: enrichment.bypassReason ?? null,
     // Preserve negotiation-level values so reopening a QUOTE restores
     // the top-row fields in Negotiation (total expectation / target).
-    overall_expectation_gbp:
-      request.overall_expectation_gbp != null ? Number(request.overall_expectation_gbp) : null,
+    // Omit when unset so finish/draft payloads can fall back to sum of line expectations.
+    ...(request.overall_expectation_gbp != null
+      ? { overall_expectation_gbp: Number(request.overall_expectation_gbp) }
+      : {}),
     target_offer_gbp:
       request.target_offer_gbp != null ? Number(request.target_offer_gbp) : null,
   };

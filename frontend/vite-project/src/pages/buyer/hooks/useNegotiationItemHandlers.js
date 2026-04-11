@@ -809,6 +809,7 @@ export function useNegotiationItemHandlers({
             manualOffer: lineCartItem.manualOffer ?? null,
             ourSalePrice: lineCartItem.ourSalePrice ?? null,
             cexSku: lineCartItem.cexSku ?? null,
+            customerExpectation: lineCartItem.customerExpectation ?? null,
           });
         }
         const withRequestId = { ...lineCartItem, request_item_id: reqItemId };

@@ -132,6 +132,22 @@ async function sendNosposParkOverlayToTab(tabId, show, message) {
   }
 }
 
+/** User-facing error when a duplicate NosPos draft exists and they decline auto-delete. */
+const NOSPOS_DUPLICATE_DECLINED_ERROR =
+  'Failed to create new agreement for this customer because an existing one already exists, please delete it or resolve it before retrying parking';
+
+async function sendNosposParkDuplicatePromptToTab(tabId, requestId, agreementId) {
+  try {
+    await chrome.tabs.sendMessage(tabId, {
+      type: 'NOSPOS_PARK_OVERLAY_DUPLICATE_PROMPT',
+      requestId,
+      agreementId: agreementId != null ? String(agreementId) : '',
+    });
+  } catch (_) {
+    /* Same as overlay: content script may not be ready; onUpdated + sync will re-apply. */
+  }
+}
+
 async function focusNosposTabForPark(tabId) {
   try {
     const tab = await chrome.tabs.get(tabId);
@@ -181,7 +197,15 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
       const data = await chrome.storage.session.get(NOSPOS_PARK_UI_STORAGE_KEY);
       const lock = data[NOSPOS_PARK_UI_STORAGE_KEY];
       if (!lock?.active || lock.tabId !== tabId) return;
-      await sendNosposParkOverlayToTab(tabId, true, lock.message);
+      if (lock.duplicatePromptRequestId) {
+        await sendNosposParkDuplicatePromptToTab(
+          tabId,
+          lock.duplicatePromptRequestId,
+          lock.duplicatePromptAgreementId ?? ''
+        );
+      } else {
+        await sendNosposParkOverlayToTab(tabId, true, lock.message);
+      }
     } catch (_) {}
   })();
 });
@@ -523,6 +547,8 @@ async function deleteExcludedNosposAgreementLinesImpl(payload) {
   if (!Number.isFinite(tabId) || tabId <= 0) {
     return { ok: false, error: 'Invalid tab', deleted: [] };
   }
+  const delDead = await failIfNosposParkTabClosedOrMissing(tabId);
+  if (delDead) return { ...delDead, deleted: [] };
   const raw = Array.isArray(payload.requestItemIds) ? payload.requestItemIds : [];
   const ids = [
     ...new Set(
@@ -627,8 +653,7 @@ const nosposParkClosedAbortByTabId = new Map();
 
 const NOSPOS_PARK_TAB_CLOSED_ERR = 'NosPos tab was closed — parking failed.';
 
-function markNosposParkTabClosed(tabId, removeInfo = null) {
-  if (!nosposActiveParkTabIds.has(tabId)) return;
+function applyNosposParkTabClosedMark(tabId, removeInfo = null) {
   nosposActiveParkTabIds.delete(tabId);
   const err = NOSPOS_PARK_TAB_CLOSED_ERR;
   if (!nosposParkClosedAbortByTabId.has(tabId)) {
@@ -644,6 +669,24 @@ function markNosposParkTabClosed(tabId, removeInfo = null) {
       `✗ ${err}`
     );
   }
+}
+
+/**
+ * When the service worker restarts, in-memory `nosposActiveParkTabIds` is empty but
+ * `chrome.storage.session` may still hold the park UI lock for this tab — still treat
+ * closure as a park failure so the app gets a consistent error.
+ */
+function markNosposParkTabClosed(tabId, removeInfo = null) {
+  if (nosposActiveParkTabIds.has(tabId)) {
+    applyNosposParkTabClosedMark(tabId, removeInfo);
+    return;
+  }
+  void chrome.storage.session.get(NOSPOS_PARK_UI_STORAGE_KEY).then((data) => {
+    const lock = data[NOSPOS_PARK_UI_STORAGE_KEY];
+    if (lock?.active && lock.tabId === tabId) {
+      applyNosposParkTabClosedMark(tabId, removeInfo);
+    }
+  });
 }
 
 function registerNosposParkTab(tabId) {
@@ -665,6 +708,65 @@ function failIfNosposParkTabClosed(tabId) {
   const err = getNosposParkTabClosedError(tabId);
   if (!err) return null;
   return { ok: false, tabClosed: true, error: err };
+}
+
+/**
+ * Like {@link failIfNosposParkTabClosed} but also detects a missing tab when `tabs.onRemoved`
+ * was missed (e.g. MV3 worker asleep). Call at the start of park bridge handlers.
+ */
+async function failIfNosposParkTabClosedOrMissing(tabId) {
+  const err = getNosposParkTabClosedError(tabId);
+  if (err) return { ok: false, tabClosed: true, error: err };
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (!tab) {
+    applyNosposParkTabClosedMark(tabId, null);
+    return { ok: false, tabClosed: true, error: NOSPOS_PARK_TAB_CLOSED_ERR };
+  }
+  return null;
+}
+
+const pendingNosposDuplicateChoices = new Map();
+
+function resolveNosposDuplicateUserChoice(requestId, tabId, choice) {
+  const entry = pendingNosposDuplicateChoices.get(requestId);
+  if (!entry || entry.tabId !== tabId) return false;
+  entry.finish(choice);
+  return true;
+}
+
+function waitForNosposDuplicateUserChoice(tabId, requestId, timeoutMs) {
+  return new Promise((resolve) => {
+    let settled = false;
+    let pollTimer = null;
+    let onRemoved = null;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      if (onRemoved) {
+        try {
+          chrome.tabs.onRemoved.removeListener(onRemoved);
+        } catch (_) {}
+        onRemoved = null;
+      }
+      if (pollTimer != null) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+      pendingNosposDuplicateChoices.delete(requestId);
+      resolve(value);
+    };
+    onRemoved = (removedTabId) => {
+      if (removedTabId !== tabId) return;
+      markNosposParkTabClosed(tabId, null);
+      finish('tab_closed');
+    };
+    chrome.tabs.onRemoved.addListener(onRemoved);
+    pollTimer = setInterval(() => {
+      if (getNosposParkTabClosedError(tabId)) finish('tab_closed');
+    }, 350);
+    pendingNosposDuplicateChoices.set(requestId, { tabId, finish });
+    setTimeout(() => finish('timeout'), timeoutMs);
+  });
 }
 
 async function waitForNosposTabComplete(tabId, maxWaitMs = 45000) {
@@ -1329,6 +1431,8 @@ async function fillNosposAgreementFirstItemImpl(payload) {
   if (!Number.isFinite(tabId) || tabId <= 0) {
     return { ok: false, error: 'Invalid tab' };
   }
+  const firstDead = await failIfNosposParkTabClosedOrMissing(tabId);
+  if (firstDead) return firstDead;
   const tabCheck = await ensureNosposAgreementItemsTab(tabId, 90000);
   if (!tabCheck.ok) return tabCheck;
   return fillNosposAgreementOneLineImpl(tabId, {
@@ -1473,6 +1577,8 @@ async function fillNosposAgreementItemStepImpl(payload) {
     logPark('fillNosposAgreementItemStepImpl', 'error', { tabId }, 'Invalid tabId');
     return { ok: false, error: 'Invalid tab' };
   }
+  const stepDead = await failIfNosposParkTabClosedOrMissing(tabId);
+  if (stepDead) return stepDead;
 
   const item = payload.item && typeof payload.item === 'object' ? payload.item : {};
   const resolved = await resolveNosposParkAgreementLineImpl(tabId, stepIndex, item, {
@@ -1503,6 +1609,8 @@ async function fillNosposAgreementItemsSequentialImpl(payload) {
   if (!Number.isFinite(tabId) || tabId <= 0) {
     return { ok: false, error: 'Invalid tab' };
   }
+  const seqDead = await failIfNosposParkTabClosedOrMissing(tabId);
+  if (seqDead) return seqDead;
   const items = Array.isArray(payload.items) ? payload.items : [];
   if (!items.length) {
     return { ok: false, error: 'No items to add' };
@@ -2122,12 +2230,35 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .then((data) => {
         const lock = data[NOSPOS_PARK_UI_STORAGE_KEY];
         const show = !!(lock && lock.active && lock.tabId === tabId);
+        const duplicatePrompt =
+          show && lock.duplicatePromptRequestId
+            ? {
+                requestId: lock.duplicatePromptRequestId,
+                agreementId: lock.duplicatePromptAgreementId ?? null,
+              }
+            : null;
         sendResponse({
           show,
           message: lock?.message || NOSPOS_PARK_OVERLAY_DEFAULT_MSG,
+          duplicatePrompt,
         });
       })
       .catch(() => sendResponse({ show: false }));
+    return true;
+  }
+
+  if (message.type === 'NOSPOS_PARK_DUPLICATE_CHOICE') {
+    const tabId = sender.tab?.id;
+    const requestId = message.requestId;
+    const choice = message.choice;
+    if (
+      tabId != null &&
+      requestId &&
+      (choice === 'delete' || choice === 'cancel')
+    ) {
+      resolveNosposDuplicateUserChoice(requestId, tabId, choice);
+    }
+    sendResponse({ ok: true });
     return true;
   }
 
@@ -2526,14 +2657,88 @@ async function handleBridgeForward(message, sender) {
           logPark('handleBridgeForward', 'step', {
             newAgreementId,
             preExistingIds: [...preExistingIds],
-          }, `DUPLICATE DRAFT DETECTED — agreement #${newAgreementId} already exists on buying hub. Auto-deleting.`);
+          }, `DUPLICATE DRAFT DETECTED — agreement #${newAgreementId} already exists on buying hub. Prompting user.`);
 
-          // Activate the overlay immediately so the tab is blocked during the whole delete process.
-          // The tabs.onUpdated handler will re-apply it as the tab navigates between pages.
-          logPark('handleBridgeForward', 'step', { tabId }, 'Activating park overlay to block tab during duplicate deletion');
+          const dupRequestId = `cg-dup-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
           try {
-            await activateNosposParkAgreementUi(tabId, appTabId);
-            await sendNosposParkOverlayToTab(tabId, true, 'Duplicate draft detected — deleting and restarting in a new tab…');
+            await chrome.storage.session.set({
+              [NOSPOS_PARK_UI_STORAGE_KEY]: {
+                active: true,
+                tabId,
+                appTabId: appTabId ?? null,
+                message: NOSPOS_PARK_OVERLAY_DEFAULT_MSG,
+                duplicatePromptRequestId: dupRequestId,
+                duplicatePromptAgreementId: String(newAgreementId),
+              },
+            });
+          } catch (_) {}
+          await focusNosposTabForPark(tabId);
+          await sendNosposParkDuplicatePromptToTab(tabId, dupRequestId, newAgreementId);
+          await sleep(450);
+          await sendNosposParkDuplicatePromptToTab(tabId, dupRequestId, newAgreementId);
+
+          const choice = await waitForNosposDuplicateUserChoice(
+            tabId,
+            dupRequestId,
+            15 * 60 * 1000
+          );
+
+          if (choice !== 'delete') {
+            const tabAlreadyGone = choice === 'tab_closed';
+            logPark(
+              'handleBridgeForward',
+              'step',
+              { newAgreementId, choice },
+              tabAlreadyGone
+                ? 'NoSpos tab closed during duplicate prompt'
+                : 'User declined duplicate delete or prompt timed out — closing NosPos tab'
+            );
+            if (!tabAlreadyGone) {
+              try {
+                await sendNosposParkOverlayToTab(tabId, false);
+              } catch (_) {}
+            }
+            try {
+              await chrome.storage.session.remove(NOSPOS_PARK_UI_STORAGE_KEY);
+            } catch (_) {}
+            unregisterNosposParkTab(tabId);
+            if (!tabAlreadyGone) {
+              try {
+                await chrome.tabs.remove(tabId);
+              } catch (_) {}
+            }
+            if (appTabId != null) {
+              try {
+                await focusAppTab(appTabId);
+              } catch (_) {}
+            }
+            return {
+              ok: false,
+              duplicateDraftDetected: true,
+              userDeclinedDuplicateDelete: choice === 'cancel',
+              duplicatePromptTimedOut: choice === 'timeout',
+              nosposTabClosedDuringDuplicatePrompt: tabAlreadyGone,
+              newAgreementId,
+              error: tabAlreadyGone ? NOSPOS_PARK_TAB_CLOSED_ERR : NOSPOS_DUPLICATE_DECLINED_ERROR,
+            };
+          }
+
+          logPark(
+            'handleBridgeForward',
+            'step',
+            { newAgreementId, tabId },
+            'User confirmed delete — switching to wait overlay and deleting duplicate'
+          );
+          try {
+            await chrome.storage.session.set({
+              [NOSPOS_PARK_UI_STORAGE_KEY]: {
+                active: true,
+                tabId,
+                appTabId: appTabId ?? null,
+                message: 'Deleting duplicate draft — please wait…',
+              },
+            });
+            await sendNosposParkOverlayToTab(tabId, true, 'Deleting duplicate draft — please wait…');
           } catch (_) {}
 
           // Step A: Navigate to the duplicate's items page, delete it, wait for nospos.com/buying.
@@ -2665,7 +2870,7 @@ async function handleBridgeForward(message, sender) {
     if (!Number.isFinite(tabId) || tabId <= 0) {
       return { ok: false, error: 'Invalid tab' };
     }
-    const closed = failIfNosposParkTabClosed(tabId);
+    const closed = await failIfNosposParkTabClosedOrMissing(tabId);
     if (closed) return closed;
     if (CG_TEST_FAIL_PARK_AFTER_SECOND_ITEM && stepIndex >= 2) {
       const intentionalError =
@@ -2694,7 +2899,7 @@ async function handleBridgeForward(message, sender) {
   if (payload.action === 'clickNosposSidebarParkAgreement') {
     const tabId = parseInt(String(payload.tabId ?? '').trim(), 10);
     if (Number.isFinite(tabId) && tabId > 0) {
-      const closed = failIfNosposParkTabClosed(tabId);
+      const closed = await failIfNosposParkTabClosedOrMissing(tabId);
       if (closed) return closed;
     }
     return clickNosposSidebarParkAgreementImpl(payload);
@@ -2741,7 +2946,7 @@ async function handleBridgeForward(message, sender) {
   if (payload.action === 'fillNosposParkAgreementCategory') {
     const tabId = parseInt(String(payload.tabId ?? '').trim(), 10);
     if (Number.isFinite(tabId) && tabId > 0) {
-      const closed = failIfNosposParkTabClosed(tabId);
+      const closed = await failIfNosposParkTabClosedOrMissing(tabId);
       if (closed) return closed;
     }
     return fillNosposParkAgreementCategoryImpl(payload);
@@ -2750,7 +2955,7 @@ async function handleBridgeForward(message, sender) {
   if (payload.action === 'fillNosposParkAgreementRest') {
     const tabId = parseInt(String(payload.tabId ?? '').trim(), 10);
     if (Number.isFinite(tabId) && tabId > 0) {
-      const closed = failIfNosposParkTabClosed(tabId);
+      const closed = await failIfNosposParkTabClosedOrMissing(tabId);
       if (closed) return closed;
     }
     return fillNosposParkAgreementRestImpl(payload);
@@ -2762,6 +2967,8 @@ async function handleBridgeForward(message, sender) {
     if (!Number.isFinite(tabId) || tabId <= 0) {
       return { ok: false, error: 'Invalid tab' };
     }
+    const patchDead = await failIfNosposParkTabClosedOrMissing(tabId);
+    if (patchDead) return patchDead;
     try {
       const r = await sendMessageToTabWithRetries(
         tabId,

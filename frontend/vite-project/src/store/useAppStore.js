@@ -523,6 +523,12 @@ const useAppStore = create(
         if (itemPayload.ourSalePrice != null && itemPayload.ourSalePrice !== '' && !isNaN(parseFloat(itemPayload.ourSalePrice))) {
           payload.our_sale_price_at_negotiation = normalizeExplicitSalePrice(parseFloat(itemPayload.ourSalePrice));
         }
+        if (itemPayload.customerExpectation != null && String(itemPayload.customerExpectation).trim() !== '') {
+          const ceParsed = parseFloat(String(itemPayload.customerExpectation).replace(/[£,]/g, ''));
+          if (!isNaN(ceParsed) && ceParsed >= 0) {
+            payload.customer_expectation_gbp = normalizeExplicitSalePrice(ceParsed);
+          }
+        }
 
         if (!request) {
           if (!customerData?.id) throw new Error('Customer must be selected before adding items');

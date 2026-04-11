@@ -3,6 +3,7 @@ import logging
 import requests as http_requests
 from django.shortcuts import render
 from django.conf import settings
+from django.views.decorators.csrf import ensure_csrf_cookie
 from urllib.parse import quote
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -11,7 +12,9 @@ from rest_framework import status
 logger = logging.getLogger(__name__)
 
 
+@ensure_csrf_cookie
 def react_app(request):
+    """SPA shell; ensures `csrftoken` is set so fetch POSTs can send X-CSRFToken."""
     return render(request, "react.html")
 
 

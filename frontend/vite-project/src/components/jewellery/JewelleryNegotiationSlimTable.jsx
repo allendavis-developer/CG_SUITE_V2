@@ -245,6 +245,9 @@ export default function JewelleryNegotiationSlimTable({
             <th scope="col" className="w-28">
               Scrap
             </th>
+            <th scope="col" className="w-32">
+              Customer Expectation
+            </th>
             <th scope="col" className="w-24 spreadsheet-th-offer-tier">
               1st
             </th>
@@ -262,9 +265,6 @@ export default function JewelleryNegotiationSlimTable({
             </th>
             <th scope="col" className="w-28">
               Total
-            </th>
-            <th scope="col" className="w-32">
-              Customer Expectation
             </th>
             {showNosposAction ? (
               <th scope="col" className="w-40">
@@ -457,6 +457,27 @@ export default function JewelleryNegotiationSlimTable({
                     '—'
                   )}
                 </td>
+                <td className="p-0" onContextMenu={ctxRemoveOnly(item)}>
+                  <input
+                    className="w-full h-full border-0 text-xs font-semibold text-center px-3 py-2 focus:outline-none focus:ring-0"
+                    style={{ background: '#f8fafc', outline: 'none' }}
+                    placeholder="£0.00"
+                    type="text"
+                    value={item.customerExpectation || ''}
+                    onChange={isView ? undefined : (e) => onCustomerExpectationChange(item.id, e.target.value)}
+                    onKeyDown={
+                      isView
+                        ? undefined
+                        : (e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              e.currentTarget.blur();
+                            }
+                          }
+                    }
+                    readOnly={isView}
+                  />
+                </td>
                 <SlimOfferCell
                   offer={offer1}
                   item={item}
@@ -620,27 +641,6 @@ export default function JewelleryNegotiationSlimTable({
                 </td>
                 <td className="font-semibold tabular-nums text-gray-900" onContextMenu={ctxRemoveOnly(item)}>
                   {totalGbp != null && totalGbp > 0 ? `£${formatOfferPrice(totalGbp)}` : '—'}
-                </td>
-                <td className="p-0" onContextMenu={ctxRemoveOnly(item)}>
-                  <input
-                    className="w-full h-full border-0 text-xs font-semibold text-center px-3 py-2 focus:outline-none focus:ring-0"
-                    style={{ background: '#f8fafc', outline: 'none' }}
-                    placeholder="£0.00"
-                    type="text"
-                    value={item.customerExpectation || ''}
-                    onChange={isView ? undefined : (e) => onCustomerExpectationChange(item.id, e.target.value)}
-                    onKeyDown={
-                      isView
-                        ? undefined
-                        : (e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              e.currentTarget.blur();
-                            }
-                          }
-                    }
-                    readOnly={isView}
-                  />
                 </td>
                 {showNosposAction ? (
                   <td className="align-top">

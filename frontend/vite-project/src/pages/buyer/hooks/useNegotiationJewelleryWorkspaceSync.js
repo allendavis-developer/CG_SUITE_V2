@@ -61,6 +61,7 @@ export function useNegotiationJewelleryWorkspaceSync({
             manualOfferUsed: d.manualOfferUsed,
             ourSalePrice: ourSale,
             referenceData: d.referenceData,
+            customerExpectation: line.customerExpectation ?? '',
             rawData:
               item.rawData != null && typeof item.rawData === 'object'
                 ? { ...item.rawData, referenceData: d.referenceData }
@@ -78,6 +79,16 @@ export function useNegotiationJewelleryWorkspaceSync({
           if (!line.request_item_id) continue;
           const d = getJewelleryWorkspaceDerivedState(line, useVoucherOffers, customerOfferRulesData?.settings);
           const itemName = line.itemName || line.categoryLabel || line.variantTitle || null;
+          const ceRaw = String(line.customerExpectation ?? '').replace(/[£,]/g, '').trim();
+          let customerExpectationForApi = undefined;
+          if (ceRaw === '') {
+            customerExpectationForApi = null;
+          } else {
+            const ceNum = parseFloat(ceRaw);
+            if (Number.isFinite(ceNum) && ceNum >= 0) {
+              customerExpectationForApi = normalizeExplicitSalePrice(ceNum);
+            }
+          }
           const payload = {
             selected_offer_id: d.selectedOfferId,
             manual_offer_used: d.selectedOfferId === 'manual',
@@ -90,6 +101,9 @@ export function useNegotiationJewelleryWorkspaceSync({
               d.ourSalePrice != null && d.ourSalePrice > 0 ? d.ourSalePrice : null,
             cash_offers_json: normalizeOffersForApi(d.cashOffers),
             voucher_offers_json: normalizeOffersForApi(d.voucherOffers),
+            ...(customerExpectationForApi !== undefined
+              ? { customer_expectation_gbp: customerExpectationForApi }
+              : {}),
           };
           await updateRequestItemOffer(line.request_item_id, payload).catch(() => {});
           const baseItem = jewelleryNegotiationItemsRef.current.find((i) => i.id === line.id);

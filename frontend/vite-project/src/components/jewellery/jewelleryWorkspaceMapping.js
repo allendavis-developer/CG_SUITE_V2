@@ -87,6 +87,10 @@ export function negotiationJewelleryItemToWorkspaceLine(item) {
     manualOfferInput,
     manualOfferAuthBy,
     authorisedOfferSlots: Array.from(new Set([...persistedAuthorisedSlots, ...runtimeAuthorisedSlots])),
+    customerExpectation:
+      item.customerExpectation != null && String(item.customerExpectation).trim() !== ''
+        ? String(item.customerExpectation).trim()
+        : '',
   };
 }
 

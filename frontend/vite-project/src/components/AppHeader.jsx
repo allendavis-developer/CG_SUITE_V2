@@ -913,6 +913,12 @@ const AppHeader = ({
     return getCategoryPath(otherSelectedNosposId, nosposOtherRoots);
   }, [otherSelectedNosposId, nosposOtherRoots]);
 
+  /** Other workspace: manual add only for bottom-level NosPos rows (no sub-categories). */
+  const otherManualAddLeafSelected = useMemo(() => {
+    if (!otherSelectedNosposId || !selectedOtherNosposNode) return false;
+    return !selectedOtherNosposNode.children?.length;
+  }, [otherSelectedNosposId, selectedOtherNosposNode]);
+
   const builderTreeCtx = {
     expandedIds,
     setExpandedIds,
@@ -940,14 +946,16 @@ const AppHeader = ({
     treeOnBrandBlue: showNegotiationItemBuilder,
     showNegotiationItemBuilder,
     onActivate: (category, { hasChildren }) => {
-      setOtherSelectedNosposId(String(category.category_id));
       if (hasChildren) {
+        setOtherSelectedNosposId('');
         setOtherExpandedIds((prev) =>
           prev.includes(category.category_id)
             ? prev.filter((id) => id !== category.category_id)
             : [...prev, category.category_id]
         );
+        return;
       }
+      setOtherSelectedNosposId(String(category.category_id));
     },
   };
 
@@ -1310,17 +1318,37 @@ const AppHeader = ({
                       </div>
                     ) : workspaceMode === 'other' ? (
                       <div className="flex h-full min-h-[280px] flex-col">
-                        {!otherSelectedNosposId ? (
+                        {!otherManualAddLeafSelected ? (
                           <div className="flex h-full min-h-[280px] flex-col items-center justify-center px-6 py-10 text-center">
                             <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full border border-gray-200 bg-gray-50">
                               <span className="material-symbols-outlined text-3xl text-brand-blue">category_search</span>
                             </div>
                             <h3 className="text-lg font-extrabold tracking-tight text-gray-900">
-                              Browse NosPos stock categories
+                              {otherSelectedNosposId && selectedOtherNosposNode?.children?.length
+                                ? 'Pick a leaf category'
+                                : otherSelectedNosposId && !selectedOtherNosposNode
+                                  ? 'Category not available'
+                                  : 'Browse NosPos stock categories'}
                             </h3>
                             <p className="mt-2 max-w-md text-sm leading-relaxed text-gray-600">
-                              Use the tree on the left—the same controls as the builder category picker—to find a NosPos
-                              category. Select a row to see its full path and ID here.
+                              {otherSelectedNosposId && selectedOtherNosposNode?.children?.length ? (
+                                <>
+                                  “{selectedOtherNosposNode.name}” still has sub-categories. Open the tree on the left and
+                                  select a bottom-level row (phone icon, no chevron)—only then can you enter an item name,
+                                  RRP, and offer.
+                                </>
+                              ) : otherSelectedNosposId && !selectedOtherNosposNode ? (
+                                <>
+                                  This category is no longer in the tree. Clear the filter if needed and select a
+                                  bottom-level leaf category on the left to continue.
+                                </>
+                              ) : (
+                                <>
+                                  Use the tree on the left—the same controls as the builder category picker—to find a NosPos
+                                  category. Expand folders as needed, then select a leaf row (bottom-level category) to enter
+                                  item details.
+                                </>
+                              )}
                             </p>
                           </div>
                         ) : (

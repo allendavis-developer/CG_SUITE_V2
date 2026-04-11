@@ -369,6 +369,25 @@ export default function NegotiationItemRow({
       <PriceCell value={item.cexVoucherPrice} quantity={quantity} className="font-medium text-red-700" onContextMenu={ctxRemoveOnly} />
       <PriceCell value={item.cexBuyPrice} quantity={quantity} className="font-medium text-red-700" onContextMenu={ctxRemoveOnly} />
 
+      {/* Customer Expectation */}
+      <td className="p-0" onContextMenu={ctxRemoveOnly}>
+        <input
+          className="w-full h-full border-0 text-xs font-semibold text-center px-3 py-2 focus:outline-none focus:ring-0"
+          style={{ background: '#f8fafc', outline: 'none' }}
+          placeholder="£0.00"
+          type="text"
+          value={item.customerExpectation || ''}
+          onChange={isViewMode ? undefined : (e) => onCustomerExpectationChange(item.id, e.target.value)}
+          onKeyDown={isViewMode ? undefined : (e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              e.currentTarget.blur();
+            }
+          }}
+          readOnly={isViewMode}
+        />
+      </td>
+
       {/* 1st / 2nd / 3rd / 4th Offer */}
       <OfferCell offer={offer1} item={item} quantity={quantity} mode={mode} ourSalePrice={ourSalePrice}
         isSelected={item.selectedOfferId === offer1?.id} onSelect={(id) => onSelectOffer(item.id, id)} onContextMenu={ctxRemoveOnly}
@@ -459,25 +478,6 @@ export default function NegotiationItemRow({
             ) : '—'}
           </div>
         )}
-      </td>
-
-      {/* Customer Expectation */}
-      <td className="p-0" onContextMenu={ctxRemoveOnly}>
-        <input
-          className="w-full h-full border-0 text-xs font-semibold text-center px-3 py-2 focus:outline-none focus:ring-0"
-          style={{ background: '#f8fafc', outline: 'none' }}
-          placeholder="£0.00"
-          type="text"
-          value={item.customerExpectation || ''}
-          onChange={isViewMode ? undefined : (e) => onCustomerExpectationChange(item.id, e.target.value)}
-          onKeyDown={isViewMode ? undefined : (e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              e.currentTarget.blur();
-            }
-          }}
-          readOnly={isViewMode}
-        />
       </td>
 
       {/* Our RRP (explicit per-unit retail; was fed by research or CeX reference) */}

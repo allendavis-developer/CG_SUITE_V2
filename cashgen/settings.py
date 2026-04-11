@@ -152,11 +152,11 @@ STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# Ensure CSRF works properly in deployed HTTPS environment
-CSRF_COOKIE_SECURE = True          # Only send cookie over HTTPS
+# CSRF / session cookies: Secure in production (HTTPS); allow HTTP when DEBUG for local dev
+CSRF_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SAMESITE = 'Lax'       # 'Lax' is safest, 'None' if cross-site
 CSRF_TRUSTED_ORIGINS = ['https://cashgensuite.onrender.com']
-SESSION_COOKIE_SECURE = True       # Also secure sessions
+SESSION_COOKIE_SECURE = not DEBUG
 
 # Ideal Postcodes API key for UK address lookup (used by Chrome extension customer form)
 # Set IDEAL_POSTCODES_API_KEY in .env - get a key at https://ideal-postcodes.co.uk/

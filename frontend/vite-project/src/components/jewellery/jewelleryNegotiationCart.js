@@ -356,6 +356,10 @@ export function buildJewelleryNegotiationCartItem(
     category: 'Jewellery',
     categoryObject,
     request_item_id: null,
+    customerExpectation:
+      line.customerExpectation != null && String(line.customerExpectation).trim() !== ''
+        ? String(line.customerExpectation).trim()
+        : '',
   };
 }
 

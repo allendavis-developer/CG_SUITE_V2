@@ -9,6 +9,7 @@ import {
   getFilterTitle,
   REQUEST_OVERVIEW_STATUS_FILTERS,
 } from '@/utils/transactionConstants';
+import { formatRequestItemNamesList } from '@/utils/requestToCartMapping';
 
 const FILTER_LABELS = REQUEST_OVERVIEW_STATUS_FILTERS.map((f) => f.label);
 
@@ -45,6 +46,20 @@ const getInitials = (name) => {
     .toUpperCase()
     .slice(0, 2);
 };
+
+/** Date + time for overview (API sends ISO datetime on `created_at`). */
+function formatRequestCreatedAt(iso) {
+  if (iso == null || iso === '') return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
 
 const RequestsOverview = () => {
   const navigate = useNavigate();
@@ -305,6 +320,7 @@ const RequestsOverview = () => {
                   <tr>
                     <th className="w-24">ID</th>
                     <th className="min-w-[200px]">Customer Name</th>
+                    <th className="min-w-[220px] max-w-[420px]">Items</th>
                     <th className="w-32">Intent</th>
                     <th className="w-32">Item Count</th>
                     <th className="w-40">Total Value</th>
@@ -314,7 +330,9 @@ const RequestsOverview = () => {
                   </tr>
                 </thead>
                 <tbody className="text-xs">
-                  {requests.map((requestItem) => (
+                  {requests.map((requestItem) => {
+                    const itemsSummary = formatRequestItemNamesList(requestItem);
+                    return (
                     <tr key={requestItem.request_id} onClick={() => onRowNavigate(requestItem)}>
                       <td className="font-bold text-gray-600">#{requestItem.request_id}</td>
                       <td>
@@ -326,6 +344,14 @@ const RequestsOverview = () => {
                             {requestItem.customer_details?.name ?? '—'}
                           </div>
                         </div>
+                      </td>
+                      <td
+                        className="max-w-[420px] text-gray-700 align-middle"
+                        title={itemsSummary || undefined}
+                      >
+                        <span className="line-clamp-3 break-words text-[12px] font-medium leading-snug">
+                          {itemsSummary || '—'}
+                        </span>
                       </td>
                       <td className="font-semibold text-gray-600">
                         {formatIntent(requestItem.intent)}
@@ -344,18 +370,15 @@ const RequestsOverview = () => {
                           {formatStatus(requestItem.current_status)}
                         </span>
                       </td>
-                      <td className="text-gray-600">
-                        {new Date(requestItem.created_at).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          year: 'numeric',
-                        })}
+                      <td className="whitespace-nowrap text-gray-600 tabular-nums">
+                        {formatRequestCreatedAt(requestItem.created_at)}
                       </td>
                       <td className="text-right">
                         <span className="material-symbols-outlined text-slate-300">chevron_right</span>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             )}
