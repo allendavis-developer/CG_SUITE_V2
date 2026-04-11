@@ -5,6 +5,7 @@
 
 import { suggestNosposCategory } from './aiCategoryService';
 import { fetchAllCategoriesFlat, fetchNosposCategories } from './api';
+import { flatCategoriesToNestedRoots } from '@/utils/categoryPickerTree';
 
 /**
  * Walk `parent_category_id` to the DB root and return whether that root is `ready_for_builder`.
@@ -188,6 +189,65 @@ export function summariseNegotiationItemForAi(item) {
     name: String(name).trim(),
     dbCategory: dbCategory != null && String(dbCategory).trim() !== '' ? String(dbCategory).trim() : null,
     attributes,
+  };
+}
+
+function buildInternalCategoryObjectFromFlatRow(row, fallbackPath = []) {
+  if (!row || row.category_id == null) return null;
+  const path = String(row.path || '')
+    .split(' > ')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return {
+    id: row.category_id,
+    name: row.name,
+    path: path.length ? path : fallbackPath,
+  };
+}
+
+/**
+ * Same internal product-category AI cascade used by the eBay category picker,
+ * exposed for non-picker flows like Add from CeX.
+ *
+ * @param {object} params
+ * @param {object|null} [params.item]
+ * @param {import('./aiCategoryService').ItemSummary|null} [params.itemSummary]
+ * @param {Array<{ category_id: number, name: string, path?: string }>|null} [params.allCategoriesFlat]
+ * @param {string} [params.logTag]
+ * @returns {Promise<{ categoryObject: { id: number, name: string, path: string[] }, itemSummary: import('./aiCategoryService').ItemSummary, flat: object[] }|null>}
+ */
+export async function resolveInternalProductCategoryByAi({
+  item = null,
+  itemSummary = null,
+  allCategoriesFlat = null,
+  logTag = '[CG Suite][AiCategory][InternalProductResolver]',
+}) {
+  const summary = itemSummary || summariseNegotiationItemForAi(item);
+  let flat = allCategoriesFlat;
+  if (!Array.isArray(flat) || flat.length === 0) {
+    flat = await fetchAllCategoriesFlat();
+  }
+  if (!Array.isArray(flat) || flat.length === 0) return null;
+
+  const roots = flatCategoriesToNestedRoots(flat);
+  if (!Array.isArray(roots) || roots.length === 0) return null;
+
+  const res = await runAiCategoryCascadeArrayTree({
+    rootNodes: roots,
+    itemSummary: summary,
+    startPath: [],
+    logTag,
+  });
+  if (!res.success || !res.leaf?.category_id) return null;
+
+  const row = flat.find((entry) => Number(entry.category_id) === Number(res.leaf.category_id));
+  const categoryObject = buildInternalCategoryObjectFromFlatRow(row, res.path);
+  if (!categoryObject?.id) return null;
+
+  return {
+    categoryObject,
+    itemSummary: summary,
+    flat,
   };
 }
 

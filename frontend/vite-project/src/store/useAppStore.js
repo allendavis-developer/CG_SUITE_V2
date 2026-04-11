@@ -23,6 +23,7 @@ import { withDefaultRrpOffersSource } from '@/pages/buyer/utils/negotiationHelpe
 import { validateBuyerCartItemOffers } from '@/utils/cartOfferValidation';
 import { revokeManualOfferAuthorisationIfSwitchingAway } from '@/utils/customerOfferRules';
 import { matchCexCategoryNameToDb } from '@/utils/cexCategoryMatch';
+import { resolveInternalProductCategoryByAi } from '@/services/aiCategoryPathCascade';
 import { ROUTE_ENTRY_CUSTOMER } from '@/store/workspaceRouteBootstrap';
 
 const DEFAULT_CUSTOMER = ROUTE_ENTRY_CUSTOMER;
@@ -605,15 +606,41 @@ const useAppStore = create(
           const data = await getDataFromListingPage('CeX', trimmedQuery);
           if (data?.success && Array.isArray(data.results) && data.results.length > 0) {
             const product = data.results[0];
-            // Resolve category first so we can pass the DB id to the pricing API
+            // Resolve the internal category first so pricing + downstream NoSpos AI use the
+            // same category-selection system as the eBay research picker.
             let categoryObject = product?.category
               ? { name: product.category, path: [product.category] }
               : null;
             try {
               const flat = await fetchAllCategoriesFlat();
-              const flatBuilder = flat.filter((c) => c.ready_for_builder !== false);
-              const matched = matchCexCategoryNameToDb(product?.category, flatBuilder);
-              if (matched) categoryObject = matched;
+              const aiResolved = await resolveInternalProductCategoryByAi({
+                item: {
+                  title: product?.title || 'CeX Product',
+                  subtitle: product?.category || '',
+                  variantName: product?.title || undefined,
+                  category: product?.category || 'CeX',
+                  categoryObject,
+                  isCustomCeXItem: true,
+                  cexProductData: product,
+                },
+                allCategoriesFlat: flat,
+                logTag: '[CG Suite][AiCategory][CeXAddFromExtension]',
+              });
+              if (aiResolved?.categoryObject?.id != null) {
+                categoryObject = aiResolved.categoryObject;
+                if (typeof console !== 'undefined') {
+                  console.log('[CG Suite][CategoryRule]', {
+                    context: 'cex-auto-resolved-via-ai-cascade',
+                    categoryName: categoryObject?.name ?? null,
+                    categoryId: categoryObject?.id ?? null,
+                    categoryPath: categoryObject?.path ?? null,
+                    rawCexCategoryName: product?.category ?? null,
+                  });
+                }
+              } else {
+                const matched = matchCexCategoryNameToDb(product?.category, flat);
+                if (matched) categoryObject = matched;
+              }
             } catch (_) {
               // best effort: keep category text-only object
             }
