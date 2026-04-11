@@ -164,6 +164,114 @@ function rowOffersLookLikeCexTiers(offers) {
   });
 }
 
+function resolvePersistedCexOfferRows(item) {
+  const ref = item?.referenceData || {};
+  const rawData = item?.rawData && typeof item.rawData === 'object' ? item.rawData : {};
+  const rawRef = rawData.referenceData || rawData.reference_data || {};
+  const cexData = item?.cexProductData && typeof item.cexProductData === 'object' ? item.cexProductData : {};
+  const cexRef = cexData.referenceData || cexData.reference_data || {};
+
+  let cashOffers = slimCexNegotiationOfferRows(
+    firstNonEmptyOfferArray(
+      ref.cash_offers,
+      rawRef.cash_offers,
+      rawData.cash_offers,
+      cexRef.cash_offers,
+      cexData.cash_offers,
+      rowOffersLookLikeCexTiers(item?.cashOffers) ? item.cashOffers : null,
+    )
+  );
+  let voucherOffers = slimCexNegotiationOfferRows(
+    firstNonEmptyOfferArray(
+      ref.voucher_offers,
+      rawRef.voucher_offers,
+      rawData.voucher_offers,
+      cexRef.voucher_offers,
+      cexData.voucher_offers,
+      rowOffersLookLikeCexTiers(item?.voucherOffers) ? item.voucherOffers : null,
+    )
+  );
+
+  if (!cashOffers.length && voucherOffers.length) {
+    cashOffers = voucherOffers.map((o) => ({
+      id: `cex-c-${o.id}`,
+      title: o.title,
+      price: roundOfferPrice(Number(o.price) / 1.1),
+    }));
+  } else if (!voucherOffers.length && cashOffers.length) {
+    voucherOffers = cashOffers.map((o) => ({
+      id: `cex-v-${o.id}`,
+      title: o.title,
+      price: toVoucherOfferPrice(o.price),
+    }));
+  }
+
+  return { cashOffers, voucherOffers };
+}
+
+function resolvePersistedCexRrp(item) {
+  const ref = item?.referenceData || {};
+  const rawLayers = [item?.rawData, item?.cexProductData].filter(
+    (layer) => layer && typeof layer === 'object'
+  );
+  for (const raw of rawLayers) {
+    const rawRef = raw.referenceData || raw.reference_data || {};
+    const rrp = resolveCexRrpFromItemLayers(item, ref, raw, rawRef);
+    if (rrp != null && rrp > 0) return rrp;
+  }
+  return resolveCexRrpFromItemLayers(item, ref, {}, {});
+}
+
+function persistCexOfferRowsOnItem(item) {
+  if (!isCeXBackedNegotiationItem(item)) return item;
+  const { cashOffers, voucherOffers } = resolvePersistedCexOfferRows(item);
+  if (!cashOffers.length && !voucherOffers.length) return item;
+
+  const next = { ...item };
+  const ref = item.referenceData && typeof item.referenceData === 'object' ? item.referenceData : {};
+  next.referenceData = {
+    ...ref,
+    ...(cashOffers.length ? { cash_offers: cashOffers } : {}),
+    ...(voucherOffers.length ? { voucher_offers: voucherOffers } : {}),
+  };
+
+  if (item.cexProductData && typeof item.cexProductData === 'object') {
+    const cexRef =
+      item.cexProductData.referenceData && typeof item.cexProductData.referenceData === 'object'
+        ? item.cexProductData.referenceData
+        : {};
+    next.cexProductData = {
+      ...item.cexProductData,
+      referenceData: {
+        ...cexRef,
+        ...(cashOffers.length ? { cash_offers: cashOffers } : {}),
+        ...(voucherOffers.length ? { voucher_offers: voucherOffers } : {}),
+      },
+    };
+  }
+
+  if (item.rawData && typeof item.rawData === 'object') {
+    const rawRef =
+      item.rawData.referenceData && typeof item.rawData.referenceData === 'object'
+        ? item.rawData.referenceData
+        : item.rawData.reference_data && typeof item.rawData.reference_data === 'object'
+          ? item.rawData.reference_data
+          : {};
+    next.rawData = {
+      ...item.rawData,
+      ...(cashOffers.length ? { cash_offers: cashOffers } : {}),
+      ...(voucherOffers.length ? { voucher_offers: voucherOffers } : {}),
+      referenceData: {
+        ...rawRef,
+        ...(cashOffers.length ? { cash_offers: cashOffers } : {}),
+        ...(voucherOffers.length ? { voucher_offers: voucherOffers } : {}),
+      },
+    };
+  }
+
+  return next;
+}
+
 /**
  * CeX RRP + tier rows live in different places depending on flow (internal variant vs Add-from-CeX vs saved quote).
  */
@@ -190,16 +298,17 @@ function resolveCexRrpFromItemLayers(item, ref, raw, rawRef) {
 }
 
 function nextItemWithExplicitRrpAndOffers(item, { rrp, cashOffers, voucherOffers, useVoucherOffers, rrpOffersSource }) {
+  const baseItem = persistCexOfferRowsOnItem(item);
   const displayOffers = useVoucherOffers ? voucherOffers : cashOffers;
 
   let selectedOfferId;
   let manualOffer;
-  if (item.selectedOfferId === 'manual') {
+  if (baseItem.selectedOfferId === 'manual') {
     selectedOfferId = 'manual';
-    manualOffer = item.manualOffer ?? '';
-  } else if (item.selectedOfferId != null && item.selectedOfferId !== '') {
-    const prevDisplay = getDisplayOffers(item, useVoucherOffers);
-    const prevIdx = prevDisplay.findIndex((o) => o.id === item.selectedOfferId);
+    manualOffer = baseItem.manualOffer ?? '';
+  } else if (baseItem.selectedOfferId != null && baseItem.selectedOfferId !== '') {
+    const prevDisplay = getDisplayOffers(baseItem, useVoucherOffers);
+    const prevIdx = prevDisplay.findIndex((o) => o.id === baseItem.selectedOfferId);
     if (prevIdx >= 0 && displayOffers.length) {
       const idx = Math.min(prevIdx, displayOffers.length - 1);
       selectedOfferId = displayOffers[idx].id;
@@ -212,7 +321,7 @@ function nextItemWithExplicitRrpAndOffers(item, { rrp, cashOffers, voucherOffers
     manualOffer = '';
   }
 
-  const next = { ...item };
+  const next = { ...baseItem };
   delete next.ourSalePriceInput;
   return {
     ...next,
@@ -236,43 +345,14 @@ export function applyRrpAndOffersFromPriceSource(item, zone, useVoucherOffers) {
 
   switch (zone) {
     case NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL: {
-      const ref = item.referenceData || {};
-      const raw = item.rawData || item.cexProductData || {};
-      const rawRef = raw.referenceData || raw.reference_data || {};
-      const rrp = resolveCexRrpFromItemLayers(item, ref, raw, rawRef);
+      const rrp = resolvePersistedCexRrp(item);
       if (rrp == null || rrp <= 0) {
         return {
           item,
           errorMessage: 'No CeX-based RRP on this row. Refresh CeX data or check reference data.',
         };
       }
-      const cashRaw = firstNonEmptyOfferArray(
-        ref.cash_offers,
-        rawRef.cash_offers,
-        raw.cash_offers,
-        rowOffersLookLikeCexTiers(item.cashOffers) ? item.cashOffers : null,
-      );
-      const voucherRaw = firstNonEmptyOfferArray(
-        ref.voucher_offers,
-        rawRef.voucher_offers,
-        raw.voucher_offers,
-        rowOffersLookLikeCexTiers(item.voucherOffers) ? item.voucherOffers : null,
-      );
-      let cashOffers = slimCexNegotiationOfferRows(cashRaw);
-      let voucherOffers = slimCexNegotiationOfferRows(voucherRaw);
-      if (useVoucherOffers && !voucherOffers.length && cashOffers.length) {
-        voucherOffers = cashOffers.map((o) => ({
-          id: `cex-v-${o.id}`,
-          title: o.title,
-          price: toVoucherOfferPrice(o.price),
-        }));
-      } else if (!useVoucherOffers && !cashOffers.length && voucherOffers.length) {
-        cashOffers = voucherOffers.map((o) => ({
-          id: `cex-c-${o.id}`,
-          title: o.title,
-          price: roundOfferPrice(Number(o.price) / 1.1),
-        }));
-      }
+      const { cashOffers, voucherOffers } = resolvePersistedCexOfferRows(item);
       const displayOffers = useVoucherOffers ? voucherOffers : cashOffers;
       if (!displayOffers.length) {
         return {
