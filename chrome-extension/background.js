@@ -165,6 +165,7 @@ async function clearNosposParkAgreementUiLock(options = {}) {
   if (!lock || !lock.active) return;
   await chrome.storage.session.remove(NOSPOS_PARK_UI_STORAGE_KEY);
   if (lock.tabId != null) {
+    unregisterNosposParkTab(lock.tabId);
     await sendNosposParkOverlayToTab(lock.tabId, false);
   }
   if (focusApp && lock.appTabId != null) {
@@ -246,6 +247,25 @@ async function focusOrOpenNosposParkTabImpl({ tabId, fallbackCreateUrl, appTabId
 
 /** Max time to wait for a NosPos full tab reload after Add or category change (user can retry after). */
 const NOSPOS_RELOAD_WAIT_MS = 20000;
+/** Delay before Actions -> Delete Agreement / Park Agreement clicks to reduce rate-limit spikes. */
+const NOSPOS_ACTION_POST_DELAY_MS = 1200;
+/** Rate-limit guard before clicking Add item (does not affect item-form filling). */
+const NOSPOS_ADD_ITEM_CLICK_DELAY_MS = 700;
+/** Rate-limit guard before sending category set (does not affect item-form filling). */
+const NOSPOS_SET_CATEGORY_DELAY_MS = 700;
+/** Global park-flow pacing delay applied before extension-to-tab steps. */
+const NOSPOS_PARK_GLOBAL_STEP_DELAY_MS = 450;
+/** If NosPos returns 429 page, wait this long then reload. */
+const NOSPOS_429_RELOAD_DELAY_MS = 4000;
+const nospos429LastRecoveryAtByTabId = new Map();
+
+/**
+ * TEST ONLY: when true, Park Agreement intentionally fails after 2 included items.
+ * - stepIndex 0 => item 1 (passes)
+ * - stepIndex 1 => item 2 (passes)
+ * - stepIndex >= 2 => extension returns failure on purpose
+ */
+const CG_TEST_FAIL_PARK_AFTER_SECOND_ITEM = false;
 
 // sendMessageToTabWithRetries — imported from bg/tab-utils.js
 
@@ -367,7 +387,7 @@ async function waitForAgreementItemsReadyAfterCategory(
       continue;
     }
     try {
-      lastProbe = await sendMessageToTabWithRetries(
+      lastProbe = await sendParkMessageToTabWithAbort(
         tabId,
         {
           type: 'NOSPOS_AGREEMENT_FILL_PHASE',
@@ -401,7 +421,7 @@ async function waitForAgreementItemsReadyAfterCategory(
 
 async function countNosposAgreementItemLines(tabId) {
   try {
-    const r = await sendMessageToTabWithRetries(
+    const r = await sendParkMessageToTabWithAbort(
       tabId,
       { type: 'NOSPOS_AGREEMENT_FILL_PHASE', phase: 'count_lines' },
       10,
@@ -421,7 +441,7 @@ async function findNosposLineIndexForMarker(tabId, marker) {
   const m = String(marker || '').trim();
   if (!m) return null;
   try {
-    const r = await sendMessageToTabWithRetries(
+    const r = await sendParkMessageToTabWithAbort(
       tabId,
       { type: 'NOSPOS_AGREEMENT_FILL_PHASE', phase: 'find_line_marker', marker: m },
       10,
@@ -483,7 +503,7 @@ async function findNosposLineIndexForMarkerWithFallback(tabId, marker) {
 async function readNosposAgreementLineSnapshot(tabId, lineIndex) {
   const lineIdx = Math.max(0, parseInt(String(lineIndex ?? '0'), 10) || 0);
   try {
-    return await sendMessageToTabWithRetries(
+    return await sendParkMessageToTabWithAbort(
       tabId,
       { type: 'NOSPOS_AGREEMENT_FILL_PHASE', phase: 'read_line_snapshot', lineIndex: lineIdx },
       8,
@@ -522,7 +542,7 @@ async function deleteExcludedNosposAgreementLinesImpl(payload) {
   for (let ii = 0; ii < ids.length; ii += 1) {
     const rid = ids[ii];
     try {
-      const r = await sendMessageToTabWithRetries(
+      const r = await sendParkMessageToTabWithAbort(
         tabId,
         {
           type: 'NOSPOS_AGREEMENT_FILL_PHASE',
@@ -602,6 +622,156 @@ const NOSPOS_BUYING_AFTER_PARK_WAIT_MS = 60000;
 
 /** Force-remove `tabs.onUpdated` listener for {@link waitForNosposTabBuyingAfterPark} when closing the tab from CG Suite. */
 const nosposBuyingAfterParkDetachByTabId = new Map();
+const nosposActiveParkTabIds = new Set();
+const nosposParkClosedAbortByTabId = new Map();
+
+const NOSPOS_PARK_TAB_CLOSED_ERR = 'NosPos tab was closed — parking failed.';
+
+function markNosposParkTabClosed(tabId, removeInfo = null) {
+  if (!nosposActiveParkTabIds.has(tabId)) return;
+  nosposActiveParkTabIds.delete(tabId);
+  const err = NOSPOS_PARK_TAB_CLOSED_ERR;
+  if (!nosposParkClosedAbortByTabId.has(tabId)) {
+    nosposParkClosedAbortByTabId.set(tabId, err);
+    logPark(
+      'nosposParkTabLifecycle',
+      'error',
+      {
+        tabId,
+        removeInfo: removeInfo || null,
+        tickmark: 'x',
+      },
+      `✗ ${err}`
+    );
+  }
+}
+
+function registerNosposParkTab(tabId) {
+  nosposActiveParkTabIds.clear();
+  nosposActiveParkTabIds.add(tabId);
+  nosposParkClosedAbortByTabId.delete(tabId);
+}
+
+function unregisterNosposParkTab(tabId) {
+  nosposActiveParkTabIds.delete(tabId);
+  nosposParkClosedAbortByTabId.delete(tabId);
+}
+
+function getNosposParkTabClosedError(tabId) {
+  return nosposParkClosedAbortByTabId.get(tabId) || null;
+}
+
+function failIfNosposParkTabClosed(tabId) {
+  const err = getNosposParkTabClosedError(tabId);
+  if (!err) return null;
+  return { ok: false, tabClosed: true, error: err };
+}
+
+async function waitForNosposTabComplete(tabId, maxWaitMs = 45000) {
+  const deadline = Date.now() + Math.max(1000, maxWaitMs);
+  while (Date.now() < deadline) {
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    if (!tab) return { ok: false, error: 'The NoSpos tab was closed' };
+    if (tab.status === 'complete') return { ok: true, url: tab.url || '' };
+    await sleep(120);
+  }
+  return { ok: false, error: 'NoSpos page did not finish loading in time after reload' };
+}
+
+async function maybeRecoverNospos429Page(tabId, context = '') {
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (!tab) return { ok: false, recovered: false, error: 'The NoSpos tab was closed' };
+  const url = String(tab.url || '');
+  if (!/nospos\.com/i.test(url) || tab.status !== 'complete') {
+    return { ok: true, recovered: false, skipped: true };
+  }
+
+  const now = Date.now();
+  const last = nospos429LastRecoveryAtByTabId.get(tabId) || 0;
+  if (now - last < 5000) {
+    return { ok: true, recovered: false, skipped: true };
+  }
+
+  const probe = await chrome.scripting
+    .executeScript({
+      target: { tabId },
+      func: () => {
+        const h = document.querySelector('h1.text-danger.mb-1');
+        const text = String(h?.textContent || '').trim();
+        return {
+          has429Heading: /too many requests/i.test(text) && /\(#\s*429\)/i.test(text),
+          heading: text || null,
+          href: window.location.href,
+        };
+      },
+    })
+    .catch(() => [{ result: { has429Heading: false, heading: null, href: null } }]);
+
+  const info = probe?.[0]?.result || { has429Heading: false, heading: null, href: null };
+  if (!info.has429Heading) return { ok: true, recovered: false };
+
+  nospos429LastRecoveryAtByTabId.set(tabId, Date.now());
+  logPark(
+    'nospos429Guard',
+    'error',
+    { tabId, context, heading: info.heading, href: info.href, tickmark: 'x' },
+    'NosPos returned Too Many Requests (#429) — waiting 4s then reloading the page'
+  );
+  await sleep(NOSPOS_429_RELOAD_DELAY_MS);
+  await chrome.tabs.reload(tabId).catch(() => {});
+  const waitReload = await waitForNosposTabComplete(tabId, 45000);
+  logPark(
+    'nospos429Guard',
+    waitReload.ok ? 'step' : 'error',
+    { tabId, context, waitReload },
+    waitReload.ok
+      ? '429 recovery reload complete'
+      : '429 recovery reload did not complete cleanly'
+  );
+  return { ok: true, recovered: true, waitReload };
+}
+
+async function throttleAndRecoverNospos429(tabId, context = '') {
+  if (NOSPOS_PARK_GLOBAL_STEP_DELAY_MS > 0) {
+    await sleep(NOSPOS_PARK_GLOBAL_STEP_DELAY_MS);
+  }
+  return maybeRecoverNospos429Page(tabId, context);
+}
+
+async function sendParkMessageToTabWithAbort(tabId, message, retries, delayMs) {
+  const existingErr = getNosposParkTabClosedError(tabId);
+  if (existingErr) {
+    throw new Error(existingErr);
+  }
+  await throttleAndRecoverNospos429(
+    tabId,
+    `send:${String(message?.phase || message?.type || 'unknown')}`
+  );
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      try {
+        chrome.tabs.onRemoved.removeListener(onRemoved);
+      } catch (_) {}
+      fn(value);
+    };
+    const onRemoved = (removedTabId, removeInfo) => {
+      if (removedTabId !== tabId) return;
+      markNosposParkTabClosed(tabId, removeInfo);
+      finish(reject, new Error(NOSPOS_PARK_TAB_CLOSED_ERR));
+    };
+    chrome.tabs.onRemoved.addListener(onRemoved);
+    sendMessageToTabWithRetries(tabId, message, retries, delayMs)
+      .then((res) => finish(resolve, res))
+      .catch((err) => finish(reject, err));
+  });
+}
+
+chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
+  markNosposParkTabClosed(tabId, removeInfo || null);
+});
 
 /** After opening `/newagreement/agreement/create?…`, NosPos redirects to `/newagreement/{id}/items?…`. */
 const NOSPOS_OPEN_AGREEMENT_ITEMS_URL_WAIT_MS = 120000;
@@ -620,6 +790,9 @@ async function waitForNosposNewAgreementItemsTabUrl(
       return { ok: false, error: 'The NoSpos tab was closed' };
     }
     const url = tab.url || '';
+    if (pollCount % 10 === 0 && tab.status === 'complete') {
+      await maybeRecoverNospos429Page(tabId, 'waitForNosposNewAgreementItemsTabUrl');
+    }
     const isItems = isNosposAgreementItemsUrl(url);
     if (pollCount % 10 === 0) {
       logPark('waitForNosposNewAgreementItemsTabUrl', 'step', { pollCount, tabStatus: tab.status, url, isItems }, 'Polling for items URL');
@@ -686,6 +859,9 @@ async function waitForNosposTabBuyingAfterPark(tabId, maxWaitMs = NOSPOS_BUYING_
         done({ ok: true });
         return;
       }
+      if (tab0.status === 'complete') {
+        await maybeRecoverNospos429Page(tabId, 'waitForNosposTabBuyingAfterPark:init');
+      }
       logPark('waitForNosposTabBuyingAfterPark', 'step', { currentUrl: tab0.url }, 'Not yet on buying hub — beginning poll loop');
       let pollCount = 0;
       while (Date.now() < deadline && !settled) {
@@ -696,6 +872,9 @@ async function waitForNosposTabBuyingAfterPark(tabId, maxWaitMs = NOSPOS_BUYING_
           return;
         }
         const url = tab.url || '';
+        if (pollCount % 15 === 0 && tab.status === 'complete') {
+          await maybeRecoverNospos429Page(tabId, 'waitForNosposTabBuyingAfterPark:poll');
+        }
         if (isNosposBuyingHubUrl(url)) {
           logPark('waitForNosposTabBuyingAfterPark', 'result', { url, pollCount }, 'Buying hub URL detected via poll loop');
           done({ ok: true });
@@ -732,7 +911,7 @@ async function clickNosposSidebarParkAgreementImpl(payload) {
   try {
     if (tabCheck.onItemsStep) {
       logPark('clickNosposSidebarParkAgreementImpl', 'step', { tabId }, 'Tab is on items step — clicking Next');
-      const rNext = await sendMessageToTabWithRetries(
+      const rNext = await sendParkMessageToTabWithAbort(
         tabId,
         { type: 'NOSPOS_AGREEMENT_FILL_PHASE', phase: 'click_items_form_next' },
         18,
@@ -760,7 +939,7 @@ async function clickNosposSidebarParkAgreementImpl(payload) {
       tabId,
       NOSPOS_BUYING_AFTER_PARK_WAIT_MS
     );
-    const parkSidebarPromise = sendMessageToTabWithRetries(
+    const parkSidebarPromise = sendParkMessageToTabWithAbort(
       tabId,
       { type: 'NOSPOS_AGREEMENT_FILL_PHASE', phase: 'sidebar_park_agreement' },
       22,
@@ -811,7 +990,16 @@ async function clickNosposSidebarParkAgreementImpl(payload) {
 }
 
 async function clickNosposAgreementAddItem(tabId) {
-  return sendMessageToTabWithRetries(
+  if (NOSPOS_ADD_ITEM_CLICK_DELAY_MS > 0) {
+    logPark(
+      'clickNosposAgreementAddItem',
+      'step',
+      { tabId, delayMs: NOSPOS_ADD_ITEM_CLICK_DELAY_MS },
+      'Rate-limit guard: delaying before Add click'
+    );
+    await sleep(NOSPOS_ADD_ITEM_CLICK_DELAY_MS);
+  }
+  return sendParkMessageToTabWithAbort(
     tabId,
     { type: 'NOSPOS_AGREEMENT_FILL_PHASE', phase: 'click_add' },
     10,
@@ -859,6 +1047,9 @@ async function ensureNosposAgreementItemsTab(tabId, deadlineMs = 90000) {
       return { ok: false, error: 'The NoSpos tab was closed' };
     }
     const isItems = isNosposAgreementItemsUrl(tab.url || '');
+    if (pollCount % 10 === 0 && tab.status === 'complete') {
+      await maybeRecoverNospos429Page(tabId, 'ensureNosposAgreementItemsTab');
+    }
     if (pollCount % 10 === 0) {
       logPark('ensureNosposAgreementItemsTab', 'step', { pollCount, tabStatus: tab.status, url: tab.url, isItems }, 'Polling for items page ready');
     }
@@ -893,6 +1084,9 @@ async function waitForNosposAgreementTabReadyForPark(tabId, deadlineMs = 120000)
       return { ok: false, error: 'The NoSpos tab was closed' };
     }
     const url = tab.url || '';
+    if (pollCount % 10 === 0 && tab.status === 'complete') {
+      await maybeRecoverNospos429Page(tabId, 'waitForNosposAgreementTabReadyForPark');
+    }
     const isWorkflow = isNosposNewAgreementWorkflowUrl(url);
     const isItems = isNosposAgreementItemsUrl(url);
     if (pollCount % 10 === 0) {
@@ -931,8 +1125,17 @@ async function applyNosposAgreementCategoryPhaseImpl(tabId, payload) {
     return { ok: true, categoryLabel: null, waitForm: { ok: true }, lineIndex };
   }
   try {
+    if (NOSPOS_SET_CATEGORY_DELAY_MS > 0) {
+      logPark(
+        'applyNosposAgreementCategoryPhaseImpl',
+        'step',
+        { tabId, lineIndex, delayMs: NOSPOS_SET_CATEGORY_DELAY_MS },
+        'Rate-limit guard: delaying before category set'
+      );
+      await sleep(NOSPOS_SET_CATEGORY_DELAY_MS);
+    }
     logPark('applyNosposAgreementCategoryPhaseImpl', 'call', { tabId, lineIndex, categoryId }, 'Sending category phase to content script');
-    const r1 = await sendMessageToTabWithRetries(
+    const r1 = await sendParkMessageToTabWithAbort(
       tabId,
       { type: 'NOSPOS_AGREEMENT_FILL_PHASE', phase: 'category', categoryId, lineIndex },
       8,
@@ -994,7 +1197,7 @@ async function applyNosposAgreementRestPhaseImpl(tabId, payload, categoryLabel) 
   let last = null;
   try {
     for (let i = 0; i < 28; i += 1) {
-      last = await sendMessageToTabWithRetries(tabId, restPayload, 6, 350);
+      last = await sendParkMessageToTabWithAbort(tabId, restPayload, 6, 350);
       if (last?.ok) {
         logPark('applyNosposAgreementRestPhaseImpl', 'exit', { lineIndex, attempt: i, applied: last?.applied, warnings: last?.warnings, missingRequired: last?.missingRequired }, 'Rest phase succeeded');
         return { ok: true, categoryLabel, lineIndex, ...last };
@@ -2130,6 +2333,130 @@ async function handleBridgeForward(message, sender) {
     }
   }
 
+  /**
+   * Duplicate-draft recovery:
+   * 1) Navigate to /newagreement/{id}/items for the duplicate.
+   * 2) On items page: Actions -> Delete Agreement -> confirm OK.
+   * 3) Wait for NosPos to redirect back to nospos.com/buying.
+   */
+  async function deleteNosposBuyingAgreementByIdViaUi(tabId, agreementId) {
+    const id = String(agreementId || '').trim();
+    if (!id || !/^\d+$/.test(id)) {
+      logPark('deleteNosposBuyingAgreementByIdViaUi', 'error', { tabId, agreementId }, 'Invalid agreement id for delete');
+      return { ok: false, error: 'Invalid agreement id for delete' };
+    }
+    logPark('deleteNosposBuyingAgreementByIdViaUi', 'enter', { tabId, agreementId: id }, `Starting delete of duplicate agreement #${id}`);
+
+    // Step 1: Navigate directly to the items page of the duplicate.
+    const duplicateItemsUrl = `https://nospos.com/newagreement/${id}/items`;
+    logPark('deleteNosposBuyingAgreementByIdViaUi', 'step', { duplicateItemsUrl }, 'Navigating to duplicate agreement items page');
+    try {
+      await chrome.tabs.update(tabId, { url: duplicateItemsUrl });
+    } catch (e) {
+      logPark('deleteNosposBuyingAgreementByIdViaUi', 'error', { error: e?.message }, 'Could not navigate to duplicate items page');
+      return { ok: false, error: e?.message || 'Could not navigate to duplicate agreement items page' };
+    }
+
+    // Step 2: Wait for items page to finish loading.
+    logPark('deleteNosposBuyingAgreementByIdViaUi', 'step', { tabId }, 'Waiting for duplicate items page to load');
+    const waitItems = await waitForNosposNewAgreementItemsTabUrl(tabId, 35000);
+    logPark('deleteNosposBuyingAgreementByIdViaUi', 'step', { waitItems }, waitItems?.ok ? 'Duplicate items page loaded' : 'Duplicate items page failed to load');
+    if (!waitItems?.ok) {
+      return { ok: false, error: waitItems?.error || 'Duplicate agreement items page did not load in time' };
+    }
+
+    // Step 3: Inject script — Actions → Delete Agreement → confirm OK.
+    logPark('deleteNosposBuyingAgreementByIdViaUi', 'step', { tabId, url: waitItems.url }, 'Injecting delete script: Actions → Delete Agreement → confirm OK');
+    const injected = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: async (agreementIdInPage, actionDelayMs) => {
+        const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        const aid = String(agreementIdInPage || '').trim();
+        const deleteSelector = `a[href*="/newagreement/${aid}/delete"]`;
+
+        const cardCandidates = Array.from(document.querySelectorAll('.card'));
+        let agreementCard = null;
+        for (let i = 0; i < cardCandidates.length; i += 1) {
+          const card = cardCandidates[i];
+          const titleEl = card.querySelector('.card-title');
+          const t = String(titleEl ? titleEl.textContent : '').toLowerCase();
+          if (t.includes('agreement') && !t.includes('item')) {
+            agreementCard = card;
+            break;
+          }
+        }
+        if (!agreementCard) agreementCard = document.querySelector('.card');
+        if (!agreementCard) {
+          return { ok: false, error: 'Agreement card not found on duplicate items page' };
+        }
+
+        const toggle =
+          agreementCard.querySelector('a.dropdown-toggle[data-toggle="dropdown"]') ||
+          agreementCard.querySelector('a.dropdown-toggle[data-bs-toggle="dropdown"]') ||
+          agreementCard.querySelector('.dropdown-toggle');
+        if (toggle && typeof toggle.click === 'function') {
+          toggle.click();
+          await sleep(280);
+        }
+
+        let deleteLink = agreementCard.querySelector(deleteSelector) || document.querySelector(deleteSelector);
+        if (!deleteLink && toggle && typeof toggle.click === 'function') {
+          toggle.click();
+          await sleep(280);
+          deleteLink = agreementCard.querySelector(deleteSelector) || document.querySelector(deleteSelector);
+        }
+        if (!deleteLink || typeof deleteLink.click !== 'function') {
+          return { ok: false, error: `Delete Agreement link not found for #${aid}` };
+        }
+
+        await sleep(Math.max(0, Number(actionDelayMs) || 0));
+        deleteLink.click();
+
+        const confirmSelectors = [
+          '.swal2-confirm',
+          'button.swal2-confirm',
+          '.swal2-actions button.swal2-confirm',
+          '.swal-button--confirm',
+          '[data-bb-handler="confirm"]',
+          '.bootbox .btn-primary',
+        ];
+        const deadline = Date.now() + 15000;
+        while (Date.now() < deadline) {
+          for (let i = 0; i < confirmSelectors.length; i += 1) {
+            const btn = document.querySelector(confirmSelectors[i]);
+            if (btn && typeof btn.click === 'function') {
+              btn.click();
+              await sleep(220);
+              return { ok: true, deleted: true };
+            }
+          }
+          await sleep(80);
+        }
+        return { ok: false, error: 'Delete confirmation OK button did not appear' };
+      },
+      args: [id, NOSPOS_ACTION_POST_DELAY_MS],
+    }).catch((e) => [{ result: { ok: false, error: e?.message || 'Delete script threw an error' } }]);
+
+    const result = injected?.[0]?.result;
+    logPark('deleteNosposBuyingAgreementByIdViaUi', 'step', { result }, 'Delete inject script result');
+    if (result?.ok === false) {
+      return result;
+    }
+
+    // Step 4: After confirm click, NosPos redirects the tab to nospos.com/buying.
+    logPark('deleteNosposBuyingAgreementByIdViaUi', 'step', { tabId }, 'Delete confirmed — waiting for nospos.com/buying redirect');
+    const waitBuying = await waitForNosposTabBuyingAfterPark(tabId, 30000);
+    logPark(
+      'deleteNosposBuyingAgreementByIdViaUi',
+      waitBuying?.ok ? 'exit' : 'step',
+      { waitBuying },
+      waitBuying?.ok
+        ? `✓ Tab reached nospos.com/buying after deleting agreement #${id}`
+        : 'Buying redirect not detected within timeout — proceeding anyway'
+    );
+    return { ok: true, deleted: true };
+  }
+
   // Diagnostic log: return all accumulated park agreement log entries.
   if (payload.action === 'getParkAgreementLog') {
     return { ok: true, entries: cgParkLog.slice(), startTs: cgParkLogStartTs };
@@ -2179,6 +2506,7 @@ async function handleBridgeForward(message, sender) {
         logPark('handleBridgeForward', 'error', {}, 'openNosposParkAgreementTab returned null tabId');
         return { ok: false, error: 'Could not open NoSpos tab' };
       }
+      registerNosposParkTab(tabId);
       const urlRes = await waitForNosposNewAgreementItemsTabUrl(
         tabId,
         NOSPOS_OPEN_AGREEMENT_ITEMS_URL_WAIT_MS
@@ -2195,20 +2523,95 @@ async function handleBridgeForward(message, sender) {
         }, 'New agreement ID extracted from items URL');
 
         if (newAgreementId && preExistingIds.has(newAgreementId)) {
-          logPark('handleBridgeForward', 'error', {
+          logPark('handleBridgeForward', 'step', {
             newAgreementId,
             preExistingIds: [...preExistingIds],
-            duplicateDraftDetected: true,
-          }, 'DUPLICATE DRAFT DETECTED — NosPos returned a pre-existing agreement ID; a draft already exists for this customer');
-          console.error(`[CG Suite] Park Agreement FAILED: NosPos returned agreement #${newAgreementId} which already existed on the buying hub before this run. A draft is likely already open for this customer.`);
+          }, `DUPLICATE DRAFT DETECTED — agreement #${newAgreementId} already exists on buying hub. Auto-deleting.`);
+
+          // Activate the overlay immediately so the tab is blocked during the whole delete process.
+          // The tabs.onUpdated handler will re-apply it as the tab navigates between pages.
+          logPark('handleBridgeForward', 'step', { tabId }, 'Activating park overlay to block tab during duplicate deletion');
           try {
-            await chrome.tabs.remove(tabId);
-          } catch (_) { /* already closed */ }
+            await activateNosposParkAgreementUi(tabId, appTabId);
+            await sendNosposParkOverlayToTab(tabId, true, 'Duplicate draft detected — deleting and restarting in a new tab…');
+          } catch (_) {}
+
+          // Step A: Navigate to the duplicate's items page, delete it, wait for nospos.com/buying.
+          logPark('handleBridgeForward', 'step', { newAgreementId, tabId }, `Step A: deleting duplicate agreement #${newAgreementId}`);
+          const autoDelete = await deleteNosposBuyingAgreementByIdViaUi(tabId, newAgreementId);
+          logPark('handleBridgeForward', 'step', { autoDelete, newAgreementId }, autoDelete?.ok ? `✓ Duplicate #${newAgreementId} deleted — tab is on nospos.com/buying` : `Auto-delete failed: ${autoDelete?.error}`);
+          if (!autoDelete?.ok) {
+            try { await clearNosposParkAgreementUiLock({ focusApp: false }); } catch (_) {}
+            return {
+              ok: false,
+              duplicateDraftDetected: true,
+              newAgreementId,
+              autoDeleteAttempted: true,
+              error: autoDelete?.error || `Parking failed — could not auto-delete duplicate agreement #${newAgreementId}.`,
+            };
+          }
+
+          // Step B: Close the old tab (now on nospos.com/buying) and open a fresh one for the new agreement.
+          logPark('handleBridgeForward', 'step', { tabId, createUrl }, 'Step B: deletion done — closing old tab and opening a fresh tab for the new agreement');
+          unregisterNosposParkTab(tabId);
+          try { await chrome.tabs.remove(tabId); } catch (_) {}
+
+          let newTabId = null;
+          try {
+            const newTabResult = await openNosposParkAgreementTab(createUrl, appTabId);
+            newTabId = newTabResult?.tabId ?? null;
+          } catch (e) {
+            logPark('handleBridgeForward', 'error', { error: e?.message }, 'Failed to open new tab after duplicate delete');
+            return {
+              ok: false,
+              duplicateDraftDetected: true,
+              newAgreementId,
+              autoDeleteAttempted: true,
+              autoDeleteSuccess: true,
+              error: e?.message || 'Could not open a new tab after deleting the duplicate agreement.',
+            };
+          }
+          if (newTabId == null) {
+            logPark('handleBridgeForward', 'error', {}, 'openNosposParkAgreementTab returned null tabId for fresh tab');
+            return {
+              ok: false,
+              duplicateDraftDetected: true,
+              newAgreementId,
+              autoDeleteAttempted: true,
+              autoDeleteSuccess: true,
+              error: 'Could not open a new tab after deleting the duplicate agreement.',
+            };
+          }
+          registerNosposParkTab(newTabId);
+          logPark('handleBridgeForward', 'step', { newTabId, createUrl }, `New tab #${newTabId} opened — activating overlay and waiting for items page`);
+          try { await activateNosposParkAgreementUi(newTabId, appTabId); } catch (_) {}
+
+          // Step C: Wait for NosPos to redirect from createUrl to the new agreement items page.
+          logPark('handleBridgeForward', 'step', { newTabId }, 'Step C: waiting for items page on new tab');
+          const retryUrlRes = await waitForNosposNewAgreementItemsTabUrl(newTabId, NOSPOS_OPEN_AGREEMENT_ITEMS_URL_WAIT_MS);
+          logPark('handleBridgeForward', 'result', { retryUrlRes, newTabId }, retryUrlRes?.ok ? `✓ Items page reached on new tab: ${retryUrlRes.url}` : `Items page not reached on new tab: ${retryUrlRes?.error}`);
+          if (!retryUrlRes?.ok || !retryUrlRes?.url) {
+            return {
+              ok: false,
+              duplicateDraftDetected: true,
+              newAgreementId,
+              autoDeleteAttempted: true,
+              autoDeleteSuccess: true,
+              error: retryUrlRes?.error || 'Deleted duplicate, but new tab did not reach the agreement items page in time.',
+            };
+          }
+
+          logPark('handleBridgeForward', 'step', {
+            retriedFromDuplicate: true,
+            deletedAgreementId: newAgreementId,
+            newTabId,
+            newAgreementItemsUrl: retryUrlRes.url,
+          }, `✓ Duplicate deleted, old tab closed, fresh tab on items page — resuming park flow`);
           return {
-            ok: false,
-            duplicateDraftDetected: true,
-            newAgreementId,
-            error: `Parking failed — NosPos did not create a new agreement (returned existing #${newAgreementId}). An agreement is likely already in draft for this customer. Please resolve or delete that draft.`,
+            ok: true,
+            tabId: newTabId,
+            agreementItemsUrl: retryUrlRes.url,
+            autoDeletedDuplicateAgreementId: newAgreementId,
           };
         }
         logPark('handleBridgeForward', 'step', {
@@ -2262,6 +2665,20 @@ async function handleBridgeForward(message, sender) {
     if (!Number.isFinite(tabId) || tabId <= 0) {
       return { ok: false, error: 'Invalid tab' };
     }
+    const closed = failIfNosposParkTabClosed(tabId);
+    if (closed) return closed;
+    if (CG_TEST_FAIL_PARK_AFTER_SECOND_ITEM && stepIndex >= 2) {
+      const intentionalError =
+        `Intentional test failure (CG_TEST_FAIL_PARK_AFTER_SECOND_ITEM=true): ` +
+        `blocking Park Agreement at stepIndex=${stepIndex} (after 2 items).`;
+      logPark(
+        'handleBridgeForward',
+        'error',
+        { stepIndex, tabId, intentionalTestFail: true },
+        intentionalError
+      );
+      return { ok: false, intentionalTestFail: true, error: intentionalError };
+    }
     return resolveNosposParkAgreementLineImpl(tabId, stepIndex, item, {
       noAdd: payload.noAdd === true,
       ensureTab: payload.ensureTab === true,
@@ -2275,6 +2692,11 @@ async function handleBridgeForward(message, sender) {
   }
 
   if (payload.action === 'clickNosposSidebarParkAgreement') {
+    const tabId = parseInt(String(payload.tabId ?? '').trim(), 10);
+    if (Number.isFinite(tabId) && tabId > 0) {
+      const closed = failIfNosposParkTabClosed(tabId);
+      if (closed) return closed;
+    }
     return clickNosposSidebarParkAgreementImpl(payload);
   }
 
@@ -2301,6 +2723,7 @@ async function handleBridgeForward(message, sender) {
   if (payload.action === 'closeNosposParkAgreementTab') {
     const tid = parseInt(String(payload.tabId ?? '').trim(), 10);
     if (!Number.isFinite(tid) || tid <= 0) return { ok: false, error: 'Invalid tabId' };
+    unregisterNosposParkTab(tid);
     const detach = nosposBuyingAfterParkDetachByTabId.get(tid);
     if (typeof detach === 'function') {
       try {
@@ -2316,10 +2739,20 @@ async function handleBridgeForward(message, sender) {
   }
 
   if (payload.action === 'fillNosposParkAgreementCategory') {
+    const tabId = parseInt(String(payload.tabId ?? '').trim(), 10);
+    if (Number.isFinite(tabId) && tabId > 0) {
+      const closed = failIfNosposParkTabClosed(tabId);
+      if (closed) return closed;
+    }
     return fillNosposParkAgreementCategoryImpl(payload);
   }
 
   if (payload.action === 'fillNosposParkAgreementRest') {
+    const tabId = parseInt(String(payload.tabId ?? '').trim(), 10);
+    if (Number.isFinite(tabId) && tabId > 0) {
+      const closed = failIfNosposParkTabClosed(tabId);
+      if (closed) return closed;
+    }
     return fillNosposParkAgreementRestImpl(payload);
   }
 

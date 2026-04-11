@@ -1,6 +1,7 @@
 /**
- * Floating status badge during CG Suite Park Agreement — no full-page backdrop;
- * the NosPos page stays fully visible. Clicks pass through (`pointer-events: none`).
+ * Full-page input-blocking overlay during CG Suite Park Agreement.
+ * A very transparent dark-blue backdrop covers the whole page (blocks all clicks/input)
+ * while keeping everything visible. A floating status badge sits at the top-centre.
  */
 (function () {
   if (window.__cgNosposParkOverlayHooked) return;
@@ -19,26 +20,38 @@
       if (span) span.textContent = text;
       return;
     }
+
+    // Full-page backdrop — blocks all pointer events so the user cannot click anything,
+    // but opacity is very low so page content remains clearly readable.
     var root = document.createElement('div');
     root.id = OVERLAY_ID;
     root.setAttribute('aria-busy', 'true');
     root.setAttribute('aria-live', 'polite');
     root.style.cssText = [
       'position: fixed',
-      'top: 16px',
-      'left: 50%',
-      'transform: translateX(-50%)',
+      'inset: 0',
       'z-index: 2147483646',
-      'pointer-events: none',
+      'pointer-events: all',
       'box-sizing: border-box',
-      'max-width: min(420px, calc(100vw - 24px))',
+      'background: rgba(8, 18, 56, 0.13)',
+      'display: flex',
+      'flex-direction: column',
+      'align-items: center',
+      'justify-content: flex-start',
+      'padding-top: 18px',
+      'cursor: not-allowed',
     ].join(';');
+
+    // Floating badge — sits inside the backdrop, centred at the top.
     root.innerHTML =
-      '<div style="pointer-events:none;display:flex;flex-direction:column;align-items:center;gap:14px;text-align:center;padding:16px 20px;border-radius:14px;background:rgba(15,23,42,0.95);border:1px solid rgba(250,204,21,0.35);box-shadow:0 12px 40px rgba(0,0,0,0.35);">' +
-      '<div class="cg-suite-nospos-park-spinner" style="width:40px;height:40px;border:3px solid rgba(254,249,195,0.35);border-top-color:#facc15;border-radius:50%;animation:cg-suite-nospos-park-spin 0.9s linear infinite;flex-shrink:0;"></div>' +
-      '<span class="cg-suite-nospos-park-msg" style="font-family:Inter,system-ui,sans-serif;font-size:14px;font-weight:600;color:#f8fafc;line-height:1.45;"></span></div>';
+      '<div style="pointer-events:none;display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center;padding:14px 20px;border-radius:14px;background:rgba(10,20,50,0.92);border:1px solid rgba(250,204,21,0.4);box-shadow:0 10px 36px rgba(0,0,0,0.4);max-width:min(440px,calc(100vw - 28px));cursor:default;">' +
+      '<div class="cg-suite-nospos-park-spinner" style="width:36px;height:36px;border:3px solid rgba(254,249,195,0.3);border-top-color:#facc15;border-radius:50%;animation:cg-suite-nospos-park-spin 0.85s linear infinite;flex-shrink:0;"></div>' +
+      '<span class="cg-suite-nospos-park-msg" style="font-family:Inter,system-ui,sans-serif;font-size:13px;font-weight:600;color:#f1f5f9;line-height:1.5;letter-spacing:0.01em;"></span>' +
+      '</div>';
+
     var msgEl = root.querySelector('.cg-suite-nospos-park-msg');
     if (msgEl) msgEl.textContent = text;
+
     var style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent =

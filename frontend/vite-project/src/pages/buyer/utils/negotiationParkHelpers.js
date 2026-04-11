@@ -1,6 +1,41 @@
 import { buildNosposAgreementFirstItemFillPayload } from './nosposAgreementFirstItemFill';
 import { getNosposCategoryHierarchyLabelFromItem } from '@/utils/nosposCategoryMappings';
 
+/** Shown when Chrome reports a dead frame / missing receiver after the NosPos tab is closed. */
+export const NOSPOS_TAB_CLOSED_PARK_USER_MSG =
+  'The NosPos tab was closed. Please close this modal and retry.';
+
+function rawParkErrorText(source) {
+  if (source == null) return '';
+  if (typeof source === 'string') return source;
+  if (source instanceof Error) return String(source.message || '');
+  if (typeof source === 'object') {
+    if (source.message != null) return String(source.message);
+    if (source.error != null) return String(source.error);
+  }
+  return String(source);
+}
+
+/**
+ * Maps low-level extension/Chrome errors (e.g. “frame … was removed”) to a clear park message.
+ * @param {unknown} source - Error, string, or bridge payload fragment
+ * @param {string} [fallback] - used when source is empty and not a tab-close pattern
+ */
+export function formatParkFlowUserMessage(source, fallback = '') {
+  const raw = rawParkErrorText(source).trim();
+  const low = raw.toLowerCase();
+  if (
+    /frame\s+with\s+id\s+\d+\s+was\s+removed/.test(low) ||
+    /receiving end does not exist/.test(low) ||
+    /could not establish connection/.test(low) ||
+    /message port closed/i.test(raw) ||
+    /nospos\s+tab\s+was\s+closed/i.test(low)
+  ) {
+    return NOSPOS_TAB_CLOSED_PARK_USER_MSG;
+  }
+  return raw || fallback;
+}
+
 /** NosPos “create agreement” — PA = buyback, DP = direct sale / store credit. */
 export function buildNosposNewAgreementCreateUrl(nosposCustomerId, transactionType) {
   const id = parseInt(String(nosposCustomerId ?? '').trim(), 10);

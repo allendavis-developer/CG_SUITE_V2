@@ -3,6 +3,8 @@
  */
 (function () {
   const NS = '[CG Suite NosPos fill]';
+  /** Small safety pause before high-impact Actions menu clicks (park/delete) to avoid server rate limiting. */
+  const NOSPOS_ACTION_CLICK_DELAY_MS = 1200;
 
   function log() {
     const args = Array.prototype.slice.call(arguments);
@@ -844,6 +846,13 @@
     }
     const parkHref = parkLink.getAttribute('href');
     log('sidebar park — click POST link', parkHref);
+    logToBackground(
+      'runSidebarParkAgreement',
+      'step',
+      { delayMs: NOSPOS_ACTION_CLICK_DELAY_MS, parkHref },
+      'Rate-limit guard: delaying before Park Agreement click'
+    );
+    await new Promise((r) => setTimeout(r, NOSPOS_ACTION_CLICK_DELAY_MS));
     logToBackground('runSidebarParkAgreement', 'step', { parkHref }, 'Clicking Park Agreement POST link');
     parkLink.click();
     logToBackground('runSidebarParkAgreement', 'step', {}, 'Park link clicked — waiting for confirmation dialog (up to 45s)');

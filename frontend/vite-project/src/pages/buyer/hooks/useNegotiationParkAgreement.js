@@ -31,6 +31,7 @@ import {
   parkIncludedSequentialStepIndex,
   parkNegotiationLines,
   parseParkAgreementStateFromApi,
+  formatParkFlowUserMessage,
 } from "../utils/negotiationParkHelpers";
 
 /** NosPos Park Agreement automation for booked-for-testing (view) mode. */
@@ -133,7 +134,7 @@ export function useNegotiationParkAgreement({
           value,
         });
         if (!r?.ok) {
-          showNotification(r?.error || 'Could not update NoSpos', 'warning');
+          showNotification(formatParkFlowUserMessage(r?.error, 'Could not update NoSpos'), 'warning');
           return;
         }
         setParkProgressModal((prev) => {
@@ -160,7 +161,7 @@ export function useNegotiationParkAgreement({
           return { ...prev, itemTables };
         });
       } catch (e) {
-        showNotification(e?.message || 'Extension error', 'warning');
+        showNotification(formatParkFlowUserMessage(e, 'Extension error'), 'warning');
       }
     },
     [showNotification]
@@ -259,7 +260,7 @@ export function useNegotiationParkAgreement({
         if (!r1?.ok) {
           setParkProgressModal((prev) => ({
             ...prev,
-            footerError: r1?.error || 'Could not resolve this line on NoSpos.',
+            footerError: formatParkFlowUserMessage(r1?.error, 'Could not resolve this line on NoSpos.'),
             systemSteps: buildParkAgreementSystemSteps(lineLabels, {
               errorIndex: lineIndex,
               loginStatus: 'done',
@@ -277,7 +278,7 @@ export function useNegotiationParkAgreement({
             }),
             allowClose: true,
           }));
-          showNotification(r1?.error || 'Retry failed.', 'warning');
+          showNotification(formatParkFlowUserMessage(r1?.error, 'Retry failed.'), 'warning');
           return;
         }
 
@@ -310,7 +311,7 @@ export function useNegotiationParkAgreement({
           if (!rCat?.ok) {
             setParkProgressModal((prev) => ({
               ...prev,
-              footerError: rCat?.error || 'Could not set category on NoSpos.',
+              footerError: formatParkFlowUserMessage(rCat?.error, 'Could not set category on NoSpos.'),
               systemSteps: buildParkAgreementSystemSteps(lineLabels, {
                 errorIndex: lineIndex,
                 loginStatus: 'done',
@@ -328,7 +329,7 @@ export function useNegotiationParkAgreement({
               }),
               allowClose: true,
             }));
-            showNotification(rCat?.error || 'Category step failed.', 'warning');
+            showNotification(formatParkFlowUserMessage(rCat?.error, 'Category step failed.'), 'warning');
             return;
           }
         }
@@ -356,7 +357,7 @@ export function useNegotiationParkAgreement({
         if (!rRest?.ok) {
           setParkProgressModal((prev) => ({
             ...prev,
-            footerError: rRest?.error || 'Could not fill fields on NoSpos.',
+            footerError: formatParkFlowUserMessage(rRest?.error, 'Could not fill fields on NoSpos.'),
             systemSteps: buildParkAgreementSystemSteps(lineLabels, {
               errorIndex: lineIndex,
               loginStatus: 'done',
@@ -374,7 +375,7 @@ export function useNegotiationParkAgreement({
             }),
             allowClose: true,
           }));
-          showNotification(rRest?.error || 'Fill step failed.', 'warning');
+          showNotification(formatParkFlowUserMessage(rRest?.error, 'Fill step failed.'), 'warning');
           return;
         }
 
@@ -411,7 +412,7 @@ export function useNegotiationParkAgreement({
         }));
         showNotification(`Item ${lineIndex + 1} re-synced on NoSpos.`, 'success');
       } catch (e) {
-        showNotification(e?.message || 'Retry failed.', 'error');
+        showNotification(formatParkFlowUserMessage(e, 'Retry failed.'), 'error');
       } finally {
         parkRetryInFlightRef.current = false;
         setParkRetryBusyUi(false);
@@ -544,10 +545,10 @@ export function useNegotiationParkAgreement({
               openStatus: 'pending',
             }),
             itemTables: null,
-            footerError: check?.error || 'Session check failed.',
+            footerError: formatParkFlowUserMessage(check?.error, 'Session check failed.'),
             allowClose: true,
           });
-          showNotification(check?.error || 'Could not verify NoSpos.', 'warning');
+          showNotification(formatParkFlowUserMessage(check?.error, 'Could not verify NoSpos.'), 'warning');
           return;
         }
 
@@ -575,10 +576,10 @@ export function useNegotiationParkAgreement({
               openStatus: 'error',
             }),
             itemTables: null,
-            footerError: opened?.error || 'Could not open NoSpos.',
+            footerError: formatParkFlowUserMessage(opened?.error, 'Could not open NoSpos.'),
             allowClose: true,
           });
-          showNotification(opened?.error || 'Could not open NoSpos.', 'warning');
+          showNotification(formatParkFlowUserMessage(opened?.error, 'Could not open NoSpos.'), 'warning');
           return;
         }
         const {
@@ -701,14 +702,16 @@ export function useNegotiationParkAgreement({
           } catch (e) {
             nosposCleanupStep = {
               status: 'error',
-              detail: String(
-                e?.message ||
-                  'Cleanup timed out or failed — remove skipped rows manually on NoSpos if needed. Continuing with included lines…'
+              detail: formatParkFlowUserMessage(
+                e,
+                'Cleanup timed out or failed — remove skipped rows manually on NoSpos if needed. Continuing with included lines…'
               ),
             };
             showNotification(
-              e?.message ||
-                'Could not remove all skipped rows from NoSpos — delete them manually if they still appear.',
+              formatParkFlowUserMessage(
+                e,
+                'Could not remove all skipped rows from NoSpos — delete them manually if they still appear.'
+              ),
               'warning'
             );
           }
@@ -809,12 +812,15 @@ export function useNegotiationParkAgreement({
             parkNosposTabRef.current = tabId;
             refreshModal(i, {
               progressive: undefined,
-              footerError: r1?.error || `Could not complete item ${i + 1} on NoSpos.`,
+              footerError: formatParkFlowUserMessage(
+                r1?.error,
+                `Could not complete item ${i + 1} on NoSpos.`
+              ),
               allowClose: true,
               errorIndex: i,
             });
             showNotification(
-              r1?.error || `Could not complete item ${i + 1} on NoSpos.`,
+              formatParkFlowUserMessage(r1?.error, `Could not complete item ${i + 1} on NoSpos.`),
               'warning'
             );
             return;
@@ -851,12 +857,18 @@ export function useNegotiationParkAgreement({
               parkNosposTabRef.current = tabId;
               refreshModal(i, {
                 progressive: undefined,
-                footerError: rCat?.error || `Could not set category for item ${i + 1} on NoSpos.`,
+                footerError: formatParkFlowUserMessage(
+                  rCat?.error,
+                  `Could not set category for item ${i + 1} on NoSpos.`
+                ),
                 allowClose: true,
                 errorIndex: i,
               });
               showNotification(
-                rCat?.error || `Could not set category for item ${i + 1} on NoSpos.`,
+                formatParkFlowUserMessage(
+                  rCat?.error,
+                  `Could not set category for item ${i + 1} on NoSpos.`
+                ),
                 'warning'
               );
               return;
@@ -889,12 +901,15 @@ export function useNegotiationParkAgreement({
             parkNosposTabRef.current = tabId;
             refreshModal(i, {
               progressive: undefined,
-              footerError: rRest?.error || `Could not complete item ${i + 1} on NoSpos.`,
+              footerError: formatParkFlowUserMessage(
+                rRest?.error,
+                `Could not complete item ${i + 1} on NoSpos.`
+              ),
               allowClose: true,
               errorIndex: i,
             });
             showNotification(
-              rRest?.error || `Could not complete item ${i + 1} on NoSpos.`,
+              formatParkFlowUserMessage(rRest?.error, `Could not complete item ${i + 1} on NoSpos.`),
               'warning'
             );
             return;
@@ -953,16 +968,20 @@ export function useNegotiationParkAgreement({
           parkErr = parkSidebarRes?.error || null;
           if (!parkSidebarRes?.ok) {
             showNotification(
-              parkSidebarRes?.error ||
-                'Could not finish Park Agreement in the NoSpos sidebar — use Actions → Park Agreement there.',
+              formatParkFlowUserMessage(
+                parkSidebarRes?.error,
+                'Could not finish Park Agreement in the NoSpos sidebar — use Actions → Park Agreement there.'
+              ),
               'warning'
             );
           }
         } catch (e) {
           parkErr = e?.message || null;
           showNotification(
-            e?.message ||
-              'Could not finish Park Agreement on NoSpos — use Actions → Park Agreement there.',
+            formatParkFlowUserMessage(
+              e,
+              'Could not finish Park Agreement on NoSpos — use Actions → Park Agreement there.'
+            ),
             'warning'
           );
         }
@@ -974,9 +993,10 @@ export function useNegotiationParkAgreement({
             }
           : {
               status: 'error',
-              detail:
-                parkErr ||
-                'Parking did not complete — use Actions → Park Agreement on NoSpos or check the tab.',
+              detail: formatParkFlowUserMessage(
+                parkErr,
+                'Parking did not complete — use Actions → Park Agreement on NoSpos or check the tab.'
+              ),
             };
 
         parkNosposTabRef.current = tabId;
@@ -1049,7 +1069,11 @@ export function useNegotiationParkAgreement({
 
         setParkProgressModal((prev) =>
           prev
-            ? { ...prev, footerError: err?.message || 'Extension error', allowClose: true }
+            ? {
+                ...prev,
+                footerError: formatParkFlowUserMessage(err, 'Extension error'),
+                allowClose: true,
+              }
             : {
                 systemSteps: buildParkAgreementSystemSteps(lineLabels, {
                   activeIndex: null,
@@ -1057,13 +1081,15 @@ export function useNegotiationParkAgreement({
                   openStatus: 'pending',
                 }),
                 itemTables: null,
-                footerError: err?.message || 'Extension error',
+                footerError: formatParkFlowUserMessage(err, 'Extension error'),
                 allowClose: true,
               }
         );
         showNotification(
-          err?.message ||
-            'Chrome extension is required for Park Agreement, or the request timed out — try again.',
+          formatParkFlowUserMessage(
+            err,
+            'Chrome extension is required for Park Agreement, or the request timed out — try again.'
+          ),
           'error'
         );
       } finally {
