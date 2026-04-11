@@ -611,6 +611,7 @@ const useAppStore = create(
             let categoryObject = product?.category
               ? { name: product.category, path: [product.category] }
               : null;
+            let aiInternalCategoryFromCascade = false;
             try {
               const flat = await fetchAllCategoriesFlat();
               const aiResolved = await resolveInternalProductCategoryByAi({
@@ -628,6 +629,7 @@ const useAppStore = create(
               });
               if (aiResolved?.categoryObject?.id != null) {
                 categoryObject = aiResolved.categoryObject;
+                aiInternalCategoryFromCascade = true;
                 if (typeof console !== 'undefined') {
                   console.log('[CG Suite][CategoryRule]', {
                     context: 'cex-auto-resolved-via-ai-cascade',
@@ -656,7 +658,13 @@ const useAppStore = create(
               id: product.id,
             };
             const priceData = await fetchCeXProductPrices(payload);
-            const merged = { ...product, ...priceData, categoryObject, listingPageUrl: data.listingPageUrl };
+            const merged = {
+              ...product,
+              ...priceData,
+              categoryObject,
+              aiInternalCategoryFromCascade,
+              listingPageUrl: data.listingPageUrl,
+            };
             if (typeof console !== 'undefined') {
               const ref = merged?.referenceData || {};
               console.log('[CG Suite][CategoryRule]', {

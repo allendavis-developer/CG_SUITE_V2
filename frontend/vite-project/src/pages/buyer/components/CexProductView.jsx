@@ -10,6 +10,33 @@ import { normalizeExplicitSalePrice, roundSalePrice } from '@/utils/helpers';
 import { validateBuyerCartItemOffers } from '@/utils/cartOfferValidation';
 import { buildInitialSearchQuery, buildCeXProductResearchInitialQuery } from '@/pages/buyer/utils/negotiationHelpers';
 
+function formatInHouseCategoryBreadcrumb(categoryObject) {
+  if (!categoryObject?.id) return '';
+  const p = categoryObject.path;
+  if (Array.isArray(p) && p.length > 0) {
+    return p.map((s) => String(s).trim()).filter(Boolean).join(' › ');
+  }
+  if (categoryObject.name != null && String(categoryObject.name).trim() !== '') {
+    return String(categoryObject.name).trim();
+  }
+  return '';
+}
+
+function InHouseCategoryAiLine({ categoryObject, aiFromCascade }) {
+  if (!aiFromCascade) return null;
+  const crumb = formatInHouseCategoryBreadcrumb(categoryObject);
+  if (!crumb) return null;
+  return (
+    <p className="mt-2 text-xs leading-snug text-gray-700">
+      <span className="font-bold uppercase tracking-wide text-brand-blue">In-house category (AI)</span>
+      <span className="mx-1.5 text-gray-400" aria-hidden>
+        ·
+      </span>
+      <span className="font-medium text-gray-800">{crumb}</span>
+    </p>
+  );
+}
+
 /**
  * Shared view for both:
  * 1. Viewing a saved CeX cart item (readOnly=true, item prop)
@@ -88,6 +115,10 @@ export default function CexProductView({
             <div className="min-w-0 flex flex-col justify-center">
               <h2 className="text-sm font-bold text-brand-blue">{item.title || 'CeX Product'}</h2>
               <p className="text-[10px] text-gray-500 uppercase tracking-wider">Viewing saved item</p>
+              <InHouseCategoryAiLine
+                categoryObject={item.categoryObject}
+                aiFromCascade={item.cexProductData?.aiInternalCategoryFromCascade === true}
+              />
             </div>
           </div>
           <div className="flex min-w-0 w-full flex-1 flex-col gap-3 self-stretch sm:flex-row sm:items-stretch">
@@ -286,6 +317,10 @@ export default function CexProductView({
           <div className="flex min-w-0 shrink-0 flex-col justify-center self-stretch lg:max-w-[min(100%,28rem)] xl:max-w-[32rem]">
             <Breadcrumb items={['CeX']} />
             <h1 className="mt-2 text-2xl font-extrabold tracking-tight text-gray-900">{data.title || 'CeX Product'}</h1>
+            <InHouseCategoryAiLine
+              categoryObject={data.categoryObject}
+              aiFromCascade={data.aiInternalCategoryFromCascade === true}
+            />
           </div>
           <div className="flex min-w-0 flex-1 flex-col gap-3 self-stretch sm:flex-row sm:items-stretch">
             <WorkspacePricingStatCards
