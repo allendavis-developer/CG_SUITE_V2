@@ -1571,6 +1571,11 @@ class MarketResearchDrillLevel(models.Model):
     level_index = models.PositiveSmallIntegerField()
     min_gbp = models.DecimalField(max_digits=12, decimal_places=4)
     max_gbp = models.DecimalField(max_digits=12, decimal_places=4)
+    segments_json = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="When set, OR of [{min, max}, ...] price bands (multi-zoom). min_gbp/max_gbp store the envelope.",
+    )
 
     class Meta:
         db_table = "pricing_market_research_drill_level"

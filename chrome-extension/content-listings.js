@@ -827,7 +827,7 @@
 
   var escapeHtml = CG_DOM_UTILS.escapeHtml;
 
-  function buildContextHtml(ctx) {
+  function buildContextHtml(ctx, compact) {
     if (!ctx) return '';
 
     const hasPrices = ctx.cexSalePrice != null || ctx.ourSalePrice != null || ctx.ebaySalePrice != null || ctx.cashConvertersSalePrice != null;
@@ -838,28 +838,49 @@
 
     if (!hasPrices && !hasItemDetails && !hasSearchTerms && !hasCexSpecs && !hasItemSpecs) return '';
 
-    var html = '<div style="margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.25); font-size: 14px; line-height: 1.7;">';
+    var baseFont = compact ? '12px' : '14px';
+    var baseLine = compact ? '1.55' : '1.7';
+    var titleFont = compact ? '13px' : '15px';
+    var bodyFont = compact ? '12px' : '13px';
+    var labelFont = compact ? '11px' : '12px';
+    var valueFont = compact ? '12px' : '13px';
+    var searchValueFont = compact ? '12px' : '14px';
+    var priceFont = compact ? '12px' : '13px';
+
+    var html =
+      '<div style="margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.25);font-size:' + baseFont + ';line-height:' + baseLine + ';">';
 
     // ── Item identity (title + condition) ──
     if (hasItemDetails) {
       if (ctx.itemTitle) {
-        html += '<div style="font-size: 18px; font-weight: 700; margin-bottom: 6px;">' + escapeHtml(ctx.itemTitle) + '</div>';
+        html +=
+          '<div style="font-size:' + titleFont + ';font-weight:700;margin-bottom:6px;line-height:1.35;word-break:break-word;">' +
+          escapeHtml(ctx.itemTitle) +
+          '</div>';
       }
       if (ctx.itemCondition) {
-        html += '<div style="font-size:13px; opacity:0.9; margin-bottom:6px;">Condition: <strong>' + escapeHtml(ctx.itemCondition) + '</strong></div>';
+        html +=
+          '<div style="font-size:' + bodyFont + ';opacity:0.9;margin-bottom:6px;">Condition: <strong>' +
+          escapeHtml(ctx.itemCondition) +
+          '</strong></div>';
       }
     }
 
     // ── Dropdown item attributes (label plain, value as badge) ────────────────
     if (hasItemSpecs) {
       var itemSpecEntries = Object.entries(ctx.itemSpecs).slice(0, 10);
-      html += '<div style="margin-bottom:10px; padding:10px; background:rgba(255,255,255,0.12); border-radius:10px;">';
-      html += '<div style="font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; opacity:0.8; margin-bottom:8px;">Product Details</div>';
-      html += '<div style="display:flex; flex-direction:column; gap:6px;">';
+      html +=
+        '<div style="margin-bottom:10px;padding:10px;background:rgba(255,255,255,0.12);border-radius:10px;">';
+      html +=
+        '<div style="font-size:' + labelFont + ';font-weight:700;text-transform:uppercase;letter-spacing:0.08em;opacity:0.8;margin-bottom:8px;">Product Details</div>';
+      html += '<div style="display:flex;flex-direction:column;gap:6px;">';
       itemSpecEntries.forEach(function (entry) {
-        html += '<div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">';
-        html += '<span style="font-size:14px; opacity:0.85; white-space:nowrap;">' + escapeHtml(entry[0]) + '</span>';
-        html += '<span style="background:rgba(255,255,255,0.2); border-radius:6px; padding:4px 10px; font-size:14px; font-weight:700; white-space:normal;">' + escapeHtml(entry[1]) + '</span>';
+        html += '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;">';
+        html += '<span style="font-size:' + bodyFont + ';opacity:0.85;">' + escapeHtml(entry[0]) + '</span>';
+        html +=
+          '<span style="background:rgba(255,255,255,0.2);border-radius:6px;padding:4px 10px;font-size:' + valueFont + ';font-weight:700;word-break:break-word;text-align:right;max-width:100%;">' +
+          escapeHtml(entry[1]) +
+          '</span>';
         html += '</div>';
       });
       html += '</div></div>';
@@ -868,13 +889,18 @@
     // ── CeX product specs (label plain, value as badge) ───────────────────────
     if (hasCexSpecs) {
       var specEntries = Object.entries(ctx.cexSpecs).slice(0, 10);
-      html += '<div style="margin-bottom:10px; padding:10px; background:rgba(255,255,255,0.12); border-radius:10px;">';
-      html += '<div style="font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; opacity:0.8; margin-bottom:8px;">Product Details</div>';
-      html += '<div style="display:flex; flex-direction:column; gap:6px;">';
+      html +=
+        '<div style="margin-bottom:10px;padding:10px;background:rgba(255,255,255,0.12);border-radius:10px;">';
+      html +=
+        '<div style="font-size:' + labelFont + ';font-weight:700;text-transform:uppercase;letter-spacing:0.08em;opacity:0.8;margin-bottom:8px;">Product Details</div>';
+      html += '<div style="display:flex;flex-direction:column;gap:6px;">';
       specEntries.forEach(function (entry) {
-        html += '<div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">';
-        html += '<span style="font-size:14px; opacity:0.85; white-space:nowrap;">' + escapeHtml(entry[0]) + '</span>';
-        html += '<span style="background:rgba(255,255,255,0.2); border-radius:6px; padding:4px 10px; font-size:14px; font-weight:700; white-space:normal;">' + escapeHtml(entry[1]) + '</span>';
+        html += '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;">';
+        html += '<span style="font-size:' + bodyFont + ';opacity:0.85;">' + escapeHtml(entry[0]) + '</span>';
+        html +=
+          '<span style="background:rgba(255,255,255,0.2);border-radius:6px;padding:4px 10px;font-size:' + valueFont + ';font-weight:700;word-break:break-word;text-align:right;max-width:100%;">' +
+          escapeHtml(entry[1]) +
+          '</span>';
         html += '</div>';
       });
       html += '</div></div>';
@@ -882,15 +908,21 @@
 
     // ── Search terms ──────────────────────────────────────────────────────────
     if (hasSearchTerms) {
-      html += '<div style="margin-bottom:10px; padding:10px 12px; background:rgba(250,204,21,0.18); border:1px solid rgba(250,204,21,0.45); border-radius:8px;">';
-      html += '<div style="font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; color:#facc15; margin-bottom:6px;">Reference Search Terms</div>';
+      html +=
+        '<div style="margin-bottom:10px;padding:10px 12px;background:rgba(250,204,21,0.18);border:1px solid rgba(250,204,21,0.45);border-radius:8px;">';
+      html +=
+        '<div style="font-size:' + labelFont + ';font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#facc15;margin-bottom:6px;">Reference Search Terms</div>';
       if (ctx.ebaySearchTerm) {
-        html += '<div style="margin-bottom:4px;"><span style="font-size:12px; opacity:0.75;">eBay: </span>';
-        html += '<span style="font-weight:700; font-size:14px;">' + escapeHtml(ctx.ebaySearchTerm) + '</span></div>';
+        html += '<div style="margin-bottom:4px;"><span style="font-size:' + labelFont + ';opacity:0.75;">eBay: </span>';
+        html +=
+          '<span style="font-weight:700;font-size:' + searchValueFont + ';word-break:break-word;">' + escapeHtml(ctx.ebaySearchTerm) + '</span></div>';
       }
       if (ctx.cashConvertersSearchTerm) {
-        html += '<div><span style="font-size:12px; opacity:0.75;">Cash Converters: </span>';
-        html += '<span style="font-weight:700; font-size:14px;">' + escapeHtml(ctx.cashConvertersSearchTerm) + '</span></div>';
+        html += '<div><span style="font-size:' + labelFont + ';opacity:0.75;">Cash Converters: </span>';
+        html +=
+          '<span style="font-weight:700;font-size:' + searchValueFont + ';word-break:break-word;">' +
+          escapeHtml(ctx.cashConvertersSearchTerm) +
+          '</span></div>';
       }
       html += '</div>';
     }
@@ -903,7 +935,7 @@
     if (ctx.cashConvertersSalePrice != null) priceRows.push(['Cash Conv.', formatPrice(ctx.cashConvertersSalePrice)]);
 
     if (priceRows.length > 0) {
-      html += '<div style="display:grid; grid-template-columns:auto 1fr; gap:4px 14px; font-size:13px; opacity:0.95;">';
+      html += '<div style="display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:' + priceFont + ';opacity:0.95;">';
       priceRows.forEach(function (row) {
         html += '<div style="opacity:0.8;">' + escapeHtml(row[0]) + '</div>';
         html += '<div style="font-weight:700;">' + escapeHtml(row[1]) + '</div>';
@@ -1381,7 +1413,9 @@
       return;
     }
 
-    var isEbay = getSiteConfig() === SITE_CONFIGS.ebay;
+    var siteConfig = getSiteConfig();
+    var isEbay = siteConfig === SITE_CONFIGS.ebay;
+    var isCex = siteConfig === SITE_CONFIGS.cex;
     if (isEbay) showEbayLoadingOverlay();
 
     // For eBay: auto-navigate to add the required filters. The tab keeps its ID so the
@@ -1406,83 +1440,90 @@
 
     const heading = isRefine ? 'Are you done?' : 'Have you got the data yet?';
     const buttonLabel = isRefine ? 'Yes, bring me back' : 'Yes';
-    const contextHtml = buildContextHtml(marketComparisonContext || null);
+    const contextHtml = buildContextHtml(marketComparisonContext || null, isCex);
     const hasContext = !!contextHtml;
 
     const contextSectionHtml = hasContext
       ? `
-        <div id="cg-suite-research-context-wrapper" style="margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.25);">
-          <button id="cg-suite-research-toggle-context" style="
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 6px 10px;
-            border-radius: 9999px;
-            border: 1px solid rgba(248,250,252,0.5);
-            background: rgba(15,23,42,0.4);
-            color: #e5e7eb;
-            font-size: 12px;
-            font-weight: 600;
-            cursor: pointer;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-          ">
-            ▶ Show details
-          </button>
-          <div id="cg-suite-research-context" style="margin-top: 10px; display: none; font-size: 14px; line-height: 1.7;">
-            ${contextHtml}
-          </div>
+        <div class="cg-ctx-wrap">
+          <button type="button" class="cg-toggle" id="cg-suite-research-toggle-context">▶ Show details</button>
+          <div class="cg-ctx" id="cg-suite-research-context" hidden>${contextHtml}</div>
         </div>
       `
-      : '';
+      : '<div class="cg-ctx-spacer" aria-hidden="true"></div>';
 
+    // Shadow root: same panel dimensions on eBay / Cash Converters / CeX; host CSS cannot resize it (CeX was the problem).
     const panel = document.createElement('div');
     panel.id = 'cg-suite-research-panel';
-    panel.innerHTML = `
-      <div style="
-        position: fixed; top: 50%; right: 0; transform: translateY(-50%);
-        z-index: 2147483647; background: #1e3a8a; color: white;
-        padding: 18px 20px; border-radius: 14px 0 0 14px; box-shadow: -8px 8px 28px rgba(0,0,0,0.42);
-        font-family: Inter, sans-serif; width: 250px; min-width: 220px; max-width: 420px;
-        resize: horizontal; overflow: auto; box-sizing: border-box;
-      ">
-        <p style="margin: 0 0 12px 0; font-weight: 800; font-size: 17px;">${heading}</p>
-        ${contextSectionHtml}
-        <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 4px;">
-          <button id="cg-suite-research-yes" style="
-            width: 100%; padding: 12px 16px; background: #facc15; color: #020617;
-            border: none; border-radius: 9999px; font-weight: 900; cursor: pointer; font-size: 15px;
-            box-shadow: 0 8px 18px rgba(0,0,0,0.45); text-transform: uppercase; letter-spacing: 0.06em;
-          ">${buttonLabel}</button>
-          <button id="cg-suite-research-cancel" style="
-            width: 100%; padding: 10px 14px; background: transparent; color: #e5e7eb;
-            border: 1px solid rgba(248,250,252,0.5); border-radius: 9999px;
-            font-weight: 600; cursor: pointer; font-size: 13px;
-          ">Cancel research</button>
-        </div>
-      </div>
-    `;
+    const shadow = panel.attachShadow({ mode: 'open' });
+    shadow.innerHTML =
+      '<style>' +
+      ':host{display:block;margin:0;padding:0;border:0;background:transparent}' +
+      '.cg-pos{position:fixed;top:50%;right:0;transform:translateY(-50%);z-index:2147483647;' +
+      'pointer-events:none;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;' +
+      'font-size:14px;line-height:1.45;color:#fff;-webkit-font-smoothing:antialiased}' +
+      '.cg-card{pointer-events:auto;width:240px;min-width:240px;max-width:240px;min-height:188px;box-sizing:border-box;' +
+      'background:#1e3a8a;padding:18px 20px;border-radius:14px 0 0 14px;box-shadow:-8px 8px 28px rgba(0,0,0,0.42);' +
+      'overflow-x:hidden;overflow-y:auto;max-height:min(85vh,520px)}' +
+      '.cg-card--open{max-height:min(90vh,640px)}' +
+      'h1.cg-h{margin:0 0 12px;font-size:17px;font-weight:800;line-height:1.25;letter-spacing:-0.02em}' +
+      '.cg-actions{display:flex;flex-direction:column;gap:8px;margin-top:4px}' +
+      'button.cg-yes{width:100%;padding:12px 16px;margin:0;background:#facc15;color:#020617;border:none;' +
+      'border-radius:9999px;font:inherit;font-weight:900;font-size:15px;cursor:pointer;text-transform:uppercase;' +
+      'letter-spacing:0.06em;box-shadow:0 8px 18px rgba(0,0,0,0.45)}' +
+      'button.cg-cancel{width:100%;padding:10px 14px;margin:0;background:transparent;color:#e5e7eb;' +
+      'border:1px solid rgba(248,250,252,0.5);border-radius:9999px;font:inherit;font-weight:600;font-size:13px;cursor:pointer}' +
+      '.cg-ctx-wrap{margin:0 0 14px;padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.25)}' +
+      '.cg-ctx-spacer{height:43px;margin:0 0 14px;padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.25);box-sizing:border-box}' +
+      'button.cg-toggle{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;margin:0;' +
+      'border-radius:9999px;border:1px solid rgba(248,250,252,0.5);background:rgba(15,23,42,0.4);' +
+      'color:#e5e7eb;font:inherit;font-weight:600;font-size:12px;cursor:pointer;text-transform:uppercase;letter-spacing:0.08em}' +
+      '.cg-ctx{margin-top:10px;font-size:14px;line-height:1.7}' +
+      '.cg-ctx[hidden]{display:none!important}' +
+      '.cg-card.cg-card--cex{width:188px;min-width:188px;max-width:188px}' +
+      '.cg-card.cg-card--cex h1.cg-h{font-size:15px}' +
+      '.cg-card.cg-card--cex button.cg-yes{font-size:13px}' +
+      '.cg-card.cg-card--cex button.cg-cancel{font-size:12px}' +
+      '.cg-card.cg-card--cex button.cg-toggle{font-size:11px}' +
+      '.cg-card.cg-card--cex .cg-ctx{font-size:12px;line-height:1.55}' +
+      '</style>' +
+      '<div class="cg-pos">' +
+      '<div class="cg-card' + (isCex ? ' cg-card--cex' : '') + '" id="cg-suite-research-card">' +
+      '<h1 class="cg-h">' +
+      escapeHtml(heading) +
+      '</h1>' +
+      contextSectionHtml +
+      '<div class="cg-actions">' +
+      '<button type="button" class="cg-yes" id="cg-suite-research-yes">' +
+      escapeHtml(buttonLabel) +
+      '</button>' +
+      '<button type="button" class="cg-cancel" id="cg-suite-research-cancel">Cancel research</button>' +
+      '</div></div></div>';
+
     document.body.appendChild(panel);
+    const sr = panel.shadowRoot;
 
     // Expand/collapse extra context when present
     if (hasContext) {
-      const toggleBtn = document.getElementById('cg-suite-research-toggle-context');
-      const contextEl = document.getElementById('cg-suite-research-context');
+      const toggleBtn = sr.getElementById('cg-suite-research-toggle-context');
+      const contextEl = sr.getElementById('cg-suite-research-context');
+      const cardEl = sr.getElementById('cg-suite-research-card');
       if (toggleBtn && contextEl) {
         let isOpen = false;
         const updateToggleLabel = () => {
-          toggleBtn.textContent = (isOpen ? '▼ Hide details' : '▶ Show details');
+          toggleBtn.textContent = isOpen ? '▼ Hide details' : '▶ Show details';
         };
         updateToggleLabel();
         toggleBtn.addEventListener('click', function () {
           isOpen = !isOpen;
-          contextEl.style.display = isOpen ? 'block' : 'none';
+          contextEl.hidden = !isOpen;
+          if (cardEl) cardEl.classList.toggle('cg-card--open', isOpen);
           updateToggleLabel();
         });
       }
     }
 
-    document.getElementById('cg-suite-research-yes').addEventListener('click', function () {
+    sr.getElementById('cg-suite-research-yes').addEventListener('click', function () {
       if (!isListingsPage()) {
         panel.remove();
         return;
@@ -1505,7 +1546,7 @@
       panel.remove();
     });
 
-    const cancelBtn = document.getElementById('cg-suite-research-cancel');
+    const cancelBtn = sr.getElementById('cg-suite-research-cancel');
     cancelBtn && cancelBtn.addEventListener('click', function () {
       if (currentRequestId) {
         chrome.runtime.sendMessage({

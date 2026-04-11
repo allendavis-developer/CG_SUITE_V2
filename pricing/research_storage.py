@@ -274,6 +274,31 @@ def _replace_market_research(
     for idx, level in enumerate(payload.get("drillHistory") or []):
         if not isinstance(level, dict):
             continue
+        kind = str(level.get("kind") or "").lower()
+        segments_raw = level.get("segments")
+        if kind == "multi" and isinstance(segments_raw, list) and len(segments_raw) > 1:
+            clean: list[dict[str, float]] = []
+            env_min: Decimal | None = None
+            env_max: Decimal | None = None
+            for seg in segments_raw[:32]:
+                if not isinstance(seg, dict):
+                    continue
+                da, db = _dec(seg.get("min")), _dec(seg.get("max"))
+                if da is None or db is None or da > db:
+                    continue
+                clean.append({"min": float(da), "max": float(db)})
+                env_min = da if env_min is None else min(env_min, da)
+                env_max = db if env_max is None else max(env_max, db)
+            if len(clean) < 2 or env_min is None or env_max is None:
+                continue
+            MarketResearchDrillLevel.objects.create(
+                session=session,
+                level_index=idx,
+                min_gbp=env_min,
+                max_gbp=env_max,
+                segments_json=clean,
+            )
+            continue
         da, db = _dec(level.get("min")), _dec(level.get("max"))
         if da is None or db is None:
             continue
@@ -282,6 +307,7 @@ def _replace_market_research(
             level_index=idx,
             min_gbp=da,
             max_gbp=db,
+            segments_json=None,
         )
     for order, row in enumerate(payload.get("listings") or []):
         if not isinstance(row, dict):
@@ -360,10 +386,25 @@ def session_to_client_payload(session: MarketResearchSession) -> dict:
         if session.stat_suggested_sale_gbp is not None
         else 0,
     }
-    drill = [
-        {"min": float(l.min_gbp), "max": float(l.max_gbp)}
-        for l in session.drill_levels.all().order_by("level_index")
-    ]
+    drill: list[dict[str, Any]] = []
+    for l in session.drill_levels.all().order_by("level_index"):
+        row: dict[str, Any] = {"min": float(l.min_gbp), "max": float(l.max_gbp)}
+        sj = getattr(l, "segments_json", None)
+        if isinstance(sj, list) and len(sj) > 1:
+            segs: list[dict[str, float]] = []
+            for seg in sj:
+                if not isinstance(seg, dict):
+                    continue
+                try:
+                    a = float(seg["min"])
+                    b = float(seg["max"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                segs.append({"min": a, "max": b})
+            if len(segs) > 1:
+                row["kind"] = "multi"
+                row["segments"] = segs
+        drill.append(row)
     fs = session.filter_state_json or {}
     out: dict[str, Any] = {
         "listings": listings_out,

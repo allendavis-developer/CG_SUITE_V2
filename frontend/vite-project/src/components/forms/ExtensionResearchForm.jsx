@@ -1,6 +1,12 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { getDataFromListingPage, getDataFromRefine, cancelListingTab, isExtensionListingFlowAborted } from '@/services/extensionClient';
 import ResearchFormShell from './ResearchFormShell';
+import {
+  drillEnvelope,
+  priceMatchesDrillLevel,
+  DRILL_MULTI_KIND,
+  normalizeHistogramSegments,
+} from './researchDrillUtils';
 import WorkspaceCloseButton from '@/components/ui/WorkspaceCloseButton';
 import { calculateStats, calculateBuyOffers } from './researchStats';
 import { buildOtherResearchChannelsSummaries } from './researchOtherChannelsSummary';
@@ -570,7 +576,14 @@ function ExtensionResearchForm({
   }, []);
 
   // ─── Listings / stats / offers ──────────────────────────────────────────
-  const currentPriceRange = drillHistory.length > 0 ? drillHistory[drillHistory.length - 1] : null;
+  const activeDrillLevel = useMemo(
+    () => (drillHistory.length > 0 ? drillHistory[drillHistory.length - 1] : null),
+    [drillHistory]
+  );
+  const currentPriceRange = useMemo(
+    () => (activeDrillLevel ? drillEnvelope(activeDrillLevel) : null),
+    [activeDrillLevel]
+  );
 
   const ebayHasBroadMatchListings = useMemo(() => {
     if (!isEbay) return false;
@@ -594,12 +607,12 @@ function ExtensionResearchForm({
 
   const displayedListings = useMemo(() => {
     if (!listingsForResearch || listingsForResearch.length === 0) return null;
-    if (!currentPriceRange) return listingsForResearch;
-    return listingsForResearch.filter(item => {
+    if (!activeDrillLevel) return listingsForResearch;
+    return listingsForResearch.filter((item) => {
       const p = typeof item.price === 'string' ? parseFloat(item.price.replace(/[^0-9.]/g, '')) : item.price;
-      return !isNaN(p) && p >= currentPriceRange.min && p <= currentPriceRange.max;
+      return !Number.isNaN(p) && priceMatchesDrillLevel(p, activeDrillLevel);
     });
-  }, [listingsForResearch, currentPriceRange]);
+  }, [listingsForResearch, activeDrillLevel]);
 
   // Histogram drill can target a range that only has rows under a wider cohort (e.g. looser matches on).
   // When the cohort shrinks and that range is empty, snap back to root so the grid/histogram aren’t blank.
@@ -704,6 +717,21 @@ function ExtensionResearchForm({
   // ─── Drill handlers ─────────────────────────────────────────────────────
   const handleDrillDown = useCallback((rangeStart, rangeEnd) => {
     setDrillHistory(prev => [...prev, { min: rangeStart, max: rangeEnd }]);
+  }, []);
+
+  const handleHistogramMultiZoom = useCallback((segments) => {
+    const norm = normalizeHistogramSegments(segments);
+    if (norm.length === 0) return;
+    if (norm.length === 1) {
+      setDrillHistory((prev) => [...prev, { min: norm[0].min, max: norm[0].max }]);
+      return;
+    }
+    const envMin = Math.min(...norm.map((s) => s.min));
+    const envMax = Math.max(...norm.map((s) => s.max));
+    setDrillHistory((prev) => [
+      ...prev,
+      { kind: DRILL_MULTI_KIND, segments: norm, min: envMin, max: envMax },
+    ]);
   }, []);
 
   const handleZoomOut = useCallback(() => {
@@ -976,6 +1004,7 @@ function ExtensionResearchForm({
       onShowHistogramChange={setShowHistogram}
       drillHistory={drillHistory}
       onDrillDown={handleDrillDown}
+      onHistogramMultiZoom={!readOnly ? handleHistogramMultiZoom : undefined}
       onZoomOut={handleZoomOut}
       onNavigateToDrillLevel={handleNavigateToDrillLevel}
       onResetDrillToRoot={resetDrillToRoot}

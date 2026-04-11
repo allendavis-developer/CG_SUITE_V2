@@ -12,6 +12,7 @@ import { otherResearchSummariesSignature } from './researchOtherChannelsSummary'
 import { DualRangeSlider, DualDateRangeSlider, formatSoldDateMs } from './sliders';
 import ListingCard from './ListingCard';
 import PriceHistogram from './PriceHistogram';
+import { formatDrillBreadcrumbLabel, formatDrillBreadcrumbShortLabel } from './researchDrillUtils';
 import useAppStore from '@/store/useAppStore';
 import { getBlockedOfferSlots, manualSlotCommitRequiresAuthorisation } from '@/utils/customerOfferRules';
 import { CUSTOMER_TYPE_LABELS, getCustomerType } from '@/utils/customerOfferRules';
@@ -122,6 +123,7 @@ export default function ResearchFormShell({
   onShowHistogramChange,
   drillHistory,
   onDrillDown,
+  onHistogramMultiZoom = null,
   onZoomOut,
   onNavigateToDrillLevel,
   /** Clear histogram drill when an advanced filter leaves the drilled slice empty (price/sold-date in shell). */
@@ -1606,8 +1608,9 @@ export default function ResearchFormShell({
                           <button
                             onClick={() => onNavigateToDrillLevel && onNavigateToDrillLevel(idx + 1)}
                             className={idx === drillHistory.length - 1 ? 'text-gray-900 font-bold' : 'text-brand-blue hover:underline'}
+                            title={formatDrillBreadcrumbLabel(range)}
                           >
-                            £{range.min.toFixed(2)} - £{range.max.toFixed(2)}
+                            {formatDrillBreadcrumbShortLabel(range)}
                           </button>
                         </React.Fragment>
                       ))}
@@ -1654,6 +1657,7 @@ export default function ResearchFormShell({
                   onGoBack={onZoomOut}
                   drillLevel={drillHistory.length}
                   readOnly={readOnly}
+                  onMultiZoom={onHistogramMultiZoom}
                 />
               </div>
             </aside>
