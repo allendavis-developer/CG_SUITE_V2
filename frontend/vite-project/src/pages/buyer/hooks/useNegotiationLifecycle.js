@@ -191,7 +191,24 @@ export function useNegotiationLifecycle({
       };
       loadRequestDetails();
     } else if (mode === 'negotiate') {
-      const openQuoteRequest = location.state?.openQuoteRequest;
+      let openQuoteRequest = location.state?.openQuoteRequest;
+      if (openQuoteRequest?.current_status !== 'QUOTE') {
+        openQuoteRequest = null;
+      }
+      if (
+        !openQuoteRequest &&
+        actualRequestId != null &&
+        actualRequestId !== '' &&
+        !Number.isNaN(Number(actualRequestId))
+      ) {
+        const sr = useAppStore.getState().request;
+        if (
+          sr?.current_status === 'QUOTE' &&
+          String(sr.request_id) === String(actualRequestId)
+        ) {
+          openQuoteRequest = sr;
+        }
+      }
       if (openQuoteRequest?.current_status === 'QUOTE' && !hasInitializedNegotiateRef.current) {
         const txType =
           openQuoteRequest.intent === 'DIRECT_SALE' ? 'sale'
@@ -200,7 +217,31 @@ export function useNegotiationLifecycle({
         setCustomerData(mapRequestToCustomerData(openQuoteRequest));
         setTransactionType(txType);
         setTargetOffer(openQuoteRequest.target_offer_gbp != null ? openQuoteRequest.target_offer_gbp.toString() : '');
-        setItems((openQuoteRequest.items || []).map((apiItem) => mapApiItemToNegotiationItem(apiItem, txType, 'negotiate')));
+        const mappedQuoteItems = (openQuoteRequest.items || []).map((apiItem) =>
+          mapApiItemToNegotiationItem(apiItem, txType, 'negotiate')
+        );
+        if (import.meta.env.DEV) {
+          const items = openQuoteRequest.items || [];
+          console.groupCollapsed(
+            `[CG Suite] Open QUOTE from overview → /buyer (request #${openQuoteRequest.request_id})`
+          );
+          mappedQuoteItems.forEach((row, idx) => {
+            const api = items[idx];
+            const rd = api?.raw_data;
+            const nested = rd?.ebayResearchData;
+            console.log(`Line ${idx + 1} request_item_id=${row.request_item_id ?? api?.request_item_id}`, {
+              mappedTitle: row.title,
+              mappedVariantName: row.variantName,
+              mappedSubtitle: row.subtitle,
+              isCustomEbayItem: row.isCustomEbayItem,
+              raw_display_title: rd?.display_title,
+              raw_display_subtitle: rd?.display_subtitle,
+              raw_searchTerm: rd?.searchTerm ?? nested?.searchTerm,
+            });
+          });
+          console.groupEnd();
+        }
+        setItems(mappedQuoteItems);
         setRequest(openQuoteRequest);
         const jr = openQuoteRequest.jewellery_reference_scrape_json;
         if (jr?.sections?.length) {
@@ -211,7 +252,9 @@ export function useNegotiationLifecycle({
           });
         }
         hasInitializedNegotiateRef.current = true;
-        window.history.replaceState({}, document.title);
+        // Do not call history.replaceState to clear location: it wipes React Router state. In dev,
+        // Strict Mode remounts Negotiation; without openQuoteRequest in state the effect falls through
+        // to initialCartItems (store cart) and overwrites correct API-mapped lines — e.g. eBay name → "eBay Research".
         setIsLoading(false);
         return;
       }
