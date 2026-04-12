@@ -25,6 +25,8 @@ import {
   calculateNonJewelleryOfferTotal,
   applyEbayResearchToItem,
   applyCashConvertersResearchToItem,
+  mergeEbayResearchDataIntoItem,
+  mergeCashConvertersResearchDataIntoItem,
   resolveSuggestedRetailFromResearchStats,
   sumOfferMinMaxForNegotiationItems,
   offerMinMaxFromCexProductData,
@@ -123,6 +125,7 @@ const Negotiation = ({ mode }) => {
   const [seniorMgmtModal, setSeniorMgmtModal] = useState(null);
   const [marginResultModal, setMarginResultModal] = useState(null);
   const [blockedOfferModal, setBlockedOfferModal] = useState(null); // { slot, offer, item?, onAuthoriseAction? }
+  const [cexPencilRrpSourceModal, setCexPencilRrpSourceModal] = useState(null); // { itemId }
   const [customerOfferRulesData, setCustomerOfferRulesData] = useState(null);
   const [isCustomerModalOpen, setCustomerModalOpen] = useState(false);
   /** BOOKED_FOR_TESTING | COMPLETE | QUOTE | null — used for research sandbox in view mode. */
@@ -213,8 +216,20 @@ const Negotiation = ({ mode }) => {
   }, []);
 
   // ─── Research overlay (shared hook) ─────────────────────────────────────
-  const applyEbay = useCallback((item, state) => applyEbayResearchToItem(item, state, useVoucherOffers), [useVoucherOffers]);
-  const applyCC = useCallback((item, state) => applyCashConvertersResearchToItem(item, state, useVoucherOffers), [useVoucherOffers]);
+  const applyEbay = useCallback(
+    (item, state, mode = 'full') => {
+      if (mode === 'dataOnly') return mergeEbayResearchDataIntoItem(item, state);
+      return applyEbayResearchToItem(item, state, useVoucherOffers);
+    },
+    [useVoucherOffers]
+  );
+  const applyCC = useCallback(
+    (item, state, mode = 'full') => {
+      if (mode === 'dataOnly') return mergeCashConvertersResearchDataIntoItem(item, state);
+      return applyCashConvertersResearchToItem(item, state, useVoucherOffers);
+    },
+    [useVoucherOffers]
+  );
   const onResearchPersisted = useCallback((mergedItem) => {
     if (!mergedItem || mergedItem.selectedOfferId !== 'manual') return;
     const manualPerUnit = parseManualOfferValue(mergedItem.manualOffer);
@@ -1013,6 +1028,7 @@ const Negotiation = ({ mode }) => {
     consumeCustomerExpectationDraftKeys,
     nosposCategoriesResults: nosposSchema.categories ?? [],
     nosposCategoryMappings: nosposSchema.mappings ?? [],
+    setCexPencilRrpSourceModal: mode === "negotiate" ? setCexPencilRrpSourceModal : null,
   });
   notifyEbayResearchMergedForNosposAiRef.current = notifyEbayResearchMergedForNosposAi;
 
@@ -1415,6 +1431,8 @@ const Negotiation = ({ mode }) => {
         markItemSlotAuthorised={markItemSlotAuthorised}
         salePriceConfirmModal={salePriceConfirmModal}
         setSalePriceConfirmModal={setSalePriceConfirmModal}
+        cexPencilRrpSourceModal={cexPencilRrpSourceModal}
+        setCexPencilRrpSourceModal={setCexPencilRrpSourceModal}
         showNewCustomerDetailsModal={showNewCustomerDetailsModal}
         setShowNewCustomerDetailsModal={setShowNewCustomerDetailsModal}
         setPendingFinishPayload={setPendingFinishPayload}

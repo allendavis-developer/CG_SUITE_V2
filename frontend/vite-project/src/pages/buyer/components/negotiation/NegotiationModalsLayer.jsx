@@ -2,6 +2,7 @@ import React from 'react';
 import JewelleryReferencePricesModal from '@/components/jewellery/JewelleryReferencePricesModal';
 import NewCustomerDetailsModal from '@/components/modals/NewCustomerDetailsModal';
 import SalePriceConfirmModal from '@/components/modals/SalePriceConfirmModal';
+import CexPencilRrpSourceModal from '@/components/modals/CexPencilRrpSourceModal';
 import TinyModal from '@/components/ui/TinyModal';
 import { revokeManualOfferAuthorisationIfSwitchingAway } from '@/utils/customerOfferRules';
 import { TargetOfferModal, ItemOfferModal, SeniorMgmtModal, MarginResultModal, BlockedOfferAuthModal } from '../NegotiationModals';
@@ -39,6 +40,8 @@ export default function NegotiationModalsLayer({
   markItemSlotAuthorised,
   salePriceConfirmModal,
   setSalePriceConfirmModal,
+  cexPencilRrpSourceModal,
+  setCexPencilRrpSourceModal,
   showNewCustomerDetailsModal,
   setShowNewCustomerDetailsModal,
   setPendingFinishPayload,
@@ -196,6 +199,15 @@ export default function NegotiationModalsLayer({
         onClose={() => setSalePriceConfirmModal(null)}
         useResearchSuggestedPrice={true}
         priceLabel="Our RRP"
+        useVoucherOffers={useVoucherOffers}
+        showNotification={showNotification}
+      />
+
+      <CexPencilRrpSourceModal
+        modalState={cexPencilRrpSourceModal}
+        items={items}
+        setItems={setItems}
+        onClose={() => setCexPencilRrpSourceModal(null)}
         useVoucherOffers={useVoucherOffers}
         showNotification={showNotification}
       />

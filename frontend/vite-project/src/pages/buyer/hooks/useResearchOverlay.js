@@ -1,6 +1,11 @@
 import { useState, useCallback } from 'react';
-import { maybeShowSalePriceConfirm } from '../utils/researchCompletionHelpers';
+import {
+  getResearchCompleteSalePriceFollowUp,
+  openSalePriceConfirmModalFromFollowUp,
+} from '../utils/researchCompletionHelpers';
 import { buildItemSpecs, buildInitialSearchQuery, logCategoryRuleDecision } from '../utils/negotiationHelpers';
+
+/** @typedef {'full' | 'dataOnly'} ResearchMergeMode */
 
 /**
  * Shared state and handlers for the eBay / Cash Converters research overlay panel
@@ -9,10 +14,10 @@ import { buildItemSpecs, buildInitialSearchQuery, logCategoryRuleDecision } from
  * @param {Object} opts
  * @param {Array} opts.items - Current negotiation/reprice items array
  * @param {Function} opts.setItems - State setter for items
- * @param {Function} opts.applyEbayResearch - (item, updatedState) => newItem. Called to merge eBay research data.
- * @param {Function} opts.applyCCResearch - (item, updatedState) => newItem. Called to merge CC research data.
- * @param {Function} opts.resolveSalePrice - Sale price resolver function for maybeShowSalePriceConfirm.
- * @param {boolean} [opts.readOnly=false] - Whether the overlay is read-only (no in-form edits).
+ * @param {Function} opts.applyEbayResearch - `(item, updatedState, mode?) => newItem`. Negotiation passes `dataOnly` (research blob only) or `full` (blob + tiers); repricing ignores mode.
+ * @param {Function} opts.applyCCResearch - Same contract as applyEbayResearch.
+ * @param {Function} opts.resolveSalePrice - Sale price resolver; drives getResearchCompleteSalePriceFollowUp.
+ * @param {boolean} [opts.readOnly=false] - Reserved for read-only overlay behaviour.
  * @param {boolean} [opts.persistResearchOnComplete=true] - When false, OK/complete does not apply research back to `items` (sandbox / preview).
  * @param {Function} [opts.onResearchPersisted=null] - Optional: `(mergedItem) => void` after `setItems` merges research (e.g. Negotiation manual-offer modals).
  * @param {Function} [opts.onAfterEbayResearchMerge=null] - Optional: `(mergedItem) => void` after eBay research is merged (e.g. NosPos stock AI).
@@ -28,6 +33,7 @@ export function useResearchOverlay({
   onResearchPersisted = null,
   onAfterEbayResearchMerge = null,
 }) {
+  void readOnly;
   const [researchItem, setResearchItem] = useState(null);
   const [cashConvertersResearchItem, setCashConvertersResearchItem] = useState(null);
   const [salePriceConfirmModal, setSalePriceConfirmModal] = useState(null);
@@ -57,12 +63,15 @@ export function useResearchOverlay({
     if (updatedState?.cancel) { setResearchItem(null); return; }
     if (updatedState && researchItem && persistResearchOnComplete) {
       const currentItem = items.find(i => i.id === researchItem.id);
-      const mergedItem = currentItem ? applyEbayResearch(currentItem, updatedState) : null;
+      const followUp = getResearchCompleteSalePriceFollowUp(updatedState, currentItem, resolveSalePrice);
+      /** @type {ResearchMergeMode} */
+      const mode = followUp.deferCommittedPricing ? 'dataOnly' : 'full';
+      const mergedItem = currentItem ? applyEbayResearch(currentItem, updatedState, mode) : null;
       setItems(prev => prev.map(i => {
         if (i.id !== researchItem.id) return i;
-        return applyEbayResearch(i, updatedState);
+        return applyEbayResearch(i, updatedState, mode);
       }));
-      maybeShowSalePriceConfirm(updatedState, currentItem, researchItem, setSalePriceConfirmModal, resolveSalePrice, 'ebay');
+      openSalePriceConfirmModalFromFollowUp(followUp, researchItem, 'ebay', setSalePriceConfirmModal);
       if (mergedItem) {
         onResearchPersisted?.(mergedItem);
         onAfterEbayResearchMerge?.(mergedItem);
@@ -75,12 +84,20 @@ export function useResearchOverlay({
     if (updatedState?.cancel) { setCashConvertersResearchItem(null); return; }
     if (updatedState && cashConvertersResearchItem && persistResearchOnComplete) {
       const currentItem = items.find(i => i.id === cashConvertersResearchItem.id);
-      const mergedItem = currentItem ? applyCCResearch(currentItem, updatedState) : null;
+      const followUp = getResearchCompleteSalePriceFollowUp(updatedState, currentItem, resolveSalePrice);
+      /** @type {ResearchMergeMode} */
+      const mode = followUp.deferCommittedPricing ? 'dataOnly' : 'full';
+      const mergedItem = currentItem ? applyCCResearch(currentItem, updatedState, mode) : null;
       setItems(prev => prev.map(i => {
         if (i.id !== cashConvertersResearchItem.id) return i;
-        return applyCCResearch(i, updatedState);
+        return applyCCResearch(i, updatedState, mode);
       }));
-      maybeShowSalePriceConfirm(updatedState, currentItem, cashConvertersResearchItem, setSalePriceConfirmModal, resolveSalePrice, 'cashConverters');
+      openSalePriceConfirmModalFromFollowUp(
+        followUp,
+        cashConvertersResearchItem,
+        'cashConverters',
+        setSalePriceConfirmModal
+      );
       if (mergedItem) onResearchPersisted?.(mergedItem);
     }
     setCashConvertersResearchItem(null);

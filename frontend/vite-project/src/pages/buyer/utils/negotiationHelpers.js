@@ -134,6 +134,20 @@ export function withDefaultRrpOffersSource(item) {
   return item;
 }
 
+/**
+ * After CeX pencil lookup on a row that still treats eBay (or another source) as primary for RRP,
+ * prompt before switching highlight + committed tiers to CeX.
+ */
+export function shouldPromptCeXPencilRrpSource(item) {
+  if (!item) return false;
+  const ebayDrivesDisplayedRrp =
+    item.useResearchSuggestedPrice !== false &&
+    item.ebayResearchData?.stats?.suggestedPrice != null &&
+    Number(item.ebayResearchData.stats.suggestedPrice) > 0;
+  if (ebayDrivesDisplayedRrp) return true;
+  return item.rrpOffersSource !== NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL;
+}
+
 /** Suggested retail from saved research stats (matches ResearchFormShell / median−£1 rule when needed). */
 export function resolveSuggestedRetailFromResearchStats(stats) {
   if (!stats) return null;
@@ -951,6 +965,23 @@ export function mapApiItemToNegotiationItem(item, transactionType, mode) {
   };
 }
 
+/**
+ * True when the row carries persisted eBay research (aligned with `mapRequestItemsToCartItems` in
+ * `requestToCartMapping.js`). Must not require `selectedFilters`: it is sometimes absent on older or
+ * API-round-tripped blobs while stats/listings/offers remain — otherwise we misclassify eBay rows and
+ * copy subtitle ("eBay Research") into variantName, which wins over title in the negotiation table.
+ */
+function negotiationItemHasMergedEbayResearch(item) {
+  const b = item.ebayResearchData;
+  if (item.isCustomEbayItem === true) return true;
+  if (!b || typeof b !== 'object') return false;
+  return !!(
+    (Array.isArray(b.listings) && b.listings.length > 0) ||
+    (Array.isArray(b.buyOffers) && b.buyOffers.length > 0) ||
+    (b.stats != null && typeof b.stats === 'object')
+  );
+}
+
 /** Normalize a cart item from the buyer store into the shape the negotiation page expects. */
 export function normalizeCartItemForNegotiation(item, useVoucherOffers = false) {
   const resolvedSelectedOfferId = (item.selectedOfferId != null && item.selectedOfferId !== '')
@@ -961,9 +992,10 @@ export function normalizeCartItemForNegotiation(item, useVoucherOffers = false) 
     const rebuilt = rebuildJewelleryOffersForNegotiationItem(withId, useVoucherOffers);
     return withDefaultRrpOffersSource(rebuilt);
   }
-  const isEbayPayload = !!(item.ebayResearchData?.stats && item.ebayResearchData?.selectedFilters);
+  const hasMergedEbayResearch = negotiationItemHasMergedEbayResearch(item);
+  const ebayBlob = item.ebayResearchData;
   const cexName = item.variant_details?.title
-    || (!isEbayPayload && (item.ebayResearchData?.title || item.ebayResearchData?.modelName))
+    || (!hasMergedEbayResearch && (ebayBlob?.title || ebayBlob?.modelName))
     || (item.isCustomCeXItem && item.title) || null;
   const isCexItem = !!(cexName || item.isCustomCeXItem || (item.cexBuyPrice != null || item.cexSellPrice != null));
   let next = item;
@@ -983,7 +1015,7 @@ export function normalizeCartItemForNegotiation(item, useVoucherOffers = false) 
     item.subtitle != null &&
     String(item.subtitle).trim() !== '' &&
     // eBay-primary rows use title as the search term; subtitle is often "eBay Research" or filters — must not replace the displayed name.
-    !(isEbayPayload && !isCexItem)
+    !(hasMergedEbayResearch && !isCexItem)
   ) {
     // Internal DB / header builder: variant line is often only in subtitle; copy for research queries.
     next = { ...item, variantName: String(item.subtitle).trim() };
@@ -991,13 +1023,61 @@ export function normalizeCartItemForNegotiation(item, useVoucherOffers = false) 
   return withDefaultRrpOffersSource({ ...next, selectedOfferId: resolvedSelectedOfferId });
 }
 
-// ─── Research completion → offer recalculation ─────────────────────────────
+// ─── Research completion: merge saved research vs committed row pricing ─────
+//
+// Two phases so Negotiation can persist listings/stats immediately while deferring tier
+// offers + selection until SalePriceConfirmModal ("Yes" applies RRP/offers via modal).
 
 /**
- * Apply ebay research results to a negotiation item.
- * Returns the updated item (immutable).
+ * Persist eBay research payload (listings, stats, buyOffers, filters, …) and side metadata.
+ * Does not change cashOffers / voucherOffers / offers / selectedOfferId / manualOffer.
  */
-export function applyEbayResearchToItem(item, updatedState, useVoucherOffers) {
+export function mergeEbayResearchDataIntoItem(item, updatedState) {
+  const aiNos = updatedState?.aiSuggestedNosposStockCategory;
+  const hasAiNosposHint =
+    aiNos &&
+    typeof aiNos === 'object' &&
+    (aiNos.nosposId != null ||
+      (aiNos.fullName != null && String(aiNos.fullName).trim() !== '') ||
+      (Array.isArray(aiNos.pathSegments) && aiNos.pathSegments.length > 0));
+
+  const nextItem = {
+    ...item,
+    ebayResearchData: updatedState,
+    ...(updatedState.resolvedCategory ? { categoryObject: updatedState.resolvedCategory } : {}),
+    ...(hasAiNosposHint
+      ? {
+          aiSuggestedNosposStockCategory: aiNos,
+          rawData:
+            item.rawData != null && typeof item.rawData === 'object'
+              ? { ...item.rawData, aiSuggestedNosposStockCategory: aiNos }
+              : { aiSuggestedNosposStockCategory: aiNos },
+        }
+      : {}),
+  };
+  logCategoryRuleDecision({
+    context: 'ebay-research-complete',
+    item: nextItem,
+    categoryObject: nextItem.categoryObject,
+    rule: {
+      source: 'ebay-offer-margins',
+      margins: Array.isArray(updatedState?.buyOffers) ? 'buyOffers-computed' : null,
+    },
+  });
+  return nextItem;
+}
+
+/**
+ * Rebuild tier offers + selection from research result, using the row as it was before this
+ * research session for classification (`preMergeItem`).
+ */
+export function applyEbayResearchCommittedPricingToItem(
+  preMergeItem,
+  mergedItem,
+  updatedState,
+  useVoucherOffers
+) {
+  const item = preMergeItem;
   const cexBacked = isCeXBackedNegotiationItem(item);
   const isEbayOnlyItem =
     item.isCustomEbayItem === true ||
@@ -1013,7 +1093,7 @@ export function applyEbayResearchToItem(item, updatedState, useVoucherOffers) {
         title: titleForEbayCcOfferIndex(idx),
         price: roundOfferPrice(o.price),
       }));
-      newVoucherOffers = newCashOffers.map(offer => ({
+      newVoucherOffers = newCashOffers.map((offer) => ({
         id: `ebay-voucher-${offer.id}`,
         title: offer.title,
         price: toVoucherOfferPrice(offer.price),
@@ -1027,7 +1107,7 @@ export function applyEbayResearchToItem(item, updatedState, useVoucherOffers) {
           title: titleForEbayCcOfferIndex(idx),
           price: roundOfferPrice(o.price),
         }));
-        newVoucherOffers = newCashOffers.map(offer => ({
+        newVoucherOffers = newCashOffers.map((offer) => ({
           id: `ebay-voucher-${offer.id}`,
           title: offer.title,
           price: toVoucherOfferPrice(offer.price),
@@ -1054,45 +1134,43 @@ export function applyEbayResearchToItem(item, updatedState, useVoucherOffers) {
   } else {
     if (updatedState.manualOffer !== undefined) newManualOffer = updatedState.manualOffer;
     const prevOffers = getDisplayOffers(item, useVoucherOffers);
-    const prevIdx = prevOffers?.findIndex(o => o.id === item.selectedOfferId);
+    const prevIdx = prevOffers?.findIndex((o) => o.id === item.selectedOfferId);
     if (prevIdx >= 0 && displayOffers[prevIdx]) newSelectedOfferId = displayOffers[prevIdx].id;
   }
 
-  const aiNos = updatedState?.aiSuggestedNosposStockCategory;
-  const hasAiNosposHint =
-    aiNos &&
-    typeof aiNos === 'object' &&
-    (aiNos.nosposId != null ||
-      (aiNos.fullName != null && String(aiNos.fullName).trim() !== '') ||
-      (Array.isArray(aiNos.pathSegments) && aiNos.pathSegments.length > 0));
-
-  const nextItem = {
-    ...item,
-    ebayResearchData: updatedState,
+  return {
+    ...mergedItem,
     cashOffers: newCashOffers,
     voucherOffers: newVoucherOffers,
     offers: displayOffers,
     manualOffer: newManualOffer,
     selectedOfferId: newSelectedOfferId,
-    // If the user picked a category during this research session, persist it onto the item
-    // so subsequent research panels don't ask again.
+  };
+}
+
+/**
+ * Apply ebay research results to a negotiation item (saved research + committed tiers).
+ */
+export function applyEbayResearchToItem(item, updatedState, useVoucherOffers) {
+  const merged = mergeEbayResearchDataIntoItem(item, updatedState);
+  return applyEbayResearchCommittedPricingToItem(item, merged, updatedState, useVoucherOffers);
+}
+
+/**
+ * Persist CC research payload; does not change offers or selection.
+ */
+export function mergeCashConvertersResearchDataIntoItem(item, updatedState) {
+  const nextItem = {
+    ...item,
+    cashConvertersResearchData: updatedState,
     ...(updatedState.resolvedCategory ? { categoryObject: updatedState.resolvedCategory } : {}),
-    ...(hasAiNosposHint
-      ? {
-          aiSuggestedNosposStockCategory: aiNos,
-          rawData:
-            item.rawData != null && typeof item.rawData === 'object'
-              ? { ...item.rawData, aiSuggestedNosposStockCategory: aiNos }
-              : { aiSuggestedNosposStockCategory: aiNos },
-        }
-      : {}),
   };
   logCategoryRuleDecision({
-    context: 'ebay-research-complete',
+    context: 'cashconverters-research-complete',
     item: nextItem,
     categoryObject: nextItem.categoryObject,
     rule: {
-      source: 'ebay-offer-margins',
+      source: 'category-based-margins',
       margins: Array.isArray(updatedState?.buyOffers) ? 'buyOffers-computed' : null,
     },
   });
@@ -1100,10 +1178,15 @@ export function applyEbayResearchToItem(item, updatedState, useVoucherOffers) {
 }
 
 /**
- * Apply Cash Converters research results to a negotiation item.
- * Returns the updated item (immutable).
+ * Apply CC tier offers + selection from research (row classification from `preMergeItem`).
  */
-export function applyCashConvertersResearchToItem(item, updatedState, useVoucherOffers) {
+export function applyCashConvertersResearchCommittedPricingToItem(
+  preMergeItem,
+  mergedItem,
+  updatedState,
+  useVoucherOffers
+) {
+  const item = preMergeItem;
   let newManualOffer = item.manualOffer;
   let newSelectedOfferId = item.selectedOfferId;
 
@@ -1112,7 +1195,7 @@ export function applyCashConvertersResearchToItem(item, updatedState, useVoucher
       newManualOffer = updatedState.manualOffer || item.manualOffer;
       newSelectedOfferId = 'manual';
     } else if (typeof updatedState.selectedOfferIndex === 'number') {
-      const currentDisplayOffers = useVoucherOffers ? (item.voucherOffers || []) : (item.cashOffers || []);
+      const currentDisplayOffers = useVoucherOffers ? item.voucherOffers || [] : item.cashOffers || [];
       const selectedOffer = currentDisplayOffers[updatedState.selectedOfferIndex];
       if (selectedOffer) {
         newSelectedOfferId = selectedOffer.id;
@@ -1129,13 +1212,17 @@ export function applyCashConvertersResearchToItem(item, updatedState, useVoucher
 
   let newCashOffers = item.cashOffers || [];
   let newVoucherOffers = item.voucherOffers || [];
-  if (!isCeXBackedNegotiationItem(item) && !hasExistingOffers && updatedState.buyOffers?.length > 0) {
+  if (
+    !isCeXBackedNegotiationItem(item) &&
+    !hasExistingOffers &&
+    updatedState.buyOffers?.length > 0
+  ) {
     newCashOffers = updatedState.buyOffers.map((o, idx) => ({
       id: `cc-cash_${idx + 1}`,
       title: titleForEbayCcOfferIndex(idx),
       price: Number(o.price),
     }));
-    newVoucherOffers = newCashOffers.map(offer => ({
+    newVoucherOffers = newCashOffers.map((offer) => ({
       id: `cc-voucher-${offer.id}`,
       title: offer.title,
       price: toVoucherOfferPrice(offer.price),
@@ -1143,52 +1230,38 @@ export function applyCashConvertersResearchToItem(item, updatedState, useVoucher
   }
   const displayOffers = useVoucherOffers ? newVoucherOffers : newCashOffers;
 
-  const nextItem = {
-    ...item,
-    cashConvertersResearchData: updatedState,
+  return {
+    ...mergedItem,
     cashOffers: newCashOffers,
     voucherOffers: newVoucherOffers,
     offers: displayOffers,
     manualOffer: newManualOffer,
     selectedOfferId: newSelectedOfferId,
-    // If the user picked a category during this research session, persist it onto the item
-    // so subsequent research panels don't ask again.
-    ...(updatedState.resolvedCategory ? { categoryObject: updatedState.resolvedCategory } : {}),
   };
-  logCategoryRuleDecision({
-    context: 'cashconverters-research-complete',
-    item: nextItem,
-    categoryObject: nextItem.categoryObject,
-    rule: {
-      source: 'category-based-margins',
-      margins: Array.isArray(updatedState?.buyOffers) ? 'buyOffers-computed' : null,
-    },
-  });
-  return nextItem;
 }
 
 /**
- * Apply "Add from CeX" product data onto an existing negotiation/repricing row.
- * Keeps manual selections intact while replacing CeX prices and tier offers.
+ * Apply Cash Converters research results to a negotiation item (full).
  */
-export function applyCeXProductDataToItem(item, cexProductData, useVoucherOffers) {
+export function applyCashConvertersResearchToItem(item, updatedState, useVoucherOffers) {
+  const merged = mergeCashConvertersResearchDataIntoItem(item, updatedState);
+  return applyCashConvertersResearchCommittedPricingToItem(item, merged, updatedState, useVoucherOffers);
+}
+
+/**
+ * Merge CeX pencil / lookup onto the row: CeX column prices, SKU, URL, product blob, category,
+ * and reference layers (including CeX tier rows in reference for a later "Use CeX as RRP" apply).
+ * Does not change committed RRP column, tier cards, or rrpOffersSource — use
+ * applyRrpAndOffersFromPriceSource(PRICE_SOURCE_CEX_SELL) or applyCeXProductDataToItem for that.
+ * @param {{ log?: boolean }} [options] - Pass `{ log: false }` when this merge is immediately followed by a full CeX RRP apply (avoids duplicate category logs).
+ */
+export function mergeCeXPencilLookupIntoItem(item, cexProductData, options = {}) {
+  const { log: shouldLog = true } = options;
   if (!item || !cexProductData) return item;
   const refData = cexProductData.referenceData || {};
   const cashOffers = slimCexNegotiationOfferRows(refData.cash_offers || cexProductData.cash_offers || []);
   const voucherOffers = slimCexNegotiationOfferRows(refData.voucher_offers || cexProductData.voucher_offers || []);
-  const displayOffers = useVoucherOffers ? voucherOffers : cashOffers;
-  const prevDisplayOffers = getDisplayOffers(item, useVoucherOffers);
-  const prevSelectedIndex = prevDisplayOffers.findIndex((o) => o.id === item.selectedOfferId);
 
-  let nextSelectedOfferId = item.selectedOfferId;
-  if (item.selectedOfferId === 'manual') {
-    nextSelectedOfferId = 'manual';
-  } else if (prevSelectedIndex >= 0 && displayOffers.length) {
-    const idx = Math.min(prevSelectedIndex, displayOffers.length - 1);
-    nextSelectedOfferId = displayOffers[idx]?.id ?? null;
-  } else {
-    nextSelectedOfferId = null;
-  }
   const mergedReferenceData = {
     ...(item.referenceData || {}),
     ...(refData || {}),
@@ -1208,21 +1281,15 @@ export function applyCeXProductDataToItem(item, cexProductData, useVoucherOffers
     ...(item.rawData || {}),
     ...cexProductData,
     referenceData: mergedReferenceData,
-    // Preserve current research payloads on the row when they already exist.
     ...(item.ebayResearchData ? { ebayResearchData: item.ebayResearchData } : {}),
     ...(item.cashConvertersResearchData ? { cashConvertersResearchData: item.cashConvertersResearchData } : {}),
   };
 
-  // Use the fully resolved categoryObject from cexProductData when available (it already has a DB id).
-  // Fall back to building a text-only object only if cexProductData has no resolved object.
   const newCategory = cexProductData.category || item.category;
   const prevCategoryName = String(item.category || item.categoryObject?.name || '').trim().toLowerCase();
   const nextCategoryName = String(newCategory || '').trim().toLowerCase();
   const categoryChanged = Boolean(nextCategoryName) && prevCategoryName !== nextCategoryName;
 
-  // Prefer the DB-resolved object from the incoming cexProductData (which has the correct id
-  // after handleAddFromCeX runs matchCexCategoryNameToDb). Only fall back to the existing item
-  // categoryObject when the category hasn't changed and it already has a DB id.
   const newCategoryObject =
     cexProductData.categoryObject?.id != null
       ? cexProductData.categoryObject
@@ -1236,11 +1303,6 @@ export function applyCeXProductDataToItem(item, cexProductData, useVoucherOffers
 
   const nextItem = {
     ...item,
-    cashOffers,
-    voucherOffers,
-    offers: displayOffers,
-    selectedOfferId: nextSelectedOfferId,
-    ...(cexBasedRounded != null ? { ourSalePrice: String(cexBasedRounded) } : {}),
     cexSellPrice: refData.cex_sale_price != null ? Number(refData.cex_sale_price) : item.cexSellPrice,
     cexBuyPrice: refData.cex_tradein_cash != null ? Number(refData.cex_tradein_cash) : item.cexBuyPrice,
     cexVoucherPrice: refData.cex_tradein_voucher != null ? Number(refData.cex_tradein_voucher) : item.cexVoucherPrice,
@@ -1250,20 +1312,97 @@ export function applyCeXProductDataToItem(item, cexProductData, useVoucherOffers
     cexProductData: cexProductData,
     referenceData: mergedReferenceData,
     rawData: mergedRawData,
-    rrpOffersSource: NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL,
     category: newCategory || item.category,
     categoryObject: newCategoryObject,
   };
+  if (shouldLog) {
+    logCategoryRuleDecision({
+      context: categoryChanged ? 'cex-pencil-lookup-category-changed' : 'cex-pencil-lookup-metadata',
+      item: nextItem,
+      categoryObject: nextItem.categoryObject,
+      categoryName: newCategory || null,
+      rule: {
+        source: 'cex-reference-rule',
+        ...buildRuleSnapshotFromReferenceData(mergedReferenceData),
+      },
+      notes: categoryChanged ? 'Cleared stale category id because CeX category changed.' : null,
+    });
+  }
+  return nextItem;
+}
+
+function applyCeXCommittedPricingLegacy(preLookupItem, mergedItem, cexProductData, useVoucherOffers) {
+  const refData = cexProductData.referenceData || {};
+  const cashOffers = slimCexNegotiationOfferRows(refData.cash_offers || cexProductData.cash_offers || []);
+  const voucherOffers = slimCexNegotiationOfferRows(refData.voucher_offers || cexProductData.voucher_offers || []);
+  const displayOffers = useVoucherOffers ? voucherOffers : cashOffers;
+  const prevDisplayOffers = getDisplayOffers(preLookupItem, useVoucherOffers);
+  const prevSelectedIndex = prevDisplayOffers.findIndex((o) => o.id === preLookupItem.selectedOfferId);
+
+  let nextSelectedOfferId = preLookupItem.selectedOfferId;
+  if (preLookupItem.selectedOfferId === 'manual') {
+    nextSelectedOfferId = 'manual';
+  } else if (prevSelectedIndex >= 0 && displayOffers.length) {
+    const idx = Math.min(prevSelectedIndex, displayOffers.length - 1);
+    nextSelectedOfferId = displayOffers[idx]?.id ?? null;
+  } else {
+    nextSelectedOfferId = null;
+  }
+
+  const ref = mergedItem.referenceData || {};
+  const cexBasedRaw = ref.cex_based_sale_price;
+  const cexBasedRounded =
+    cexBasedRaw != null && Number.isFinite(Number(cexBasedRaw))
+      ? roundSalePrice(Number(cexBasedRaw))
+      : null;
+
+  const nextItem = {
+    ...mergedItem,
+    cashOffers,
+    voucherOffers,
+    offers: displayOffers,
+    selectedOfferId: nextSelectedOfferId,
+    ...(cexBasedRounded != null ? { ourSalePrice: String(cexBasedRounded) } : {}),
+    rrpOffersSource: NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL,
+  };
   logCategoryRuleDecision({
-    context: categoryChanged ? 'cex-pencil-refresh-category-changed' : 'cex-data-applied',
+    context: 'cex-data-applied',
     item: nextItem,
     categoryObject: nextItem.categoryObject,
-    categoryName: newCategory || null,
+    categoryName: mergedItem.category || null,
     rule: {
       source: 'cex-reference-rule',
-      ...buildRuleSnapshotFromReferenceData(mergedReferenceData),
+      ...buildRuleSnapshotFromReferenceData(mergedItem.referenceData || {}),
     },
-    notes: categoryChanged ? 'Cleared stale category id because CeX category changed.' : null,
+    notes: null,
   });
   return nextItem;
+}
+
+/**
+ * Apply "Add from CeX" product data onto an existing negotiation/repricing row (metadata + CeX as RRP source).
+ */
+export function applyCeXProductDataToItem(item, cexProductData, useVoucherOffers) {
+  if (!item || !cexProductData) return item;
+  const merged = mergeCeXPencilLookupIntoItem(item, cexProductData, { log: false });
+  const { item: applied, errorMessage } = applyRrpAndOffersFromPriceSource(
+    merged,
+    NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL,
+    useVoucherOffers
+  );
+  if (!errorMessage) {
+    logCategoryRuleDecision({
+      context: 'cex-data-applied',
+      item: applied,
+      categoryObject: applied.categoryObject,
+      categoryName: applied.category || null,
+      rule: {
+        source: 'cex-reference-rule',
+        ...buildRuleSnapshotFromReferenceData(applied.referenceData || {}),
+      },
+      notes: null,
+    });
+    return applied;
+  }
+  return applyCeXCommittedPricingLegacy(item, merged, cexProductData, useVoucherOffers);
 }

@@ -158,6 +158,7 @@ export function useNegotiationItemHandlers({
   consumeCustomerExpectationDraftKeys = null,
   nosposCategoriesResults = null,
   nosposCategoryMappings = null,
+  setCexPencilRrpSourceModal = null,
 }) {
   const jewelleryNosposEarlyAiStartedRef = useRef(new Set());
   const handleQuantityChange = useCallback((itemId, newQty) => {
@@ -1334,6 +1335,7 @@ export function useNegotiationItemHandlers({
     setItems,
     showNotification,
     useVoucherOffers,
+    setCexPencilRrpSourceModal,
   });
 
   return {
