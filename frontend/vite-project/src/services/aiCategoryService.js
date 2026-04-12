@@ -55,6 +55,40 @@ export async function suggestNosposCategory({ item, levelIndex, availableOptions
 
 // ---------------------------------------------------------------------------
 
+const MARKETPLACE_SEARCH_ENDPOINT = '/api/ai/suggest-marketplace-search-term/';
+
+/**
+ * Request a broad eBay / Cash Converters search string derived from item metadata.
+ *
+ * @param {{ item: ItemSummary }} params
+ * @returns {Promise<{
+ *   searchTerm: string,
+ *   reasoning: string,
+ *   provider: 'groq'|'gemini',
+ *   debug: { systemPrompt: string, userPrompt: string, rawModelOutput: string }
+ * }>}
+ */
+export async function suggestMarketplaceResearchSearchTerm({ item }) {
+  const res = await fetch(MARKETPLACE_SEARCH_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRFToken': getCSRFToken(),
+    },
+    body: JSON.stringify({ item }),
+  });
+
+  if (!res.ok) {
+    let msg = `Suggested search request failed (${res.status})`;
+    try { const err = await res.json(); msg = err.error || msg; } catch { /* ignore */ }
+    throw new Error(msg);
+  }
+
+  return res.json();
+}
+
+// ---------------------------------------------------------------------------
+
 const FIELDS_ENDPOINT = '/api/ai/suggest-fields/';
 
 /**

@@ -16,6 +16,7 @@ import { withDefaultRrpOffersSource, logCategoryRuleDecision } from './utils/neg
 import { EBAY_TOP_LEVEL_CATEGORY } from './constants';
 import { SPREADSHEET_CEX_TH_STYLES, RRP_SOURCE_CELL_STYLES } from '@/styles/spreadsheetTableStyles';
 import { useResearchOverlay } from './hooks/useResearchOverlay';
+import { useMarketplaceSearchPrefetch } from './hooks/useMarketplaceSearchPrefetch';
 import { useRefreshCexRowData } from './hooks/useRefreshCexRowData';
 import NegotiationRowContextMenu from './components/NegotiationRowContextMenu';
 import { NEGOTIATION_ROW_CONTEXT, RRP_SOURCE_CELL_CLASS } from './rowContextZones';
@@ -143,6 +144,7 @@ const RepricingNegotiation = () => {
     applyCCResearch: applyCCRepriceResearch,
     resolveSalePrice: resolveRepricingSalePrice,
   });
+  useMarketplaceSearchPrefetch(items, setItems);
 
   const [isRepricingFinished, setIsRepricingFinished] = useState(false);
   const [completedItemsData, setCompletedItemsData] = useState([]);
@@ -1389,6 +1391,7 @@ const RepricingNegotiation = () => {
         </aside>
 
         <ResearchOverlayPanel
+          items={items}
           researchItem={researchItem}
           cashConvertersResearchItem={cashConvertersResearchItem}
           onResearchComplete={handleResearchComplete}

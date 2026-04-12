@@ -66,6 +66,18 @@ class FieldSuggestions:
     fields: dict  # { fieldName: suggestedValue }
 
 
+@dataclass
+class MarketplaceResearchSearchSuggestion:
+    """Broad marketplace (eBay / CC) search string from item facts."""
+
+    search_term: str
+    reasoning: str
+    provider: str  # "groq" | "gemini"
+    raw_output: str
+    system_prompt: str
+    user_prompt: str
+
+
 # ---------------------------------------------------------------------------
 # Shared prompt builders
 # ---------------------------------------------------------------------------
@@ -121,6 +133,49 @@ Strict rules:
 Schema:
 { "fields": { "<fieldName>": "<value>", ... } }
 """
+
+_RESEARCH_SEARCH_SYSTEM = """\
+You assist buyers at a second-hand goods counter (CG Suite) who need a SHORT, BROAD
+search query for eBay or Cash Converters to compare sold / asking prices.
+
+You MUST respond with valid JSON only — no markdown fences, no preamble, no trailing text.
+The JSON must conform exactly to this schema:
+{
+  "searchTerm": "<short plain-text search string, UK marketplace style>",
+  "reasoning": "<one concise sentence>"
+}
+
+Rules for searchTerm:
+- Keep it broad enough to return comparable listings (do not paste long product descriptions).
+- Include only details that typically change resale value: model / variant, storage, colour,
+  region or edition, key compatibility (e.g. console generation), network lock status when known,
+  capacity, size, material tier, etc.
+- Omit fluff: seller marketing phrases, "brand new sealed" unless explicitly part of the variant,
+  SKU-only strings unless they are the common public name, redundant words, condition unless it
+  is the main value driver for that category.
+- Use the same language style a UK shopper would type into a search box (natural keywords).
+- If unsure between narrower vs broader, prefer slightly broader while keeping value-driving variants.
+"""
+
+
+def _build_research_search_user_msg(
+    item_name: str,
+    db_category: str | None,
+    attributes: dict[str, str],
+) -> str:
+    attr_lines = (
+        "\n".join(f"    • {k}: {v}" for k, v in sorted(attributes.items()))
+        if attributes
+        else "    (none provided)"
+    )
+    return (
+        f"ITEM NAME\n  {item_name}\n\n"
+        f"INTERNAL CATEGORY (may be approximate)\n  {db_category or '(unknown)'}\n\n"
+        f"ATTRIBUTES (label: value)\n{attr_lines}\n\n"
+        "TASK\n"
+        "  Propose a single broad marketplace search string (searchTerm) that would help find\n"
+        "  comparable listings for pricing. Only include value-driving variant facts from above.\n"
+    )
 
 
 def _build_category_user_msg(
@@ -313,6 +368,33 @@ def _call_with_fallback(system: str, user: str, max_tokens: int, label: str) -> 
         ) from gemini_exc
 
 
+def _call_with_fallback_with_provider(
+    system: str, user: str, max_tokens: int, label: str
+) -> tuple[str, str]:
+    """Try Groq; on any failure fall back to Gemini. Returns (raw_json_string, \"groq\"|\"gemini\")."""
+    try:
+        raw = _groq_call(system, user, max_tokens)
+        logger.debug("[%s] Groq responded OK", label)
+        return raw, "groq"
+    except Exception as groq_exc:
+        logger.warning(
+            "[%s] Groq failed (%s: %s) — falling back to Gemini",
+            label,
+            type(groq_exc).__name__,
+            groq_exc,
+        )
+
+    try:
+        raw = _gemini_call(system, user)
+        logger.debug("[%s] Gemini fallback responded OK", label)
+        return raw, "gemini"
+    except Exception as gemini_exc:
+        raise RuntimeError(
+            f"Both Groq and Gemini failed. "
+            f"Groq: {groq_exc}. Gemini: {gemini_exc}."
+        ) from gemini_exc
+
+
 def _parse_json(raw: str, label: str) -> dict:
     # Strip accidental markdown fences (Gemini sometimes adds them)
     text = raw.strip()
@@ -392,3 +474,39 @@ def suggest_field_values(
 
     logger.info("[%s] Filled %d field(s): %s", label, len(result_fields), list(result_fields.keys()))
     return FieldSuggestions(fields=result_fields)
+
+
+def suggest_marketplace_research_search_term(
+    item_name: str,
+    db_category: str | None,
+    attributes: dict[str, str],
+) -> MarketplaceResearchSearchSuggestion:
+    """
+    Suggest a broad eBay / Cash Converters style search string from item metadata.
+    Tries Groq first, falls back to Gemini on any failure (same stack as category AI).
+    """
+    user_msg = _build_research_search_user_msg(item_name, db_category, attributes)
+    label = "Marketplace search term"
+
+    logger.debug("[%s] Prompt:\n%s\n%s\n%s", label, "=" * 60, user_msg, "=" * 60)
+
+    raw, provider = _call_with_fallback_with_provider(
+        _RESEARCH_SEARCH_SYSTEM, user_msg, max_tokens=256, label=label
+    )
+    data = _parse_json(raw, label)
+
+    term = str(data.get("searchTerm") or "").strip()
+    reasoning = str(data.get("reasoning") or "").strip()
+    if not term:
+        raise ValueError(f"[{label}] Model returned empty searchTerm: {raw!r}")
+
+    result = MarketplaceResearchSearchSuggestion(
+        search_term=term,
+        reasoning=reasoning,
+        provider=provider,
+        raw_output=raw.strip(),
+        system_prompt=_RESEARCH_SEARCH_SYSTEM.strip(),
+        user_prompt=user_msg,
+    )
+    logger.info("[%s] → %r (%s) | %s", label, result.search_term, result.provider, result.reasoning)
+    return result

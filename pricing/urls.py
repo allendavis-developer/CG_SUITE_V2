@@ -66,4 +66,9 @@ urlpatterns = [
     # AI
     path('ai/suggest-category/', ai_views.suggest_nospos_category, name='ai_suggest_nospos_category'),
     path('ai/suggest-fields/', ai_views.suggest_nospos_fields, name='ai_suggest_nospos_fields'),
+    path(
+        'ai/suggest-marketplace-search-term/',
+        ai_views.suggest_marketplace_research_search_term_view,
+        name='ai_suggest_marketplace_search_term',
+    ),
 ]

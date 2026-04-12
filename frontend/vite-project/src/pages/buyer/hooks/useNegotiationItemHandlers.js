@@ -544,6 +544,8 @@ export function useNegotiationItemHandlers({
       categorySource = 'negotiation_ai',
       fieldAiSource = categorySource,
       fieldAiLogLabel = 'negotiation',
+      /** When true, reuse existing path-mapped NosPos hint and only run field AI (e.g. after eBay research enriches the line). */
+      skipNosposCategoryPathAi = false,
     } = meta || {};
 
     void (async () => {
@@ -554,108 +556,132 @@ export function useNegotiationItemHandlers({
       }
       try {
         const itemSummary = summariseNegotiationItemForAi(normalizedItem);
-        let flatArr = [];
-        try {
-          const flat = await fetchAllCategoriesFlat();
-          flatArr = Array.isArray(flat) ? flat : [];
-        } catch {
-          flatArr = [];
-        }
 
-        let match = null;
-        if (isCeXNoInternalLeaf) {
-          match = await runNosposStockCategoryAiMatchBackground({
-            internalCategoryId: null,
-            itemSummary,
-            allCategoriesFlat: flatArr,
-            logTag: pathLogTag,
-          });
+        const pathHint =
+          skipNosposCategoryPathAi ? getAiSuggestedNosposStockCategoryFromItem(normalizedItem) : null;
+        const reusePathMatch =
+          skipNosposCategoryPathAi &&
+          pathHint &&
+          pathHint.fromInternalProductCategory !== true &&
+          pathHint.nosposId != null &&
+          Number(pathHint.nosposId) > 0;
+
+        let aiSuggestedNosposStockCategory;
+        let fieldNosposCategoryId = null;
+        let rowWithCategoryHint;
+
+        if (reusePathMatch) {
+          aiSuggestedNosposStockCategory = { ...pathHint };
+          fieldNosposCategoryId = Number(pathHint.nosposId);
+          rowWithCategoryHint = {
+            ...normalizedItem,
+            aiSuggestedNosposStockCategory,
+            rawData:
+              normalizedItem.rawData != null && typeof normalizedItem.rawData === 'object'
+                ? { ...normalizedItem.rawData, aiSuggestedNosposStockCategory }
+                : { aiSuggestedNosposStockCategory },
+          };
         } else {
-          const rootReady = flatArr.length > 0 && isProductCategoryRootReadyForBuilder(flatArr, catId);
-          if (rootReady) {
+          let flatArr = [];
+          try {
+            const flat = await fetchAllCategoriesFlat();
+            flatArr = Array.isArray(flat) ? flat : [];
+          } catch {
+            flatArr = [];
+          }
+
+          let match = null;
+          if (isCeXNoInternalLeaf) {
             match = await runNosposStockCategoryAiMatchBackground({
-              internalCategoryId: catId,
+              internalCategoryId: null,
               itemSummary,
               allCategoriesFlat: flatArr,
               logTag: pathLogTag,
             });
-            if (!match) return;
+          } else {
+            const rootReady = flatArr.length > 0 && isProductCategoryRootReadyForBuilder(flatArr, catId);
+            if (rootReady) {
+              match = await runNosposStockCategoryAiMatchBackground({
+                internalCategoryId: catId,
+                itemSummary,
+                allCategoriesFlat: flatArr,
+                logTag: pathLogTag,
+              });
+              if (!match) return;
+            }
           }
-        }
 
-        const co = normalizedItem.categoryObject || {};
-        const pathSegs = Array.isArray(co.path)
-          ? co.path.map((s) => String(s).trim()).filter(Boolean)
-          : [];
-        const productBreadcrumb =
-          pathSegs.length > 0
-            ? pathSegs.join(' > ')
-            : co.name != null && String(co.name).trim()
-              ? String(co.name).trim()
-              : String(normalizedItem.categoryName || normalizedItem.category || '').trim();
+          const co = normalizedItem.categoryObject || {};
+          const pathSegs = Array.isArray(co.path)
+            ? co.path.map((s) => String(s).trim()).filter(Boolean)
+            : [];
+          const productBreadcrumb =
+            pathSegs.length > 0
+              ? pathSegs.join(' > ')
+              : co.name != null && String(co.name).trim()
+                ? String(co.name).trim()
+                : String(normalizedItem.categoryName || normalizedItem.category || '').trim();
 
-        let aiSuggestedNosposStockCategory;
-        let fieldNosposCategoryId = null;
+          if (match) {
+            aiSuggestedNosposStockCategory = {
+              nosposId: match.nosposId != null ? Number(match.nosposId) : null,
+              fullName: match.fullName,
+              pathSegments: match.pathSegments,
+              source: categorySource,
+              savedAt: new Date().toISOString(),
+            };
+            fieldNosposCategoryId =
+              match.nosposId != null && Number(match.nosposId) > 0 ? Number(match.nosposId) : null;
+          } else {
+            const fullName =
+              productBreadcrumb ||
+              (co.name != null && String(co.name).trim() ? String(co.name).trim() : '') ||
+              (catId != null ? `Category ${catId}` : '');
+            const numericCat = catId != null && Number.isFinite(Number(catId)) ? Number(catId) : null;
+            aiSuggestedNosposStockCategory = {
+              ...(numericCat != null
+                ? { nosposId: numericCat, internalCategoryId: numericCat }
+                : { nosposId: null }),
+              fullName,
+              pathSegments: pathSegs.length ? pathSegs : null,
+              fromInternalProductCategory: true,
+              source: categorySource,
+              savedAt: new Date().toISOString(),
+            };
+            console.log('[CG Suite][NosposPathMatch] category', {
+              context: pathLogTag,
+              item: itemSummary.name,
+              lineId,
+              internalCategoryId: catId ?? null,
+              productCategoryRoot:
+                catId != null ? getInternalProductCategoryRootMeta(flatArr, catId) : null,
+              outcome: 'internal_hint',
+              nospos: {
+                nosposId: aiSuggestedNosposStockCategory.nosposId,
+                fullName: aiSuggestedNosposStockCategory.fullName,
+                pathSegments: aiSuggestedNosposStockCategory.pathSegments,
+              },
+              error: null,
+            });
+          }
 
-        if (match) {
-          aiSuggestedNosposStockCategory = {
-            nosposId: match.nosposId != null ? Number(match.nosposId) : null,
-            fullName: match.fullName,
-            pathSegments: match.pathSegments,
-            source: categorySource,
-            savedAt: new Date().toISOString(),
+          rowWithCategoryHint = {
+            ...normalizedItem,
+            aiSuggestedNosposStockCategory,
+            rawData:
+              normalizedItem.rawData != null && typeof normalizedItem.rawData === 'object'
+                ? { ...normalizedItem.rawData, aiSuggestedNosposStockCategory }
+                : { aiSuggestedNosposStockCategory },
           };
-          fieldNosposCategoryId =
-            match.nosposId != null && Number(match.nosposId) > 0 ? Number(match.nosposId) : null;
-        } else {
-          const fullName =
-            productBreadcrumb ||
-            (co.name != null && String(co.name).trim() ? String(co.name).trim() : '') ||
-            (catId != null ? `Category ${catId}` : '');
-          const numericCat = catId != null && Number.isFinite(Number(catId)) ? Number(catId) : null;
-          aiSuggestedNosposStockCategory = {
-            ...(numericCat != null
-              ? { nosposId: numericCat, internalCategoryId: numericCat }
-              : { nosposId: null }),
-            fullName,
-            pathSegments: pathSegs.length ? pathSegs : null,
-            fromInternalProductCategory: true,
-            source: categorySource,
-            savedAt: new Date().toISOString(),
-          };
-          console.log('[CG Suite][NosposPathMatch] category', {
-            context: pathLogTag,
-            item: itemSummary.name,
-            lineId,
-            internalCategoryId: catId ?? null,
-            productCategoryRoot:
-              catId != null ? getInternalProductCategoryRootMeta(flatArr, catId) : null,
-            outcome: 'internal_hint',
-            nospos: {
-              nosposId: aiSuggestedNosposStockCategory.nosposId,
-              fullName: aiSuggestedNosposStockCategory.fullName,
-              pathSegments: aiSuggestedNosposStockCategory.pathSegments,
-            },
-            error: null,
+
+          if (!match) {
+            fieldNosposCategoryId = await resolveNosposLeafIdForNegotiationFieldAi(rowWithCategoryHint);
+          }
+
+          await updateRequestItemRawData(reqItemId, {
+            raw_data: { aiSuggestedNosposStockCategory },
           });
         }
-
-        const rowWithCategoryHint = {
-          ...normalizedItem,
-          aiSuggestedNosposStockCategory,
-          rawData:
-            normalizedItem.rawData != null && typeof normalizedItem.rawData === 'object'
-              ? { ...normalizedItem.rawData, aiSuggestedNosposStockCategory }
-              : { aiSuggestedNosposStockCategory },
-        };
-
-        if (!match) {
-          fieldNosposCategoryId = await resolveNosposLeafIdForNegotiationFieldAi(rowWithCategoryHint);
-        }
-
-        await updateRequestItemRawData(reqItemId, {
-          raw_data: { aiSuggestedNosposStockCategory },
-        });
         let aiSuggestedNosposStockFieldValues = null;
         if (
           ENABLE_NOSPOS_STOCK_FIELD_AI &&
@@ -749,14 +775,31 @@ export function useNegotiationItemHandlers({
         return;
       }
 
-      scheduleNosposStockAiForNegotiationLine(mergedItem, {
+      // Line already went through NosPos *path* AI (add-time or picker). Completing eBay research only needs
+      // stock field AI with the enriched title/listings — not a second full category cascade.
+      const fromPathMappedNosposLeaf =
+        nid != null &&
+        nid > 0 &&
+        hint?.fromInternalProductCategory !== true;
+
+      const metaBase = {
         pathLogTag: mergedItem.isCustomEbayItem
           ? '[CG Suite][NosposPathMatch][ebay_research_complete]'
           : '[CG Suite][NosposPathMatch][negotiation_research_complete]',
         categorySource: mergedItem.isCustomEbayItem ? 'ebay_research_complete' : 'negotiation_research_complete',
         fieldAiSource: mergedItem.isCustomEbayItem ? 'ebay_research_complete' : 'negotiation_research_complete',
         fieldAiLogLabel: mergedItem.isCustomEbayItem ? 'ebay_overlay' : 'negotiation_overlay',
-      });
+      };
+
+      if (fromPathMappedNosposLeaf) {
+        scheduleNosposStockAiForNegotiationLine(mergedItem, {
+          ...metaBase,
+          skipNosposCategoryPathAi: true,
+        });
+        return;
+      }
+
+      scheduleNosposStockAiForNegotiationLine(mergedItem, metaBase);
     },
     [scheduleNosposStockAiForNegotiationLine]
   );

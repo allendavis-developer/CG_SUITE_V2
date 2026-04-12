@@ -30,6 +30,24 @@
    * eBay SRP: "6 results for rode m1" in h1.srp-controls__count-heading — strict keyword matches.
    * Listings after that index are broader / fewer-keywords matches.
    */
+  function searchTermFromUrlParams(paramNames) {
+    try {
+      const u = new URL(window.location.href);
+      for (var pi = 0; pi < paramNames.length; pi++) {
+        var raw = u.searchParams.get(paramNames[pi]);
+        if (raw == null || String(raw).trim() === '') continue;
+        try {
+          return decodeURIComponent(String(raw).replace(/\+/g, ' ')).trim();
+        } catch (e1) {
+          return String(raw).replace(/\+/g, ' ').trim();
+        }
+      }
+    } catch (e2) {
+      /* ignore */
+    }
+    return '';
+  }
+
   function getEbayKeywordMatchCountFromHeading() {
     var h1 = document.querySelector('h1.srp-controls__count-heading');
     if (!h1) return null;
@@ -49,7 +67,9 @@
         return url.includes('ebay.co.uk') && !!document.querySelector('#srp-river-results > ul');
       },
       getSearchTerm() {
-        return (document.querySelector('#gh-ac')?.value?.trim() || '');
+        const fromInput = (document.querySelector('#gh-ac')?.value?.trim() || '');
+        if (fromInput) return fromInput;
+        return searchTermFromUrlParams(['_nkw', 'nkw', '_query', 'query', 'q']);
       },
       getListContainer() {
         return document.querySelector('#srp-river-results > ul');
@@ -304,7 +324,9 @@
       },
       getSearchTerm() {
         const q = document.querySelector('input[name="query"], input[type="search"], [data-testid="search-input"]');
-        return (q?.value?.trim() || '');
+        const fromInput = (q?.value?.trim() || '');
+        if (fromInput) return fromInput;
+        return searchTermFromUrlParams(['query', 'q', 'search', 'keywords']);
       },
       getListContainer() {
         return document.body;

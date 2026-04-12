@@ -28,6 +28,8 @@ function resolvedEbaySavedState(item) {
 export default function ResearchOverlayPanel({
   researchItem,
   cashConvertersResearchItem,
+  /** When set, eBay/CC `lineItemContext` is merged from this array by id so async fields (e.g. prefetch) stay fresh. */
+  items = null,
   onResearchComplete,
   onCashConvertersResearchComplete,
   readOnly = false,
@@ -52,6 +54,15 @@ export default function ResearchOverlayPanel({
 }) {
   if (!researchItem && !cashConvertersResearchItem) return null;
 
+  const ebayLine =
+    researchItem && Array.isArray(items)
+      ? items.find((i) => i.id === researchItem.id) ?? researchItem
+      : researchItem;
+  const ccLine =
+    cashConvertersResearchItem && Array.isArray(items)
+      ? items.find((i) => i.id === cashConvertersResearchItem.id) ?? cashConvertersResearchItem
+      : cashConvertersResearchItem;
+
   return (
     <div
       className={`fixed left-0 z-[90] min-h-0 ${reserveRightSidebar ? 'right-80' : 'right-0'}`}
@@ -63,11 +74,11 @@ export default function ResearchOverlayPanel({
       <div className="relative h-full w-full min-h-0">
         {researchItem && (
           <EbayResearchForm
-            key={researchItem.request_item_id ?? researchItem.id ?? 'ebay-research'}
+            key={ebayLine.request_item_id ?? ebayLine.id ?? 'ebay-research'}
             mode="modal"
             containModalInParent
-            category={researchItem.categoryObject || { path: [researchItem.category], name: researchItem.category }}
-            savedState={resolvedEbaySavedState(researchItem)}
+            category={ebayLine.categoryObject || { path: [ebayLine.category], name: ebayLine.category }}
+            savedState={resolvedEbaySavedState(ebayLine)}
             onComplete={onResearchComplete}
             initialHistogramState={true}
             readOnly={readOnly}
@@ -75,13 +86,13 @@ export default function ResearchOverlayPanel({
             showManualOffer={showManualOffer}
             hideAddAction={true}
             hideOfferCards={hideOfferCards}
-            initialSearchQuery={buildInitialSearchQuery(researchItem)}
+            initialSearchQuery={buildInitialSearchQuery(ebayLine)}
             useVoucherOffers={useVoucherOffers}
-            marketComparisonContext={buildMarketComparisonContext(researchItem)}
-            lineItemContext={researchItem}
+            marketComparisonContext={buildMarketComparisonContext(ebayLine)}
+            lineItemContext={ebayLine}
             blockedOfferSlots={blockedOfferSlots}
-            onBlockedOfferClick={(payload) => onBlockedOfferClick?.(payload, researchItem)}
-            onCategoryResolved={onCategoryResolved ? (cat) => onCategoryResolved(researchItem.id, cat) : null}
+            onBlockedOfferClick={(payload) => onBlockedOfferClick?.(payload, ebayLine)}
+            onCategoryResolved={onCategoryResolved ? (cat) => onCategoryResolved(ebayLine.id, cat) : null}
             onOffersChange={onEbayResearchOffersLiveChange}
           />
         )}
@@ -89,8 +100,8 @@ export default function ResearchOverlayPanel({
           <CashConvertersResearchForm
             mode="modal"
             containModalInParent
-            category={cashConvertersResearchItem.categoryObject || { path: [cashConvertersResearchItem.category], name: cashConvertersResearchItem.category }}
-            savedState={cashConvertersResearchItem.cashConvertersResearchData}
+            category={ccLine.categoryObject || { path: [ccLine.category], name: ccLine.category }}
+            savedState={ccLine.cashConvertersResearchData}
             onComplete={onCashConvertersResearchComplete}
             initialHistogramState={true}
             readOnly={readOnly}
@@ -99,12 +110,12 @@ export default function ResearchOverlayPanel({
             hideAddAction={true}
             hideOfferCards={hideOfferCards}
             useVoucherOffers={useVoucherOffers}
-            initialSearchQuery={buildInitialSearchQuery(cashConvertersResearchItem)}
-            marketComparisonContext={buildMarketComparisonContext(cashConvertersResearchItem)}
-            lineItemContext={cashConvertersResearchItem}
+            initialSearchQuery={buildInitialSearchQuery(ccLine)}
+            marketComparisonContext={buildMarketComparisonContext(ccLine)}
+            lineItemContext={ccLine}
             blockedOfferSlots={blockedOfferSlots}
-            onBlockedOfferClick={(payload) => onBlockedOfferClick?.(payload, cashConvertersResearchItem)}
-            onCategoryResolved={onCategoryResolved ? (cat) => onCategoryResolved(cashConvertersResearchItem.id, cat) : null}
+            onBlockedOfferClick={(payload) => onBlockedOfferClick?.(payload, ccLine)}
+            onCategoryResolved={onCategoryResolved ? (cat) => onCategoryResolved(ccLine.id, cat) : null}
             onOffersChange={onCashConvertersResearchOffersLiveChange}
           />
         )}

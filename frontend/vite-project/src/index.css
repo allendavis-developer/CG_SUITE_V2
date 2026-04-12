@@ -341,6 +341,18 @@
   }
 }
 
+/* Marketplace search-confirm: blinking caret affordance when field is empty + focused */
+@keyframes cg-search-confirm-caret-blink {
+  0%,
+  45% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0.22;
+  }
+}
+
 @layer utilities {
   .cg-animate-modal-backdrop {
     animation: cg-ui-backdrop-in 180ms ease-out forwards;
@@ -359,6 +371,10 @@
     animation: cg-ui-popover-in 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
     transform-origin: top left;
   }
+
+  .cg-search-confirm-caret {
+    animation: cg-search-confirm-caret-blink 1.05s step-end infinite;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -369,5 +385,10 @@
     animation: none !important;
     opacity: 1 !important;
     transform: none !important;
+  }
+
+  .cg-search-confirm-caret {
+    animation: none !important;
+    opacity: 1;
   }
 }

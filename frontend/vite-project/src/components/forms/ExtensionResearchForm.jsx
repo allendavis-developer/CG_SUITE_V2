@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useLayoutEffect, useRef } from 'react';
 import { getDataFromListingPage, getDataFromRefine, cancelListingTab, isExtensionListingFlowAborted } from '@/services/extensionClient';
 import ResearchFormShell from './ResearchFormShell';
 import {
@@ -18,6 +18,12 @@ import {
   runAiCategoryCascadeArrayTree,
   runNosposStockCategoryAiMatchBackground,
 } from '@/services/aiCategoryPathCascade';
+import { lineItemHasCommittedMarketplaceSearchTerm } from '@/pages/buyer/utils/negotiationHelpers';
+import {
+  markMarketplaceSearchConfirmedForItem,
+  getMarketplaceSearchSessionTerm,
+  clearMarketplaceSearchSessionTerm,
+} from '@/utils/marketplaceSearchConfirmSession';
 
 import HierarchicalCategoryPickerPanel from '@/components/pickers/HierarchicalCategoryPickerPanel';
 import {
@@ -65,7 +71,7 @@ function CategoryPickerStep({
       dbCategory: dbCategory != null && String(dbCategory).trim() !== '' ? String(dbCategory).trim() : null,
       attributes: {},
     };
-    console.log('[CG Suite][AiCategory][Picker] fallback summary', { summary, initialSearchQuery, categoryHint });
+    console.log('[CG Suite][CategoryPicker] fallback summary', { summary, initialSearchQuery, categoryHint });
     return summary;
   }, [lineItemForAi, initialSearchQuery, categoryHint]);
 
@@ -103,7 +109,7 @@ function CategoryPickerStep({
     setAiAutoError(null);
     setAiBreadcrumb('');
 
-    console.log('[CG Suite][AiCategory][Picker] auto-running cascade', {
+    console.log('[CG Suite][CategoryPicker] auto-running cascade', {
       itemSummaryForAi,
       rootCount: allCategories.length,
     });
@@ -114,9 +120,9 @@ function CategoryPickerStep({
           rootNodes: allCategories,
           itemSummary: itemSummaryForAi,
           startPath: [],
-          logTag: '[CG Suite][AiCategory][ExtensionPicker-auto]',
+          logTag: '[CG Suite][CategoryPicker][ExtensionPicker-auto]',
         });
-        console.log('[CG Suite][AiCategory][Picker] auto cascade result', res);
+        console.log('[CG Suite][CategoryPicker] auto cascade result', res);
         if (cancelled) return;
         if (!res.success || !res.leaf) {
           setAiSlotPhase('error');
@@ -131,15 +137,15 @@ function CategoryPickerStep({
         };
         setAiBreadcrumb(crumb);
         setAiSlotPhase('ready');
-        console.log('[CG Suite][AiCategory][Picker] suggestion ready — click blue bar to use', {
+        console.log('[CG Suite][CategoryPicker] suggestion ready — click blue bar to use', {
           breadcrumb: crumb,
           payload: aiPendingSelectRef.current,
         });
       } catch (e) {
-        console.log('[CG Suite][AiCategory][Picker] auto cascade exception', e);
+        console.log('[CG Suite][CategoryPicker] auto cascade exception', e);
         if (cancelled) return;
         setAiSlotPhase('error');
-        setAiAutoError(e?.message || 'AI request failed. Choose below or use Skip.');
+        setAiAutoError(e?.message || 'Request failed. Choose below or use Skip.');
       }
     })();
 
@@ -158,10 +164,10 @@ function CategoryPickerStep({
   const handleAiSuggestedConfirm = useCallback(() => {
     const payload = aiPendingSelectRef.current;
     if (!payload) {
-      console.log('[CG Suite][AiCategory][Picker] click but no pending payload');
+      console.log('[CG Suite][CategoryPicker] click but no pending payload');
       return;
     }
-    console.log('[CG Suite][AiCategory][Picker] user confirmed AI category', payload);
+    console.log('[CG Suite][CategoryPicker] user confirmed suggested category', payload);
 
     onClearAiNosposStockCategory?.();
     onSelect(payload, { awaitingAiNosposMatch: true });
@@ -356,9 +362,22 @@ function ExtensionResearchForm({
   // and no saved research yet
   const categoryKnown = (category?.id != null) || (savedState?.resolvedCategory?.id != null);
   const needsCategoryPick = !readOnly && !categoryKnown && !savedHasAnyResearch;
+  const researchItemId = lineItemContext?.id ?? lineItemContext?.request_item_id ?? null;
+  const marketplaceSessionTermAtMount =
+    researchItemId != null ? getMarketplaceSearchSessionTerm(researchItemId) : '';
+  const itemHasPriorMarketplaceSearchAgreement =
+    lineItemHasCommittedMarketplaceSearchTerm(lineItemContext) ||
+    String(marketplaceSessionTermAtMount).trim() !== '';
+  /** CeX / custom / jewellery lines: confirm search text before opening the marketplace tab; skip for rows added from eBay research. */
+  const useExtensionSearchTermGate =
+    !readOnly &&
+    lineItemContext != null &&
+    lineItemContext.isCustomEbayItem !== true &&
+    !itemHasPriorMarketplaceSearchAgreement;
   const [step, setStep] = useState(() => {
     if (savedHasAnyResearch) return 'cards';
     if (needsCategoryPick) return 'category';
+    if (useExtensionSearchTermGate) return 'search-confirm';
     return 'get-data';
   });
 
@@ -440,7 +459,7 @@ function ExtensionResearchForm({
           });
         }
         onCategoryResolved?.(match);
-        setStep('get-data');
+        setStep(useExtensionSearchTermGate ? 'search-confirm' : 'get-data');
       }
     }).catch(() => {
       /* silently fall through to manual picker */
@@ -476,6 +495,21 @@ function ExtensionResearchForm({
     if (savedState?.searchTerm != null && String(savedState.searchTerm).trim() !== '') {
       return String(savedState.searchTerm).trim();
     }
+    if (marketplaceSessionTermAtMount != null && String(marketplaceSessionTermAtMount).trim() !== '') {
+      return String(marketplaceSessionTermAtMount).trim();
+    }
+    if (initialSearchQuery != null && String(initialSearchQuery).trim() !== '') {
+      return String(initialSearchQuery).trim();
+    }
+    return '';
+  });
+  const [pendingExtensionSearchQuery, setPendingExtensionSearchQuery] = useState(() => {
+    if (savedState?.searchTerm != null && String(savedState.searchTerm).trim() !== '') {
+      return String(savedState.searchTerm).trim();
+    }
+    if (marketplaceSessionTermAtMount != null && String(marketplaceSessionTermAtMount).trim() !== '') {
+      return String(marketplaceSessionTermAtMount).trim();
+    }
     if (initialSearchQuery != null && String(initialSearchQuery).trim() !== '') {
       return String(initialSearchQuery).trim();
     }
@@ -498,20 +532,34 @@ function ExtensionResearchForm({
   }, [initialHistogramState, savedState?.showHistogram, mode, step]);
 
   // ─── Data fetching ──────────────────────────────────────────────────────
-  const handleGetData = useCallback(async () => {
+  const handleGetData = useCallback(async (queryOverride) => {
     userCancelledRef.current = false;
     setError(null);
     setLoading(true);
+    let effective = '';
+    if (queryOverride !== undefined && queryOverride !== null && String(queryOverride).trim() !== '') {
+      effective = String(queryOverride).trim();
+    } else if (searchTerm != null && String(searchTerm).trim() !== '') {
+      effective = String(searchTerm).trim();
+    } else if (initialSearchQuery != null && String(initialSearchQuery).trim() !== '') {
+      effective = String(initialSearchQuery).trim();
+    }
     try {
-      const result = await getDataFromListingPage(source, initialSearchQuery || undefined, marketComparisonContext);
+      const result = await getDataFromListingPage(source, effective || undefined, marketComparisonContext);
       if (isEbay && userCancelledRef.current) return;
       if (result?.success && Array.isArray(result.results)) {
         setListings(prepareExtensionListingsForShell(source, result.results, config.idPrefix));
         setDataVersion(v => v + 1);
-        const term = (result.searchTerm != null && String(result.searchTerm).trim())
+        const scrapedTerm = (result.searchTerm != null && String(result.searchTerm).trim())
           ? String(result.searchTerm).trim()
-          : (isEbay ? '' : (initialSearchQuery || ''));
-        setSearchTerm(term);
+          : '';
+        // Prefer the live site search (user may have changed it vs popup); else what we opened with.
+        const displayTerm = scrapedTerm || effective;
+        setSearchTerm(displayTerm);
+        setPendingExtensionSearchQuery(displayTerm);
+        if (researchItemId != null && displayTerm) {
+          markMarketplaceSearchConfirmedForItem(researchItemId, displayTerm);
+        }
         setListingPageUrl(result.listingPageUrl || null);
         setDrillHistory([]);
         setStep('cards');
@@ -526,7 +574,7 @@ function ExtensionResearchForm({
     } finally {
       setLoading(false);
     }
-  }, [source, isEbay, config.idPrefix, initialSearchQuery, marketComparisonContext, mode, onComplete]);
+  }, [source, isEbay, config.idPrefix, searchTerm, initialSearchQuery, marketComparisonContext, mode, onComplete, researchItemId]);
 
   const handleRefineSearch = useCallback(async () => {
     userCancelledRef.current = false;
@@ -538,10 +586,13 @@ function ExtensionResearchForm({
       if (result?.success && Array.isArray(result.results)) {
         setListings(prepareExtensionListingsForShell(source, result.results, config.idPrefix));
         setDataVersion(v => v + 1);
-        if (isEbay) {
-          setSearchTerm((result.searchTerm != null && String(result.searchTerm).trim()) ? String(result.searchTerm).trim() : '');
-        } else {
-          setSearchTerm(prev => (result.searchTerm != null && String(result.searchTerm).trim()) ? String(result.searchTerm).trim() : prev);
+        const scrapedTerm = (result.searchTerm != null && String(result.searchTerm).trim())
+          ? String(result.searchTerm).trim()
+          : '';
+        setSearchTerm((prev) => scrapedTerm || prev);
+        setPendingExtensionSearchQuery((prev) => scrapedTerm || prev);
+        if (researchItemId != null && scrapedTerm) {
+          markMarketplaceSearchConfirmedForItem(researchItemId, scrapedTerm);
         }
         setListingPageUrl(result.listingPageUrl || null);
         setDrillHistory([]);
@@ -557,7 +608,7 @@ function ExtensionResearchForm({
     } finally {
       setLoading(false);
     }
-  }, [source, isEbay, config.idPrefix, listingPageUrl, marketComparisonContext]);
+  }, [source, config.idPrefix, listingPageUrl, marketComparisonContext, researchItemId]);
 
   const autoTriggeredRef = useRef(false);
   useEffect(() => {
@@ -568,6 +619,97 @@ function ExtensionResearchForm({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
+
+  const searchConfirmInputRef = useRef(null);
+  const [searchConfirmInputFocused, setSearchConfirmInputFocused] = useState(false);
+  useLayoutEffect(() => {
+    if (step !== 'search-confirm' || readOnly) return undefined;
+    const id = window.requestAnimationFrame(() => {
+      searchConfirmInputRef.current?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [step, readOnly]);
+
+  /** Filled by `useMarketplaceSearchPrefetch` on the negotiation items array (async, before this dialog opens). */
+  const marketplaceSearchPrefetchUi = useMemo(() => {
+    if (lineItemContext == null || lineItemContext.isCustomEbayItem === true) {
+      return {
+        suggestedSearchLoading: false,
+        suggestedSearchError: null,
+        suggestedSearchTerm: null,
+      };
+    }
+    const prefetch = lineItemContext.marketplaceSuggestedSearchPrefetch;
+    if (prefetch?.state === 'ready') {
+      const term = prefetch.term != null ? String(prefetch.term).trim() : '';
+      return {
+        suggestedSearchLoading: false,
+        suggestedSearchError: null,
+        suggestedSearchTerm: term || null,
+      };
+    }
+    if (prefetch?.state === 'error') {
+      return {
+        suggestedSearchLoading: false,
+        suggestedSearchError: prefetch.error || 'Could not load suggested search.',
+        suggestedSearchTerm: null,
+      };
+    }
+    return {
+      suggestedSearchLoading: true,
+      suggestedSearchError: null,
+      suggestedSearchTerm: null,
+    };
+  }, [lineItemContext]);
+
+  /** Wider of search field vs suggested term, for sizing the dialog (same font metrics as the input). */
+  const searchConfirmProbeString = useMemo(() => {
+    if (step !== 'search-confirm') return '\u00a0';
+    const q = pendingExtensionSearchQuery || '';
+    const t = marketplaceSearchPrefetchUi.suggestedSearchTerm || '';
+    return q.length >= t.length ? q || '\u00a0' : t;
+  }, [step, pendingExtensionSearchQuery, marketplaceSearchPrefetchUi.suggestedSearchTerm]);
+
+  const searchConfirmWidthProbeRef = useRef(null);
+  const [searchConfirmPanelMinPx, setSearchConfirmPanelMinPx] = useState(undefined);
+
+  useLayoutEffect(() => {
+    if (step !== 'search-confirm') {
+      setSearchConfirmPanelMinPx(undefined);
+      return undefined;
+    }
+    const el = searchConfirmWidthProbeRef.current;
+    if (!el) return undefined;
+    const cap =
+      typeof window !== 'undefined' ? Math.min(window.innerWidth - 32, 48 * 16) : 768;
+    const horizontalChrome = 88;
+    const w = Math.min(Math.max(el.scrollWidth + horizontalChrome, 288), cap);
+    setSearchConfirmPanelMinPx(w);
+    return undefined;
+  }, [
+    step,
+    searchConfirmProbeString,
+    marketplaceSearchPrefetchUi.suggestedSearchLoading,
+    marketplaceSearchPrefetchUi.suggestedSearchError,
+  ]);
+
+  const runExtensionSearchWithTerm = useCallback(
+    (rawTerm) => {
+      const q = String(rawTerm ?? '').trim();
+      if (!q) return;
+      if (researchItemId != null) markMarketplaceSearchConfirmedForItem(researchItemId, q);
+      setPendingExtensionSearchQuery(q);
+      setSearchTerm(q);
+      autoTriggeredRef.current = true;
+      setStep('get-data');
+      void handleGetData(q);
+    },
+    [handleGetData, researchItemId]
+  );
+
+  const handleConfirmExtensionSearch = useCallback(() => {
+    runExtensionSearchWithTerm(pendingExtensionSearchQuery);
+  }, [pendingExtensionSearchQuery, runExtensionSearchWithTerm]);
 
   const handleCancelRefine = useCallback(() => {
     userCancelledRef.current = true;
@@ -851,7 +993,19 @@ function ExtensionResearchForm({
     }
     setListings([]);
     setDataVersion(v => v + 1);
-    setSearchTerm('');
+    const nextPending =
+      initialSearchQuery != null && String(initialSearchQuery).trim() !== ''
+        ? String(initialSearchQuery).trim()
+        : '';
+    if (researchItemId != null) clearMarketplaceSearchSessionTerm(researchItemId);
+    if (useExtensionSearchTermGate) {
+      setSearchTerm(nextPending);
+      setPendingExtensionSearchQuery(nextPending);
+      setStep('search-confirm');
+    } else {
+      setSearchTerm('');
+      setStep('get-data');
+    }
     setListingPageUrl(null);
     setDrillHistory([]);
     setShowHistogram(initialHistogramState !== null ? initialHistogramState : (mode === 'modal'));
@@ -860,8 +1014,7 @@ function ExtensionResearchForm({
     setLoading(false);
     aiNosposStockCategoryRef.current = null;
     nosposBackgroundMatchRef.current = null;
-    setStep('get-data');
-  }, [isEbay, loading, initialHistogramState, mode]);
+  }, [isEbay, loading, initialHistogramState, mode, useExtensionSearchTermGate, initialSearchQuery, researchItemId]);
 
   // ─── Category-pick step ─────────────────────────────────────────────────
   if (step === 'category') {
@@ -881,7 +1034,7 @@ function ExtensionResearchForm({
       // Immediately notify the parent so sibling research forms for the same item
       // don't re-ask for category (the category is now known for this item).
       onCategoryResolved?.(cat);
-      setStep('get-data');
+      setStep(useExtensionSearchTermGate ? 'search-confirm' : 'get-data');
     };
     const categoryBody = (
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -933,6 +1086,181 @@ function ExtensionResearchForm({
     );
   }
 
+  // ─── Confirm search term (CeX / non–eBay-origin lines) — compact dialog ──
+  if (step === 'search-confirm') {
+    const { suggestedSearchLoading, suggestedSearchError, suggestedSearchTerm } = marketplaceSearchPrefetchUi;
+    const searchConfirmEmpty = !pendingExtensionSearchQuery.trim();
+    const showAnimatedCaret = searchConfirmInputFocused && searchConfirmEmpty && !readOnly;
+    const showSuggestionBlock =
+      suggestedSearchLoading || suggestedSearchError || suggestedSearchTerm;
+
+    const searchConfirmDialog = (
+      <div
+        className={
+          containModalInParent
+            ? 'absolute inset-0 z-20 flex items-center justify-center p-4'
+            : 'fixed inset-0 z-[100] flex items-center justify-center p-4'
+        }
+      >
+        <button
+          type="button"
+          className="absolute inset-0 bg-slate-900/45 backdrop-blur-[2px] transition-opacity"
+          aria-label="Dismiss"
+          disabled={loading}
+          onClick={() => {
+            if (!loading) onComplete?.({ cancel: true });
+          }}
+        />
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="cg-search-confirm-title"
+          className="cg-animate-modal-panel relative w-full max-w-[min(48rem,calc(100vw-2rem))] rounded-xl bg-white p-4 shadow-2xl ring-1 ring-slate-900/10"
+          style={
+            searchConfirmPanelMinPx != null ? { minWidth: `${searchConfirmPanelMinPx}px` } : undefined
+          }
+          onClick={(e) => e.stopPropagation()}
+        >
+          <span
+            ref={searchConfirmWidthProbeRef}
+            className="pointer-events-none absolute left-0 top-0 -z-10 whitespace-pre font-sans text-sm leading-[1.25rem] text-slate-900 opacity-0"
+            aria-hidden
+          >
+            {searchConfirmProbeString}
+          </span>
+          <div className="mb-3 flex items-start justify-between gap-2">
+            <h2 id="cg-search-confirm-title" className="text-sm font-bold text-slate-900">
+              {config.label}
+            </h2>
+            <button
+              type="button"
+              onClick={() => onComplete?.({ cancel: true })}
+              disabled={loading}
+              className="-m-1 rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 disabled:opacity-50"
+              aria-label={`Close ${config.label} research`}
+            >
+              <span className="material-symbols-outlined text-[20px] leading-none" aria-hidden>
+                close
+              </span>
+            </button>
+          </div>
+          <p className="mb-3 text-xs leading-snug text-slate-600">
+            What search should we use on {config.label}? Type what a shopper would search for this product, or tap a
+            suggested phrase below when it appears.
+          </p>
+          {ephemeralSessionNotice ? (
+            <p className="mb-3 rounded-lg border border-amber-200/80 bg-amber-50 px-2.5 py-2 text-center text-[11px] font-semibold text-amber-950">
+              {ephemeralSessionNotice}
+            </p>
+          ) : null}
+
+          <label className="block">
+            <span className="sr-only">Search</span>
+            <div
+              className={`flex min-h-[2.75rem] max-w-full items-center gap-2 overflow-x-auto rounded-lg border border-slate-200 bg-white px-3 transition-shadow ${
+                searchConfirmInputFocused ? 'border-brand-blue ring-2 ring-brand-blue/20' : 'hover:border-slate-300'
+              }`}
+            >
+              {showAnimatedCaret ? (
+                <span
+                  className="cg-search-confirm-caret h-[1.125rem] w-px shrink-0 rounded-full bg-brand-blue"
+                  aria-hidden
+                />
+              ) : null}
+              <input
+                ref={searchConfirmInputRef}
+                type="text"
+                className={`min-w-0 w-full flex-1 border-0 bg-transparent py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-0 ${
+                  showAnimatedCaret ? 'caret-transparent' : 'caret-[#144584]'
+                }`}
+                placeholder=""
+                value={pendingExtensionSearchQuery}
+                onChange={(e) => setPendingExtensionSearchQuery(e.target.value)}
+                onFocus={() => setSearchConfirmInputFocused(true)}
+                onBlur={() => setSearchConfirmInputFocused(false)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !loading && !readOnly && pendingExtensionSearchQuery.trim()) {
+                    e.preventDefault();
+                    handleConfirmExtensionSearch();
+                  }
+                }}
+                disabled={readOnly || loading}
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </div>
+          </label>
+
+          {showSuggestionBlock ? (
+            <div className="mt-3" aria-live="polite">
+              {suggestedSearchLoading ? (
+                <div className="flex min-h-[2.75rem] items-center gap-2 rounded-lg bg-brand-blue/[0.07] px-3 text-sm text-brand-blue">
+                  <span
+                    className="inline-block h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-brand-blue border-t-transparent"
+                    aria-hidden
+                  />
+                  Finding suggested search…
+                </div>
+              ) : suggestedSearchError ? (
+                <p className="min-h-[2.75rem] rounded-lg bg-amber-50/90 px-3 py-2 text-sm leading-snug text-amber-900">
+                  {suggestedSearchError}
+                </p>
+              ) : suggestedSearchTerm ? (
+                <button
+                  type="button"
+                  onClick={() => runExtensionSearchWithTerm(suggestedSearchTerm)}
+                  disabled={readOnly || loading}
+                  className="flex min-h-[2.75rem] w-full min-w-0 items-center gap-2 rounded-lg bg-brand-blue px-3 py-2 text-left text-sm text-white shadow-sm transition-colors hover:bg-brand-blue-hover disabled:cursor-not-allowed disabled:opacity-60"
+                  aria-label={`Use suggested search: ${suggestedSearchTerm}`}
+                >
+                  <span className="shrink-0 uppercase tracking-wide text-white/95">Suggested</span>
+                  <span className="min-w-0 flex-1 whitespace-normal break-words text-white">
+                    {suggestedSearchTerm}
+                  </span>
+                  <span className="material-symbols-outlined shrink-0 text-[18px] leading-none text-white/90" aria-hidden>
+                    chevron_right
+                  </span>
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+
+          <button
+            type="button"
+            onClick={handleConfirmExtensionSearch}
+            disabled={loading || readOnly || !pendingExtensionSearchQuery.trim()}
+            className="mt-4 w-full rounded-lg bg-brand-blue py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-blue-hover disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {loading ? (
+              <span className="inline-flex items-center justify-center gap-2">
+                <span
+                  className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent"
+                  aria-hidden
+                />
+                Opening…
+              </span>
+            ) : (
+              'Continue'
+            )}
+          </button>
+        </div>
+      </div>
+    );
+
+    if (mode === 'modal') {
+      if (containModalInParent) {
+        return <div className="relative h-full min-h-0 w-full">{searchConfirmDialog}</div>;
+      }
+      return searchConfirmDialog;
+    }
+
+    return (
+      <div className="relative flex min-h-[12rem] w-full flex-1 flex-col bg-slate-50/80">
+        {searchConfirmDialog}
+      </div>
+    );
+  }
+
   // ─── Get-data step ──────────────────────────────────────────────────────
   if (step === 'get-data') {
     const getDataBody = (
@@ -940,7 +1268,7 @@ function ExtensionResearchForm({
         <p className="text-gray-600 text-center">{config.getDataPrompt}</p>
         <button
           type="button"
-          onClick={handleGetData}
+          onClick={() => handleGetData()}
           disabled={loading || readOnly}
           className="px-6 py-3 bg-brand-blue text-white font-semibold rounded-xl shadow-md hover:bg-brand-blue-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >

@@ -31,12 +31,24 @@ export function buildItemSpecs(item) {
   return Object.keys(specs).length > 0 ? specs : null;
 }
 
+/** True if this line already has a search string saved from eBay or Cash Converters research. */
+export function lineItemHasCommittedMarketplaceSearchTerm(item) {
+  if (!item) return false;
+  const eb = item.ebayResearchData?.searchTerm || item.ebayResearchData?.lastSearchedTerm;
+  if (eb != null && String(eb).trim() !== '') return true;
+  const cc = item.cashConvertersResearchData?.searchTerm || item.cashConvertersResearchData?.lastSearchedTerm;
+  if (cc != null && String(cc).trim() !== '') return true;
+  return false;
+}
+
 export function buildInitialSearchQuery(item) {
   // Saved research, then explicit variant line / subtitle, then title only (no spec concatenation).
   if (!item) return undefined;
   const fromResearch =
     item.ebayResearchData?.searchTerm
-    || item.ebayResearchData?.lastSearchedTerm;
+    || item.ebayResearchData?.lastSearchedTerm
+    || item.cashConvertersResearchData?.searchTerm
+    || item.cashConvertersResearchData?.lastSearchedTerm;
   if (fromResearch) return fromResearch;
 
   const variantLine = item.variantName != null && String(item.variantName).trim() !== '' ? String(item.variantName).trim() : null;

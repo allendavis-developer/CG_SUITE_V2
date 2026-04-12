@@ -17,6 +17,7 @@ import { useNegotiationJewelleryWorkspaceSync } from './hooks/useNegotiationJewe
 import { useNegotiationFinalize } from './hooks/useNegotiationFinalize';
 import { useNegotiationItemHandlers } from './hooks/useNegotiationItemHandlers';
 import { useNegotiationLifecycle } from './hooks/useNegotiationLifecycle';
+import { useMarketplaceSearchPrefetch } from './hooks/useMarketplaceSearchPrefetch';
 import { getBlockedOfferSlots } from '@/utils/customerOfferRules';
 import {
   resolveOurSalePrice,
@@ -1198,6 +1199,7 @@ const Negotiation = ({ mode }) => {
     setCustomerOfferRulesData,
   });
   draftPayloadRef.current = draftPayload;
+  useMarketplaceSearchPrefetch(items, setItems);
   // ─── Loading state ─────────────────────────────────────────────────────
 
   if (isLoading) {
@@ -1353,6 +1355,7 @@ const Negotiation = ({ mode }) => {
             hideNosposRequiredColumn={mode === 'negotiate'}
           />
           <ResearchOverlayPanel
+            items={items}
             researchItem={researchItem}
             cashConvertersResearchItem={cashConvertersResearchItem}
             onResearchComplete={handleResearchComplete}

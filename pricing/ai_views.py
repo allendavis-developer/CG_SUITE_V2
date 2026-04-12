@@ -30,7 +30,11 @@ import logging
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 
-from pricing.services.ai_category import suggest_category, suggest_field_values
+from pricing.services.ai_category import (
+    suggest_category,
+    suggest_field_values,
+    suggest_marketplace_research_search_term,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -164,3 +168,59 @@ def suggest_nospos_fields(request):
         return JsonResponse({"error": "An unexpected error occurred."}, status=500)
 
     return JsonResponse({"fields": result.fields})
+
+
+@require_POST
+def suggest_marketplace_research_search_term_view(request):
+    """
+    POST /api/ai/suggest-marketplace-search-term/
+
+    Body: { "item": { "name", "dbCategory"?, "attributes": { ... } } }
+    Same item shape as suggest-category.
+
+    Response:
+        {
+          "searchTerm": "...",
+          "reasoning": "...",
+          "provider": "groq" | "gemini",
+          "debug": { "systemPrompt", "userPrompt", "rawModelOutput" }
+        }
+    """
+    try:
+        body = json.loads(request.body)
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({"error": "Invalid JSON body."}, status=400)
+
+    item = body.get("item") or {}
+    item_name = str(item.get("name") or "Unknown item").strip() or "Unknown item"
+    db_category = item.get("dbCategory") or None
+    raw_attrs = item.get("attributes") or {}
+    if not isinstance(raw_attrs, dict):
+        return JsonResponse({"error": "'item.attributes' must be an object."}, status=400)
+    attributes = {str(k): str(v) for k, v in raw_attrs.items() if v is not None}
+
+    try:
+        result = suggest_marketplace_research_search_term(
+            item_name=item_name,
+            db_category=db_category,
+            attributes=attributes,
+        )
+    except ValueError as exc:
+        logger.warning("[Marketplace search term] Service error: %s", exc)
+        return JsonResponse({"error": str(exc)}, status=500)
+    except Exception:  # noqa: BLE001
+        logger.exception("[Marketplace search term] Unexpected error")
+        return JsonResponse({"error": "An unexpected error occurred."}, status=500)
+
+    return JsonResponse(
+        {
+            "searchTerm": result.search_term,
+            "reasoning": result.reasoning,
+            "provider": result.provider,
+            "debug": {
+                "systemPrompt": result.system_prompt,
+                "userPrompt": result.user_prompt,
+                "rawModelOutput": result.raw_output,
+            },
+        }
+    )
