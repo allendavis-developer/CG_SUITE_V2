@@ -1348,7 +1348,6 @@ function ExtensionResearchForm({
               : undefined
       }
       showInlineOfferAction={isEbay ? (mode === 'page' ? !onAddNewItem : !onOfferSelect) : undefined}
-      enableRightClickManualOffer={isEbay && mode === 'page'}
       enableAdvancedSoldDateFilter={config.enableAdvancedSoldDateFilter}
       mode={mode}
       readOnly={readOnly}

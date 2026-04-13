@@ -15,27 +15,38 @@ function normalizedRequestItemQuantity(item) {
 
 /** DB → cart: default source highlight when `raw_data` has no `rrpOffersSource` (see `withDefaultRrpOffersSource`). */
 function applyDefaultRrpSourceToMappedCartItem(cartItem) {
-  if (cartItem.rrpOffersSource != null && cartItem.rrpOffersSource !== '') return cartItem;
-  if (cartItem.isJewelleryItem === true) {
-    return { ...cartItem, rrpOffersSource: NEGOTIATION_ROW_CONTEXT.MANUAL_OFFER };
+  let next = { ...cartItem };
+  if (next.offersSource == null || next.offersSource === '') {
+    if (next.rrpOffersSource != null && next.rrpOffersSource !== '') {
+      next.offersSource = next.rrpOffersSource;
+    }
+  }
+  if (next.rrpOffersSource != null && next.rrpOffersSource !== '') {
+    return next;
+  }
+  if (next.isJewelleryItem === true) {
+    const z = NEGOTIATION_ROW_CONTEXT.MANUAL_OFFER;
+    return { ...next, rrpOffersSource: z, offersSource: next.offersSource != null && next.offersSource !== '' ? next.offersSource : z };
   }
   const cexBacked =
-    cartItem.isCustomCeXItem === true ||
-    (cartItem.variantId != null && cartItem.variantId !== '') ||
-    (cartItem.cexSku != null && cartItem.cexSku !== '') ||
-    (cartItem.cexBuyPrice != null && cartItem.cexBuyPrice !== '') ||
-    (cartItem.cexVoucherPrice != null && cartItem.cexVoucherPrice !== '') ||
-    (cartItem.cexSellPrice != null && cartItem.cexSellPrice !== '');
+    next.isCustomCeXItem === true ||
+    (next.variantId != null && next.variantId !== '') ||
+    (next.cexSku != null && next.cexSku !== '') ||
+    (next.cexBuyPrice != null && next.cexBuyPrice !== '') ||
+    (next.cexVoucherPrice != null && next.cexVoucherPrice !== '') ||
+    (next.cexSellPrice != null && next.cexSellPrice !== '');
   if (cexBacked) {
-    return { ...cartItem, rrpOffersSource: NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL };
+    const z = NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL;
+    return { ...next, rrpOffersSource: z, offersSource: next.offersSource != null && next.offersSource !== '' ? next.offersSource : z };
   }
   if (
-    cartItem.isCustomEbayItem === true ||
-    (cartItem.ebayResearchData && !cartItem.isCustomCashConvertersItem)
+    next.isCustomEbayItem === true ||
+    (next.ebayResearchData && !next.isCustomCashConvertersItem)
   ) {
-    return { ...cartItem, rrpOffersSource: NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY };
+    const z = NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY;
+    return { ...next, rrpOffersSource: z, offersSource: next.offersSource != null && next.offersSource !== '' ? next.offersSource : z };
   }
-  return cartItem;
+  return next;
 }
 
 /**
@@ -198,6 +209,7 @@ export function mapRequestItemsToCartItems(items, transactionType) {
               ? normalizeExplicitSalePrice(Number(jewelleryRef.computed_total_gbp))
               : null,
         rrpOffersSource: rawData?.rrpOffersSource ?? null,
+        offersSource: rawData?.offersSource ?? null,
         variantId,
         model: title,
         category: 'Jewellery',
@@ -396,6 +408,7 @@ export function mapRequestItemsToCartItems(items, transactionType) {
       cexOutOfStock: item.variant_details?.cex_out_of_stock ?? rawData?.isOutOfStock ?? false,
       ourSalePrice,
       rrpOffersSource: rawData?.rrpOffersSource ?? null,
+      offersSource: rawData?.offersSource ?? null,
     };
 
     if (isAddFromCeXPayload) {

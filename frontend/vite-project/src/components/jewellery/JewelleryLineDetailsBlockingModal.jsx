@@ -9,6 +9,21 @@ import {
   sanitizeJewelleryCoinUnitsInput,
 } from '@/components/jewellery/jewelleryNegotiationCart';
 
+/** Same rules as save — name can stay disabled until this is true. */
+function isPrimaryMetricComplete(draft, lineMeta) {
+  if (!draft || !lineMeta) return false;
+  const coin = isJewelleryCoinLine(lineMeta);
+  if (coin) {
+    const uRaw = String(draft.coinUnits ?? '').trim();
+    const n = Number(uRaw);
+    return uRaw !== '' && Number.isInteger(n) && n >= 1;
+  }
+  const wTrim = String(draft.weight ?? '').trim();
+  if (wTrim === '') return false;
+  const n = parseFloat(wTrim.replace(/,/g, ''));
+  return Number.isFinite(n) && n >= MIN_JEWELLERY_WEIGHT;
+}
+
 /**
  * @typedef {{ id: string; itemName: string; weight?: string; coinUnits?: string }} JewelleryDetailsCommit
  */
@@ -30,6 +45,8 @@ export default function JewelleryLineDetailsBlockingModal({
   const [sessionOrder, setSessionOrder] = useState([]);
   /** @type {Record<string, { itemName: string; weight: string; coinUnits: string }>} */
   const [draftById, setDraftById] = useState({});
+  /** Weight or coin-units input per row — focus first on open; tab stays here until valid. */
+  const primaryFieldRefs = useRef({});
 
   useEffect(() => {
     if (!open) {
@@ -45,16 +62,31 @@ export default function JewelleryLineDetailsBlockingModal({
       const next = {};
       for (const l of pending) {
         const coin = isJewelleryCoinLine(l);
+        const wTrim = String(l.weight ?? '').trim();
+        const cTrim = String(l.coinUnits ?? '').trim();
         next[l.id] = {
           itemName: l.itemName ?? l.categoryLabel ?? l.variantTitle ?? '',
-          weight: coin ? '' : String(l.weight ?? ''),
-          coinUnits: coin ? String(l.coinUnits ?? '0') : '',
+          weight: coin ? '' : wTrim === '' || wTrim === '0' ? '' : String(l.weight ?? ''),
+          coinUnits: coin ? (cTrim === '' || cTrim === '0' ? '' : cTrim) : '',
         };
       }
       setSessionOrder(order);
       setDraftById(next);
     }
   }, [open, lines]);
+
+  useEffect(() => {
+    if (!open) {
+      primaryFieldRefs.current = {};
+      return;
+    }
+    if (sessionOrder.length === 0) return;
+    const firstId = sessionOrder[0];
+    const raf = requestAnimationFrame(() => {
+      primaryFieldRefs.current[firstId]?.focus?.({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [open, sessionOrder]);
 
   const setDraft = useCallback((id, patch) => {
     setDraftById((prev) => ({
@@ -146,14 +178,17 @@ export default function JewelleryLineDetailsBlockingModal({
       <p className="mb-4 text-xs text-gray-600">
         {hasWeighedPending ? (
           <>
-            Weighed rows need a weight greater than 0 (minimum{' '}
-            <span className="font-semibold text-gray-800">{MIN_JEWELLERY_WEIGHT}</span>). You can clear the weight field
-            while typing.
+            Enter <span className="font-semibold text-gray-800">weight</span> first (minimum{' '}
+            <span className="font-semibold text-gray-800">{MIN_JEWELLERY_WEIGHT}</span>
+            ). Item name stays disabled until weight is valid; Tab cannot leave the weight field until then.
           </>
         ) : null}
         {hasWeighedPending && hasCoinPending ? ' ' : null}
         {hasCoinPending ? (
-          <>Coin rows need a whole number of units (1 or more), not a fraction.</>
+          <>
+            Coin rows: enter <span className="font-semibold text-gray-800">how many units</span> first (whole number, 1 or
+            more); item name stays disabled until then.
+          </>
         ) : null}
         {!hasWeighedPending && !hasCoinPending ? (
           <>Enter the details below for each row.</>
@@ -176,31 +211,34 @@ export default function JewelleryLineDetailsBlockingModal({
               : isUnit
                 ? 'each'
                 : lineMeta.weightUnit || 'g';
+            const primaryOk = isPrimaryMetricComplete(d, lineMeta);
+            const primaryKeyDown = (e) => {
+              if (e.key === 'Enter') {
+                onFieldEnter(e);
+                return;
+              }
+              if (e.key === 'Tab' && !primaryOk) {
+                e.preventDefault();
+              }
+            };
             return (
               <div key={id} className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-gray-50/90 px-3 py-4 text-xs shadow-sm">
                 <p className="font-bold text-brand-blue">{lineMeta.categoryLabel || lineMeta.variantTitle || 'Item'}</p>
-                <div>
-                  <label className="block text-[10px] font-black uppercase tracking-wider text-gray-500">Item name</label>
-                  <input
-                    type="text"
-                    value={d.itemName}
-                    onChange={(e) => setDraft(id, { itemName: e.target.value })}
-                    onKeyDown={onFieldEnter}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-900 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-blue/30"
-                    aria-label={`Item name for ${lineMeta.categoryLabel || 'row'}`}
-                  />
-                </div>
                 {coin ? (
                   <div>
                     <label className="block text-[10px] font-black uppercase tracking-wider text-gray-500">
                       How many units
                     </label>
                     <input
+                      ref={(el) => {
+                        if (el) primaryFieldRefs.current[id] = el;
+                        else delete primaryFieldRefs.current[id];
+                      }}
                       type="text"
                       inputMode="numeric"
                       value={d.coinUnits}
                       onChange={(e) => setDraft(id, { coinUnits: sanitizeJewelleryCoinUnitsInput(e.target.value) })}
-                      onKeyDown={onFieldEnter}
+                      onKeyDown={primaryKeyDown}
                       className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold tabular-nums text-gray-900 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-blue/30"
                       aria-label={`Unit count for ${lineMeta.categoryLabel || 'row'}`}
                     />
@@ -212,19 +250,36 @@ export default function JewelleryLineDetailsBlockingModal({
                       Weight ({unitHint})
                     </label>
                     <input
+                      ref={(el) => {
+                        if (el) primaryFieldRefs.current[id] = el;
+                        else delete primaryFieldRefs.current[id];
+                      }}
                       type="text"
                       inputMode="decimal"
                       value={d.weight}
                       onChange={(e) => setDraft(id, { weight: e.target.value })}
-                      onKeyDown={onFieldEnter}
+                      onKeyDown={primaryKeyDown}
                       className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold tabular-nums text-gray-900 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-blue/30"
                       aria-label={`Weight for ${lineMeta.categoryLabel || 'row'}`}
+                      placeholder="e.g. 12.5"
                     />
                     <p className="mt-1 text-[10px] text-gray-500">
                       Must be greater than 0 (min {MIN_JEWELLERY_WEIGHT})
                     </p>
                   </div>
                 )}
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-wider text-gray-500">Item name</label>
+                  <input
+                    type="text"
+                    disabled={!primaryOk}
+                    value={d.itemName}
+                    onChange={(e) => setDraft(id, { itemName: e.target.value })}
+                    onKeyDown={onFieldEnter}
+                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-900 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-blue/30 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:opacity-60"
+                    aria-label={`Item name for ${lineMeta.categoryLabel || 'row'}`}
+                  />
+                </div>
               </div>
             );
           })

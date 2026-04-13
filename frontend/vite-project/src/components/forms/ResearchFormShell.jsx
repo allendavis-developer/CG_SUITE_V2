@@ -156,7 +156,6 @@ export default function ResearchFormShell({
   onAddToCartWithOffer = null,
   showInlineOfferAction = true,
   onResetSearch = null,
-  enableRightClickManualOffer = false,
   enableAdvancedSoldDateFilter = false, // only eBay should show the advanced sold-date slider
   addActionLabel = "Add to Cart",
   disableAddAction = false,
@@ -249,15 +248,11 @@ export default function ResearchFormShell({
   const [excludeContextMenu, setExcludeContextMenu] = useState(null);
   const excludeContextMenuRef = useRef(null);
   const manualInputRef = useRef(null);
-  const [manualOfferDialog, setManualOfferDialog] = useState(null);
-  const manualOfferDialogRef = useRef(null);
   const othersSummarySig = useMemo(
     () => otherResearchSummariesSignature(otherResearchSummaries),
     [otherResearchSummaries]
   );
   const [othersModalSig, setOthersModalSig] = useState('');
-  const manualOfferInputRef = useRef(null);
-  const manualOfferDidFocusRef = useRef(false);
 
   // ─── New state ────────────────────────────────────────────────────────────
   const [twoColumnLayout, setTwoColumnLayout] = useState(true);
@@ -274,55 +269,6 @@ export default function ResearchFormShell({
   const [filterPanelPos, setFilterPanelPos] = useState({ top: 200, left: 100 });
   const advancedFilterRef = useRef(null);
   const advancedFilterBtnRef = useRef(null);
-
-  // ─── Manual offer dialog handlers ────────────────────────────────────────
-  const openManualOfferDialog = useCallback((e, idx, initialValue) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const dialogWidth = 288;
-    const x = (e.clientX + dialogWidth > window.innerWidth) ? e.clientX - dialogWidth : e.clientX;
-    setManualOfferDialog({ x, y: e.clientY, value: initialValue, baseIndex: idx });
-    manualOfferDidFocusRef.current = false;
-  }, []);
-
-  const closeManualOfferDialog = useCallback(() => setManualOfferDialog(null), []);
-
-  const applyManualOfferDialog = useCallback(() => {
-    if (!manualOfferDialog) return;
-    const raw = String(manualOfferDialog.value || '').replace(/[£,]/g, '').trim();
-    const parsed = parseFloat(raw);
-    if (Number.isNaN(parsed) || parsed <= 0) { closeManualOfferDialog(); return; }
-    const commit = () => {
-      if (onAddToCartWithOffer) {
-        onAddToCartWithOffer({ type: 'manual', amount: parsed, baseIndex: manualOfferDialog.baseIndex });
-      } else if (onCompleteWithSelection) {
-        onCompleteWithSelection('manual', parsed.toFixed(2));
-      }
-      closeManualOfferDialog();
-    };
-    requestManualOfferAuthorisationIfNeeded(parsed, commit);
-  }, [manualOfferDialog, onAddToCartWithOffer, onCompleteWithSelection, closeManualOfferDialog, requestManualOfferAuthorisationIfNeeded]);
-
-  useEffect(() => {
-    if (!manualOfferDialog) return;
-    const handleClickOutside = (e) => {
-      if (manualOfferDialogRef.current && !manualOfferDialogRef.current.contains(e.target)) closeManualOfferDialog();
-    };
-    const handleEscape = (e) => { if (e.key === 'Escape') closeManualOfferDialog(); };
-    document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('keydown', handleEscape);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleEscape);
-    };
-  }, [manualOfferDialog, closeManualOfferDialog]);
-
-  useEffect(() => {
-    if (!manualOfferDialog || manualOfferDidFocusRef.current || !manualOfferInputRef.current) return;
-    manualOfferInputRef.current.focus();
-    manualOfferInputRef.current.select();
-    manualOfferDidFocusRef.current = true;
-  }, [manualOfferDialog]);
 
   useEffect(() => {
     if (!excludeContextMenu) return;
@@ -706,16 +652,6 @@ export default function ResearchFormShell({
     const cartManualMode = Boolean(onAddToCartWithOffer && !readOnly && !showManualOffer);
 
     if (cartManualMode) {
-      if (selectedOfferIndex === 'manual') {
-        const cleanManual = String(manualOffer ?? '').replace(/[£,]/g, '').trim();
-        const parsed = parseFloat(cleanManual);
-        if (Number.isFinite(parsed) && parsed > 0) {
-          requestManualOfferAuthorisationIfNeeded(parsed, () => {
-            onAddToCartWithOffer({ type: 'manual', amount: parsed });
-          });
-        }
-        return;
-      }
       setSelectedOfferIndex('manual');
       return;
     }
@@ -878,6 +814,32 @@ export default function ResearchFormShell({
 
   const useAddWithOfferFlow = Boolean(onAddToCartWithOffer && !readOnly);
 
+  const handleInlineAddToCartClick = useCallback(() => {
+    if (!onAddToCartWithOffer || readOnly) return;
+    const showInlineCartManual =
+      Boolean(onManualOfferChange && !showManualOffer && showInlineOfferAction && !hidePrimaryAddAction);
+    if (showInlineCartManual) {
+      const parsed = parseFloat(String(manualOffer ?? '').replace(/[£,]/g, ''));
+      if (Number.isFinite(parsed) && parsed > 0) {
+        requestManualOfferAuthorisationIfNeeded(parsed, () => {
+          onAddToCartWithOffer({ type: 'manual', amount: parsed });
+          onManualOfferChange?.('');
+        });
+        return;
+      }
+    }
+    onAddToCartWithOffer(null);
+  }, [
+    onAddToCartWithOffer,
+    readOnly,
+    onManualOfferChange,
+    showManualOffer,
+    showInlineOfferAction,
+    hidePrimaryAddAction,
+    manualOffer,
+    requestManualOfferAuthorisationIfNeeded,
+  ]);
+
   // ─── Buy offers display ───────────────────────────────────────────────────
   const BuyOffersDisplay = useMemo(() => {
     const showInlineCartManual =
@@ -891,10 +853,6 @@ export default function ResearchFormShell({
     const offerLabels = useVoucherOffers
       ? EBAY_CC_RESEARCH_LABELS_VOUCHER
       : EBAY_CC_RESEARCH_LABELS_CASH;
-    const showRightClickManual = !hideOfferCards && (
-      (enableRightClickManualOffer && useAddWithOfferFlow) ||
-      (showManualOffer && Boolean(onCompleteWithSelection) && !readOnly)
-    );
     const offersAreInteractive = useAddWithOfferFlow || (showManualOffer && !readOnly);
 
     return (
@@ -927,58 +885,50 @@ export default function ResearchFormShell({
               <React.Fragment key={idx}>
                 {idx > 0 && <div className="w-px h-8 bg-gray-200" />}
                 {offersAreInteractive ? (
-                  <div
-                    onContextMenu={(!isBlocked && showRightClickManual) ? (e) => {
-                      const basePrice = Number(price);
-                      openManualOfferDialog(e, idx, Number.isFinite(basePrice) && basePrice > 0 ? basePrice.toFixed(2) : '');
-                    } : undefined}
-                    className="relative"
-                  >
-                    <button
-                      type="button"
-                      className={`flex flex-col text-left transition-all focus:outline-none rounded-lg border px-2.5 py-1.5 shadow-sm ${
-                        isBlocked
-                          ? 'cursor-not-allowed bg-red-50/70 border-red-200/70 opacity-70 text-brand-blue'
-                          : isSelected
-                          ? 'ring-2 ring-brand-blue bg-brand-blue/10 border-brand-blue/30 cursor-pointer text-brand-blue'
-                          : isHovered
-                          ? 'bg-green-50 border-green-200 text-green-600 active:scale-[0.99] cursor-pointer'
-                          : 'bg-brand-blue/5 border-brand-blue/20 text-brand-blue active:scale-[0.99] cursor-pointer'
-                      }`}
-                      onMouseEnter={() => setHoveredOfferIndex(idx)}
-                      onMouseLeave={() => setHoveredOfferIndex((prev) => (prev === idx ? null : prev))}
-                      onClick={
-                        isBlocked
-                          ? () => {
-                              if (onBlockedOfferClick) {
-                                onBlockedOfferClick({
-                                  slot,
-                                  offer: {
-                                    id: offer?.id ?? null,
-                                    title: offerLabels[idx] || `Offer ${idx + 1}`,
-                                    price: Number(price),
-                                  },
-                                  selectedOfferIndex: idx,
-                                });
-                              } else {
-                                setBlockedAuthModal({ idx, price });
-                              }
+                  <button
+                    type="button"
+                    className={`flex flex-col text-left transition-all focus:outline-none rounded-lg border px-2.5 py-1.5 shadow-sm ${
+                      isBlocked
+                        ? 'cursor-not-allowed bg-red-50/70 border-red-200/70 opacity-70 text-brand-blue'
+                        : isSelected
+                        ? 'ring-2 ring-brand-blue bg-brand-blue/10 border-brand-blue/30 cursor-pointer text-brand-blue'
+                        : isHovered
+                        ? 'bg-green-50 border-green-200 text-green-600 active:scale-[0.99] cursor-pointer'
+                        : 'bg-brand-blue/5 border-brand-blue/20 text-brand-blue active:scale-[0.99] cursor-pointer'
+                    }`}
+                    onMouseEnter={() => setHoveredOfferIndex(idx)}
+                    onMouseLeave={() => setHoveredOfferIndex((prev) => (prev === idx ? null : prev))}
+                    onClick={
+                      isBlocked
+                        ? () => {
+                            if (onBlockedOfferClick) {
+                              onBlockedOfferClick({
+                                slot,
+                                offer: {
+                                  id: offer?.id ?? null,
+                                  title: offerLabels[idx] || `Offer ${idx + 1}`,
+                                  price: Number(price),
+                                },
+                                selectedOfferIndex: idx,
+                              });
+                            } else {
+                              setBlockedAuthModal({ idx, price });
                             }
-                          : useAddWithOfferFlow
-                          ? () => onAddToCartWithOffer(idx)
-                          : (showManualOffer && !readOnly ? () => handleOfferClick(price, idx) : undefined)
-                      }
-                      title={isBlocked ? 'Blocked — requires senior management authorisation' : useAddWithOfferFlow ? 'Add item with this offer' : 'Select this offer'}
-                    >
-                      {inner}
-                      {isBlocked && (
-                        <span className="text-[9px] font-bold text-red-500 flex items-center gap-0.5 mt-0.5">
-                          <span className="material-symbols-outlined text-[11px]">lock</span>
-                          Auth required
-                        </span>
-                      )}
-                    </button>
-                  </div>
+                          }
+                        : useAddWithOfferFlow
+                        ? () => onAddToCartWithOffer(idx)
+                        : (showManualOffer && !readOnly ? () => handleOfferClick(price, idx) : undefined)
+                    }
+                    title={isBlocked ? 'Blocked — requires senior management authorisation' : useAddWithOfferFlow ? 'Add item with this offer' : 'Select this offer'}
+                  >
+                    {inner}
+                    {isBlocked && (
+                      <span className="text-[9px] font-bold text-red-500 flex items-center gap-0.5 mt-0.5">
+                        <span className="material-symbols-outlined text-[11px]">lock</span>
+                        Auth required
+                      </span>
+                    )}
+                  </button>
                 ) : (
                   <div
                     className={`flex flex-col rounded-lg border px-2.5 py-1.5 shadow-sm ${
@@ -1038,15 +988,11 @@ export default function ResearchFormShell({
                     onKeyDown={(e) => {
                       if (e.key !== 'Enter') return;
                       e.preventDefault();
-                      const parsed = parseFloat(String(manualOffer ?? '').replace(/[£,]/g, ''));
-                      if (!Number.isFinite(parsed) || parsed <= 0) return;
                       if (showInlineCartManual) {
-                        requestManualOfferAuthorisationIfNeeded(parsed, () => {
-                          onAddToCartWithOffer({ type: 'manual', amount: parsed });
-                        });
-                      } else {
-                        handleComplete();
+                        handleInlineAddToCartClick();
+                        return;
                       }
+                      handleComplete();
                     }}
                     onFocus={() => {
                       if (!readOnly && showManualOfferCard) setSelectedOfferIndex('manual');
@@ -1068,7 +1014,7 @@ export default function ResearchFormShell({
               {showManualOfferCard && showInlineCartManual && <div className="w-px h-8 bg-gray-200 shrink-0" />}
               <button
                 type="button"
-                onClick={() => onAddToCartWithOffer(null)}
+                onClick={handleInlineAddToCartClick}
                 className={`flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-extrabold uppercase tracking-wide text-brand-blue transition-all shrink-0 ${
                   disableAddAction
                     ? 'bg-gray-300 text-gray-600 cursor-not-allowed shadow-none ring-0'
@@ -1084,7 +1030,7 @@ export default function ResearchFormShell({
         </div>
       </React.Fragment>
     );
-  }, [buyOffers, showManualOffer, selectedOfferIndex, hoveredOfferIndex, manualOffer, manualOfferPctOfSale, onManualOfferChange, readOnly, handleOfferClick, handleManualOfferCardClick, handleManualOfferChange, onAddToCartWithOffer, formatStat, enableRightClickManualOffer, openManualOfferDialog, hideOfferCards, addActionLabel, disableAddAction, useVoucherOffers, activeStats?.suggestedPrice, showInlineOfferAction, prominentAddClass, hidePrimaryAddAction, handleComplete, onBlockedOfferClick, researchBlockedIndices, useAddWithOfferFlow, requestManualOfferAuthorisationIfNeeded]);
+  }, [buyOffers, showManualOffer, selectedOfferIndex, hoveredOfferIndex, manualOffer, manualOfferPctOfSale, onManualOfferChange, readOnly, handleOfferClick, handleManualOfferCardClick, handleManualOfferChange, onAddToCartWithOffer, formatStat, hideOfferCards, addActionLabel, disableAddAction, useVoucherOffers, activeStats?.suggestedPrice, showInlineOfferAction, prominentAddClass, hidePrimaryAddAction, handleComplete, onBlockedOfferClick, researchBlockedIndices, useAddWithOfferFlow, requestManualOfferAuthorisationIfNeeded, handleInlineAddToCartClick]);
 
   // ─── Action buttons (shared between banners) ──────────────────────────────
   const othersPanelOpen = Boolean(
@@ -1897,58 +1843,6 @@ export default function ResearchFormShell({
     </div>
   );
 
-  // ─── Manual offer dialog ──────────────────────────────────────────────────
-  const manualOfferDialogEl = manualOfferDialog && (
-    <div
-      ref={manualOfferDialogRef}
-      className="cg-animate-popover fixed z-[110] w-72 bg-white rounded-lg border border-gray-200 shadow-xl p-3"
-      style={{ left: manualOfferDialog.x, top: manualOfferDialog.y }}
-      role="dialog"
-      aria-label="Set manual offer and add to cart"
-    >
-      <div className="flex items-start justify-between gap-2 mb-2">
-        <p className="text-[11px] font-bold uppercase tracking-wider text-gray-600 flex-1 min-w-0">
-          Custom offer for this item
-        </p>
-        <button
-          type="button"
-          onClick={closeManualOfferDialog}
-          className="p-0.5 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100 shrink-0 -mt-0.5 -mr-0.5"
-          aria-label="Close"
-        >
-          <span className="material-symbols-outlined text-[18px] leading-none">close</span>
-        </button>
-      </div>
-      <p className="text-[11px] text-gray-500 mb-3">
-        Type a per-item offer amount and press Enter or click Okay to add to cart with this manual offer.
-      </p>
-      <div className="flex items-center gap-2 mb-2">
-        <div className="relative flex-1">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-brand-blue">£</span>
-          <input
-            ref={manualOfferInputRef}
-            type="number" min="0" step="0.01"
-            className="w-full pl-7 pr-3 py-2.5 border border-gray-300 rounded-lg text-sm font-semibold text-brand-blue focus:outline-none focus:ring-2 focus:ring-brand-blue/25 focus:border-brand-blue"
-            placeholder="0.00"
-            value={manualOfferDialog.value}
-            onChange={(e) => {
-              const val = sanitizeManualOfferInput(e.target.value);
-              setManualOfferDialog((prev) => (prev ? { ...prev, value: val } : prev));
-            }}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); applyManualOfferDialog(); } }}
-          />
-        </div>
-        <button
-          type="button"
-          className="px-4 py-2.5 text-sm font-semibold text-white bg-brand-blue rounded-lg hover:bg-brand-blue-hover shrink-0"
-          onClick={applyManualOfferDialog}
-        >
-          Okay
-        </button>
-      </div>
-    </div>
-  );
-
   // ─── Wrapper / container ──────────────────────────────────────────────────
   const wrapperClasses = mode === "modal"
     ? (containModalInParent
@@ -2032,7 +1926,6 @@ export default function ResearchFormShell({
       <div className={containerClasses}>
         {content}
         {advancedFilterPanelEl}
-        {manualOfferDialogEl}
         {excludeContextMenuEl}
         {blockedAuthModalEl}
       </div>
@@ -2041,7 +1934,6 @@ export default function ResearchFormShell({
     <div className={containerClasses}>
       {content}
       {advancedFilterPanelEl}
-      {manualOfferDialogEl}
       {excludeContextMenuEl}
       {blockedAuthModalEl}
     </div>

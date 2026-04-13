@@ -1,4 +1,11 @@
-import { normalizeExplicitSalePrice, roundOfferPrice, roundSalePrice, toVoucherOfferPrice, formatOfferPrice } from '@/utils/helpers';
+import {
+  normalizeExplicitSalePrice,
+  normalizeRequestTotalGbp,
+  roundOfferPrice,
+  roundSalePrice,
+  toVoucherOfferPrice,
+  formatOfferPrice,
+} from '@/utils/helpers';
 import { slimCexNegotiationOfferRows } from '@/utils/cexOfferMapping';
 import { mapRequestItemsToCartItems } from '@/utils/requestToCartMapping';
 import { calculateBuyOffers, titleForEbayCcOfferIndex } from '@/components/forms/researchStats';
@@ -113,8 +120,8 @@ export function resolveOurSalePrice(item) {
 }
 
 /**
- * Rows that carry CeX trade/sell context must keep CeX-sourced 1st/2nd/3rd offers in the table;
- * eBay / Cash Converters research must not replace them.
+ * Rows that carry CeX trade/sell context usually keep CeX tiers unless the row's offer source
+ * is eBay or Cash Converters (`resolveOffersSource`), in which case research rebuilds those tiers.
  */
 export function isCeXBackedNegotiationItem(item) {
   if (!item) return false;
@@ -128,22 +135,111 @@ export function isCeXBackedNegotiationItem(item) {
 }
 
 /**
- * Default RRP/offers source highlight when unset: CeX-backed rows → Sell column;
- * eBay-primary rows → eBay column (custom eBay lines or eBay research without CeX context).
+ * Default RRP + offer-tier source when unset: CeX-backed rows → Sell column;
+ * eBay-primary rows → eBay column. `offersSource` mirrors `rrpOffersSource` unless set explicitly.
  */
 export function withDefaultRrpOffersSource(item) {
   if (!item) return item;
-  if (item.rrpOffersSource != null && item.rrpOffersSource !== '') return item;
-  if (isCeXBackedNegotiationItem(item)) {
-    return { ...item, rrpOffersSource: NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL };
+  let next = { ...item };
+  if (next.offersSource == null || next.offersSource === '') {
+    if (next.rrpOffersSource != null && next.rrpOffersSource !== '') {
+      next.offersSource = next.rrpOffersSource;
+    }
+  }
+  if (next.rrpOffersSource != null && next.rrpOffersSource !== '') {
+    return next;
+  }
+  if (isCeXBackedNegotiationItem(next)) {
+    const z = NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL;
+    return {
+      ...next,
+      rrpOffersSource: z,
+      offersSource: next.offersSource != null && next.offersSource !== '' ? next.offersSource : z,
+    };
   }
   if (
-    item.isCustomEbayItem === true ||
-    (item.ebayResearchData && !item.isCustomCashConvertersItem)
+    next.isCustomEbayItem === true ||
+    (next.ebayResearchData && !next.isCustomCashConvertersItem)
   ) {
-    return { ...item, rrpOffersSource: NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY };
+    const z = NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY;
+    return {
+      ...next,
+      rrpOffersSource: z,
+      offersSource: next.offersSource != null && next.offersSource !== '' ? next.offersSource : z,
+    };
   }
-  return item;
+  return next;
+}
+
+/** Which price-source zone drives the 1st–4th offer columns (falls back to legacy `rrpOffersSource`). */
+export function resolveOffersSource(item) {
+  if (!item) return null;
+  if (item.offersSource != null && item.offersSource !== '') return item.offersSource;
+  return item.rrpOffersSource ?? null;
+}
+
+export function priceSourceZoneShortLabel(zone) {
+  switch (zone) {
+    case NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL:
+      return 'CeX';
+    case NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY:
+      return 'eBay';
+    case NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS:
+      return 'Cash Conv.';
+    case NEGOTIATION_ROW_CONTEXT.MANUAL_OFFER:
+      return 'Manual';
+    default:
+      return '—';
+  }
+}
+
+/** Zones that have a usable RRP for this row (CeX reference, eBay stats, or CC stats). */
+export function getAvailableRrpZonesForNegotiationItem(item) {
+  const out = [];
+  if (!item) return out;
+  if (isCeXBackedNegotiationItem(item)) {
+    const rrp = resolvePersistedCexRrp(item);
+    if (rrp != null && rrp > 0) {
+      out.push({ zone: NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL, label: 'CeX' });
+    }
+  }
+  const eb = item.ebayResearchData;
+  if (eb?.stats && resolveSuggestedRetailFromResearchStats(eb.stats) != null) {
+    out.push({ zone: NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY, label: 'eBay' });
+  }
+  const cc = item.cashConvertersResearchData;
+  if (cc?.stats && resolveSuggestedRetailFromResearchStats(cc.stats) != null) {
+    out.push({ zone: NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS, label: 'Cash Converters' });
+  }
+  return out;
+}
+
+/** Zones that have a usable tier-offer set for this row. */
+export function getAvailableOfferZonesForNegotiationItem(item, useVoucherOffers) {
+  const out = [];
+  if (!item) return out;
+  if (isCeXBackedNegotiationItem(item)) {
+    const { cashOffers, voucherOffers } = resolvePersistedCexOfferRows(item);
+    const displayOffers = useVoucherOffers ? voucherOffers : cashOffers;
+    if (displayOffers.length > 0) {
+      out.push({ zone: NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL, label: 'CeX' });
+    }
+  }
+  const eb = item.ebayResearchData;
+  if (eb?.stats) {
+    const rrp = resolveSuggestedRetailFromResearchStats(eb.stats);
+    if (rrp != null && rrp > 0) {
+      out.push({ zone: NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY, label: 'eBay' });
+    }
+  }
+  const cc = item.cashConvertersResearchData;
+  if (cc?.stats) {
+    const rrp = resolveSuggestedRetailFromResearchStats(cc.stats);
+    if (rrp != null && rrp > 0) {
+      out.push({ zone: NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS, label: 'Cash Converters' });
+    }
+  }
+  return out;
 }
 
 /**
@@ -349,6 +445,7 @@ function nextItemWithExplicitRrpAndOffers(item, { rrp, cashOffers, voucherOffers
 
   const next = { ...baseItem };
   delete next.ourSalePriceInput;
+  const src = rrpOffersSource ?? null;
   return {
     ...next,
     ourSalePrice: formatOfferPrice(rrp),
@@ -358,8 +455,213 @@ function nextItemWithExplicitRrpAndOffers(item, { rrp, cashOffers, voucherOffers
     offers: displayOffers,
     selectedOfferId,
     manualOffer,
-    rrpOffersSource: rrpOffersSource ?? null,
+    rrpOffersSource: src,
+    offersSource: src,
   };
+}
+
+function nextItemWithExplicitOffersOnly(item, { cashOffers, voucherOffers, useVoucherOffers, offersSource }) {
+  const baseItem = persistCexOfferRowsOnItem(item);
+  const displayOffers = useVoucherOffers ? voucherOffers : cashOffers;
+
+  let selectedOfferId;
+  let manualOffer;
+  if (baseItem.selectedOfferId === 'manual') {
+    selectedOfferId = 'manual';
+    manualOffer = baseItem.manualOffer ?? '';
+  } else if (baseItem.selectedOfferId != null && baseItem.selectedOfferId !== '') {
+    const prevDisplay = getDisplayOffers(baseItem, useVoucherOffers);
+    const prevIdx = prevDisplay.findIndex((o) => o.id === baseItem.selectedOfferId);
+    if (prevIdx >= 0 && displayOffers.length) {
+      const idx = Math.min(prevIdx, displayOffers.length - 1);
+      selectedOfferId = displayOffers[idx].id;
+    } else {
+      selectedOfferId = null;
+    }
+    manualOffer = '';
+  } else {
+    selectedOfferId = null;
+    manualOffer = '';
+  }
+
+  const next = { ...baseItem };
+  delete next.ourSalePriceInput;
+  return {
+    ...next,
+    cashOffers,
+    voucherOffers,
+    offers: displayOffers,
+    selectedOfferId,
+    manualOffer,
+    offersSource: offersSource ?? null,
+  };
+}
+
+/**
+ * Set only Our RRP (and RRP source highlight) from a scraped column; leave tier offers unchanged.
+ * @returns {{ item: object, errorMessage?: string }}
+ */
+export function applyRrpOnlyFromPriceSource(item, zone) {
+  if (!item) return { item: null, errorMessage: 'No item selected.' };
+
+  switch (zone) {
+    case NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL: {
+      const rrp = resolvePersistedCexRrp(item);
+      if (rrp == null || rrp <= 0) {
+        return {
+          item,
+          errorMessage: 'No CeX-based RRP on this row. Refresh CeX data or check reference data.',
+        };
+      }
+      const next = { ...item };
+      delete next.ourSalePriceInput;
+      return {
+        item: {
+          ...next,
+          ourSalePrice: formatOfferPrice(rrp),
+          useResearchSuggestedPrice: false,
+          rrpOffersSource: NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL,
+        },
+      };
+    }
+    case NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY: {
+      const eb = item.ebayResearchData;
+      if (!eb?.stats) {
+        return { item, errorMessage: 'Run eBay research on this row first.' };
+      }
+      const rrp = resolveSuggestedRetailFromResearchStats(eb.stats);
+      if (rrp == null || rrp <= 0) {
+        return { item, errorMessage: 'Could not determine RRP from eBay research.' };
+      }
+      const next = { ...item };
+      delete next.ourSalePriceInput;
+      return {
+        item: {
+          ...next,
+          ourSalePrice: formatOfferPrice(rrp),
+          useResearchSuggestedPrice: false,
+          rrpOffersSource: NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY,
+        },
+      };
+    }
+    case NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS: {
+      const cc = item.cashConvertersResearchData;
+      if (!cc?.stats) {
+        return { item, errorMessage: 'Run Cash Converters research on this row first.' };
+      }
+      const rrp = resolveSuggestedRetailFromResearchStats(cc.stats);
+      if (rrp == null || rrp <= 0) {
+        return { item, errorMessage: 'Could not determine RRP from Cash Converters research.' };
+      }
+      const next = { ...item };
+      delete next.ourSalePriceInput;
+      return {
+        item: {
+          ...next,
+          ourSalePrice: formatOfferPrice(rrp),
+          useResearchSuggestedPrice: false,
+          rrpOffersSource: NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS,
+        },
+      };
+    }
+    default:
+      return { item, errorMessage: 'Unsupported price source.' };
+  }
+}
+
+/**
+ * Set only 1st–4th tier offers (and offer source) from a column; leave Our RRP unchanged.
+ * @returns {{ item: object, errorMessage?: string }}
+ */
+export function applyOffersOnlyFromPriceSource(item, zone, useVoucherOffers) {
+  if (!item) return { item: null, errorMessage: 'No item selected.' };
+
+  switch (zone) {
+    case NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL: {
+      const { cashOffers, voucherOffers } = resolvePersistedCexOfferRows(item);
+      const displayOffers = useVoucherOffers ? voucherOffers : cashOffers;
+      if (!displayOffers.length) {
+        return {
+          item,
+          errorMessage: 'No CeX tier offers on this row. Refresh CeX data.',
+        };
+      }
+      return {
+        item: nextItemWithExplicitOffersOnly(item, {
+          cashOffers,
+          voucherOffers,
+          useVoucherOffers,
+          offersSource: NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL,
+        }),
+      };
+    }
+    case NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY: {
+      const eb = item.ebayResearchData;
+      if (!eb?.stats) {
+        return { item, errorMessage: 'Run eBay research on this row first.' };
+      }
+      const rrp = resolveSuggestedRetailFromResearchStats(eb.stats);
+      if (rrp == null || rrp <= 0) {
+        return { item, errorMessage: 'Could not determine RRP from eBay research.' };
+      }
+      let buyOffers = Array.isArray(eb.buyOffers) ? eb.buyOffers : [];
+      if (!buyOffers.length) {
+        buyOffers = calculateBuyOffers(rrp, null);
+      }
+      const cashOffers = buyOffers.slice(0, 4).map((o, idx) => ({
+        id: `ebay-rrp_${idx + 1}`,
+        title: titleForEbayCcOfferIndex(idx),
+        price: roundOfferPrice(Number(o.price)),
+      }));
+      const voucherOffers = cashOffers.map((o) => ({
+        id: `ebay-rrp-v-${o.id}`,
+        title: o.title,
+        price: toVoucherOfferPrice(o.price),
+      }));
+      return {
+        item: nextItemWithExplicitOffersOnly(item, {
+          cashOffers,
+          voucherOffers,
+          useVoucherOffers,
+          offersSource: NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY,
+        }),
+      };
+    }
+    case NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS: {
+      const cc = item.cashConvertersResearchData;
+      if (!cc?.stats) {
+        return { item, errorMessage: 'Run Cash Converters research on this row first.' };
+      }
+      const rrp = resolveSuggestedRetailFromResearchStats(cc.stats);
+      if (rrp == null || rrp <= 0) {
+        return { item, errorMessage: 'Could not determine RRP from Cash Converters research.' };
+      }
+      let buyOffers = Array.isArray(cc.buyOffers) ? cc.buyOffers : [];
+      if (!buyOffers.length) {
+        buyOffers = calculateBuyOffers(rrp, null);
+      }
+      const cashOffers = buyOffers.slice(0, 4).map((o, idx) => ({
+        id: `cc-rrp_${idx + 1}`,
+        title: titleForEbayCcOfferIndex(idx),
+        price: roundOfferPrice(Number(o.price)),
+      }));
+      const voucherOffers = cashOffers.map((o) => ({
+        id: `cc-rrp-v-${o.id}`,
+        title: o.title,
+        price: toVoucherOfferPrice(o.price),
+      }));
+      return {
+        item: nextItemWithExplicitOffersOnly(item, {
+          cashOffers,
+          voucherOffers,
+          useVoucherOffers,
+          offersSource: NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS,
+        }),
+      };
+    }
+    default:
+      return { item, errorMessage: 'Unsupported price source.' };
+  }
 }
 
 /**
@@ -765,6 +1067,9 @@ export function buildFinishPayload(
       if (item.rrpOffersSource != null && item.rrpOffersSource !== '') {
         rawData.rrpOffersSource = item.rrpOffersSource;
       }
+      if (item.offersSource != null && item.offersSource !== '') {
+        rawData.offersSource = item.offersSource;
+      }
       if (Array.isArray(item.authorisedOfferSlots) && item.authorisedOfferSlots.length > 0) {
         rawData.authorisedOfferSlots = item.authorisedOfferSlots;
       }
@@ -780,19 +1085,26 @@ export function buildFinishPayload(
         rawData.aiSuggestedNosposStockFieldValues = nosposFieldBlob;
       }
 
-      const cexBuyCash = item.cexBuyPrice != null ? Number(item.cexBuyPrice) : null;
-      const cexBuyVoucher = item.cexVoucherPrice != null ? Number(item.cexVoucherPrice) : null;
-      const cexSell = item.cexSellPrice != null ? Number(item.cexSellPrice) : null;
+      const cexBuyCash =
+        item.cexBuyPrice != null ? normalizeExplicitSalePrice(Number(item.cexBuyPrice)) : null;
+      const cexBuyVoucher =
+        item.cexVoucherPrice != null ? normalizeExplicitSalePrice(Number(item.cexVoucherPrice)) : null;
+      const cexSell =
+        item.cexSellPrice != null ? normalizeExplicitSalePrice(Number(item.cexSellPrice)) : null;
 
       return {
         request_item_id: item.request_item_id,
         quantity,
         selected_offer_id: item.selectedOfferId,
-        manual_offer_gbp: item.manualOffer ? (parseFloat(item.manualOffer.replace(/[£,]/g, '')) || 0) : null,
+        manual_offer_gbp: item.manualOffer
+          ? normalizeExplicitSalePrice(parseFloat(item.manualOffer.replace(/[£,]/g, '')) || 0)
+          : null,
         manual_offer_used: item.selectedOfferId === 'manual',
         senior_mgmt_approved_by: item.seniorMgmtApprovedBy || null,
-        customer_expectation_gbp: item.customerExpectation ? (parseFloat(item.customerExpectation.replace(/[£,]/g, '')) || 0) : null,
-        negotiated_price_gbp: negotiatedPrice * quantity,
+        customer_expectation_gbp: item.customerExpectation
+          ? normalizeExplicitSalePrice(parseFloat(item.customerExpectation.replace(/[£,]/g, '')) || 0)
+          : null,
+        negotiated_price_gbp: normalizeExplicitSalePrice(negotiatedPrice * quantity),
         our_sale_price_at_negotiation: ourSalePrice,
         cash_offers_json: item.cashOffers || [],
         voucher_offers_json: item.voucherOffers || [],
@@ -804,16 +1116,19 @@ export function buildFinishPayload(
       };
     });
 
-  const overallExpectationValue = itemsData.reduce(
-    (acc, row) => acc + (Number(row.customer_expectation_gbp) || 0),
-    0
+  const overallExpectationValue = normalizeRequestTotalGbp(
+    itemsData.reduce((acc, row) => acc + (Number(row.customer_expectation_gbp) || 0), 0)
   );
-  const targetOfferValue = parseFloat(targetOffer) || null;
+  const targetOfferRaw = parseFloat(String(targetOffer ?? '').replace(/[£,]/g, '').trim());
+  const targetOfferValue =
+    Number.isFinite(targetOfferRaw) && targetOfferRaw > 0
+      ? normalizeRequestTotalGbp(targetOfferRaw)
+      : null;
 
   return {
     items_data: itemsData,
     overall_expectation_gbp: overallExpectationValue,
-    negotiated_grand_total_gbp: totalOfferPrice,
+    negotiated_grand_total_gbp: normalizeRequestTotalGbp(totalOfferPrice),
     ...(targetOfferValue && { target_offer_gbp: targetOfferValue }),
     ...(customerData && { customer_enrichment: customerData }),
     ...(jewelleryReferenceScrape != null &&
@@ -1098,7 +1413,23 @@ export function applyEbayResearchCommittedPricingToItem(
   let newCashOffers = item.cashOffers || [];
   let newVoucherOffers = item.voucherOffers || [];
 
-  if (updatedState.buyOffers && updatedState.buyOffers.length > 0) {
+  const useEbayOfferTiers =
+    resolveOffersSource(item) === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY &&
+    updatedState.buyOffers &&
+    updatedState.buyOffers.length > 0;
+
+  if (useEbayOfferTiers) {
+    newCashOffers = updatedState.buyOffers.slice(0, 4).map((o, idx) => ({
+      id: `ebay-rrp_${idx + 1}`,
+      title: titleForEbayCcOfferIndex(idx),
+      price: roundOfferPrice(Number(o.price)),
+    }));
+    newVoucherOffers = newCashOffers.map((offer) => ({
+      id: `ebay-rrp-v-${offer.id}`,
+      title: offer.title,
+      price: toVoucherOfferPrice(offer.price),
+    }));
+  } else if (updatedState.buyOffers && updatedState.buyOffers.length > 0) {
     if (isEbayOnlyItem) {
       newCashOffers = updatedState.buyOffers.map((o, idx) => ({
         id: `ebay-cash_${idx + 1}`,
@@ -1150,7 +1481,7 @@ export function applyEbayResearchCommittedPricingToItem(
     if (prevIdx >= 0 && displayOffers[prevIdx]) newSelectedOfferId = displayOffers[prevIdx].id;
   }
 
-  return {
+  let next = {
     ...mergedItem,
     cashOffers: newCashOffers,
     voucherOffers: newVoucherOffers,
@@ -1158,6 +1489,19 @@ export function applyEbayResearchCommittedPricingToItem(
     manualOffer: newManualOffer,
     selectedOfferId: newSelectedOfferId,
   };
+
+  if (item.rrpOffersSource === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY) {
+    const rrp = resolveSuggestedRetailFromResearchStats(updatedState.stats);
+    if (rrp != null && rrp > 0) {
+      next = {
+        ...next,
+        ourSalePrice: formatOfferPrice(rrp),
+        useResearchSuggestedPrice: false,
+      };
+    }
+  }
+
+  return next;
 }
 
 /**
@@ -1199,32 +1543,29 @@ export function applyCashConvertersResearchCommittedPricingToItem(
   useVoucherOffers
 ) {
   const item = preMergeItem;
-  let newManualOffer = item.manualOffer;
-  let newSelectedOfferId = item.selectedOfferId;
-
-  if (updatedState.selectedOfferIndex !== undefined && updatedState.selectedOfferIndex !== null) {
-    if (updatedState.selectedOfferIndex === 'manual') {
-      newManualOffer = updatedState.manualOffer || item.manualOffer;
-      newSelectedOfferId = 'manual';
-    } else if (typeof updatedState.selectedOfferIndex === 'number') {
-      const currentDisplayOffers = useVoucherOffers ? item.voucherOffers || [] : item.cashOffers || [];
-      const selectedOffer = currentDisplayOffers[updatedState.selectedOfferIndex];
-      if (selectedOffer) {
-        newSelectedOfferId = selectedOffer.id;
-        newManualOffer = '';
-      }
-    }
-  } else if (updatedState.manualOffer) {
-    newManualOffer = updatedState.manualOffer;
-    newSelectedOfferId = 'manual';
-  }
 
   const hasExistingOffers =
     (item.cashOffers?.length > 0) || (item.voucherOffers?.length > 0) || (item.offers?.length > 0);
 
   let newCashOffers = item.cashOffers || [];
   let newVoucherOffers = item.voucherOffers || [];
-  if (
+
+  const useCcOfferTiers =
+    resolveOffersSource(item) === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS &&
+    updatedState.buyOffers?.length > 0;
+
+  if (useCcOfferTiers) {
+    newCashOffers = updatedState.buyOffers.slice(0, 4).map((o, idx) => ({
+      id: `cc-rrp_${idx + 1}`,
+      title: titleForEbayCcOfferIndex(idx),
+      price: roundOfferPrice(Number(o.price)),
+    }));
+    newVoucherOffers = newCashOffers.map((offer) => ({
+      id: `cc-rrp-v-${offer.id}`,
+      title: offer.title,
+      price: toVoucherOfferPrice(offer.price),
+    }));
+  } else if (
     !isCeXBackedNegotiationItem(item) &&
     !hasExistingOffers &&
     updatedState.buyOffers?.length > 0
@@ -1240,9 +1581,31 @@ export function applyCashConvertersResearchCommittedPricingToItem(
       price: toVoucherOfferPrice(offer.price),
     }));
   }
+
   const displayOffers = useVoucherOffers ? newVoucherOffers : newCashOffers;
 
-  return {
+  let newSelectedOfferId = item.selectedOfferId;
+  let newManualOffer = item.manualOffer;
+
+  if (updatedState.selectedOfferIndex !== undefined && updatedState.selectedOfferIndex !== null) {
+    if (updatedState.selectedOfferIndex === 'manual') {
+      newManualOffer = updatedState.manualOffer || item.manualOffer;
+      newSelectedOfferId = 'manual';
+    } else if (typeof updatedState.selectedOfferIndex === 'number') {
+      const selectedOffer = displayOffers[updatedState.selectedOfferIndex];
+      if (selectedOffer) {
+        newSelectedOfferId = selectedOffer.id;
+        newManualOffer = '';
+      }
+    }
+  } else {
+    if (updatedState.manualOffer !== undefined) newManualOffer = updatedState.manualOffer;
+    const prevOffers = getDisplayOffers(item, useVoucherOffers);
+    const prevIdx = prevOffers?.findIndex((o) => o.id === item.selectedOfferId);
+    if (prevIdx >= 0 && displayOffers[prevIdx]) newSelectedOfferId = displayOffers[prevIdx].id;
+  }
+
+  let next = {
     ...mergedItem,
     cashOffers: newCashOffers,
     voucherOffers: newVoucherOffers,
@@ -1250,6 +1613,19 @@ export function applyCashConvertersResearchCommittedPricingToItem(
     manualOffer: newManualOffer,
     selectedOfferId: newSelectedOfferId,
   };
+
+  if (item.rrpOffersSource === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS) {
+    const rrp = resolveSuggestedRetailFromResearchStats(updatedState.stats);
+    if (rrp != null && rrp > 0) {
+      next = {
+        ...next,
+        ourSalePrice: formatOfferPrice(rrp),
+        useResearchSuggestedPrice: false,
+      };
+    }
+  }
+
+  return next;
 }
 
 /**
@@ -1368,6 +1744,7 @@ function applyCeXCommittedPricingLegacy(preLookupItem, mergedItem, cexProductDat
       ? roundSalePrice(Number(cexBasedRaw))
       : null;
 
+  const cexZ = NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL;
   const nextItem = {
     ...mergedItem,
     cashOffers,
@@ -1375,7 +1752,8 @@ function applyCeXCommittedPricingLegacy(preLookupItem, mergedItem, cexProductDat
     offers: displayOffers,
     selectedOfferId: nextSelectedOfferId,
     ...(cexBasedRounded != null ? { ourSalePrice: String(cexBasedRounded) } : {}),
-    rrpOffersSource: NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL,
+    rrpOffersSource: cexZ,
+    offersSource: cexZ,
   };
   logCategoryRuleDecision({
     context: 'cex-data-applied',

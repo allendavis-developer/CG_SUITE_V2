@@ -1,13 +1,12 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { OfferCard, Icon } from '@/components/ui/components';
 import { formatGBP, calculateMargin, formatOfferPrice, normalizeExplicitSalePrice } from '@/utils/helpers';
 
 /**
  * Offer selection component.
- * When onAddToCart is provided: clicking an offer adds with that offer selected;
- * Add to Cart button adds with no offer selected.
- * Right-click on an offer card opens a context menu to pick an offer and add to cart on Enter.
- * When showAddActionCard is false: keeps card interactions but hides Add to Cart action card.
+ * When onAddToCart is provided: clicking an offer adds with that offer selected.
+ * Add to Cart: if the Manual Offer field has a valid amount, adds with that manual offer; otherwise adds with no tier selected.
+ * When showAddActionCard is false: keeps tier + manual field but hides Add to Cart (Enter in the manual field still applies manual).
  */
 const OfferSelection = ({
   variant,
@@ -38,10 +37,8 @@ const OfferSelection = ({
 
   const [selectedOfferId, setSelectedOfferId] = useState(initialSelectedOfferId);
   const [localPrices, setLocalPrices] = useState({});
-  const [contextMenu, setContextMenu] = useState(null); // { x, y, baseIndex, value }
-  const menuRef = useRef(null);
-  const inputRef = useRef(null);
-  const didInitialFocusRef = useRef(false);
+  const [manualOfferInput, setManualOfferInput] = useState('');
+  const manualOfferInputRef = useRef(null);
   // Track which input (by offer id) currently has focus so we never clobber it mid-type.
   const focusedOfferIdRef = useRef(null);
   // Track the last syncKey we initialised prices for, so we reset when the item changes.
@@ -70,35 +67,10 @@ const OfferSelection = ({
     });
   }, [offers, editMode, syncKey]);
 
-  const closeContextMenu = () => setContextMenu(null);
-
+  const offersResetKey = `${syncKey ?? ''}|${offers.map((o) => o.id).join('|')}`;
   useEffect(() => {
-    if (!contextMenu) return;
-    const handleClickOutside = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) closeContextMenu();
-    };
-    const handleEscape = (e) => {
-      if (e.key === 'Escape') closeContextMenu();
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('keydown', handleEscape);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleEscape);
-    };
-  }, [contextMenu]);
-
-  useEffect(() => {
-    if (!contextMenu) {
-      didInitialFocusRef.current = false;
-      return;
-    }
-    if (!didInitialFocusRef.current && inputRef.current) {
-      inputRef.current.focus();
-      inputRef.current.select();
-      didInitialFocusRef.current = true;
-    }
-  }, [contextMenu]);
+    setManualOfferInput('');
+  }, [offersResetKey]);
 
   if (!variant || !offers || offers.length === 0) return null;
 
@@ -110,6 +82,15 @@ const OfferSelection = ({
   const showAddToCart = Boolean(onAddToCart) && !editMode;
   const showAddAction = showAddToCart && showAddActionCard;
   const useToolbarLayout = toolbarLayout && !editMode;
+  const showInlineManualOffer = showAddToCart;
+
+  const manualPctOfSale = useMemo(() => {
+    const sale = Number(ourSalePrice);
+    if (!Number.isFinite(sale) || sale <= 0 || !manualOfferInput) return null;
+    const clean = parseFloat(String(manualOfferInput).replace(/[£,]/g, ''));
+    if (!Number.isFinite(clean) || clean <= 0) return null;
+    return Math.round((clean / sale) * 100);
+  }, [ourSalePrice, manualOfferInput]);
 
   const handleOfferClick = (offerId) => {
     const slot = offerId ? `offer${String(offerId).match(/_(\d)$/)?.[1] || ''}` : null;
@@ -122,44 +103,39 @@ const OfferSelection = ({
     onAddToCart?.(offerId);
   };
 
-  const openContextMenu = (e, index) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!onAddToCart) return;
-    const baseOffer = offers[index];
-    const basePrice = baseOffer ? parseFloat(baseOffer.price) : NaN;
-    const initialValue = !Number.isNaN(basePrice) && basePrice > 0 ? formatOfferPrice(basePrice) : '';
-    setContextMenu({
-      x: e.clientX,
-      y: e.clientY,
-      baseIndex: index,
-      value: initialValue
-    });
+  const parseManualOfferAmount = () => {
+    const raw = String(manualOfferInput || '').replace(/[£,]/g, '').trim();
+    const parsed = parseFloat(raw);
+    if (Number.isNaN(parsed) || parsed <= 0) return null;
+    return parsed;
   };
 
-  const applyManualAndAddToCart = () => {
-    if (!onAddToCart || !contextMenu) return;
-    const raw = String(contextMenu.value || '').replace(/[£,]/g, '').trim();
-    const parsed = parseFloat(raw);
-    if (Number.isNaN(parsed) || parsed <= 0) {
-      closeContextMenu();
-      return;
-    }
+  /** Returns true if a manual add was triggered (including blocked). */
+  const tryAddWithManualOfferFromField = () => {
+    if (!onAddToCart) return false;
+    const parsed = parseManualOfferAmount();
+    if (parsed == null) return false;
     if (blockedOfferSlots?.has('manual')) {
       onBlockedOfferClick?.('manual', null, {
         type: 'manual',
         amount: parsed,
-        baseOfferId: offers[contextMenu.baseIndex]?.id ?? null,
+        baseOfferId: null,
       });
-      closeContextMenu();
-      return;
+      return true;
     }
     onAddToCart({
       type: 'manual',
       amount: parsed,
-      baseOfferId: offers[contextMenu.baseIndex]?.id ?? null,
+      baseOfferId: null,
     });
-    closeContextMenu();
+    setManualOfferInput('');
+    return true;
+  };
+
+  const handlePrimaryAddToCart = () => {
+    if (!onAddToCart) return;
+    if (tryAddWithManualOfferFromField()) return;
+    onAddToCart(null);
   };
 
   const commitPriceChange = (offerId, rawValue) => {
@@ -300,7 +276,6 @@ const OfferSelection = ({
               <React.Fragment key={offer.id}>
                 {index > 0 && <div className="w-px h-8 bg-gray-200 shrink-0" />}
                 <div
-                  onContextMenu={showAddToCart ? (e) => openContextMenu(e, index) : undefined}
                   className="relative shrink-0"
                   title={isBlocked ? 'Blocked — requires senior management authorisation' : undefined}
                 >
@@ -351,7 +326,6 @@ const OfferSelection = ({
           return (
             <div
               key={offer.id}
-              onContextMenu={showAddToCart ? (e) => openContextMenu(e, index) : undefined}
               className={offerWrapClass}
               title={isBlocked ? 'Blocked — requires senior management authorisation' : undefined}
             >
@@ -379,29 +353,105 @@ const OfferSelection = ({
             </div>
           );
         })}
+        {showInlineManualOffer && useToolbarLayout && (
+          <>
+            <div className="w-px h-8 bg-gray-200 shrink-0" />
+            <div
+              className="flex min-w-0 flex-col cursor-text rounded-lg border border-brand-blue/20 bg-brand-blue/5 px-2.5 py-1.5 shadow-sm transition-all hover:bg-brand-blue/10 hover:border-brand-blue/30 active:scale-[0.99] min-h-[56px] shrink-0"
+              onClick={() => manualOfferInputRef.current?.focus()}
+            >
+              <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider leading-none">
+                Manual Offer
+              </span>
+              <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                <span className="text-lg font-extrabold leading-tight text-brand-blue">£</span>
+                <input
+                  ref={manualOfferInputRef}
+                  type="text"
+                  className="min-w-[4.5rem] w-20 border-b-2 border-brand-blue/20 bg-transparent text-lg font-extrabold leading-tight text-brand-blue outline-none focus:border-brand-blue/40"
+                  placeholder="0.00"
+                  value={manualOfferInput}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => setManualOfferInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter') return;
+                    e.preventDefault();
+                    if (showAddAction) {
+                      handlePrimaryAddToCart();
+                      return;
+                    }
+                    tryAddWithManualOfferFromField();
+                  }}
+                  aria-label="Manual offer amount"
+                />
+              </div>
+              {manualPctOfSale != null ? (
+                <span className="text-[10px] font-bold text-brand-orange-hover">{manualPctOfSale}% sale</span>
+              ) : null}
+            </div>
+          </>
+        )}
         {showAddAction && useToolbarLayout && (
           <>
             <div className="w-px h-8 bg-gray-200 shrink-0" />
             <button
               type="button"
-              onClick={() => onAddToCart(null)}
-              className="flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-extrabold uppercase tracking-wide text-brand-blue transition-all shrink-0 bg-brand-orange hover:bg-brand-orange-hover cursor-pointer shadow-lg shadow-brand-orange/30"
+              onClick={handlePrimaryAddToCart}
+              title="Add to cart"
+              aria-label="Add to cart"
+              className="flex min-h-[56px] min-w-11 shrink-0 cursor-pointer items-center justify-center self-stretch rounded-lg bg-brand-orange px-4 text-brand-blue shadow-lg shadow-brand-orange/30 transition-all hover:bg-brand-orange-hover active:scale-[0.99]"
             >
-              <Icon name="add_shopping_cart" className="text-[22px]" />
-              Add to Cart
+              <Icon name="add_shopping_cart" className="text-[22px]" aria-hidden />
             </button>
           </>
         )}
       </div>
+        {showInlineManualOffer && !useToolbarLayout && (
+          <div className="flex flex-wrap items-center gap-2">
+            <div
+              className="flex min-w-0 max-w-md flex-1 flex-col cursor-text rounded-lg border border-brand-blue/20 bg-brand-blue/5 px-4 py-3 shadow-sm transition-all hover:bg-brand-blue/10 hover:border-brand-blue/30 active:scale-[0.99]"
+              onClick={() => manualOfferInputRef.current?.focus()}
+            >
+              <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                Manual Offer
+              </span>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <span className="text-xl font-extrabold text-brand-blue">£</span>
+                <input
+                  ref={manualOfferInputRef}
+                  type="text"
+                  className="min-w-[6rem] flex-1 border-b-2 border-brand-blue/20 bg-transparent text-xl font-extrabold text-brand-blue outline-none focus:border-brand-blue/40 sm:max-w-xs"
+                  placeholder="0.00"
+                  value={manualOfferInput}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => setManualOfferInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter') return;
+                    e.preventDefault();
+                    if (showAddAction) {
+                      handlePrimaryAddToCart();
+                      return;
+                    }
+                    tryAddWithManualOfferFromField();
+                  }}
+                  aria-label="Manual offer amount"
+                />
+              </div>
+              {manualPctOfSale != null ? (
+                <span className="mt-1 text-[10px] font-bold text-brand-orange-hover">{manualPctOfSale}% sale</span>
+              ) : null}
+            </div>
+          </div>
+        )}
         {showAddAction && !useToolbarLayout && (
           <div
             role="button"
             tabIndex={0}
-            onClick={() => onAddToCart(null)}
+            onClick={handlePrimaryAddToCart}
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
-                onAddToCart(null);
+                handlePrimaryAddToCart();
               }
             }}
             className="w-full min-w-0 p-6 rounded-xl bg-brand-orange cursor-pointer text-center relative overflow-hidden border-2 border-brand-orange transition-all duration-200 ease-out hover:bg-brand-orange-hover hover:border-brand-orange shadow-md shadow-brand-orange/10 active:scale-[0.98]"
@@ -416,63 +466,6 @@ const OfferSelection = ({
           </div>
         )}
       </div>
-
-      {contextMenu && (
-        <div
-          ref={menuRef}
-          className="cg-animate-popover fixed z-[100] w-72 bg-white rounded-lg border border-gray-200 shadow-xl p-3"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
-          role="dialog"
-          aria-label="Set manual offer"
-        >
-          <p className="text-[11px] font-bold uppercase tracking-wider text-gray-600 mb-2">
-            Custom offer for this item
-          </p>
-          <p className="text-[11px] text-gray-500 mb-3">
-            Type a per-item offer amount and press Enter or click Okay to apply this manual offer.
-          </p>
-          <div className="flex items-center gap-2 mb-2">
-            <div className="relative flex-1">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-brand-blue">£</span>
-              <input
-                ref={inputRef}
-                type="number"
-                min="0"
-                step="0.01"
-                className="w-full pl-7 pr-3 py-2.5 border border-gray-300 rounded-lg text-sm font-semibold text-brand-blue focus:outline-none focus:ring-2 focus:ring-brand-blue/25 focus:border-brand-blue"
-                placeholder="0.00"
-                value={contextMenu.value}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setContextMenu((prev) => (prev ? { ...prev, value: val } : prev));
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    applyManualAndAddToCart();
-                  }
-                }}
-              />
-            </div>
-            <button
-              type="button"
-              className="px-4 py-2.5 text-sm font-semibold text-white bg-brand-blue rounded-lg hover:bg-brand-blue-hover shrink-0"
-              onClick={applyManualAndAddToCart}
-            >
-              Okay
-            </button>
-          </div>
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              className="px-3 py-1.5 text-xs font-semibold text-gray-500 rounded-lg hover:bg-gray-50"
-              onClick={closeContextMenu}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

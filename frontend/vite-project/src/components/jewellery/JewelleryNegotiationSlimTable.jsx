@@ -585,11 +585,7 @@ export default function JewelleryNegotiationSlimTable({
                         {manualExceedsSale && (
                           <span
                             className="material-symbols-outlined text-red-500 text-[14px]"
-                            title={
-                              item.seniorMgmtApprovedBy
-                                ? `Exceeds sale price — approved by ${item.seniorMgmtApprovedBy}`
-                                : 'Exceeds sale price — approved by senior management'
-                            }
+                            title="Exceeds sale price"
                           >
                             warning
                           </span>
@@ -611,14 +607,12 @@ export default function JewelleryNegotiationSlimTable({
                             ` (£${formatOfferPrice(Math.abs(ourSalePrice - (manualValue || 0)))})`}
                         </div>
                       )}
-                      {(item.seniorMgmtApprovedBy || (manualExceedsSale && isView)) && (
+                      {(manualExceedsSale || item.seniorMgmtApprovedBy) && (
                         <div
                           className="text-[9px] mt-1 font-semibold"
                           style={{ color: manualExceedsSale ? '#b91c1c' : 'var(--text-muted)' }}
                         >
-                          {item.seniorMgmtApprovedBy
-                            ? `Approved by: ${item.seniorMgmtApprovedBy}`
-                            : 'Approved by senior management'}
+                          {manualExceedsSale ? 'Exceeds sale price' : `Authorised by: ${item.seniorMgmtApprovedBy}`}
                         </div>
                       )}
                     </div>

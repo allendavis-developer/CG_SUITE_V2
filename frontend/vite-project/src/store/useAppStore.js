@@ -102,6 +102,11 @@ const useAppStore = create(
       headerWorkspaceMode: 'builder',
       /** Increment to ask AppHeader to run full workspace reset (e.g. after jewellery Complete). */
       closeHeaderWorkspaceTick: 0,
+      /**
+       * Incremented when the user activates Jewellery from the header (diamond).
+       * JewelleryLineItems opens the type/material picker when idle and data is ready.
+       */
+      jewelleryPickerOpenNonce: 0,
 
       bumpRepricingWorkspace: () =>
         set((s) => ({ repricingWorkspaceNonce: s.repricingWorkspaceNonce + 1 })),
@@ -169,6 +174,8 @@ const useAppStore = create(
         set({ headerWorkspaceMode: typeof mode === 'string' && mode ? mode : 'builder' }),
       requestCloseHeaderWorkspace: () =>
         set((s) => ({ closeHeaderWorkspaceTick: s.closeHeaderWorkspaceTick + 1 })),
+      requestJewelleryPickerOpen: () =>
+        set((s) => ({ jewelleryPickerOpenNonce: s.jewelleryPickerOpenNonce + 1 })),
       setRepricingSessionId: (id) => set({ repricingSessionId: id }),
       clearRepricingSessionDraft: () => set({ repricingSessionId: null, repricingCartItems: [] }),
 

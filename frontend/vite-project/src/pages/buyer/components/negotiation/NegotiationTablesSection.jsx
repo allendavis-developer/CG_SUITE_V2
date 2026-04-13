@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import JewelleryNegotiationSlimTable from '@/components/jewellery/JewelleryNegotiationSlimTable';
 import NegotiationItemRow from '../NegotiationItemRow';
 
@@ -24,6 +24,8 @@ export default function NegotiationTablesSection({
   handleOurSalePriceBlur,
   handleOurSalePriceFocus,
   handleRefreshCeXData,
+  handleApplyRrpPriceSource,
+  handleApplyOffersPriceSource,
   setResearchItem,
   setCashConvertersResearchItem,
   useVoucherOffers,
@@ -33,8 +35,10 @@ export default function NegotiationTablesSection({
   onOpenNosposCategoryPicker,
   hideNosposRequiredColumn = false,
 }) {
-  const colSpan =
-    (researchSandboxBookedView ? 17 : 16) + (hideNosposRequiredColumn ? 0 : 1);
+  const [categoryColumnsExpanded, setCategoryColumnsExpanded] = useState(false);
+  const baseColSpan =
+    (researchSandboxBookedView ? 19 : 18) + (hideNosposRequiredColumn ? 0 : 1);
+  const colSpan = categoryColumnsExpanded ? baseColSpan : baseColSpan - 1;
 
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-white">
@@ -84,8 +88,37 @@ export default function NegotiationTablesSection({
             <thead>
               <tr>
                 <th className="w-12 text-center">Qty</th>
-                <th className="w-36">Category</th>
-                <th className="min-w-[160px] max-w-[240px]">NosPos category</th>
+                {categoryColumnsExpanded ? (
+                  <>
+                    <th className="w-36 min-w-0">
+                      <div className="flex items-center gap-1 pr-1">
+                        <button
+                          type="button"
+                          onClick={() => setCategoryColumnsExpanded(false)}
+                          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-white/95 transition-colors hover:bg-white/15 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--brand-blue)]"
+                          aria-expanded
+                          title="Hide Category and NosPos columns"
+                        >
+                          <span className="material-symbols-outlined text-[20px] leading-none">keyboard_double_arrow_left</span>
+                        </button>
+                        <span className="min-w-0 truncate">Category</span>
+                      </div>
+                    </th>
+                    <th className="min-w-[160px] max-w-[240px]">NosPos category</th>
+                  </>
+                ) : (
+                  <th className="w-10 px-0.5 text-center">
+                    <button
+                      type="button"
+                      onClick={() => setCategoryColumnsExpanded(true)}
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-md text-white transition-colors hover:bg-white/15 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--brand-blue)]"
+                      aria-expanded={false}
+                      title="Show Category and NosPos columns"
+                    >
+                      <span className="material-symbols-outlined text-[20px] leading-none">keyboard_double_arrow_right</span>
+                    </button>
+                  </th>
+                )}
                 {!hideNosposRequiredColumn ? (
                   <th className="min-w-[130px] max-w-[160px] text-[10px]">NosPos required</th>
                 ) : null}
@@ -94,12 +127,14 @@ export default function NegotiationTablesSection({
                 <th className="w-24 spreadsheet-th-cex">Voucher</th>
                 <th className="w-24 spreadsheet-th-cex">Cash</th>
                 <th className="w-32">Customer Expectation</th>
+                <th className="w-[5.5rem] min-w-[5rem] text-[9px] leading-tight">Offer source</th>
                 <th className="w-24 spreadsheet-th-offer-tier">1st</th>
                 <th className="w-24 spreadsheet-th-offer-tier">2nd</th>
                 <th className="w-24 spreadsheet-th-offer-tier">3rd</th>
                 <th className="w-24 spreadsheet-th-offer-tier">4th</th>
                 <th className="w-36">Manual</th>
                 <th className="w-24">Our RRP</th>
+                <th className="w-[5.5rem] min-w-[5rem] text-[9px] leading-tight">RRP source</th>
                 <th className="w-36">eBay Price</th>
                 <th className="w-36">Cash Converters</th>
                 {researchSandboxBookedView ? (
@@ -128,6 +163,8 @@ export default function NegotiationTablesSection({
                   onOurSalePriceBlur={handleOurSalePriceBlur}
                   onOurSalePriceFocus={handleOurSalePriceFocus}
                   onRefreshCeXData={handleRefreshCeXData}
+                  onApplyRrpPriceSource={handleApplyRrpPriceSource}
+                  onApplyOffersPriceSource={handleApplyOffersPriceSource}
                   onReopenResearch={setResearchItem}
                   onReopenCashConvertersResearch={setCashConvertersResearchItem}
                   blockedOfferSlots={blockedOfferSlots}
@@ -141,6 +178,7 @@ export default function NegotiationTablesSection({
                   onOpenNosposRequiredFieldsEditor={onOpenNosposRequiredFieldsEditor}
                   onOpenNosposCategoryPicker={onOpenNosposCategoryPicker}
                   hideNosposRequiredColumn={hideNosposRequiredColumn}
+                  categoryColumnsExpanded={categoryColumnsExpanded}
                 />
               ))}
               <tr className="h-10 opacity-50">

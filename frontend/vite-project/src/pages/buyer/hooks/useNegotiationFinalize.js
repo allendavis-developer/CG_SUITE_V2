@@ -32,7 +32,8 @@ export function useNegotiationFinalize({
     (item, proposedPerUnit, seniorMgmtConfirmedBy = null) => {
       const ourSalePrice = resolveOurSalePrice(item);
 
-      if (ourSalePrice && proposedPerUnit > ourSalePrice && !seniorMgmtConfirmedBy) {
+      if (ourSalePrice && proposedPerUnit > ourSalePrice) {
+        showNotification('This is not allowed, enter a new manual offer or cancel.', 'error');
         setSeniorMgmtModal({ item, proposedPerUnit });
         return false;
       }
@@ -66,7 +67,7 @@ export function useNegotiationFinalize({
 
       return true;
     },
-    [setItems, setSeniorMgmtModal, setMarginResultModal]
+    [setItems, setSeniorMgmtModal, setMarginResultModal, showNotification]
   );
 
   const doFinishRequest = useCallback(

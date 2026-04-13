@@ -1,5 +1,7 @@
 from decimal import Decimal, InvalidOperation
 
+from django.core.exceptions import ValidationError as DjangoValidationError
+
 from .models_v2 import RequestItemOffer, RequestItemOfferType
 
 
@@ -27,6 +29,12 @@ def _build_offer_rows(request_item, offer_type, offers, selected_offer_id):
             price_dec = Decimal(str(offer.get("price")))
         except (InvalidOperation, TypeError, ValueError):
             continue
+        price_field = RequestItemOffer._meta.get_field("price_gbp")
+        try:
+            price_field.clean(price_dec, None)
+        except DjangoValidationError as exc:
+            msg = exc.messages[0] if exc.messages else "Invalid offer price"
+            raise ValueError(f"Offer {offer_code}: {msg}") from exc
         margin_raw = offer.get("margin")
         margin_dec = None
         if margin_raw not in (None, ""):
@@ -34,6 +42,13 @@ def _build_offer_rows(request_item, offer_type, offers, selected_offer_id):
                 margin_dec = Decimal(str(margin_raw))
             except (InvalidOperation, TypeError, ValueError):
                 margin_dec = None
+            else:
+                margin_field = RequestItemOffer._meta.get_field("margin_pct")
+                try:
+                    margin_field.clean(margin_dec, None)
+                except DjangoValidationError as exc:
+                    msg = exc.messages[0] if exc.messages else "Invalid margin"
+                    raise ValueError(f"Offer {offer_code} margin: {msg}") from exc
         rows.append(
             RequestItemOffer(
                 request_item=request_item,
@@ -87,6 +102,12 @@ def sync_request_item_offer_rows_from_payload(
         )
     )
     if manual_offer_gbp is not None:
+        price_field = RequestItemOffer._meta.get_field("price_gbp")
+        try:
+            price_field.clean(manual_offer_gbp, None)
+        except DjangoValidationError as exc:
+            msg = exc.messages[0] if exc.messages else "Invalid manual offer"
+            raise ValueError(f"Manual offer: {msg}") from exc
         rows.append(
             RequestItemOffer(
                 request_item=request_item,

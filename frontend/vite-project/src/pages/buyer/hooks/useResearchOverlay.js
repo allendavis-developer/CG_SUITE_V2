@@ -5,8 +5,6 @@ import {
 } from '../utils/researchCompletionHelpers';
 import { buildItemSpecs, buildInitialSearchQuery, logCategoryRuleDecision } from '../utils/negotiationHelpers';
 
-/** @typedef {'full' | 'dataOnly'} ResearchMergeMode */
-
 /**
  * Shared state and handlers for the eBay / Cash Converters research overlay panel
  * used by both Negotiation and RepricingNegotiation.
@@ -14,7 +12,7 @@ import { buildItemSpecs, buildInitialSearchQuery, logCategoryRuleDecision } from
  * @param {Object} opts
  * @param {Array} opts.items - Current negotiation/reprice items array
  * @param {Function} opts.setItems - State setter for items
- * @param {Function} opts.applyEbayResearch - `(item, updatedState, mode?) => newItem`. Negotiation passes `dataOnly` (research blob only) or `full` (blob + tiers); repricing ignores mode.
+ * @param {Function} opts.applyEbayResearch - `(item, updatedState) => newItem` (merge research + row pricing when applicable).
  * @param {Function} opts.applyCCResearch - Same contract as applyEbayResearch.
  * @param {Function} opts.resolveSalePrice - Sale price resolver; drives getResearchCompleteSalePriceFollowUp.
  * @param {boolean} [opts.readOnly=false] - Reserved for read-only overlay behaviour.
@@ -64,12 +62,10 @@ export function useResearchOverlay({
     if (updatedState && researchItem && persistResearchOnComplete) {
       const currentItem = items.find(i => i.id === researchItem.id);
       const followUp = getResearchCompleteSalePriceFollowUp(updatedState, currentItem, resolveSalePrice);
-      /** @type {ResearchMergeMode} */
-      const mode = followUp.deferCommittedPricing ? 'dataOnly' : 'full';
-      const mergedItem = currentItem ? applyEbayResearch(currentItem, updatedState, mode) : null;
+      const mergedItem = currentItem ? applyEbayResearch(currentItem, updatedState) : null;
       setItems(prev => prev.map(i => {
         if (i.id !== researchItem.id) return i;
-        return applyEbayResearch(i, updatedState, mode);
+        return applyEbayResearch(i, updatedState);
       }));
       openSalePriceConfirmModalFromFollowUp(followUp, researchItem, 'ebay', setSalePriceConfirmModal);
       if (mergedItem) {
@@ -85,12 +81,10 @@ export function useResearchOverlay({
     if (updatedState && cashConvertersResearchItem && persistResearchOnComplete) {
       const currentItem = items.find(i => i.id === cashConvertersResearchItem.id);
       const followUp = getResearchCompleteSalePriceFollowUp(updatedState, currentItem, resolveSalePrice);
-      /** @type {ResearchMergeMode} */
-      const mode = followUp.deferCommittedPricing ? 'dataOnly' : 'full';
-      const mergedItem = currentItem ? applyCCResearch(currentItem, updatedState, mode) : null;
+      const mergedItem = currentItem ? applyCCResearch(currentItem, updatedState) : null;
       setItems(prev => prev.map(i => {
         if (i.id !== cashConvertersResearchItem.id) return i;
-        return applyCCResearch(i, updatedState, mode);
+        return applyCCResearch(i, updatedState);
       }));
       openSalePriceConfirmModalFromFollowUp(
         followUp,

@@ -2,9 +2,9 @@ import React, { forwardRef } from 'react';
 
 function TotalPill({ label, value, emphasize = false }) {
   return (
-    <div className={`flex min-w-0 flex-col ${emphasize ? 'px-1' : ''}`}>
+    <div className={`flex min-w-0 flex-row items-baseline gap-2 ${emphasize ? 'px-1' : ''}`}>
       {label ? (
-        <span className="text-[10px] font-black uppercase tracking-widest text-white/75">
+        <span className="shrink-0 text-[10px] font-black uppercase tracking-widest text-white/75">
           {label}
         </span>
       ) : null}
@@ -56,76 +56,78 @@ const NegotiationTotalsFooter = forwardRef(function NegotiationTotalsFooter(
   return (
     <footer
       ref={ref}
-      className="shrink-0 border-t border-white/20 bg-brand-blue py-3 pl-4 pr-3 sm:pl-6 sm:pr-4 md:pl-10 md:pr-4"
+      className="shrink-0 border-t border-white/20 bg-brand-blue px-4 py-3 sm:px-6 md:px-10"
     >
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:gap-6">
-        <div className="flex min-w-0 flex-wrap items-end gap-x-6 gap-y-2 border-b border-white/15 pb-3 lg:border-b-0 lg:pb-0">
-          <TotalPill label="Jewellery" value={jewelleryOfferTotal} />
-          <TotalPill label="Other items" value={otherItemsOfferTotal} />
-          <div className="min-w-0 border-l border-white/20 pl-6">
-            <TotalPill label="Grand total" value={totalOfferPrice} emphasize />
-          </div>
-        </div>
+      <div className="flex w-full flex-col items-center gap-3 lg:flex-row lg:items-center">
+        <div className="hidden min-h-0 min-w-0 lg:block lg:flex-1" aria-hidden />
 
-        {hasTarget ? (
-          <div
-            className={`flex min-w-0 flex-1 items-center justify-between gap-3 rounded-lg px-3 py-2 sm:justify-start ${
-              targetMatched
-                ? 'border border-emerald-400/50 bg-emerald-950/35'
-                : 'border border-red-400/50 bg-red-950/35'
-            }`}
-          >
-            <div className="min-w-0">
-              <div
-                className={`text-[10px] font-black uppercase tracking-wider ${
-                  targetMatched ? 'text-emerald-100' : 'text-red-100'
-                }`}
-              >
-                Target offer
+        <div className="flex w-full min-w-0 flex-col items-center gap-3 lg:w-auto lg:shrink-0 lg:flex-row lg:flex-wrap lg:items-center lg:justify-center lg:gap-6">
+          <div className="flex w-full min-w-0 flex-wrap items-baseline justify-center gap-x-6 gap-y-2 border-b border-white/15 pb-3 lg:w-auto lg:border-b-0 lg:pb-0">
+            <TotalPill label="Jewellery" value={jewelleryOfferTotal} />
+            <TotalPill label="Other items" value={otherItemsOfferTotal} />
+            <div className="min-w-0 border-l border-white/20 pl-6">
+              <TotalPill label="Grand total" value={totalOfferPrice} emphasize />
+            </div>
+          </div>
+
+          {hasTarget ? (
+            <div
+              className={`flex w-full min-w-0 max-w-lg flex-col items-center gap-1.5 rounded-lg px-3 py-2 sm:w-auto ${
+                targetMatched
+                  ? 'border border-emerald-400/50 bg-emerald-950/35'
+                  : 'border border-red-400/50 bg-red-950/35'
+              }`}
+            >
+              <div className="flex min-w-0 flex-wrap items-baseline justify-center gap-x-3 gap-y-1">
+                <span
+                  className={`shrink-0 text-[10px] font-black uppercase tracking-wider ${
+                    targetMatched ? 'text-emerald-100' : 'text-red-100'
+                  }`}
+                >
+                  Target offer
+                </span>
+                <div className="flex min-w-0 items-baseline gap-1.5">
+                  <span
+                    className={`text-lg font-black tabular-nums sm:text-xl ${
+                      targetMatched ? 'text-emerald-100' : 'text-red-100'
+                    }`}
+                  >
+                    £{parsedTarget.toFixed(2)}
+                  </span>
+                  <span
+                    className={`material-symbols-outlined shrink-0 text-[20px] leading-none ${
+                      targetMatched ? 'text-emerald-200' : 'text-red-200'
+                    }`}
+                  >
+                    {targetMatched ? 'check_circle' : 'cancel'}
+                  </span>
+                  {mode === 'negotiate' && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setTargetOffer('');
+                      }}
+                      className="shrink-0 text-white/50 transition-colors hover:text-white"
+                      title="Remove target"
+                    >
+                      <span className="material-symbols-outlined text-[16px] leading-none">close</span>
+                    </button>
+                  )}
+                </div>
               </div>
               {!targetMatched && (
-                <div className="text-[9px] font-medium text-red-100">
+                <div className="w-full text-center text-[9px] font-medium text-red-100">
                   {totalOfferPrice < parsedTarget
                     ? `Below target by £${targetShortfall.toFixed(2)}`
                     : `Too high by £${targetExcess.toFixed(2)}`}
                 </div>
               )}
             </div>
-            <div className="flex shrink-0 items-center gap-1.5">
-              <span
-                className={`text-lg font-black tabular-nums sm:text-xl ${
-                  targetMatched ? 'text-emerald-100' : 'text-red-100'
-                }`}
-              >
-                £{parsedTarget.toFixed(2)}
-              </span>
-              <span
-                className={`material-symbols-outlined text-[20px] ${
-                  targetMatched ? 'text-emerald-200' : 'text-red-200'
-                }`}
-              >
-                {targetMatched ? 'check_circle' : 'cancel'}
-              </span>
-              {mode === 'negotiate' && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setTargetOffer('');
-                  }}
-                  className="text-white/50 transition-colors hover:text-white"
-                  title="Remove target"
-                >
-                  <span className="material-symbols-outlined text-[16px]">close</span>
-                </button>
-              )}
-            </div>
-          </div>
-        ) : (
-          <div className="hidden min-w-0 lg:flex lg:flex-1" aria-hidden />
-        )}
+          ) : null}
+        </div>
 
-        <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end lg:ml-auto lg:w-auto lg:shrink-0">
+        <div className="flex w-full min-w-0 flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:justify-end lg:flex-1 lg:flex-row lg:flex-wrap lg:items-center lg:justify-end">
           {researchSandboxBookedView ? (
             <>
               <button
@@ -209,7 +211,7 @@ const NegotiationTotalsFooter = forwardRef(function NegotiationTotalsFooter(
                 </span>
               </button>
               {hasTarget && !targetMatched && mode === 'negotiate' ? (
-                <p className="w-full text-center text-[10px] font-semibold text-red-100 sm:text-left">
+                <p className="w-full text-center text-[10px] font-semibold text-red-100">
                   {totalOfferPrice < parsedTarget
                     ? `Grand total is below target by £${targetShortfall.toFixed(2)}`
                     : `Grand total is too high by £${targetExcess.toFixed(2)}`}

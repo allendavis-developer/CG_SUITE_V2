@@ -12,7 +12,13 @@ import { getCartKey, loadRepricingProgress, saveRepricingProgress, clearRepricin
 import { getEditableSalePriceState, resolveRepricingSalePrice } from "./utils/repricingDisplay";
 import useAppStore from '@/store/useAppStore';
 import { normalizeExplicitSalePrice, formatOfferPrice, roundSalePrice } from '@/utils/helpers';
-import { withDefaultRrpOffersSource, logCategoryRuleDecision } from './utils/negotiationHelpers';
+import {
+  withDefaultRrpOffersSource,
+  logCategoryRuleDecision,
+  getAvailableRrpZonesForNegotiationItem,
+  applyRrpOnlyFromPriceSource,
+} from './utils/negotiationHelpers';
+import NegotiationPriceSourcePickerCell from './components/NegotiationPriceSourcePickerCell';
 import { EBAY_TOP_LEVEL_CATEGORY } from './constants';
 import { SPREADSHEET_CEX_TH_STYLES, RRP_SOURCE_CELL_STYLES } from '@/styles/spreadsheetTableStyles';
 import { useResearchOverlay } from './hooks/useResearchOverlay';
@@ -177,12 +183,13 @@ const RepricingNegotiation = () => {
         isCustomCeXItem, isCustomEbayItem, isCustomCashConvertersItem, condition, categoryObject,
         nosposBarcodes, ebayResearchData, cashConvertersResearchData, quantity, isRemoved,
         variantId, cexSku, attributeValues, referenceData, offers, cashOffers, voucherOffers,
-        image, rrpOffersSource }) => ({
+        image, rrpOffersSource, offersSource }) => ({
         id, title, subtitle, category, model, cexSellPrice, cexBuyPrice, cexVoucherPrice, cexUrl,
         ourSalePrice, ourSalePriceInput, cexOutOfStock, cexProductData, isCustomCeXItem,
         isCustomEbayItem, isCustomCashConvertersItem, condition, categoryObject, nosposBarcodes,
         ebayResearchData, cashConvertersResearchData, quantity, isRemoved, variantId, cexSku,
         attributeValues, referenceData, offers, cashOffers, voucherOffers, image, rrpOffersSource,
+        offersSource,
       })),
       barcodes: snapshotBarcodes,
       nosposLookups: snapshotLookups,
@@ -422,6 +429,7 @@ const RepricingNegotiation = () => {
         variantId: item.variantId, cexSku: item.cexSku, attributeValues: item.attributeValues,
         referenceData: item.referenceData, offers: item.offers, cashOffers: item.cashOffers,
         voucherOffers: item.voucherOffers, image: item.image, rrpOffersSource: item.rrpOffersSource,
+        offersSource: item.offersSource,
       }));
       const restoredBarcodes = saved?.barcodes || sessionBarcodes || {};
       const restoredLookups = saved?.nosposLookups || sessionNosposLookups || {};
@@ -974,6 +982,7 @@ const RepricingNegotiation = () => {
                   <th className="w-24 spreadsheet-th-cex">Voucher</th>
                   <th className="w-24 spreadsheet-th-cex">Cash</th>
                   <th className="w-28">New Sale Price</th>
+                  <th className="w-[5.5rem] min-w-[5rem] text-[9px] leading-tight">RRP source</th>
                   <th className="w-36">eBay Price</th>
                   <th className="w-36">Cash Converters</th>
                   <th className="w-44">Barcodes</th>
@@ -1023,9 +1032,9 @@ const RepricingNegotiation = () => {
                     setContextMenu({ x: e.clientX, y: e.clientY, item, zone });
                   };
 
-                  const hlCexSource = item.rrpOffersSource === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL;
-                  const hlEbaySource = item.rrpOffersSource === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY;
-                  const hlCcSource = item.rrpOffersSource === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS;
+                  const hlCexRrp = item.rrpOffersSource === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL;
+                  const hlEbayRrp = item.rrpOffersSource === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY;
+                  const hlCcRrp = item.rrpOffersSource === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS;
 
                   return (
                     <tr
@@ -1067,7 +1076,7 @@ const RepricingNegotiation = () => {
                       <td
                         className={[
                           'font-medium align-top',
-                          hlCexSource ? `text-white ${RRP_SOURCE_CELL_CLASS}` : 'text-red-700',
+                          hlCexRrp ? `text-white ${RRP_SOURCE_CELL_CLASS}` : 'text-red-700',
                         ].join(' ')}
                         onContextMenu={(e) => openRowContext(e, NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL)}
                       >
@@ -1080,7 +1089,7 @@ const RepricingNegotiation = () => {
                                     href={item.cexUrl}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className={hlCexSource ? 'text-white underline decoration-dotted' : 'text-red-700 underline decoration-dotted'}
+                                    className={hlCexRrp ? 'text-white underline decoration-dotted' : 'text-red-700 underline decoration-dotted'}
                                   >
                                     £{item.cexSellPrice.toFixed(2)}
                                   </a>
@@ -1149,16 +1158,32 @@ const RepricingNegotiation = () => {
                         </div>
                       </td>
 
+                      <NegotiationPriceSourcePickerCell
+                        mode="negotiate"
+                        currentZone={item.rrpOffersSource}
+                        options={getAvailableRrpZonesForNegotiationItem(item)}
+                        titlePrefix="RRP source"
+                        onSelectZone={(zone) => {
+                          const { item: next, errorMessage } = applyRrpOnlyFromPriceSource(item, zone);
+                          if (errorMessage) {
+                            showNotification(errorMessage, 'error');
+                            return;
+                          }
+                          setItems((prev) => prev.map((i) => (i.id === item.id ? next : i)));
+                          showNotification('New Sale Price updated from selected source.', 'success');
+                        }}
+                      />
+
                       {/* eBay Price */}
                       <td
-                        className={hlEbaySource ? RRP_SOURCE_CELL_CLASS : undefined}
+                        className={hlEbayRrp ? RRP_SOURCE_CELL_CLASS : undefined}
                         onContextMenu={(e) => openRowContext(e, NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY)}
                       >
                         {ebayData?.stats?.median ? (
                           <div className="flex items-center justify-between gap-2">
                             <div
                               className="text-[13px] font-medium"
-                              style={{ color: hlEbaySource ? '#fff' : 'var(--brand-blue)' }}
+                              style={{ color: hlEbayRrp ? '#fff' : 'var(--brand-blue)' }}
                             >
                               <div>£{Number(ebayData.stats.median).toFixed(2)}</div>
                             </div>
@@ -1175,7 +1200,7 @@ const RepricingNegotiation = () => {
                           <div className="flex items-center justify-between gap-2">
                             <span
                               className="text-[13px] font-medium"
-                              style={{ color: hlEbaySource ? 'rgba(255,255,255,0.85)' : '#64748b' }}
+                              style={{ color: hlEbayRrp ? 'rgba(255,255,255,0.85)' : '#64748b' }}
                             >
                               —
                             </span>
@@ -1193,14 +1218,14 @@ const RepricingNegotiation = () => {
 
                       {/* Cash Converters */}
                       <td
-                        className={hlCcSource ? RRP_SOURCE_CELL_CLASS : undefined}
+                        className={hlCcRrp ? RRP_SOURCE_CELL_CLASS : undefined}
                         onContextMenu={(e) => openRowContext(e, NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS)}
                       >
                         {ccData?.stats?.median ? (
                           <div className="flex items-center justify-between gap-2">
                             <div
                               className="text-[13px] font-medium"
-                              style={{ color: hlCcSource ? '#fff' : 'var(--brand-blue)' }}
+                              style={{ color: hlCcRrp ? '#fff' : 'var(--brand-blue)' }}
                             >
                               <div>£{Number(ccData.stats.median).toFixed(2)}</div>
                             </div>
@@ -1217,7 +1242,7 @@ const RepricingNegotiation = () => {
                           <div className="flex items-center justify-between gap-2">
                             <span
                               className="text-[13px] font-medium"
-                              style={{ color: hlCcSource ? 'rgba(255,255,255,0.85)' : '#64748b' }}
+                              style={{ color: hlCcRrp ? 'rgba(255,255,255,0.85)' : '#64748b' }}
                             >
                               —
                             </span>
@@ -1415,6 +1440,7 @@ const RepricingNegotiation = () => {
               showNotification,
               setItems,
               useVoucherOffers: false,
+              repricingRrpOnly: true,
             })}
         />
       )}

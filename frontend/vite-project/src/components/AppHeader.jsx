@@ -210,6 +210,7 @@ const AppHeader = ({
   }, [clearHeaderBuilderState, resetJewelleryScrape]);
 
   const setHeaderWorkspaceModeGlobal = useAppStore((s) => s.setHeaderWorkspaceMode);
+  const requestJewelleryPickerOpen = useAppStore((s) => s.requestJewelleryPickerOpen);
   const closeHeaderWorkspaceTick = useAppStore((s) => s.closeHeaderWorkspaceTick);
   const prevCloseHeaderTickRef = useRef(0);
 
@@ -1113,6 +1114,7 @@ const AppHeader = ({
                     if (!bc?.jewelleryReferenceScrape?.sections?.length) {
                       startJewelleryScrapeSession();
                     }
+                    requestJewelleryPickerOpen();
                   }}
                   className={`min-h-11 inline-flex items-center gap-2 px-2.5 py-2 text-left text-sm font-bold no-underline transition-colors ${
                     workspaceMode === 'jewellery' ? 'text-brand-orange/90' : 'text-white/90 hover:text-white'

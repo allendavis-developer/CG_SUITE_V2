@@ -28,6 +28,8 @@ import {
   resolveOurSalePrice,
   logCategoryRuleDecision,
   resolveCustomerExpectationDraftForAdd,
+  applyRrpOnlyFromPriceSource,
+  applyOffersOnlyFromPriceSource,
 } from '../utils/negotiationHelpers';
 import {
   summariseNegotiationItemForAi,
@@ -1058,7 +1060,17 @@ export function useNegotiationItemHandlers({
           const ourSalePrice = resolveOurSalePrice(normalizedItem);
           if (Number.isFinite(manualPerUnit) && manualPerUnit > 0 && ourSalePrice && ourSalePrice > 0) {
             if (manualPerUnit > ourSalePrice) {
-              setSeniorMgmtModal({ item: normalizedItem, proposedPerUnit: manualPerUnit });
+              const cleanedManualItem = {
+                ...normalizedItem,
+                selectedOfferId: null,
+                manualOffer: '',
+                manualOfferUsed: false,
+              };
+              setItems((prev) =>
+                prev.map((row) => (row.id === normalizedItem.id ? { ...row, ...cleanedManualItem } : row))
+              );
+              showNotification('This is not allowed, enter a new manual offer or cancel.', 'error');
+              setSeniorMgmtModal({ item: cleanedManualItem, proposedPerUnit: manualPerUnit });
             } else {
               const marginPct = ((ourSalePrice - manualPerUnit) / ourSalePrice) * 100;
               const marginGbp = ourSalePrice - manualPerUnit;
@@ -1381,6 +1393,32 @@ export function useNegotiationItemHandlers({
     setCexPencilRrpSourceModal,
   });
 
+  const handleApplyRrpPriceSource = useCallback(
+    (row, zone) => {
+      const { item: next, errorMessage } = applyRrpOnlyFromPriceSource(row, zone);
+      if (errorMessage) {
+        showNotification?.(errorMessage, 'error');
+        return;
+      }
+      setItems((prev) => prev.map((i) => (i.id === row.id ? next : i)));
+      showNotification?.('Our RRP updated from selected source.', 'success');
+    },
+    [setItems, showNotification]
+  );
+
+  const handleApplyOffersPriceSource = useCallback(
+    (row, zone) => {
+      const { item: next, errorMessage } = applyOffersOnlyFromPriceSource(row, zone, useVoucherOffers);
+      if (errorMessage) {
+        showNotification?.(errorMessage, 'error');
+        return;
+      }
+      setItems((prev) => prev.map((i) => (i.id === row.id ? next : i)));
+      showNotification?.('Offer tiers updated from selected source.', 'success');
+    },
+    [setItems, showNotification, useVoucherOffers]
+  );
+
   return {
     handleQuantityChange,
     handleSelectOffer,
@@ -1401,6 +1439,8 @@ export function useNegotiationItemHandlers({
     handleRemoveJewelleryWorkspaceRow,
     handleEbayResearchCompleteFromHeader,
     handleRefreshCeXData,
+    handleApplyRrpPriceSource,
+    handleApplyOffersPriceSource,
     notifyEbayResearchMergedForNosposAi,
     handleNegotiationBuilderOffersDisplayed,
     handleNegotiationCexProductDisplayed,

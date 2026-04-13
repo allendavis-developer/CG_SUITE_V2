@@ -7,6 +7,7 @@ import {
   resolveJewelleryTierMarginsPct,
   sanitizeJewelleryWeightInput,
 } from '@/components/jewellery/jewelleryNegotiationCart';
+import { roundOfferPrice } from '@/utils/helpers';
 
 /**
  * Map negotiation quote items (jewellery) ↔ workspace line shape used in the header panel.
@@ -96,6 +97,36 @@ export function negotiationJewelleryItemToWorkspaceLine(item) {
 
 export function negotiationJewelleryItemsToWorkspaceLines(items) {
   return items.map(negotiationJewelleryItemToWorkspaceLine).filter(Boolean);
+}
+
+/**
+ * When negotiation rows re-project into the workspace, the item stores the grid-rounded offer
+ * (`roundOfferPrice` + `formatOfferPrice` of the typed value). Without this merge, the manual-offer
+ * cell is overwritten on every keystroke and no longer matches what the user typed.
+ */
+export function mergeJewelleryWorkspaceLinePreserveManualDraft(prevLine, mappedLine) {
+  if (!prevLine) return mappedLine;
+  const newRaw = String(mappedLine.manualOfferInput ?? '').trim();
+  if (newRaw === '') return mappedLine;
+
+  const oldRaw = String(prevLine.manualOfferInput ?? '').trim();
+  if (oldRaw === '') return mappedLine;
+
+  const parseNum = (s) => {
+    const n = parseFloat(String(s).replace(/[£,]/g, '').trim());
+    return Number.isFinite(n) ? n : NaN;
+  };
+
+  const nMapped = parseNum(newRaw);
+  if (!Number.isFinite(nMapped) || nMapped <= 0) return mappedLine;
+
+  const nOld = parseNum(oldRaw);
+  if (!Number.isFinite(nOld) || nOld <= 0) return mappedLine;
+
+  if (roundOfferPrice(nOld) === nMapped) {
+    return { ...mappedLine, manualOfferInput: prevLine.manualOfferInput };
+  }
+  return mappedLine;
 }
 
 /** True when a saved negotiation jewellery row still needs name and/or minimum weight (same rules as workspace). */

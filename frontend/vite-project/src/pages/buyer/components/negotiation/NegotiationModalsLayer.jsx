@@ -125,7 +125,11 @@ export default function NegotiationModalsLayer({
         <SeniorMgmtModal
           item={seniorMgmtModal.item}
           proposedPerUnit={seniorMgmtModal.proposedPerUnit}
-          onConfirm={(name) => applyManualOffer(seniorMgmtModal.item, seniorMgmtModal.proposedPerUnit, name)}
+          onEnterNewOffer={() => {
+            const nextItem = seniorMgmtModal.item;
+            setSeniorMgmtModal(null);
+            setItemOfferModal({ item: nextItem });
+          }}
           onClose={() => setSeniorMgmtModal(null)}
         />
       )}

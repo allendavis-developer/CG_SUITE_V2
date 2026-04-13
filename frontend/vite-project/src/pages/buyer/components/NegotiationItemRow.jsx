@@ -1,8 +1,15 @@
 import React from 'react';
 import { normalizeExplicitSalePrice, roundSalePrice } from '@/utils/helpers';
 import { getNosposCategoryHierarchyLabelFromItem } from '@/utils/nosposCategoryMappings';
-import { resolveOurSalePrice, getDisplayOffers } from '../utils/negotiationHelpers';
+import {
+  resolveOurSalePrice,
+  getDisplayOffers,
+  resolveOffersSource,
+  getAvailableRrpZonesForNegotiationItem,
+  getAvailableOfferZonesForNegotiationItem,
+} from '../utils/negotiationHelpers';
 import { NEGOTIATION_ROW_CONTEXT, RRP_SOURCE_CELL_CLASS } from '../rowContextZones';
+import NegotiationPriceSourcePickerCell from './NegotiationPriceSourcePickerCell';
 import { isBlockedForItem, offerIdToSlot, manualSlotCommitRequiresAuthorisation } from '@/utils/customerOfferRules';
 import TestingPassedCell from './TestingPassedCell';
 import NosposRequiredFieldsColumnCell, {
@@ -131,6 +138,10 @@ export default function NegotiationItemRow({
   onOpenNosposRequiredFieldsEditor = null,
   onOpenNosposCategoryPicker = null,
   hideNosposRequiredColumn = false,
+  /** When false, Category + NosPos cells collapse to one narrow placeholder (default expanded for single-callers). */
+  categoryColumnsExpanded = true,
+  onApplyRrpPriceSource = null,
+  onApplyOffersPriceSource = null,
 }) {
   const quantity = item.quantity || 1;
   const displayOffers = getDisplayOffers(item, useVoucherOffers);
@@ -183,9 +194,12 @@ export default function NegotiationItemRow({
       ? (e) => openRowContext(e, NEGOTIATION_ROW_CONTEXT.ITEM_META)
       : undefined;
 
-  const hlCexSource = item.rrpOffersSource === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL;
-  const hlEbaySource = item.rrpOffersSource === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY;
-  const hlCcSource = item.rrpOffersSource === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS;
+  const hlCexRrp = item.rrpOffersSource === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL;
+  const hlEbayRrp = item.rrpOffersSource === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY;
+  const hlCcRrp = item.rrpOffersSource === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS;
+  const offerSourceZone = resolveOffersSource(item);
+  const offerZonesAvailable = getAvailableOfferZonesForNegotiationItem(item, useVoucherOffers);
+  const rrpZonesAvailable = getAvailableRrpZonesForNegotiationItem(item);
   const resolvedLeafCategory =
     (Array.isArray(item.categoryObject?.path) && item.categoryObject.path.length > 0
       ? item.categoryObject.path[item.categoryObject.path.length - 1]
@@ -219,66 +233,89 @@ export default function NegotiationItemRow({
         )}
       </td>
 
-      {/* Resolved child category */}
-      <td className="align-top" onContextMenu={ctxRemoveOnly}>
-        <div className="text-[11px] font-semibold leading-snug" style={{ color: 'var(--text-muted)' }}>
-          {resolvedLeafCategory}
-        </div>
-      </td>
+      {categoryColumnsExpanded ? (
+        <>
+          {/* Resolved child category */}
+          <td className="align-top" onContextMenu={ctxRemoveOnly}>
+            <div className="text-[11px] font-semibold leading-snug" style={{ color: 'var(--text-muted)' }}>
+              {resolvedLeafCategory}
+            </div>
+          </td>
 
-      {/* AI-resolved NosPos stock category (breadcrumb) — clickable to change in negotiate mode */}
-      <td className="align-top max-w-[220px]" onContextMenu={ctxRemoveOnly} title={nosposCategoryBreadcrumb || undefined}>
-        {item.isRemoved ? (
-          <div className="text-[10px] text-slate-400">—</div>
-        ) : nosposCategoriesResults == null ? (
-          <div className="py-1">
-            <NosposSchemaCellSpinner />
-          </div>
-        ) : (
-          <div className="flex flex-col gap-0.5">
-            {mode === 'negotiate' && onOpenNosposCategoryPicker ? (
-              <button
-                type="button"
-                onClick={() => onOpenNosposCategoryPicker(item)}
-                className={`group flex w-full items-start gap-1 rounded px-1 py-0.5 text-left transition-colors hover:bg-slate-100 ${
-                  nosposCategoryBreadcrumb ? '' : 'border border-dashed border-amber-300 bg-amber-50/60 hover:bg-amber-50'
-                }`}
-                title={nosposCategoryBreadcrumb ? `Change NosPos category (current: ${nosposCategoryBreadcrumb})` : 'No NosPos category — click to set one'}
-              >
-                {nosposCategoryBreadcrumb ? (
-                  <>
-                    <span className="min-w-0 flex-1 break-words text-[10px] font-medium leading-snug" style={{ color: 'var(--text-muted)' }}>
-                      {nosposCategoryBreadcrumb}
-                    </span>
-                    <span className="material-symbols-outlined mt-0.5 shrink-0 text-[10px] text-slate-300 opacity-0 transition-opacity group-hover:opacity-100">
-                      edit
-                    </span>
-                  </>
-                ) : (
-                  <span className="text-[10px] font-semibold leading-snug text-amber-700">
-                    No category set
-                  </span>
-                )}
-              </button>
+          {/* AI-resolved NosPos stock category (breadcrumb) — clickable to change in negotiate mode */}
+          <td className="align-top max-w-[220px]" onContextMenu={ctxRemoveOnly} title={nosposCategoryBreadcrumb || undefined}>
+            {item.isRemoved ? (
+              <div className="text-[10px] text-slate-400">—</div>
+            ) : nosposCategoriesResults == null ? (
+              <div className="py-1">
+                <NosposSchemaCellSpinner />
+              </div>
             ) : (
-              <div className="text-[10px] font-medium leading-snug break-words" style={{ color: 'var(--text-muted)' }}>
-                {nosposCategoryBreadcrumb || '—'}
+              <div className="flex flex-col gap-0.5">
+                {mode === 'negotiate' && onOpenNosposCategoryPicker ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenNosposCategoryPicker(item)}
+                    className={`group flex w-full items-start gap-1 rounded px-1 py-0.5 text-left transition-colors hover:bg-slate-100 ${
+                      nosposCategoryBreadcrumb ? '' : 'border border-dashed border-amber-300 bg-amber-50/60 hover:bg-amber-50'
+                    }`}
+                    title={nosposCategoryBreadcrumb ? `Change NosPos category (current: ${nosposCategoryBreadcrumb})` : 'No NosPos category — click to set one'}
+                  >
+                    {nosposCategoryBreadcrumb ? (
+                      <>
+                        <span className="min-w-0 flex-1 break-words text-[10px] font-medium leading-snug" style={{ color: 'var(--text-muted)' }}>
+                          {nosposCategoryBreadcrumb}
+                        </span>
+                        <span className="material-symbols-outlined mt-0.5 shrink-0 text-[10px] text-slate-300 opacity-0 transition-opacity group-hover:opacity-100">
+                          edit
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-[10px] font-semibold leading-snug text-amber-700">
+                        No category set
+                      </span>
+                    )}
+                  </button>
+                ) : (
+                  <div className="text-[10px] font-medium leading-snug break-words" style={{ color: 'var(--text-muted)' }}>
+                    {nosposCategoryBreadcrumb || '—'}
+                  </div>
+                )}
+                {hideNosposRequiredColumn ? (
+                  <NosposRequiredFieldsEditorTriggerButton
+                    item={item}
+                    negotiationIndex={index}
+                    nosposCategoriesResults={nosposCategoriesResults}
+                    nosposCategoryMappings={nosposCategoryMappings}
+                    useVoucherOffers={useVoucherOffers}
+                    requestId={actualRequestId}
+                    onOpenEditor={onOpenNosposRequiredFieldsEditor}
+                  />
+                ) : null}
               </div>
             )}
-            {hideNosposRequiredColumn ? (
-              <NosposRequiredFieldsEditorTriggerButton
-                item={item}
-                negotiationIndex={index}
-                nosposCategoriesResults={nosposCategoriesResults}
-                nosposCategoryMappings={nosposCategoryMappings}
-                useVoucherOffers={useVoucherOffers}
-                requestId={actualRequestId}
-                onOpenEditor={onOpenNosposRequiredFieldsEditor}
+          </td>
+        </>
+      ) : (
+        <td
+          className="w-10 max-w-[2.5rem] p-0 align-top"
+          onContextMenu={ctxRemoveOnly}
+          title={
+            item.isRemoved
+              ? 'Removed from cart'
+              : `Category: ${resolvedLeafCategory}\nNosPos: ${nosposCategoryBreadcrumb || '—'}`
+          }
+        >
+          <div className="flex min-h-[1.5rem] items-start justify-center pt-1">
+            {!item.isRemoved && mode === 'negotiate' && !nosposCategoryBreadcrumb && nosposCategoriesResults != null ? (
+              <span
+                className="inline-block h-2 w-2 shrink-0 rounded-full bg-amber-400"
+                title="NosPos category not set — expand columns to edit"
               />
             ) : null}
           </div>
-        )}
-      </td>
+        </td>
+      )}
 
       {!hideNosposRequiredColumn ? (
         <NosposRequiredFieldsColumnCell
@@ -322,15 +359,15 @@ export default function NegotiationItemRow({
         <PriceCell
           value={item.cexSellPrice}
           quantity={quantity}
-          className={hlCexSource ? 'font-medium text-white' : 'font-medium text-red-700'}
+          className={hlCexRrp ? 'font-medium text-white' : 'font-medium text-red-700'}
           href={item.cexUrl}
-          sourceHighlight={hlCexSource}
+          sourceHighlight={hlCexRrp}
         />
       ) : (
         <td
           className={[
             'font-medium align-top',
-            hlCexSource ? `text-white ${RRP_SOURCE_CELL_CLASS}` : 'text-red-700',
+            hlCexRrp ? `text-white ${RRP_SOURCE_CELL_CLASS}` : 'text-red-700',
           ].join(' ')}
           onContextMenu={mode === 'negotiate' && onRowContextMenu ? (e) => openRowContext(e, NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL) : undefined}
         >
@@ -343,7 +380,7 @@ export default function NegotiationItemRow({
                       href={item.cexUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className={hlCexSource ? 'text-white underline decoration-dotted' : 'text-red-700 underline decoration-dotted'}
+                      className={hlCexRrp ? 'text-white underline decoration-dotted' : 'text-red-700 underline decoration-dotted'}
                     >
                       £{(item.cexSellPrice * quantity).toFixed(2)}
                     </a>
@@ -387,6 +424,14 @@ export default function NegotiationItemRow({
           readOnly={isViewMode}
         />
       </td>
+
+      <NegotiationPriceSourcePickerCell
+        mode={mode}
+        currentZone={offerSourceZone}
+        options={offerZonesAvailable}
+        titlePrefix="Offer source"
+        onSelectZone={onApplyOffersPriceSource ? (zone) => onApplyOffersPriceSource(item, zone) : undefined}
+      />
 
       {/* 1st / 2nd / 3rd / 4th Offer */}
       <OfferCell offer={offer1} item={item} quantity={quantity} mode={mode} ourSalePrice={ourSalePrice}
@@ -444,7 +489,7 @@ export default function NegotiationItemRow({
               £{(parseFloat(item.manualOffer) * quantity).toFixed(2)}
               {manualExceedsSale && (
                 <span className="material-symbols-outlined text-red-500 text-[14px]"
-                  title={item.seniorMgmtApprovedBy ? `Exceeds sale price — approved by ${item.seniorMgmtApprovedBy}` : 'Exceeds sale price — approved by senior management'}>
+                  title="Exceeds sale price">
                   warning
                 </span>
               )}
@@ -458,9 +503,9 @@ export default function NegotiationItemRow({
                 {ourSalePrice && ` (£${Math.abs(ourSalePrice - parseFloat(item.manualOffer)).toFixed(2)})`}
               </div>
             )}
-            {(item.seniorMgmtApprovedBy || (manualExceedsSale && isViewMode)) && (
+            {(manualExceedsSale || item.seniorMgmtApprovedBy) && (
               <div className="text-[9px] mt-1 font-semibold" style={{ color: manualExceedsSale ? '#b91c1c' : 'var(--text-muted)' }}>
-                {item.seniorMgmtApprovedBy ? `Approved by: ${item.seniorMgmtApprovedBy}` : 'Approved by senior management'}
+                {manualExceedsSale ? 'Exceeds sale price' : `Authorised by: ${item.seniorMgmtApprovedBy}`}
               </div>
             )}
           </div>
@@ -522,9 +567,17 @@ export default function NegotiationItemRow({
         )}
       </td>
 
+      <NegotiationPriceSourcePickerCell
+        mode={mode}
+        currentZone={item.rrpOffersSource}
+        options={rrpZonesAvailable}
+        titlePrefix="RRP source"
+        onSelectZone={onApplyRrpPriceSource ? (zone) => onApplyRrpPriceSource(item, zone) : undefined}
+      />
+
       {/* eBay Research */}
       <td
-        className={hlEbaySource ? RRP_SOURCE_CELL_CLASS : undefined}
+        className={hlEbayRrp ? RRP_SOURCE_CELL_CLASS : undefined}
         onContextMenu={mode === 'negotiate' && onRowContextMenu ? (e) => openRowContext(e, NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY) : undefined}
       >
         {ebayData?.stats?.median ? (
@@ -532,14 +585,14 @@ export default function NegotiationItemRow({
             <div>
               <div
                 className="text-[13px] font-bold"
-                style={{ color: hlEbaySource ? '#fff' : 'var(--brand-blue)' }}
+                style={{ color: hlEbayRrp ? '#fff' : 'var(--brand-blue)' }}
               >
                 £{(Number(ebayData.stats.median) * quantity).toFixed(2)}
               </div>
               {quantity > 1 && (
                 <div
                   className="text-[9px]"
-                  style={{ color: hlEbaySource ? 'rgba(255,255,255,0.88)' : 'var(--text-muted)' }}
+                  style={{ color: hlEbayRrp ? 'rgba(255,255,255,0.88)' : 'var(--text-muted)' }}
                 >
                   (£{Number(ebayData.stats.median).toFixed(2)} × {quantity})
                 </div>
@@ -559,7 +612,7 @@ export default function NegotiationItemRow({
           <div className="flex items-center justify-between gap-2">
             <span
               className="text-[13px] font-medium"
-              style={{ color: hlEbaySource ? 'rgba(255,255,255,0.85)' : 'var(--text-muted)' }}
+              style={{ color: hlEbayRrp ? 'rgba(255,255,255,0.85)' : 'var(--text-muted)' }}
             >
               —
             </span>
@@ -578,20 +631,20 @@ export default function NegotiationItemRow({
 
       {/* Cash Converters */}
       <td
-        className={hlCcSource ? RRP_SOURCE_CELL_CLASS : undefined}
+        className={hlCcRrp ? RRP_SOURCE_CELL_CLASS : undefined}
         onContextMenu={mode === 'negotiate' && onRowContextMenu ? (e) => openRowContext(e, NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS) : undefined}
       >
         {cashConvertersData?.stats?.median ? (
           <div className="flex items-center justify-between gap-2">
             <div
               className="text-[13px] font-medium"
-              style={{ color: hlCcSource ? '#fff' : 'var(--brand-blue)' }}
+              style={{ color: hlCcRrp ? '#fff' : 'var(--brand-blue)' }}
             >
               <div>£{(Number(cashConvertersData.stats.median) * quantity).toFixed(2)}</div>
               {quantity > 1 && (
                 <div
                   className="text-[9px]"
-                  style={{ opacity: hlCcSource ? 0.88 : 0.7 }}
+                  style={{ opacity: hlCcRrp ? 0.88 : 0.7 }}
                 >
                   (£{Number(cashConvertersData.stats.median).toFixed(2)} × {quantity})
                 </div>
@@ -611,7 +664,7 @@ export default function NegotiationItemRow({
           <div className="flex items-center justify-between gap-2">
             <span
               className="text-[13px] font-medium"
-              style={{ color: hlCcSource ? 'rgba(255,255,255,0.85)' : 'var(--text-muted)' }}
+              style={{ color: hlCcRrp ? 'rgba(255,255,255,0.85)' : 'var(--text-muted)' }}
             >
               —
             </span>

@@ -20,5 +20,6 @@ export function isNegotiationPriceSourceZone(zone) {
   );
 }
 
-/** Add to `<td>` for full brand-blue RRP/offers source column (styles in `spreadsheetTableStyles.js`). */
+/** Add to `<td>` for full brand-blue RRP source highlight (styles in `spreadsheetTableStyles.js`). */
 export const RRP_SOURCE_CELL_CLASS = 'negotiation-rrp-source-cell';
+

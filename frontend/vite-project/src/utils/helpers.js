@@ -14,16 +14,18 @@ export const formatGBP = (value) =>
 export const roundOfferPrice = (value) => {
   const amount = Number(value);
   if (!Number.isFinite(amount)) return 0;
-  if (amount > 50) return Math.round(amount / 5) * 5;
-  return Math.round(amount / 2) * 2;
+  const capped = Math.min(amount, MAX_GBP_LINE_DECIMAL_10_2);
+  if (capped > 50) return Math.round(capped / 5) * 5;
+  return Math.round(capped / 2) * 2;
 };
 
 /** Sale / retail price: nearest £5 if above £50, else nearest £2 (matches backend `_round_sale_price`). */
 export const roundSalePrice = (value) => {
   const amount = Number(value);
   if (!Number.isFinite(amount)) return 0;
-  if (amount > 50) return Math.round(amount / 5) * 5;
-  return Math.round(amount / 2) * 2;
+  const capped = Math.min(amount, MAX_GBP_LINE_DECIMAL_10_2);
+  if (capped > 50) return Math.round(capped / 5) * 5;
+  return Math.round(capped / 2) * 2;
 };
 
 /** Which sale grid applies before rounding (same £50 threshold as `roundSalePrice`). */
@@ -33,11 +35,26 @@ export const salePriceRoundingLabel = (preRoundedValue) => {
   return amount > 50 ? 'nearest £5' : 'nearest £2';
 };
 
+/** Matches `buying_request_item` GBP fields: max_digits=10, decimal_places=2 */
+export const MAX_GBP_LINE_DECIMAL_10_2 = 99_999_999.99;
+/** Matches `buying_request` total GBP fields: max_digits=12, decimal_places=2 */
+export const MAX_GBP_REQUEST_TOTAL_DECIMAL_12_2 = 9_999_999_999.99;
+
+const clampPositiveGbpPence = (amount, max) =>
+  Math.round(Math.min(amount, max) * 100) / 100;
+
 /** Typed or persisted per-unit sale price: keep value, only snap to pence (no £2/£5 grid). */
 export const normalizeExplicitSalePrice = (value) => {
   const amount = Number(value);
   if (!Number.isFinite(amount) || amount <= 0) return 0;
-  return Math.round(amount * 100) / 100;
+  return clampPositiveGbpPence(amount, MAX_GBP_LINE_DECIMAL_10_2);
+};
+
+/** Request-level totals (target offer, grand total, sum of expectations): max_digits=12. */
+export const normalizeRequestTotalGbp = (value) => {
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount < 0) return 0;
+  return clampPositiveGbpPence(amount, MAX_GBP_REQUEST_TOTAL_DECIMAL_12_2);
 };
 
 /**

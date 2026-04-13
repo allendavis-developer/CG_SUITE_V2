@@ -177,16 +177,15 @@ export function ItemOfferModal({ item, items, targetOffer, useVoucherOffers, onA
   );
 }
 
-// ─── Senior Management Bypass Modal ────────────────────────────────────────
+// ─── Manual Offer Limit Modal ──────────────────────────────────────────────
 
-export function SeniorMgmtModal({ item, proposedPerUnit, onConfirm, onClose }) {
-  const [name, setName] = React.useState('');
+export function SeniorMgmtModal({ item, proposedPerUnit, onEnterNewOffer, onClose }) {
   const salePrice = resolveOurSalePrice(item);
   const qty = item.quantity || 1;
 
   return (
     <TinyModal
-      title="Override Confirmation Required"
+      title="Offer exceeds sale price"
       onClose={onClose}
       closeOnBackdrop={false}
       showCloseButton={false}
@@ -209,29 +208,25 @@ export function SeniorMgmtModal({ item, proposedPerUnit, onConfirm, onClose }) {
         </div>
       </div>
       <p className="text-xs text-slate-600 mb-4">
-        This offer exceeds our sale price. To proceed, please confirm it has been approved by a senior manager and enter their name below.
+        This is not allowed, enter a new manual offer or cancel.
       </p>
-      <label className="block text-[10px] font-black uppercase tracking-wider mb-1.5" style={{ color: 'var(--brand-blue)' }}>
-        Approved by (name)*
-      </label>
-      <input
-        autoFocus
-        className="w-full px-3 py-2.5 border rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 mb-4"
-        style={{ borderColor: 'rgba(20,69,132,0.3)', color: 'var(--brand-blue)' }}
-        type="text"
-        placeholder="Senior manager's name"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && name.trim()) {
-            onConfirm(name.trim());
-            onClose();
-          }
-        }}
-      />
-      <p className="text-[11px] text-slate-500">
-        Enter the approver name, then press Enter to continue.
-      </p>
+      <div className="flex gap-2">
+        <button
+          className="flex-1 py-2.5 rounded-lg border text-sm font-semibold transition-colors hover:bg-slate-50"
+          style={{ borderColor: 'var(--ui-border)', color: 'var(--text-muted)' }}
+          onClick={onClose}
+        >
+          Cancel
+        </button>
+        <button
+          autoFocus
+          className="flex-1 py-2.5 rounded-lg text-sm font-bold transition-all hover:opacity-90"
+          style={{ background: 'var(--brand-blue)', color: 'white' }}
+          onClick={onEnterNewOffer}
+        >
+          Enter new manual offer
+        </button>
+      </div>
     </TinyModal>
   );
 }
@@ -275,7 +270,7 @@ export function MarginResultModal({ item, offerPerUnit, ourSalePrice, marginPct,
         {confirmedBy && (
           <div className="mt-3 p-2 rounded bg-amber-50 border border-amber-200">
             <p className="text-[11px] text-amber-700">
-              <span className="font-bold">Senior management override</span> confirmed by: {confirmedBy}
+              <span className="font-bold">Senior management authorisation</span> recorded by: {confirmedBy}
             </p>
           </div>
         )}

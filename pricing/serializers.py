@@ -249,15 +249,21 @@ class RequestItemSerializer(serializers.ModelSerializer):
             self.initial_data.get('cash_converters_data'),
         )
         if cash_offers is not None or voucher_offers is not None:
-            sync_request_item_offer_rows_from_payload(
-                item,
-                selected_offer_id=self.initial_data.get("selected_offer_id"),
-                cash_offers=cash_offers or [],
-                voucher_offers=voucher_offers or [],
-                manual_offer_gbp=item.manual_offer_gbp,
-            )
+            try:
+                sync_request_item_offer_rows_from_payload(
+                    item,
+                    selected_offer_id=self.initial_data.get("selected_offer_id"),
+                    cash_offers=cash_offers or [],
+                    voucher_offers=voucher_offers or [],
+                    manual_offer_gbp=item.manual_offer_gbp,
+                )
+            except ValueError as exc:
+                raise serializers.ValidationError(str(exc)) from exc
         else:
-            sync_request_item_offer_rows(item)
+            try:
+                sync_request_item_offer_rows(item)
+            except ValueError as exc:
+                raise serializers.ValidationError(str(exc)) from exc
         return item
 
     def to_representation(self, instance):
@@ -295,6 +301,25 @@ class RequestItemSerializer(serializers.ModelSerializer):
         except DjangoValidationError as e:
             raise serializers.ValidationError(e.messages)
         return value
+
+    def _clean_money_field(self, field_name, value):
+        if value is None:
+            return value
+        field = RequestItem._meta.get_field(field_name)
+        try:
+            field.clean(value, None)
+        except DjangoValidationError as e:
+            raise serializers.ValidationError(e.messages)
+        return value
+
+    def validate_manual_offer_gbp(self, value):
+        return self._clean_money_field("manual_offer_gbp", value)
+
+    def validate_negotiated_price_gbp(self, value):
+        return self._clean_money_field("negotiated_price_gbp", value)
+
+    def validate_our_sale_price_at_negotiation(self, value):
+        return self._clean_money_field("our_sale_price_at_negotiation", value)
 
 
 class RequestStatusHistorySerializer(serializers.ModelSerializer):
@@ -359,6 +384,25 @@ class RequestSerializer(serializers.ModelSerializer):
         if value not in [choice[0] for choice in RequestIntent.choices]:
             raise serializers.ValidationError(f"Invalid intent. Must be one of: {', '.join([c[0] for c in RequestIntent.choices])}")
         return value
+
+    def _clean_request_money(self, field_name, value):
+        if value is None:
+            return value
+        field = Request._meta.get_field(field_name)
+        try:
+            field.clean(value, None)
+        except DjangoValidationError as e:
+            raise serializers.ValidationError(e.messages)
+        return value
+
+    def validate_overall_expectation_gbp(self, value):
+        return self._clean_request_money("overall_expectation_gbp", value)
+
+    def validate_target_offer_gbp(self, value):
+        return self._clean_request_money("target_offer_gbp", value)
+
+    def validate_negotiated_grand_total_gbp(self, value):
+        return self._clean_request_money("negotiated_grand_total_gbp", value)
 
 
 class RepricingSessionItemSerializer(serializers.ModelSerializer):

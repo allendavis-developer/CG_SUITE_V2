@@ -98,7 +98,10 @@ export default function SalePriceConfirmModal({
               }
         );
       }
-      notify = { type: "success", message: "RRP and offers updated from this research." };
+      notify = {
+        type: "success",
+        message: "RRP and offers updated from this research; offer source column matches this source.",
+      };
       return prev.map((i) => (i.id !== itemId ? i : { ...applied, ourSalePrice: nextOurSale }));
     });
     if (notify) showNotification?.(notify.message, notify.type);

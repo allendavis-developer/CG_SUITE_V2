@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { getJewelleryWorkspaceDerivedState } from '@/components/jewellery/jewelleryNegotiationCart';
-import { negotiationJewelleryItemsToWorkspaceLines } from '@/components/jewellery/jewelleryWorkspaceMapping';
+import {
+  mergeJewelleryWorkspaceLinePreserveManualDraft,
+  negotiationJewelleryItemsToWorkspaceLines,
+} from '@/components/jewellery/jewelleryWorkspaceMapping';
 import { normalizeExplicitSalePrice } from '@/utils/helpers';
 import { updateRequestItemOffer, updateRequestItemRawData } from '@/services/api';
 import { getJewelleryNosposWeightSyncPlan } from '@/pages/buyer/utils/nosposAgreementFirstItemFill';
@@ -27,6 +30,8 @@ export function useNegotiationJewelleryWorkspaceSync({
 }) {
   const jewelleryWorkspaceLinesRef = useRef(jewelleryWorkspaceLines);
   const jewelleryNegotiationItemsRef = useRef(jewelleryNegotiationItems);
+  const pendingPersistLineIdsRef = useRef(new Set());
+  const persistWorkerActiveRef = useRef(false);
   useEffect(() => {
     jewelleryWorkspaceLinesRef.current = jewelleryWorkspaceLines;
     jewelleryNegotiationItemsRef.current = jewelleryNegotiationItems;
@@ -40,6 +45,113 @@ export function useNegotiationJewelleryWorkspaceSync({
       price: normalizeExplicitSalePrice(o.price),
     }));
   }, []);
+
+  const persistSingleJewelleryLine = useCallback(
+    async (line) => {
+      if (!line?.request_item_id) return;
+      const d = getJewelleryWorkspaceDerivedState(line, useVoucherOffers, customerOfferRulesData?.settings);
+      const itemName = line.itemName || line.categoryLabel || line.variantTitle || null;
+      const ceRaw = String(line.customerExpectation ?? '').replace(/[£,]/g, '').trim();
+      let customerExpectationForApi = undefined;
+      if (ceRaw === '') {
+        customerExpectationForApi = null;
+      } else {
+        const ceNum = parseFloat(ceRaw);
+        if (Number.isFinite(ceNum) && ceNum >= 0) {
+          customerExpectationForApi = normalizeExplicitSalePrice(ceNum);
+        }
+      }
+      const payload = {
+        selected_offer_id: d.selectedOfferId,
+        manual_offer_used: d.selectedOfferId === 'manual',
+        manual_offer_gbp:
+          d.selectedOfferId === 'manual' && d.manualOffer
+            ? normalizeExplicitSalePrice(parseFloat(String(d.manualOffer).replace(/[£,]/g, '')))
+            : null,
+        senior_mgmt_approved_by: line.selectedOfferTierAuthBy || line.manualOfferAuthBy || null,
+        our_sale_price_at_negotiation:
+          d.ourSalePrice != null && d.ourSalePrice > 0 ? d.ourSalePrice : null,
+        cash_offers_json: normalizeOffersForApi(d.cashOffers),
+        voucher_offers_json: normalizeOffersForApi(d.voucherOffers),
+        ...(customerExpectationForApi !== undefined
+          ? { customer_expectation_gbp: customerExpectationForApi }
+          : {}),
+      };
+      await updateRequestItemOffer(line.request_item_id, payload).catch(() => {});
+      const cats = Array.isArray(nosposCategoriesResults) ? nosposCategoriesResults : [];
+      const maps = Array.isArray(nosposCategoryMappings) ? nosposCategoryMappings : [];
+      const baseItem = jewelleryNegotiationItemsRef.current.find((i) => i.id === line.id);
+      let weightBlob = null;
+      if (baseItem?.isJewelleryItem && cats.length > 0) {
+        const rowForPlan = { ...baseItem, referenceData: d.referenceData };
+        const plan = getJewelleryNosposWeightSyncPlan(rowForPlan, cats, maps);
+        if (plan) {
+          weightBlob = buildMergedNosposStockFieldValuesBlob(
+            baseItem,
+            plan.leafNosposId,
+            { [plan.fieldId]: plan.gramsString },
+            { deleteIfEmpty: true }
+          );
+        }
+      }
+      const rawData = {
+        referenceData: {
+          ...d.referenceData,
+          item_name: itemName,
+          category_label: line.categoryLabel || d.referenceData?.line_title || null,
+        },
+        authorisedOfferSlots: Array.isArray(line.authorisedOfferSlots) ? line.authorisedOfferSlots : [],
+        ...(weightBlob ? { aiSuggestedNosposStockFieldValues: weightBlob } : {}),
+      };
+      const rawOk = await updateRequestItemRawData(line.request_item_id, {
+        raw_data: rawData,
+      }).catch(() => null);
+      if (rawOk && weightBlob) {
+        setItems((prev) => applyNosposStockFieldBlobToNegotiationItems(prev, line.id, weightBlob));
+      }
+    },
+    [
+      customerOfferRulesData?.settings,
+      normalizeOffersForApi,
+      nosposCategoriesResults,
+      nosposCategoryMappings,
+      setItems,
+      useVoucherOffers,
+    ]
+  );
+
+  const flushPendingJewelleryPersistence = useCallback(async () => {
+    if (persistWorkerActiveRef.current) return;
+    persistWorkerActiveRef.current = true;
+    try {
+      while (pendingPersistLineIdsRef.current.size > 0) {
+        const lineIds = Array.from(pendingPersistLineIdsRef.current);
+        pendingPersistLineIdsRef.current.clear();
+        for (const lineId of lineIds) {
+          const line = jewelleryWorkspaceLinesRef.current.find((row) => row.id === lineId);
+          if (!line) continue;
+          await persistSingleJewelleryLine(line);
+        }
+      }
+    } finally {
+      persistWorkerActiveRef.current = false;
+      if (pendingPersistLineIdsRef.current.size > 0) {
+        void flushPendingJewelleryPersistence();
+      }
+    }
+  }, [persistSingleJewelleryLine]);
+
+  const enqueueJewelleryLinePersistence = useCallback(
+    (lines, changedLineIds = null) => {
+      const targets = changedLineIds ? lines.filter((l) => changedLineIds.has(l.id)) : lines;
+      for (const line of targets) {
+        if (!line?.request_item_id) continue;
+        pendingPersistLineIdsRef.current.add(line.id);
+      }
+      void flushPendingJewelleryPersistence();
+    },
+    [flushPendingJewelleryPersistence]
+  );
 
   const syncJewelleryWorkspaceLinesToNegotiation = useCallback(
     (lines, changedLineIds = null) => {
@@ -70,81 +182,13 @@ export function useNegotiationJewelleryWorkspaceSync({
         })
       );
 
-      const linesToPersist = changedLineIds ? lines.filter((l) => changedLineIds.has(l.id)) : lines;
-
-      void (async () => {
-        const cats = Array.isArray(nosposCategoriesResults) ? nosposCategoriesResults : [];
-        const maps = Array.isArray(nosposCategoryMappings) ? nosposCategoryMappings : [];
-        for (const line of linesToPersist) {
-          if (!line.request_item_id) continue;
-          const d = getJewelleryWorkspaceDerivedState(line, useVoucherOffers, customerOfferRulesData?.settings);
-          const itemName = line.itemName || line.categoryLabel || line.variantTitle || null;
-          const ceRaw = String(line.customerExpectation ?? '').replace(/[£,]/g, '').trim();
-          let customerExpectationForApi = undefined;
-          if (ceRaw === '') {
-            customerExpectationForApi = null;
-          } else {
-            const ceNum = parseFloat(ceRaw);
-            if (Number.isFinite(ceNum) && ceNum >= 0) {
-              customerExpectationForApi = normalizeExplicitSalePrice(ceNum);
-            }
-          }
-          const payload = {
-            selected_offer_id: d.selectedOfferId,
-            manual_offer_used: d.selectedOfferId === 'manual',
-            manual_offer_gbp:
-              d.selectedOfferId === 'manual' && d.manualOffer
-                ? normalizeExplicitSalePrice(parseFloat(String(d.manualOffer).replace(/[£,]/g, '')))
-                : null,
-            senior_mgmt_approved_by: line.selectedOfferTierAuthBy || line.manualOfferAuthBy || null,
-            our_sale_price_at_negotiation:
-              d.ourSalePrice != null && d.ourSalePrice > 0 ? d.ourSalePrice : null,
-            cash_offers_json: normalizeOffersForApi(d.cashOffers),
-            voucher_offers_json: normalizeOffersForApi(d.voucherOffers),
-            ...(customerExpectationForApi !== undefined
-              ? { customer_expectation_gbp: customerExpectationForApi }
-              : {}),
-          };
-          await updateRequestItemOffer(line.request_item_id, payload).catch(() => {});
-          const baseItem = jewelleryNegotiationItemsRef.current.find((i) => i.id === line.id);
-          let weightBlob = null;
-          if (baseItem?.isJewelleryItem && cats.length > 0) {
-            const rowForPlan = { ...baseItem, referenceData: d.referenceData };
-            const plan = getJewelleryNosposWeightSyncPlan(rowForPlan, cats, maps);
-            if (plan) {
-              weightBlob = buildMergedNosposStockFieldValuesBlob(
-                baseItem,
-                plan.leafNosposId,
-                { [plan.fieldId]: plan.gramsString },
-                { deleteIfEmpty: true }
-              );
-            }
-          }
-          const rawData = {
-            referenceData: {
-              ...d.referenceData,
-              item_name: itemName,
-              category_label: line.categoryLabel || d.referenceData?.line_title || null,
-            },
-            authorisedOfferSlots: Array.isArray(line.authorisedOfferSlots) ? line.authorisedOfferSlots : [],
-            ...(weightBlob ? { aiSuggestedNosposStockFieldValues: weightBlob } : {}),
-          };
-          const rawOk = await updateRequestItemRawData(line.request_item_id, {
-            raw_data: rawData,
-          }).catch(() => null);
-          if (rawOk && weightBlob) {
-            setItems((prev) => applyNosposStockFieldBlobToNegotiationItems(prev, line.id, weightBlob));
-          }
-        }
-      })();
+      enqueueJewelleryLinePersistence(lines, changedLineIds);
     },
     [
-      customerOfferRulesData?.settings,
-      normalizeOffersForApi,
+      enqueueJewelleryLinePersistence,
       setItems,
       useVoucherOffers,
-      nosposCategoriesResults,
-      nosposCategoryMappings,
+      customerOfferRulesData?.settings,
     ]
   );
 
@@ -172,10 +216,14 @@ export function useNegotiationJewelleryWorkspaceSync({
     if (!headerWorkspaceOpen || headerWorkspaceMode !== 'jewellery') return;
     const fromQuote = negotiationJewelleryItemsToWorkspaceLines(jewelleryNegotiationItems);
     setJewelleryWorkspaceLines((prev) => {
+      const mergedFromQuote = fromQuote.map((newLine) => {
+        const oldLine = prev.find((l) => l.id === newLine.id);
+        return mergeJewelleryWorkspaceLinePreserveManualDraft(oldLine, newLine);
+      });
       const drafts = prev.filter((l) => !l.request_item_id);
-      const quoteIds = new Set(fromQuote.map((l) => l.id));
+      const quoteIds = new Set(mergedFromQuote.map((l) => l.id));
       const draftsNotInQuote = drafts.filter((d) => !quoteIds.has(d.id));
-      return [...fromQuote, ...draftsNotInQuote];
+      return [...mergedFromQuote, ...draftsNotInQuote];
     });
   }, [jewelleryNegotiationItems, headerWorkspaceOpen, headerWorkspaceMode, setJewelleryWorkspaceLines]);
 

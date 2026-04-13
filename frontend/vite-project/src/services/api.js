@@ -293,15 +293,39 @@ export const deleteRequestItem = async (requestItemId) => {
   await apiFetch(`/request-items/${requestItemId}/`, { method: 'DELETE' });
 };
 
+const requestItemMutationQueues = new Map();
+
+function queueRequestItemMutation(requestItemId, operation) {
+  if (!requestItemId) {
+    return Promise.resolve().then(operation);
+  }
+  const key = String(requestItemId);
+  const previous = requestItemMutationQueues.get(key) || Promise.resolve();
+  const next = previous
+    .catch(() => {})
+    .then(operation)
+    .finally(() => {
+      if (requestItemMutationQueues.get(key) === next) {
+        requestItemMutationQueues.delete(key);
+      }
+    });
+  requestItemMutationQueues.set(key, next);
+  return next;
+}
+
 export const updateRequestItemOffer = async (requestItemId, data) => {
   if (!requestItemId || !data) return;
-  await apiFetch(`/request-items/${requestItemId}/update-offer/`, { method: 'PATCH', body: data });
+  await queueRequestItemMutation(requestItemId, () =>
+    apiFetch(`/request-items/${requestItemId}/update-offer/`, { method: 'PATCH', body: data })
+  );
 };
 
 export const updateRequestItemRawData = async (requestItemId, data) => {
   if (!requestItemId || !data) return null;
   try {
-    const result = await apiFetch(`/request-items/${requestItemId}/update-raw/`, { method: 'POST', body: data });
+    const result = await queueRequestItemMutation(requestItemId, () =>
+      apiFetch(`/request-items/${requestItemId}/update-raw/`, { method: 'POST', body: data })
+    );
     if (result == null) {
       console.error('[CG Suite][api] updateRequestItemRawData: empty response (possible auth/404)', { requestItemId });
       return null;

@@ -26,8 +26,11 @@ import {
   calculateNonJewelleryOfferTotal,
   applyEbayResearchToItem,
   applyCashConvertersResearchToItem,
+  applyEbayResearchCommittedPricingToItem,
+  applyCashConvertersResearchCommittedPricingToItem,
   mergeEbayResearchDataIntoItem,
   mergeCashConvertersResearchDataIntoItem,
+  resolveOffersSource,
   resolveSuggestedRetailFromResearchStats,
   sumOfferMinMaxForNegotiationItems,
   offerMinMaxFromCexProductData,
@@ -41,6 +44,7 @@ import {
   HEADER_OTHER_CUSTOMER_EXPECTATION_KEY,
   formatSumLineCustomerExpectations,
 } from './utils/negotiationHelpers';
+import { NEGOTIATION_ROW_CONTEXT } from './rowContextZones';
 import {
   fetchNosposCategories,
   fetchNosposCategoryMappings,
@@ -218,17 +222,11 @@ const Negotiation = ({ mode }) => {
 
   // ─── Research overlay (shared hook) ─────────────────────────────────────
   const applyEbay = useCallback(
-    (item, state, mode = 'full') => {
-      if (mode === 'dataOnly') return mergeEbayResearchDataIntoItem(item, state);
-      return applyEbayResearchToItem(item, state, useVoucherOffers);
-    },
+    (item, state) => applyEbayResearchToItem(item, state, useVoucherOffers),
     [useVoucherOffers]
   );
   const applyCC = useCallback(
-    (item, state, mode = 'full') => {
-      if (mode === 'dataOnly') return mergeCashConvertersResearchDataIntoItem(item, state);
-      return applyCashConvertersResearchToItem(item, state, useVoucherOffers);
-    },
+    (item, state) => applyCashConvertersResearchToItem(item, state, useVoucherOffers),
     [useVoucherOffers]
   );
   const onResearchPersisted = useCallback((mergedItem) => {
@@ -240,8 +238,19 @@ const Negotiation = ({ mode }) => {
     }
     if (!Number.isFinite(manualPerUnit) || manualPerUnit <= 0 || !Number.isFinite(rrp) || rrp <= 0) return;
     setTimeout(() => {
-      if (manualPerUnit > rrp) setSeniorMgmtModal({ item: mergedItem, proposedPerUnit: manualPerUnit });
-      else
+      if (manualPerUnit > rrp) {
+        const cleanedManualItem = {
+          ...mergedItem,
+          selectedOfferId: null,
+          manualOffer: '',
+          manualOfferUsed: false,
+        };
+        setItems((prev) =>
+          prev.map((item) => (item.id === mergedItem.id ? { ...item, ...cleanedManualItem } : item))
+        );
+        showNotification('This is not allowed, enter a new manual offer or cancel.', 'error');
+        setSeniorMgmtModal({ item: cleanedManualItem, proposedPerUnit: manualPerUnit });
+      } else
         setMarginResultModal({
           item: mergedItem,
           offerPerUnit: manualPerUnit,
@@ -251,7 +260,7 @@ const Negotiation = ({ mode }) => {
           confirmedBy: mergedItem.seniorMgmtApprovedBy || null,
         });
     }, 0);
-  }, [parseManualOfferValue, setSeniorMgmtModal, setMarginResultModal]);
+  }, [parseManualOfferValue, setItems, setSeniorMgmtModal, setMarginResultModal, showNotification]);
   /** Populated after useNegotiationItemHandlers — avoids TDZ passing notify into useResearchOverlay. */
   const notifyEbayResearchMergedForNosposAiRef = useRef(null);
   const bridgeNotifyEbayResearchMergedForNosposAi = useCallback((merged) => {
@@ -302,13 +311,50 @@ const Negotiation = ({ mode }) => {
     }
   }, [headerWorkspaceOpen, headerWorkspaceMode]);
 
-  const handleOverlayEbayResearchOffersLive = useCallback((payload) => {
-    setOverlayEbayLiveBuyOffers(payload?.buyOffers ?? null);
-  }, []);
+  const handleOverlayEbayResearchOffersLive = useCallback(
+    (payload) => {
+      setOverlayEbayLiveBuyOffers(payload?.buyOffers ?? null);
+      const rid = researchItem?.id;
+      if (!rid || !payload) return;
+      setItems((prev) =>
+        prev.map((i) => {
+          if (i.id !== rid) return i;
+          const offersEbay = resolveOffersSource(i) === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY;
+          const rrpEbay = i.rrpOffersSource === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY;
+          if (!offersEbay && !rrpEbay) return i;
+          const synthetic = { ...(i.ebayResearchData && typeof i.ebayResearchData === 'object' ? i.ebayResearchData : {}), ...payload };
+          const merged = mergeEbayResearchDataIntoItem(i, synthetic);
+          return applyEbayResearchCommittedPricingToItem(i, merged, synthetic, useVoucherOffers);
+        })
+      );
+    },
+    [researchItem?.id, setItems, useVoucherOffers]
+  );
 
-  const handleOverlayCcResearchOffersLive = useCallback((payload) => {
-    setOverlayCcLiveBuyOffers(payload?.buyOffers ?? null);
-  }, []);
+  const handleOverlayCcResearchOffersLive = useCallback(
+    (payload) => {
+      setOverlayCcLiveBuyOffers(payload?.buyOffers ?? null);
+      const rid = cashConvertersResearchItem?.id;
+      if (!rid || !payload) return;
+      setItems((prev) =>
+        prev.map((i) => {
+          if (i.id !== rid) return i;
+          const offersCc = resolveOffersSource(i) === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS;
+          const rrpCc = i.rrpOffersSource === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS;
+          if (!offersCc && !rrpCc) return i;
+          const synthetic = {
+            ...(i.cashConvertersResearchData && typeof i.cashConvertersResearchData === 'object'
+              ? i.cashConvertersResearchData
+              : {}),
+            ...payload,
+          };
+          const merged = mergeCashConvertersResearchDataIntoItem(i, synthetic);
+          return applyCashConvertersResearchCommittedPricingToItem(i, merged, synthetic, useVoucherOffers);
+        })
+      );
+    },
+    [cashConvertersResearchItem?.id, setItems, useVoucherOffers]
+  );
 
   const handleHeaderEbayResearchOffersLive = useCallback((payload) => {
     setHeaderEbayLiveBuyOffers(payload?.buyOffers ?? null);
@@ -997,6 +1043,8 @@ const Negotiation = ({ mode }) => {
     handleRemoveJewelleryWorkspaceRow,
     handleEbayResearchCompleteFromHeader,
     handleRefreshCeXData,
+    handleApplyRrpPriceSource,
+    handleApplyOffersPriceSource,
     notifyEbayResearchMergedForNosposAi,
     handleNegotiationBuilderOffersDisplayed,
     handleNegotiationCexProductDisplayed,
@@ -1345,6 +1393,8 @@ const Negotiation = ({ mode }) => {
             handleOurSalePriceBlur={handleOurSalePriceBlur}
             handleOurSalePriceFocus={handleOurSalePriceFocus}
             handleRefreshCeXData={handleRefreshCeXData}
+            handleApplyRrpPriceSource={handleApplyRrpPriceSource}
+            handleApplyOffersPriceSource={handleApplyOffersPriceSource}
             setResearchItem={setResearchItem}
             setCashConvertersResearchItem={setCashConvertersResearchItem}
             useVoucherOffers={useVoucherOffers}

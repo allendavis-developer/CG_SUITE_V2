@@ -25,6 +25,9 @@ import useAppStore from '@/store/useAppStore';
 import { getBlockedOfferSlots, isBlockedForItem } from '@/utils/customerOfferRules';
 const PICKER_PAGE_SIZE = 20;
 
+/** Survives unmount when leaving the jewellery workspace so we do not re-open the picker on remount. */
+let lastJewelleryPickerOpenNonceHandled = 0;
+
 const BULLION_GOLD_PRODUCT_NAME = 'Bullion (gold)';
 const GOLD_ONLY_MATERIAL_GRADES = new Set([
   '9ct gold',
@@ -492,6 +495,7 @@ export default function JewelleryLineItems({
   const [syncMarginInput, setSyncMarginInput] = useState('');
   const customerData = useAppStore((s) => s.customerData);
   const customerOfferRulesData = useAppStore((s) => s.customerOfferRulesData);
+  const jewelleryPickerOpenNonce = useAppStore((s) => s.jewelleryPickerOpenNonce);
   const jewelleryTierMargins = useMemo(
     () => resolveJewelleryTierMarginsPct(customerOfferRulesData?.settings),
     [customerOfferRulesData]
@@ -552,11 +556,24 @@ export default function JewelleryLineItems({
     return list;
   }, [dbCatalog, selectedProductId]);
 
-  const openModal = () => {
+  const openPickerModal = useCallback(() => {
     setStep('product');
     setSelectedProductId(null);
     setModalOpen(true);
-  };
+  }, []);
+
+  useEffect(() => {
+    const nonce = jewelleryPickerOpenNonce;
+    if (nonce === lastJewelleryPickerOpenNonceHandled) return;
+    if (modalOpen) {
+      lastJewelleryPickerOpenNonceHandled = nonce;
+      return;
+    }
+    const canOpen = scrapSectionsCatalog.length > 0 && Boolean(dbCatalog?.products?.length);
+    if (!canOpen) return;
+    openPickerModal();
+    lastJewelleryPickerOpenNonceHandled = nonce;
+  }, [jewelleryPickerOpenNonce, modalOpen, scrapSectionsCatalog, dbCatalog, openPickerModal]);
 
   const pickProduct = (product) => {
     setSelectedProductId(product.product_id);
@@ -586,8 +603,8 @@ export default function JewelleryLineItems({
         ratePerGram: ref.ratePerGram,
         unitPrice: ref.unitPrice,
         weightUnit: ref.sourceKind === 'UNIT' ? 'each' : wu,
-        weight: coin ? '1' : '0',
-        ...(coin ? { coinUnits: '0' } : {}),
+        weight: coin ? '1' : '',
+        ...(coin ? { coinUnits: '' } : {}),
         selectedOfferTierPct: null,
         manualOfferInput: '',
         manualOfferAuthBy: null,
@@ -615,6 +632,31 @@ export default function JewelleryLineItems({
       })
     );
   };
+
+  const handleManualOfferInputChange = useCallback(
+    (line, nextRaw) => {
+      const manualValue = parseFloat(String(nextRaw ?? '').replace(/[£,]/g, '').trim());
+      const maxAllowed = computeWorkspaceLineTotal(line);
+      if (
+        String(nextRaw ?? '').trim() !== '' &&
+        Number.isFinite(manualValue) &&
+        manualValue > 0 &&
+        Number.isFinite(maxAllowed) &&
+        maxAllowed > 0 &&
+        manualValue > maxAllowed
+      ) {
+        showNotification?.('This is not allowed, enter a new manual offer or cancel.', 'error');
+        return;
+      }
+      updateLine(line.id, {
+        manualOfferInput: nextRaw,
+        selectedOfferTierPct: null,
+        selectedOfferTierAuthBy: null,
+        manualOfferAuthBy: null,
+      });
+    },
+    [showNotification]
+  );
 
   const handleSelectJewelleryTier = useCallback((lineId, marginPct, authBy = undefined, slot = null) => {
     setLines((prev) =>
@@ -729,7 +771,8 @@ export default function JewelleryLineItems({
   if (!scrapSectionsCatalog.length && lines.length === 0) {
     return (
       <p className="rounded-lg border border-dashed border-gray-200 bg-gray-50/80 px-3 py-4 text-xs text-gray-600">
-        Add rows here after reference prices are loaded. If you already have jewellery on the quote, use{' '}
+        After reference prices load, use <span className="font-semibold text-gray-800">Jewellery</span> in the header
+        (diamond) to add a row. If you already have jewellery on the quote, use{' '}
         <span className="font-semibold text-gray-800">Update reference data</span> above to load the price table.
       </p>
     );
@@ -742,22 +785,7 @@ export default function JewelleryLineItems({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h3 className="text-sm font-semibold text-brand-blue">Your items</h3>
           <div className="flex w-full flex-wrap items-stretch justify-end gap-4 sm:w-auto sm:items-center sm:gap-6">
-            {!modalOpen ? (
-              <button
-                type="button"
-                onClick={openModal}
-                disabled={!scrapSectionsCatalog.length || !dbCatalog?.products?.length}
-                className="inline-flex min-h-[2.75rem] w-full flex-1 items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-extrabold uppercase tracking-wide text-brand-blue shadow-md transition-all hover:brightness-95 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-45 sm:w-auto sm:min-w-[200px] sm:flex-initial"
-                style={{
-                  background: 'var(--brand-orange)',
-                  boxShadow: '0 8px 20px -6px rgba(247, 185, 24, 0.45)',
-                }}
-                title="Add a jewellery item"
-              >
-                <span className="material-symbols-outlined text-[24px] leading-none">add_circle</span>
-                Add jewellery item
-              </button>
-            ) : (
+            {modalOpen ? (
               <button
                 type="button"
                 onClick={() => {
@@ -770,15 +798,41 @@ export default function JewelleryLineItems({
                 <span className="material-symbols-outlined text-[24px] leading-none">close</span>
                 Close picker
               </button>
+            ) : (
+              <>
+                {onAddJewelleryToNegotiation ? (
+                  <button
+                    type="button"
+                    disabled={lines.length === 0}
+                    onClick={handleCompleteJewelleryToNegotiation}
+                    className="inline-flex min-h-[2.75rem] w-full flex-1 items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-extrabold uppercase tracking-wide text-brand-blue shadow-md transition-all hover:brightness-95 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-45 sm:w-auto sm:min-w-[200px] sm:flex-initial"
+                    style={{
+                      background: 'var(--brand-orange)',
+                      boxShadow: '0 8px 20px -6px rgba(247, 185, 24, 0.45)',
+                    }}
+                    title="Add drafted rows to the negotiation"
+                  >
+                    <span className="material-symbols-outlined text-[24px] leading-none">task_alt</span>
+                    Complete
+                  </button>
+                ) : null}
+                {onCloseWorkspace ? (
+                  <div className="flex shrink-0 items-center justify-center border-t border-gray-200 pt-4 sm:border-l sm:border-t-0 sm:pl-6 sm:pt-0">
+                    <WorkspaceCloseButton title="Close workspace" onClick={onCloseWorkspace} />
+                  </div>
+                ) : null}
+              </>
             )}
-            {onCloseWorkspace ? (
-              <div className="flex shrink-0 items-center justify-center border-t border-gray-200 pt-4 sm:border-l sm:border-t-0 sm:pl-6 sm:pt-0">
-                <WorkspaceCloseButton title="Close workspace" onClick={onCloseWorkspace} />
-              </div>
-            ) : null}
           </div>
         </div>
         {catalogError ? <p className="mt-2 text-xs text-red-600">{catalogError}</p> : null}
+        {onAddJewelleryToNegotiation && !modalOpen ? (
+          <p className="mt-2 text-[11px] leading-relaxed text-gray-600 sm:text-right">
+            Only <span className="font-semibold text-gray-800">new</span> rows (not yet on the quote) are added when you
+            complete. Existing lines stay listed so you can add more. Use{' '}
+            <span className="font-semibold text-gray-800">Jewellery</span> in the header to open the picker again.
+          </p>
+        ) : null}
       </div>
 
       {modalOpen ? (
@@ -843,9 +897,9 @@ export default function JewelleryLineItems({
 
       {!modalOpen && lines.length === 0 ? (
         <p className="px-3 py-4 text-xs text-gray-500">
-          Load reference prices above, then use <span className="font-semibold text-gray-700">Add jewellery item</span> to
-          choose the item type and material. Right-click a row to remove. Optionally click a tier for a pre-selected offer;
-          use <span className="font-semibold text-gray-700">Complete</span> to add rows to the negotiation (tiers stay
+          Use <span className="font-semibold text-gray-700">Jewellery</span> in the header (diamond) to choose type and
+          material. Right-click a row to remove. Optionally click a tier for a pre-selected offer; use{' '}
+          <span className="font-semibold text-gray-700">Complete</span> above to add new rows to the negotiation (tiers stay
           available there if you skip them here).
         </p>
       ) : null}
@@ -1057,14 +1111,7 @@ export default function JewelleryLineItems({
                             setJewelleryOfferAuthName('');
                           }
                         }}
-                        onChange={(e) =>
-                          updateLine(line.id, {
-                            manualOfferInput: e.target.value,
-                            selectedOfferTierPct: null,
-                            selectedOfferTierAuthBy: null,
-                            manualOfferAuthBy: null,
-                          })
-                        }
+                        onChange={(e) => handleManualOfferInputChange(line, e.target.value)}
                         placeholder={manualBlocked ? 'Auth required' : '—'}
                         className={`h-8 w-full min-w-[4.5rem] rounded border border-gray-300 px-2 font-semibold tabular-nums text-gray-900 placeholder:text-gray-400 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-blue/30 bg-transparent ${manualBlocked ? 'cursor-pointer' : ''}`}
                         aria-label="Manual offer GBP"
@@ -1139,30 +1186,6 @@ export default function JewelleryLineItems({
               </div>
             </div>
           </div>
-          {onAddJewelleryToNegotiation ? (
-            <div
-              className="border-t border-gray-200 px-4 py-3 text-gray-900"
-              style={{ borderColor: 'rgba(20, 69, 132, 0.15)' }}
-            >
-              <button
-                type="button"
-                disabled={lines.length === 0}
-                onClick={handleCompleteJewelleryToNegotiation}
-                className="w-full rounded-xl px-4 py-3 text-sm font-extrabold uppercase tracking-wide transition-all disabled:cursor-not-allowed disabled:opacity-45"
-                style={{
-                  background: 'var(--brand-orange)',
-                  color: 'var(--brand-blue)',
-                  boxShadow: '0 8px 20px -6px rgba(247, 185, 24, 0.35)',
-                }}
-              >
-                Complete
-              </button>
-              <p className="mt-2 text-center text-[11px] text-gray-600">
-                Only <span className="font-semibold text-gray-800">new</span> rows (not yet on the quote) are added.
-                Existing quote lines stay listed so you can add more next to them.
-              </p>
-            </div>
-          ) : null}
         </div>
       ) : null}
 

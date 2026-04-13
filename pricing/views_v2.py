@@ -46,6 +46,7 @@ from .models_v2 import (
     NosposCategoryField,
 )
 from . import research_storage
+from .buying_decimal import parse_optional_money
 from .offer_rows import get_selected_offer_code, sync_request_item_offer_rows_from_payload
 from .services.offer_engine import (
     generate_offer_set as build_offer_set,
@@ -765,8 +766,16 @@ def update_request_item(request, request_item_id):
         update_fields.append('manual_offer_used')
     if 'manual_offer_gbp' in request.data:
         val = request.data['manual_offer_gbp']
-        existing_item.manual_offer_gbp = Decimal(str(val)) if val is not None and val != '' else None
-        update_fields.append('manual_offer_gbp')
+        try:
+            existing_item.manual_offer_gbp = parse_optional_money(
+                RequestItem, "manual_offer_gbp", val, existing_item
+            )
+            update_fields.append('manual_offer_gbp')
+        except DjangoValidationError as e:
+            return Response(
+                {'error': e.messages[0] if e.messages else 'Invalid manual_offer_gbp'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
     if 'customer_expectation_gbp' in request.data:
         val = request.data['customer_expectation_gbp']
         try:
@@ -790,10 +799,15 @@ def update_request_item(request, request_item_id):
     if 'our_sale_price_at_negotiation' in request.data:
         val = request.data['our_sale_price_at_negotiation']
         try:
-            existing_item.our_sale_price_at_negotiation = Decimal(str(val)) if val is not None and val != '' else None
+            existing_item.our_sale_price_at_negotiation = parse_optional_money(
+                RequestItem, "our_sale_price_at_negotiation", val, existing_item
+            )
             update_fields.append('our_sale_price_at_negotiation')
-        except (InvalidOperation, ValueError):
-            pass
+        except DjangoValidationError as e:
+            return Response(
+                {'error': e.messages[0] if e.messages else 'Invalid our_sale_price_at_negotiation'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
     if 'cash_offers_json' in request.data:
         cash_offers_payload = request.data['cash_offers_json'] or []
     if 'voucher_offers_json' in request.data:
@@ -823,17 +837,20 @@ def update_request_item(request, request_item_id):
         or cash_offers_payload is not None
         or voucher_offers_payload is not None
     ):
-        sync_request_item_offer_rows_from_payload(
-            existing_item,
-            selected_offer_id=(
-                selected_offer_id_payload
-                if selected_offer_id_payload is not None
-                else get_selected_offer_code(existing_item)
-            ),
-            cash_offers=cash_offers_payload if cash_offers_payload is not None else [],
-            voucher_offers=voucher_offers_payload if voucher_offers_payload is not None else [],
-            manual_offer_gbp=existing_item.manual_offer_gbp,
-        )
+        try:
+            sync_request_item_offer_rows_from_payload(
+                existing_item,
+                selected_offer_id=(
+                    selected_offer_id_payload
+                    if selected_offer_id_payload is not None
+                    else get_selected_offer_code(existing_item)
+                ),
+                cash_offers=cash_offers_payload if cash_offers_payload is not None else [],
+                voucher_offers=voucher_offers_payload if voucher_offers_payload is not None else [],
+                manual_offer_gbp=existing_item.manual_offer_gbp,
+            )
+        except ValueError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
     from .serializers import RequestItemSerializer
     serializer = RequestItemSerializer(existing_item)
@@ -940,29 +957,35 @@ def finish_request(request, request_id):
     # Validate incoming data for main request
     if overall_expectation_gbp is not None:
         try:
-            existing_request.overall_expectation_gbp = Decimal(str(overall_expectation_gbp))
-        except InvalidOperation:
+            existing_request.overall_expectation_gbp = parse_optional_money(
+                Request, "overall_expectation_gbp", overall_expectation_gbp, existing_request
+            )
+        except DjangoValidationError as e:
             return Response(
-                {"error": "Invalid format for overall_expectation_gbp"},
-                status=status.HTTP_400_BAD_REQUEST
+                {"error": e.messages[0] if e.messages else "Invalid overall_expectation_gbp"},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
     if negotiated_grand_total_gbp is not None:
         try:
-            existing_request.negotiated_grand_total_gbp = Decimal(str(negotiated_grand_total_gbp))
-        except InvalidOperation:
+            existing_request.negotiated_grand_total_gbp = parse_optional_money(
+                Request, "negotiated_grand_total_gbp", negotiated_grand_total_gbp, existing_request
+            )
+        except DjangoValidationError as e:
             return Response(
-                {"error": "Invalid format for negotiated_grand_total_gbp"},
-                status=status.HTTP_400_BAD_REQUEST
+                {"error": e.messages[0] if e.messages else "Invalid negotiated_grand_total_gbp"},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
     if target_offer_gbp is not None:
         try:
-            existing_request.target_offer_gbp = Decimal(str(target_offer_gbp))
-        except InvalidOperation:
+            existing_request.target_offer_gbp = parse_optional_money(
+                Request, "target_offer_gbp", target_offer_gbp, existing_request
+            )
+        except DjangoValidationError as e:
             return Response(
-                {"error": "Invalid format for target_offer_gbp"},
-                status=status.HTTP_400_BAD_REQUEST
+                {"error": e.messages[0] if e.messages else "Invalid target_offer_gbp"},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
     update_request_fields = ['overall_expectation_gbp', 'negotiated_grand_total_gbp', 'target_offer_gbp']
@@ -1022,10 +1045,17 @@ def finish_request(request, request_id):
             for field in ('cex_buy_cash_at_negotiation', 'cex_buy_voucher_at_negotiation', 'cex_sell_at_negotiation'):
                 if field in item_data and item_data[field] is not None:
                     try:
-                        setattr(request_item, field, Decimal(str(item_data[field])))
+                        dec = parse_optional_money(RequestItem, field, item_data[field], request_item)
+                        setattr(request_item, field, dec)
                         update_fields.append(field)
-                    except (InvalidOperation, TypeError):
-                        pass
+                    except DjangoValidationError as e:
+                        return Response(
+                            {
+                                "error": f"{field} for item {request_item_id}: "
+                                f"{e.messages[0] if e.messages else 'invalid'}",
+                            },
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
         elif request_item.variant and not _is_jewellery_placeholder_variant(request_item.variant):
             request_item.cex_buy_cash_at_negotiation = request_item.variant.tradein_cash
             update_fields.append('cex_buy_cash_at_negotiation')
@@ -1041,16 +1071,10 @@ def finish_request(request, request_id):
             selected_offer_id_payload = item_data['selected_offer_id']
         if 'manual_offer_gbp' in item_data:
             try:
-                dec = Decimal(str(item_data['manual_offer_gbp'])) if item_data['manual_offer_gbp'] is not None else None
-                if dec is not None:
-                    RequestItem._meta.get_field("manual_offer_gbp").clean(dec, request_item)
-                request_item.manual_offer_gbp = dec
-                update_fields.append('manual_offer_gbp')
-            except InvalidOperation:
-                return Response(
-                    {"error": f"Invalid format for manual_offer_gbp for item {request_item_id}"},
-                    status=status.HTTP_400_BAD_REQUEST
+                request_item.manual_offer_gbp = parse_optional_money(
+                    RequestItem, "manual_offer_gbp", item_data["manual_offer_gbp"], request_item
                 )
+                update_fields.append('manual_offer_gbp')
             except DjangoValidationError as e:
                 return Response(
                     {"error": f"manual_offer_gbp for item {request_item_id}: {e.messages[0]}"},
@@ -1058,16 +1082,13 @@ def finish_request(request, request_id):
                 )
         if 'customer_expectation_gbp' in item_data:
             try:
-                dec = Decimal(str(item_data['customer_expectation_gbp'])) if item_data['customer_expectation_gbp'] is not None else None
-                if dec is not None:
-                    RequestItem._meta.get_field("customer_expectation_gbp").clean(dec, request_item)
-                request_item.customer_expectation_gbp = dec
-                update_fields.append('customer_expectation_gbp')
-            except InvalidOperation:
-                return Response(
-                    {"error": f"Invalid format for customer_expectation_gbp for item {request_item_id}"},
-                    status=status.HTTP_400_BAD_REQUEST
+                request_item.customer_expectation_gbp = parse_optional_money(
+                    RequestItem,
+                    "customer_expectation_gbp",
+                    item_data["customer_expectation_gbp"],
+                    request_item,
                 )
+                update_fields.append('customer_expectation_gbp')
             except DjangoValidationError as e:
                 return Response(
                     {"error": f"customer_expectation_gbp for item {request_item_id}: {e.messages[0]}"},
@@ -1075,16 +1096,13 @@ def finish_request(request, request_id):
                 )
         if 'negotiated_price_gbp' in item_data:
             try:
-                dec = Decimal(str(item_data['negotiated_price_gbp'])) if item_data['negotiated_price_gbp'] is not None else None
-                if dec is not None:
-                    RequestItem._meta.get_field("negotiated_price_gbp").clean(dec, request_item)
-                request_item.negotiated_price_gbp = dec
-                update_fields.append('negotiated_price_gbp')
-            except InvalidOperation:
-                return Response(
-                    {"error": f"Invalid format for negotiated_price_gbp for item {request_item_id}"},
-                    status=status.HTTP_400_BAD_REQUEST
+                request_item.negotiated_price_gbp = parse_optional_money(
+                    RequestItem,
+                    "negotiated_price_gbp",
+                    item_data["negotiated_price_gbp"],
+                    request_item,
                 )
+                update_fields.append('negotiated_price_gbp')
             except DjangoValidationError as e:
                 return Response(
                     {"error": f"negotiated_price_gbp for item {request_item_id}: {e.messages[0]}"},
@@ -1105,16 +1123,13 @@ def finish_request(request, request_id):
         
         if 'our_sale_price_at_negotiation' in item_data:
             try:
-                dec = Decimal(str(item_data['our_sale_price_at_negotiation'])) if item_data['our_sale_price_at_negotiation'] is not None else None
-                if dec is not None:
-                    RequestItem._meta.get_field("our_sale_price_at_negotiation").clean(dec, request_item)
-                request_item.our_sale_price_at_negotiation = dec
-                update_fields.append('our_sale_price_at_negotiation')
-            except InvalidOperation:
-                return Response(
-                    {"error": f"Invalid format for our_sale_price_at_negotiation for item {request_item_id}"},
-                    status=status.HTTP_400_BAD_REQUEST
+                request_item.our_sale_price_at_negotiation = parse_optional_money(
+                    RequestItem,
+                    "our_sale_price_at_negotiation",
+                    item_data["our_sale_price_at_negotiation"],
+                    request_item,
                 )
+                update_fields.append('our_sale_price_at_negotiation')
             except DjangoValidationError as e:
                 return Response(
                     {"error": f"our_sale_price_at_negotiation for item {request_item_id}: {e.messages[0]}"},
@@ -1142,17 +1157,20 @@ def finish_request(request, request_id):
             or cash_offers_payload is not None
             or voucher_offers_payload is not None
         ):
-            sync_request_item_offer_rows_from_payload(
-                request_item,
-                selected_offer_id=(
-                    selected_offer_id_payload
-                    if selected_offer_id_payload is not None
-                    else get_selected_offer_code(request_item)
-                ),
-                cash_offers=cash_offers_payload if cash_offers_payload is not None else [],
-                voucher_offers=voucher_offers_payload if voucher_offers_payload is not None else [],
-                manual_offer_gbp=request_item.manual_offer_gbp,
-            )
+            try:
+                sync_request_item_offer_rows_from_payload(
+                    request_item,
+                    selected_offer_id=(
+                        selected_offer_id_payload
+                        if selected_offer_id_payload is not None
+                        else get_selected_offer_code(request_item)
+                    ),
+                    cash_offers=cash_offers_payload if cash_offers_payload is not None else [],
+                    voucher_offers=voucher_offers_payload if voucher_offers_payload is not None else [],
+                    manual_offer_gbp=request_item.manual_offer_gbp,
+                )
+            except ValueError as exc:
+                return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
     # When save_only/request_not_completed: save all data but stay in QUOTE (for tab close / draft)
     save_only = request.data.get('save_only') or request.data.get('request_not_completed')
