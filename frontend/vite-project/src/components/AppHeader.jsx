@@ -159,7 +159,11 @@ const AppHeader = ({
   const showBuyerControls = Boolean(buyerControls?.enabled);
   const showNegotiationItemBuilder = Boolean(buyerControls?.enableNegotiationItemBuilder);
   const useVoucherOffers = Boolean(buyerControls?.useVoucherOffers);
-  const isRepricingWorkspace = Boolean(buyerControls?.onQuickReprice);
+  const isRepricingWorkspace = Boolean(buyerControls?.repricingWorkspace || buyerControls?.onQuickReprice);
+  const isUploadListWorkspace = useAppStore((s) => s.mode === 'repricing' && s.repricingWorkspaceKind === 'upload');
+  const addToWorkspaceListLabel = isUploadListWorkspace ? 'Add to upload list' : 'Add to reprice list';
+  const reserveWorkspaceRightForRepriceRail =
+    buyerControls?.reserveWorkspaceRightForRepriceRail ?? isRepricingWorkspace;
 
   const handleNewBuy = useCallback(() => {
     if (typeof buyerControls?.onNewBuy === 'function') {
@@ -1144,7 +1148,7 @@ const AppHeader = ({
               <div
                 className={
                   showNegotiationItemBuilder
-                    ? `fixed left-0 ${isRepricingWorkspace ? 'right-80' : 'right-0'} bottom-0 z-[200] flex gap-0 bg-white`
+                    ? `fixed left-0 ${reserveWorkspaceRightForRepriceRail ? 'right-80' : 'right-0'} bottom-0 z-[200] flex gap-0 bg-white`
                     : 'absolute left-0 top-12 z-50 flex gap-0'
                 }
                 style={
@@ -1388,7 +1392,7 @@ const AppHeader = ({
                               onAddNegotiationItem={buyerControls?.onAddNegotiationItem}
                               onOfferPreviewChange={buyerControls?.onOtherWorkspaceOfferPreviewChange}
                               onAdded={resetHeaderWorkspaceChrome}
-                              addButtonLabel={isRepricingWorkspace ? 'Add to reprice list' : 'Add to negotiation'}
+                              addButtonLabel={isRepricingWorkspace ? addToWorkspaceListLabel : 'Add to negotiation'}
                             />
                           </div>
                         )}
@@ -1411,7 +1415,7 @@ const AppHeader = ({
                           }}
                           initialHistogramState={true}
                           showManualOffer={false}
-                          addActionLabel={isRepricingWorkspace ? 'Add to reprice list' : 'Add to Cart'}
+                          addActionLabel={isRepricingWorkspace ? addToWorkspaceListLabel : 'Add to Cart'}
                           hideOfferCards={isRepricingWorkspace}
                           useVoucherOffers={useVoucherOffers}
                           onOffersChange={buyerControls?.onHeaderEbayResearchOffersLiveChange}
@@ -1423,6 +1427,7 @@ const AppHeader = ({
                           <CexProductView
                             cexProduct={buyerControls.cexProductData}
                             isRepricing={isRepricingWorkspace}
+                            workspaceListAddButtonLabel={isRepricingWorkspace ? addToWorkspaceListLabel : undefined}
                             useVoucherOffers={useVoucherOffers}
                             customerData={buyerControls?.customerData}
                             negotiationClientLineId={cexNegotiationClientLineId}
@@ -1611,7 +1616,7 @@ const AppHeader = ({
                             style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
                           >
                             <span className="material-symbols-outlined text-[20px]">sell</span>
-                            Add to reprice list
+                            {addToWorkspaceListLabel}
                           </button>
                         )}
                       </div>

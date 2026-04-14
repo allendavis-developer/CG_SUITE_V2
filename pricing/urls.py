@@ -43,6 +43,10 @@ urlpatterns = [
     path('repricing-sessions/overview/', views.repricing_sessions_view, name='repricing_sessions_overview'),
     path('repricing-sessions/<int:repricing_session_id>/', views.repricing_session_detail, name='repricing_session_detail'),
 
+    path('upload-sessions/', views.upload_sessions_view, name='upload_sessions'),
+    path('upload-sessions/overview/', views.upload_sessions_view, name='upload_sessions_overview'),
+    path('upload-sessions/<int:upload_session_id>/', views.upload_session_detail, name='upload_session_detail'),
+
     # Pricing rules
     path('pricing-rules/', views.pricing_rules_view, name='pricing_rules'),
     path('pricing-rules/<int:rule_id>/', views.pricing_rule_detail, name='pricing_rule_detail'),

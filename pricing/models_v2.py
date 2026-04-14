@@ -1425,13 +1425,12 @@ class RepricingSession(models.Model):
         ordering = ["-created_at"]
 
 
-class RepricingSessionItem(models.Model):
-    repricing_session_item_id = models.AutoField(primary_key=True)
-    repricing_session = models.ForeignKey(
-        RepricingSession,
-        on_delete=models.CASCADE,
-        related_name="items"
-    )
+class AbstractStockSessionLine(models.Model):
+    """
+    Persisted NoSPos stock line shared by repricing and upload modules (barcode → verified stock, prices).
+    RequestItem stays separate: buying flow uses different columns and jewellery tables.
+    """
+
     item_identifier = models.CharField(max_length=100, blank=True, default="")
     title = models.CharField(max_length=255, blank=True, default="")
     quantity = models.PositiveIntegerField(default=1)
@@ -1441,41 +1440,95 @@ class RepricingSessionItem(models.Model):
         max_length=500,
         blank=True,
         default="",
-        help_text="Link to the stock page in NoSPos / stock system"
+        help_text="Link to the stock page in NoSPos / stock system",
     )
     old_retail_price = models.DecimalField(
         max_digits=10,
         decimal_places=2,
         null=True,
         blank=True,
-        validators=[MinValueValidator(Decimal("0.00"))]
+        validators=[MinValueValidator(Decimal("0.00"))],
     )
     new_retail_price = models.DecimalField(
         max_digits=10,
         decimal_places=2,
         null=True,
         blank=True,
-        validators=[MinValueValidator(Decimal("0.00"))]
+        validators=[MinValueValidator(Decimal("0.00"))],
     )
     cex_sell_at_repricing = models.DecimalField(
         max_digits=10,
         decimal_places=2,
         null=True,
         blank=True,
-        validators=[MinValueValidator(Decimal("0.00"))]
+        validators=[MinValueValidator(Decimal("0.00"))],
+        help_text="CeX sell snapshot at workflow time (repricing or upload)",
     )
     our_sale_price_at_repricing = models.DecimalField(
         max_digits=10,
         decimal_places=2,
         null=True,
         blank=True,
-        validators=[MinValueValidator(Decimal("0.00"))]
+        validators=[MinValueValidator(Decimal("0.00"))],
+        help_text="Our sale / new retail input at workflow time (repricing or upload)",
+    )
+
+    class Meta:
+        abstract = True
+
+
+class RepricingSessionItem(AbstractStockSessionLine):
+    repricing_session_item_id = models.AutoField(primary_key=True)
+    repricing_session = models.ForeignKey(
+        RepricingSession,
+        on_delete=models.CASCADE,
+        related_name="items",
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = "pricing_repricing_session_item"
         ordering = ["repricing_session_item_id"]
+
+
+class UploadSession(models.Model):
+    """Upload module: same session shape as repricing, separate persistence."""
+
+    upload_session_id = models.AutoField(primary_key=True)
+    cart_key = models.CharField(max_length=255, blank=True, default="", db_index=True)
+    item_count = models.PositiveIntegerField(default=0)
+    barcode_count = models.PositiveIntegerField(default=0)
+    status = models.CharField(
+        max_length=20,
+        choices=RepricingSessionStatus.choices,
+        default=RepricingSessionStatus.IN_PROGRESS,
+        db_index=True,
+    )
+    session_data = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Full frontend state for resuming upload sessions (items, barcodes, lookups, research)",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "pricing_upload_session"
+        ordering = ["-created_at"]
+
+
+class UploadSessionItem(AbstractStockSessionLine):
+    upload_session_item_id = models.AutoField(primary_key=True)
+    upload_session = models.ForeignKey(
+        UploadSession,
+        on_delete=models.CASCADE,
+        related_name="items",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "pricing_upload_session_item"
+        ordering = ["upload_session_item_id"]
 
 
 class MarketResearchPlatform(models.TextChoices):
@@ -1502,6 +1555,13 @@ class MarketResearchSession(models.Model):
     )
     repricing_session_item = models.ForeignKey(
         RepricingSessionItem,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="market_research_sessions",
+    )
+    upload_session_item = models.ForeignKey(
+        UploadSessionItem,
         on_delete=models.CASCADE,
         null=True,
         blank=True,
@@ -1544,8 +1604,21 @@ class MarketResearchSession(models.Model):
         constraints = [
             models.CheckConstraint(
                 condition=(
-                    (Q(request_item__isnull=False) & Q(repricing_session_item__isnull=True))
-                    | (Q(request_item__isnull=True) & Q(repricing_session_item__isnull=False))
+                    (
+                        Q(request_item__isnull=False)
+                        & Q(repricing_session_item__isnull=True)
+                        & Q(upload_session_item__isnull=True)
+                    )
+                    | (
+                        Q(request_item__isnull=True)
+                        & Q(repricing_session_item__isnull=False)
+                        & Q(upload_session_item__isnull=True)
+                    )
+                    | (
+                        Q(request_item__isnull=True)
+                        & Q(repricing_session_item__isnull=True)
+                        & Q(upload_session_item__isnull=False)
+                    )
                 ),
                 name="market_research_session_parent_xor",
             ),
@@ -1558,6 +1631,11 @@ class MarketResearchSession(models.Model):
                 fields=["repricing_session_item", "platform"],
                 condition=Q(repricing_session_item__isnull=False),
                 name="uniq_repricing_item_market_research_platform",
+            ),
+            models.UniqueConstraint(
+                fields=["upload_session_item", "platform"],
+                condition=Q(upload_session_item__isnull=False),
+                name="uniq_upload_session_item_market_research_platform",
             ),
         ]
 

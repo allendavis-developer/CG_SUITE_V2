@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useState } from 'react';
 import { Icon, Button } from '@/components/ui/components';
 import { useNavigate } from 'react-router-dom';
 import { formatOfferPrice } from '@/utils/helpers';
-import useAppStore, { useCartItems, useCustomerData, useOfferTotals, useIsRepricing } from '@/store/useAppStore';
+import useAppStore, { useCartItems, useCustomerData, useOfferTotals, useIsRepricing, useIsUploadWorkspace } from '@/store/useAppStore';
 import TinyModal from '@/components/ui/TinyModal';
 
 /** Cart quantity as integer ≥ 1 (`item.quantity` may be string "0", which is truthy and breaks `qty || 1`). */
@@ -13,6 +13,9 @@ function normalizedCartItemQuantity(item) {
 
 const CartSidebar = ({ mode = 'buyer', onTransactionTypeChange = null }) => {
   const isRepricing = useIsRepricing();
+  const isUploadWorkspace = useIsUploadWorkspace();
+  const listTitle = isUploadWorkspace ? 'Upload list' : 'Reprice List';
+  const listNoun = isUploadWorkspace ? 'upload list' : 'reprice list';
   const cartItems = useCartItems();
   const customerData = useCustomerData();
   const request = useAppStore((s) => s.request);
@@ -21,6 +24,8 @@ const CartSidebar = ({ mode = 'buyer', onTransactionTypeChange = null }) => {
   const removeFromCart = useAppStore((s) => s.removeFromCart);
   const updateCartItem = useAppStore((s) => s.updateCartItem);
   const resetBuyer = useAppStore((s) => s.resetBuyer);
+  const repricingHomePath = useAppStore((s) => s.repricingHomePath);
+  const repricingNegotiationPath = useAppStore((s) => s.repricingNegotiationPath);
   const { offerMin, offerMax, totalOffer } = useOfferTotals();
 
   const cartListRef = useRef(null);
@@ -31,7 +36,7 @@ const CartSidebar = ({ mode = 'buyer', onTransactionTypeChange = null }) => {
   const handleConfirmNewSession = () => {
     setShowNewSessionConfirm(false);
     resetBuyer();
-    navigate(isRepricing ? '/repricing' : '/buyer');
+    navigate(isRepricing ? (repricingHomePath || '/repricing') : '/buyer');
   };
 
   useEffect(() => {
@@ -65,11 +70,11 @@ const CartSidebar = ({ mode = 'buyer', onTransactionTypeChange = null }) => {
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <span className="material-symbols-outlined text-brand-orange text-base">
-              {isRepricing ? 'sell' : 'shopping_cart'}
+              {isRepricing ? (isUploadWorkspace ? 'upload' : 'sell') : 'shopping_cart'}
             </span>
             <div>
               <p className="text-xs font-black uppercase tracking-wider text-white">
-                {isRepricing ? 'Reprice List' : 'Cart'}
+                {isRepricing ? listTitle : 'Cart'}
               </p>
               <p className="text-[10px] text-white/70">
                 {cartItems.length} item{cartItems.length !== 1 ? 's' : ''}
@@ -91,10 +96,14 @@ const CartSidebar = ({ mode = 'buyer', onTransactionTypeChange = null }) => {
               type="button"
               onClick={() => setShowNewSessionConfirm(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold text-white/70 hover:text-white hover:bg-white/10 transition-colors"
-              title="Clear reprice list and start a new repricing session"
+              title={
+                isUploadWorkspace
+                  ? 'Clear upload list and start a new upload session'
+                  : 'Clear reprice list and start a new repricing session'
+              }
             >
               <Icon name="refresh" className="text-sm" />
-              New Repricing
+              {isUploadWorkspace ? 'New upload' : 'New Repricing'}
             </button>
           )}
         </div>
@@ -104,8 +113,8 @@ const CartSidebar = ({ mode = 'buyer', onTransactionTypeChange = null }) => {
       <div ref={cartListRef} className="flex-1 min-h-0 overflow-y-auto buyer-panel-scroll p-4 space-y-3 bg-white">
         {cartItems.length === 0 ? (
           <div className="text-center py-12">
-            <Icon name={isRepricing ? 'sell' : 'shopping_cart'} className="text-4xl text-gray-300 mb-2" />
-            <p className="text-sm text-gray-500">No items in {isRepricing ? 'reprice list' : 'cart'}</p>
+            <Icon name={isRepricing ? (isUploadWorkspace ? 'upload' : 'sell') : 'shopping_cart'} className="text-4xl text-gray-300 mb-2" />
+            <p className="text-sm text-gray-500">No items in {isRepricing ? listNoun : 'cart'}</p>
           </div>
         ) : (
           <>
@@ -161,7 +170,7 @@ const CartSidebar = ({ mode = 'buyer', onTransactionTypeChange = null }) => {
           className="w-full group disabled:opacity-50 disabled:cursor-not-allowed"
           onClick={() => {
             const repricingSessionId = isRepricing ? useAppStore.getState().repricingSessionId : null;
-            navigate(isRepricing ? '/repricing-negotiation' : '/negotiation', {
+            navigate(isRepricing ? (repricingNegotiationPath || '/repricing-negotiation') : '/negotiation', {
               state: {
                 cartItems,
                 customerData,
@@ -175,18 +184,18 @@ const CartSidebar = ({ mode = 'buyer', onTransactionTypeChange = null }) => {
           }}
           disabled={disableProceed}
         >
-          {isRepricing ? 'View Reprice List' : 'Proceed'}
+          {isRepricing ? (isUploadWorkspace ? 'Continue upload' : 'View Reprice List') : 'Proceed'}
           <Icon name="arrow_forward" className="ml-2 text-sm group-hover:translate-x-1 transition-transform" />
         </Button>
       </div>
 
       {showNewSessionConfirm && (
         <TinyModal
-          title={isRepricing ? "Start a new repricing?" : "Start a new buy?"}
+          title={isRepricing ? (isUploadWorkspace ? 'Start a new upload?' : 'Start a new repricing?') : 'Start a new buy?'}
           onClose={() => setShowNewSessionConfirm(false)}
         >
           <p className="text-xs text-slate-600 mb-5">
-            This will clear your current {isRepricing ? "reprice list" : "cart"} and start fresh.
+            This will clear your current {isRepricing ? listNoun : 'cart'} and start fresh.
           </p>
           <div className="flex items-center justify-end gap-3">
             <button

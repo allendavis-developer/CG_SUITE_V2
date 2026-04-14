@@ -94,6 +94,11 @@ const useAppStore = create(
       // ─── Mode ───────────────────────────────────────────────────────────
       mode: 'buyer',
       repricingSessionId: null,
+      /** When `mode === 'repricing'`: classic repricing vs upload (affects cart / header list copy). */
+      repricingWorkspaceKind: 'repricing',
+      /** Routes for repricing-like workspaces (repricing vs upload); Cart / negotiation use these when mode is repricing. */
+      repricingHomePath: '/repricing',
+      repricingNegotiationPath: '/repricing-negotiation',
       /** Incremented when starting a blank repricing workspace so the route remounts even if path is unchanged. */
       repricingWorkspaceNonce: 0,
       /** True when the AppHeader workspace panel (builder/eBay/CeX) is mounted. */
@@ -119,6 +124,9 @@ const useAppStore = create(
           cartItems: [],
           repricingCartItems: [],
           repricingSessionId: null,
+          repricingWorkspaceKind: 'repricing',
+          repricingHomePath: '/repricing',
+          repricingNegotiationPath: '/repricing-negotiation',
           customerData: { ...DEFAULT_CUSTOMER },
           intent: null,
           request: null,
@@ -154,11 +162,17 @@ const useAppStore = create(
           headerWorkspaceOpen: false,
           headerWorkspaceMode: 'builder',
         })),
-      resetRepricingWorkspace: () =>
-        set((s) => ({
+      resetRepricingWorkspace: ({ homePath, negotiationPath } = {}) => {
+        const hp = homePath ?? '/repricing';
+        const np = negotiationPath ?? '/repricing-negotiation';
+        const repricingWorkspaceKind = hp === '/upload' ? 'upload' : 'repricing';
+        return set((s) => ({
           mode: 'repricing',
+          repricingWorkspaceKind,
           repricingSessionId: null,
           repricingCartItems: [],
+          repricingHomePath: hp,
+          repricingNegotiationPath: np,
           selectedCategory: null,
           selectedModel: null,
           selectedCartItemId: null,
@@ -168,7 +182,8 @@ const useAppStore = create(
           repricingWorkspaceNonce: s.repricingWorkspaceNonce + 1,
           headerWorkspaceOpen: false,
           headerWorkspaceMode: 'builder',
-        })),
+        }));
+      },
       setHeaderWorkspaceOpen: (open) => set({ headerWorkspaceOpen: Boolean(open) }),
       setHeaderWorkspaceMode: (mode) =>
         set({ headerWorkspaceMode: typeof mode === 'string' && mode ? mode : 'builder' }),
@@ -224,10 +239,11 @@ const useAppStore = create(
       repricingCartItems: [],
 
       addToCart: (item, { showNotification } = {}) => {
-        const { mode, customerData } = get();
+        const { mode, customerData, repricingWorkspaceKind } = get();
         const key = _cartKey();
         const cartItems = _getCart();
         const isRepricing = mode === 'repricing';
+        const listNoun = isRepricing && repricingWorkspaceKind === 'upload' ? 'upload list' : 'reprice list';
 
         if (!isRepricing) {
           const useVoucherOffers = customerData?.transactionType === 'store_credit';
@@ -251,7 +267,7 @@ const useAppStore = create(
 
         let msg;
         if (existing) {
-          if (isRepricing) msg = `${item.title} is already in the reprice list`;
+          if (isRepricing) msg = `${item.title} is already in the ${listNoun}`;
           else if (sameOffer) msg = `Quantity increased to ${(existing.quantity || 1) + 1} for ${item.title}`;
           else msg = `Offer updated for ${item.title}`;
         } else {
@@ -1068,9 +1084,11 @@ const useAppStore = create(
           addToCart(withDefaultRrpOffersSource(cartItem));
           count++;
         }
-        showNotification?.(`${count} item${count !== 1 ? 's' : ''} added to reprice list`, 'success');
+        const listNoun = get().repricingWorkspaceKind === 'upload' ? 'upload list' : 'reprice list';
+        showNotification?.(`${count} item${count !== 1 ? 's' : ''} added to ${listNoun}`, 'success');
       },
-    });}
+    });
+  }
 );
 
 // ─── Selectors ────────────────────────────────────────────────────────────────
@@ -1078,6 +1096,10 @@ const useAppStore = create(
 export const useCartItems = () => useAppStore((s) => s.mode === 'repricing' ? s.repricingCartItems : s.cartItems);
 export const useCustomerData = () => useAppStore((s) => s.customerData);
 export const useIsRepricing = () => useAppStore((s) => s.mode === 'repricing');
+
+/** True on /upload and /upload-negotiation (shared repricing cart + extension flows, upload copy). */
+export const useIsUploadWorkspace = () =>
+  useAppStore((s) => s.mode === 'repricing' && s.repricingWorkspaceKind === 'upload');
 export const useUseVoucherOffers = () => useAppStore((s) => s.customerData?.transactionType === 'store_credit');
 export const useEbayOfferMargins = (categoryId) =>
   useAppStore((s) => {

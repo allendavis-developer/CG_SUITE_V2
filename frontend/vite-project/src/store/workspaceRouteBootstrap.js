@@ -20,6 +20,16 @@ export function isBuyerNavigationHandoff(st) {
   return false;
 }
 
+export const REPRICING_WORKSPACE_PATHS = {
+  repricingHomePath: '/repricing',
+  repricingNegotiationPath: '/repricing-negotiation',
+};
+
+export const UPLOAD_WORKSPACE_PATHS = {
+  repricingHomePath: '/upload',
+  repricingNegotiationPath: '/upload-negotiation',
+};
+
 /** Repricing session restore from overview / sidebar / redo. */
 export function isRepricingNavigationHandoff(st) {
   if (!st || typeof st !== 'object') return false;
@@ -35,9 +45,11 @@ export function bootstrapBuyerWorkspaceFromRoute(locationState, setState) {
   if (isBuyerNavigationHandoff(locationState)) {
     setState((s) => ({
       mode: 'buyer',
+      repricingWorkspaceKind: 'repricing',
       cartItems: [],
       repricingSessionId: null,
       repricingCartItems: [],
+      ...REPRICING_WORKSPACE_PATHS,
       resetKey: s.resetKey + 1,
     }));
     return;
@@ -45,9 +57,11 @@ export function bootstrapBuyerWorkspaceFromRoute(locationState, setState) {
 
   setState((s) => ({
     mode: 'buyer',
+    repricingWorkspaceKind: 'repricing',
     cartItems: [],
     repricingCartItems: [],
     repricingSessionId: null,
+    ...REPRICING_WORKSPACE_PATHS,
     customerData: { ...ROUTE_ENTRY_CUSTOMER },
     intent: null,
     request: null,
@@ -65,12 +79,17 @@ export function bootstrapBuyerWorkspaceFromRoute(locationState, setState) {
 }
 
 /** Apply store updates for /repricing and /repricing-negotiation on each navigation. */
-export function bootstrapRepricingWorkspaceFromRoute(locationState, setState) {
+export function bootstrapRepricingWorkspaceFromRoute(locationState, setState, workspacePaths = REPRICING_WORKSPACE_PATHS) {
+  const repricingWorkspaceKind =
+    workspacePaths?.repricingHomePath === '/upload' ? 'upload' : 'repricing';
+
   if (isRepricingNavigationHandoff(locationState)) {
     setState((s) => ({
       mode: 'repricing',
+      repricingWorkspaceKind,
       repricingSessionId: locationState.sessionId ?? null,
       repricingCartItems: [],
+      ...workspacePaths,
       cartItems: [],
       customerData: { ...ROUTE_ENTRY_CUSTOMER },
       intent: null,
@@ -90,8 +109,10 @@ export function bootstrapRepricingWorkspaceFromRoute(locationState, setState) {
 
   setState((s) => ({
     mode: 'repricing',
+    repricingWorkspaceKind,
     repricingSessionId: null,
     repricingCartItems: [],
+    ...workspacePaths,
     selectedCategory: null,
     selectedModel: null,
     selectedCartItemId: null,

@@ -201,6 +201,8 @@ export default function JewelleryNegotiationSlimTable({
   requestId = null,
   onOpenNosposRequiredFieldsEditor = null,
   hideNosposRequiredColumn = false,
+  /** When true, hide NosPos category column and inline field-AI trigger (upload workspace). */
+  hideNosposCategoryColumn = false,
 }) {
   const showParkExclude = parkExcludedItems != null && typeof onToggleParkExcludeItem === 'function';
   const isView = mode === 'view';
@@ -225,9 +227,11 @@ export default function JewelleryNegotiationSlimTable({
             <th scope="col" className="w-40">
               Category
             </th>
-            <th scope="col" className="min-w-[140px] max-w-[220px]">
-              NosPos category
-            </th>
+            {!hideNosposCategoryColumn ? (
+              <th scope="col" className="min-w-[140px] max-w-[220px]">
+                NosPos category
+              </th>
+            ) : null}
             {!hideNosposRequiredColumn ? (
               <th scope="col" className="min-w-[130px] max-w-[160px] text-[10px]">
                 NosPos required
@@ -348,34 +352,36 @@ export default function JewelleryNegotiationSlimTable({
                     </div>
                   )}
                 </td>
-                <td
-                  className="align-top max-w-[220px] break-words text-[10px] font-medium text-gray-600"
-                  onContextMenu={ctxRemoveOnly(item)}
-                  title={nosposCategoryBreadcrumb || undefined}
-                >
-                  {item.isRemoved ? (
-                    '—'
-                  ) : nosposCategoriesResults == null ? (
-                    <div className="py-1">
-                      <NosposSchemaCellSpinner />
-                    </div>
-                  ) : (
-                    <div className="flex flex-col gap-0.5">
-                      <span className="break-words">{nosposCategoryBreadcrumb || '—'}</span>
-                      {hideNosposRequiredColumn ? (
-                        <NosposRequiredFieldsEditorTriggerButton
-                          item={item}
-                          negotiationIndex={index}
-                          nosposCategoriesResults={nosposCategoriesResults}
-                          nosposCategoryMappings={nosposCategoryMappings}
-                          useVoucherOffers={useVoucherOffers}
-                          requestId={requestId}
-                          onOpenEditor={onOpenNosposRequiredFieldsEditor}
-                        />
-                      ) : null}
-                    </div>
-                  )}
-                </td>
+                {!hideNosposCategoryColumn ? (
+                  <td
+                    className="align-top max-w-[220px] break-words text-[10px] font-medium text-gray-600"
+                    onContextMenu={ctxRemoveOnly(item)}
+                    title={nosposCategoryBreadcrumb || undefined}
+                  >
+                    {item.isRemoved ? (
+                      '—'
+                    ) : nosposCategoriesResults == null ? (
+                      <div className="py-1">
+                        <NosposSchemaCellSpinner />
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-0.5">
+                        <span className="break-words">{nosposCategoryBreadcrumb || '—'}</span>
+                        {hideNosposRequiredColumn ? (
+                          <NosposRequiredFieldsEditorTriggerButton
+                            item={item}
+                            negotiationIndex={index}
+                            nosposCategoriesResults={nosposCategoriesResults}
+                            nosposCategoryMappings={nosposCategoryMappings}
+                            useVoucherOffers={useVoucherOffers}
+                            requestId={requestId}
+                            onOpenEditor={onOpenNosposRequiredFieldsEditor}
+                          />
+                        ) : null}
+                      </div>
+                    )}
+                  </td>
+                ) : null}
                 {!hideNosposRequiredColumn ? (
                   <NosposRequiredFieldsColumnCell
                     item={item}

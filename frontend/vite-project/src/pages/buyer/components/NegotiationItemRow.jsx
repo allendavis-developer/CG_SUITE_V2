@@ -139,6 +139,10 @@ export default function NegotiationItemRow({
   onOpenNosposRequiredFieldsEditor = null,
   onOpenNosposCategoryPicker = null,
   hideNosposRequiredColumn = false,
+  /** When true, omit the NosPos category cell and any inline field-AI trigger there (upload workspace). */
+  hideNosposCategoryColumn = false,
+  hideQuantityColumn = false,
+  hideCexVoucherCashColumns = false,
   /** When false, Category + NosPos cells collapse to one narrow placeholder (default expanded for single-callers). */
   categoryColumnsExpanded = true,
   onApplyRrpPriceSource = null,
@@ -221,87 +225,96 @@ export default function NegotiationItemRow({
       className={item.isRemoved ? 'opacity-60' : ''}
       style={item.isRemoved ? { textDecoration: 'line-through' } : {}}
     >
-      {/* Qty */}
-      <td className="text-center" onContextMenu={ctxRemoveOnly}>
-        {isViewMode ? (
-          <span className="font-bold">{quantity}</span>
-        ) : (
-          <input
-            className="w-12 text-center border rounded px-1 py-0.5 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-[var(--brand-blue)]"
-            type="number"
-            min="1"
-            value={quantity}
-            onChange={(e) => {
-              const parsed = parseInt(e.target.value, 10);
-              onQuantityChange(item.id, Number.isNaN(parsed) || parsed <= 0 ? 1 : parsed);
-            }}
-          />
-        )}
-      </td>
+      {!hideQuantityColumn ? (
+        <td className="text-center" onContextMenu={ctxRemoveOnly}>
+          {isViewMode ? (
+            <span className="font-bold">{quantity}</span>
+          ) : (
+            <input
+              className="w-12 text-center border rounded px-1 py-0.5 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-[var(--brand-blue)]"
+              type="number"
+              min="1"
+              value={quantity}
+              onChange={(e) => {
+                const parsed = parseInt(e.target.value, 10);
+                onQuantityChange(item.id, Number.isNaN(parsed) || parsed <= 0 ? 1 : parsed);
+              }}
+            />
+          )}
+        </td>
+      ) : null}
 
       {categoryColumnsExpanded ? (
-        <>
-          {/* Resolved child category */}
+        hideNosposCategoryColumn ? (
           <td className="align-top" onContextMenu={ctxRemoveOnly}>
             <div className="text-[11px] font-semibold leading-snug" style={{ color: 'var(--text-muted)' }}>
               {resolvedLeafCategory}
             </div>
           </td>
+        ) : (
+          <>
+            {/* Resolved child category */}
+            <td className="align-top" onContextMenu={ctxRemoveOnly}>
+              <div className="text-[11px] font-semibold leading-snug" style={{ color: 'var(--text-muted)' }}>
+                {resolvedLeafCategory}
+              </div>
+            </td>
 
-          {/* AI-resolved NosPos stock category (breadcrumb) — clickable to change in negotiate mode */}
-          <td className="align-top max-w-[220px]" onContextMenu={ctxRemoveOnly} title={nosposCategoryBreadcrumb || undefined}>
-            {item.isRemoved ? (
-              <div className="text-[10px] text-slate-400">—</div>
-            ) : nosposCategoriesResults == null ? (
-              <div className="py-1">
-                <NosposSchemaCellSpinner />
-              </div>
-            ) : (
-              <div className="flex flex-col gap-0.5">
-                {mode === 'negotiate' && onOpenNosposCategoryPicker ? (
-                  <button
-                    type="button"
-                    onClick={() => onOpenNosposCategoryPicker(item)}
-                    className={`group flex w-full items-start gap-1 rounded px-1 py-0.5 text-left transition-colors hover:bg-slate-100 ${
-                      nosposCategoryBreadcrumb ? '' : 'border border-dashed border-amber-300 bg-amber-50/60 hover:bg-amber-50'
-                    }`}
-                    title={nosposCategoryBreadcrumb ? `Change NosPos category (current: ${nosposCategoryBreadcrumb})` : 'No NosPos category — click to set one'}
-                  >
-                    {nosposCategoryBreadcrumb ? (
-                      <>
-                        <span className="min-w-0 flex-1 break-words text-[10px] font-medium leading-snug" style={{ color: 'var(--text-muted)' }}>
-                          {nosposCategoryBreadcrumb}
+            {/* AI-resolved NosPos stock category (breadcrumb) — clickable to change in negotiate mode */}
+            <td className="align-top max-w-[220px]" onContextMenu={ctxRemoveOnly} title={nosposCategoryBreadcrumb || undefined}>
+              {item.isRemoved ? (
+                <div className="text-[10px] text-slate-400">—</div>
+              ) : nosposCategoriesResults == null ? (
+                <div className="py-1">
+                  <NosposSchemaCellSpinner />
+                </div>
+              ) : (
+                <div className="flex flex-col gap-0.5">
+                  {mode === 'negotiate' && onOpenNosposCategoryPicker ? (
+                    <button
+                      type="button"
+                      onClick={() => onOpenNosposCategoryPicker(item)}
+                      className={`group flex w-full items-start gap-1 rounded px-1 py-0.5 text-left transition-colors hover:bg-slate-100 ${
+                        nosposCategoryBreadcrumb ? '' : 'border border-dashed border-amber-300 bg-amber-50/60 hover:bg-amber-50'
+                      }`}
+                      title={nosposCategoryBreadcrumb ? `Change NosPos category (current: ${nosposCategoryBreadcrumb})` : 'No NosPos category — click to set one'}
+                    >
+                      {nosposCategoryBreadcrumb ? (
+                        <>
+                          <span className="min-w-0 flex-1 break-words text-[10px] font-medium leading-snug" style={{ color: 'var(--text-muted)' }}>
+                            {nosposCategoryBreadcrumb}
+                          </span>
+                          <span className="material-symbols-outlined mt-0.5 shrink-0 text-[10px] text-slate-300 opacity-0 transition-opacity group-hover:opacity-100">
+                            edit
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-[10px] font-semibold leading-snug text-amber-700">
+                          No category set
                         </span>
-                        <span className="material-symbols-outlined mt-0.5 shrink-0 text-[10px] text-slate-300 opacity-0 transition-opacity group-hover:opacity-100">
-                          edit
-                        </span>
-                      </>
-                    ) : (
-                      <span className="text-[10px] font-semibold leading-snug text-amber-700">
-                        No category set
-                      </span>
-                    )}
-                  </button>
-                ) : (
-                  <div className="text-[10px] font-medium leading-snug break-words" style={{ color: 'var(--text-muted)' }}>
-                    {nosposCategoryBreadcrumb || '—'}
-                  </div>
-                )}
-                {hideNosposRequiredColumn ? (
-                  <NosposRequiredFieldsEditorTriggerButton
-                    item={item}
-                    negotiationIndex={index}
-                    nosposCategoriesResults={nosposCategoriesResults}
-                    nosposCategoryMappings={nosposCategoryMappings}
-                    useVoucherOffers={useVoucherOffers}
-                    requestId={actualRequestId}
-                    onOpenEditor={onOpenNosposRequiredFieldsEditor}
-                  />
-                ) : null}
-              </div>
-            )}
-          </td>
-        </>
+                      )}
+                    </button>
+                  ) : (
+                    <div className="text-[10px] font-medium leading-snug break-words" style={{ color: 'var(--text-muted)' }}>
+                      {nosposCategoryBreadcrumb || '—'}
+                    </div>
+                  )}
+                  {hideNosposRequiredColumn ? (
+                    <NosposRequiredFieldsEditorTriggerButton
+                      item={item}
+                      negotiationIndex={index}
+                      nosposCategoriesResults={nosposCategoriesResults}
+                      nosposCategoryMappings={nosposCategoryMappings}
+                      useVoucherOffers={useVoucherOffers}
+                      requestId={actualRequestId}
+                      onOpenEditor={onOpenNosposRequiredFieldsEditor}
+                    />
+                  ) : null}
+                </div>
+              )}
+            </td>
+          </>
+        )
       ) : (
         <td
           className="w-10 max-w-[2.5rem] p-0 align-top"
@@ -309,11 +322,17 @@ export default function NegotiationItemRow({
           title={
             item.isRemoved
               ? 'Removed from cart'
-              : `Category: ${resolvedLeafCategory}\nNosPos: ${nosposCategoryBreadcrumb || '—'}`
+              : hideNosposCategoryColumn
+                ? `Category: ${resolvedLeafCategory}`
+                : `Category: ${resolvedLeafCategory}\nNosPos: ${nosposCategoryBreadcrumb || '—'}`
           }
         >
           <div className="flex min-h-[1.5rem] items-start justify-center pt-1">
-            {!item.isRemoved && mode === 'negotiate' && !nosposCategoryBreadcrumb && nosposCategoriesResults != null ? (
+            {!hideNosposCategoryColumn &&
+            !item.isRemoved &&
+            mode === 'negotiate' &&
+            !nosposCategoryBreadcrumb &&
+            nosposCategoriesResults != null ? (
               <span
                 className="inline-block h-2 w-2 shrink-0 rounded-full bg-amber-400"
                 title="NosPos category not set — expand columns to edit"
@@ -409,8 +428,12 @@ export default function NegotiationItemRow({
           </div>
         </td>
       )}
-      <PriceCell value={item.cexVoucherPrice} quantity={quantity} className="font-medium text-red-700" onContextMenu={ctxRemoveOnly} />
-      <PriceCell value={item.cexBuyPrice} quantity={quantity} className="font-medium text-red-700" onContextMenu={ctxRemoveOnly} />
+      {!hideCexVoucherCashColumns ? (
+        <>
+          <PriceCell value={item.cexVoucherPrice} quantity={quantity} className="font-medium text-red-700" onContextMenu={ctxRemoveOnly} />
+          <PriceCell value={item.cexBuyPrice} quantity={quantity} className="font-medium text-red-700" onContextMenu={ctxRemoveOnly} />
+        </>
+      ) : null}
 
       {/* Customer Expectation */}
       {!hideCustomerExpectation ? (

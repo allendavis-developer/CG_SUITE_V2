@@ -27,6 +27,8 @@ from .models_v2 import (
     Location,
     RepricingSession,
     RepricingSessionItem,
+    UploadSession,
+    UploadSessionItem,
     RequestJewelleryReferenceSnapshot,
     RequestItemJewellery,
     RequestItemJewelleryValuation,
@@ -757,6 +759,121 @@ class RepricingSessionItemAdmin(admin.ModelAdmin):
         if not obj.stock_url:
             return ""
         # Show only path / last part for readability
+        return obj.stock_url.replace("https://", "").replace("http://", "")
+
+    short_stock_url.short_description = "Stock URL"
+
+
+class UploadSessionItemInline(admin.TabularInline):
+    model = UploadSessionItem
+    extra = 0
+    readonly_fields = (
+        "item_identifier",
+        "title",
+        "quantity",
+        "barcode",
+        "stock_barcode",
+        "stock_url_link",
+        "old_retail_price",
+        "new_retail_price",
+        "cex_sell_at_repricing",
+        "our_sale_price_at_repricing",
+        "created_at",
+    )
+    fields = readonly_fields
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def stock_url_link(self, obj):
+        if not obj.stock_url:
+            return "-"
+        return format_html('<a href="{}" target="_blank" rel="noopener noreferrer">{}</a>', obj.stock_url, obj.stock_url)
+
+    stock_url_link.short_description = "Stock URL"
+
+
+@admin.register(UploadSession)
+class UploadSessionAdmin(admin.ModelAdmin):
+    list_display = (
+        "upload_session_id",
+        "cart_key",
+        "item_count",
+        "barcode_count",
+        "created_at",
+    )
+    search_fields = ("cart_key",)
+    list_filter = ("created_at",)
+    ordering = ("-created_at",)
+    inlines = [UploadSessionItemInline]
+
+
+@admin.register(UploadSessionItem)
+class UploadSessionItemAdmin(admin.ModelAdmin):
+    list_display = (
+        "upload_session_item_id",
+        "upload_session",
+        "item_identifier",
+        "title",
+        "barcode",
+        "stock_barcode",
+        "short_stock_url",
+        "new_retail_price",
+        "cex_sell_at_repricing",
+        "our_sale_price_at_repricing",
+        "created_at",
+    )
+    list_filter = ("upload_session", "created_at")
+    search_fields = ("item_identifier", "title", "barcode", "stock_barcode", "stock_url")
+    readonly_fields = (
+        "upload_session",
+        "item_identifier",
+        "title",
+        "quantity",
+        "barcode",
+        "stock_barcode",
+        "stock_url",
+        "old_retail_price",
+        "new_retail_price",
+        "cex_sell_at_repricing",
+        "our_sale_price_at_repricing",
+        "get_ebay_research_summary",
+        "get_cc_research_summary",
+        "get_cg_research_summary",
+        "created_at",
+    )
+
+    def get_ebay_research_summary(self, obj):
+        s = obj.market_research_sessions.filter(platform="EBAY").first()
+        if not s:
+            return "—"
+        n = s.listings.count()
+        return f"median £{s.stat_median_gbp} · suggested £{s.stat_suggested_sale_gbp} · {n} listing(s)"
+
+    get_ebay_research_summary.short_description = "eBay research"
+
+    def get_cc_research_summary(self, obj):
+        s = obj.market_research_sessions.filter(platform="CASH_CONVERTERS").first()
+        if not s:
+            return "—"
+        n = s.listings.count()
+        return f"median £{s.stat_median_gbp} · suggested £{s.stat_suggested_sale_gbp} · {n} listing(s)"
+
+    get_cc_research_summary.short_description = "Cash Converters research"
+
+    def get_cg_research_summary(self, obj):
+        s = obj.market_research_sessions.filter(platform="CASH_GENERATOR").first()
+        if not s:
+            return "—"
+        n = s.listings.count()
+        return f"median £{s.stat_median_gbp} · suggested £{s.stat_suggested_sale_gbp} · {n} listing(s)"
+
+    get_cg_research_summary.short_description = "Cash Generator research"
+
+    def short_stock_url(self, obj):
+        if not obj.stock_url:
+            return ""
         return obj.stock_url.replace("https://", "").replace("http://", "")
 
     short_stock_url.short_description = "Stock URL"

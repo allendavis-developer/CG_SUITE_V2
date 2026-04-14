@@ -69,6 +69,14 @@ const LaunchpadPage = () => {
     navigate('/repricing');
   };
 
+  const handleOpenUpload = () => {
+    useAppStore.getState().resetRepricingWorkspace({
+      homePath: '/upload',
+      negotiationPath: '/upload-negotiation',
+    });
+    navigate('/upload');
+  };
+
   useEffect(() => {
     const fetchRequests = async () => {
       setLoading(true);
@@ -124,6 +132,14 @@ const LaunchpadPage = () => {
                   route="/repricing"
                   buttonLabel="Open Repricing Module"
                   onNavigate={handleOpenRepricing}
+                />
+                <ModuleCard
+                  icon="upload"
+                  title="Upload Module"
+                  description="Same repricing flow with one barcode per line item and a compact layout."
+                  route="/upload"
+                  buttonLabel="Open Upload Module"
+                  onNavigate={handleOpenUpload}
                 />
                 <ModuleCard
                   icon="summarize"

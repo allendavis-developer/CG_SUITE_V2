@@ -35,6 +35,12 @@ export default function NegotiationTablesSection({
   onOpenNosposRequiredFieldsEditor,
   onOpenNosposCategoryPicker,
   hideNosposRequiredColumn = false,
+  /** When true, hide the NosPos category column and inline field-AI trigger (upload workspace). */
+  hideNosposCategoryColumn = false,
+  /** When true, hide the Qty column (upload workspace). */
+  hideQuantityColumn = false,
+  /** When true, hide CeX Voucher and Cash columns; Sell remains (upload workspace). */
+  hideCexVoucherCashColumns = false,
   hideOfferColumns = false,
   hideCustomerExpectation = false,
   salePriceLabel = 'Our RRP',
@@ -44,11 +50,11 @@ export default function NegotiationTablesSection({
 
   const visibleColumnCount = (() => {
     let count = 0;
-    count += 1; // Qty
-    count += categoryColumnsExpanded ? 2 : 1; // category columns
+    if (!hideQuantityColumn) count += 1; // Qty
+    count += categoryColumnsExpanded ? (hideNosposCategoryColumn ? 1 : 2) : 1; // category (+ optional NosPos) columns
     if (!hideNosposRequiredColumn) count += 1;
     count += 1; // Item Name
-    count += 3; // CeX Sell/Voucher/Cash
+    count += hideCexVoucherCashColumns ? 1 : 3; // CeX Sell / optional Voucher+Cash
     if (!hideCustomerExpectation) count += 1;
     if (!hideOfferColumns) count += 6; // Offer source + 4 tiers + Manual
     count += 1; // Our RRP / Sale Price
@@ -77,6 +83,7 @@ export default function NegotiationTablesSection({
               mode={mode}
               useVoucherOffers={useVoucherOffers}
               hideNosposRequiredColumn={hideNosposRequiredColumn}
+              hideNosposCategoryColumn={hideNosposCategoryColumn}
               nosposCategoriesResults={nosposCategoriesResults}
               nosposCategoryMappings={nosposCategoryMappings}
               requestId={actualRequestId}
@@ -106,7 +113,7 @@ export default function NegotiationTablesSection({
           <table className="w-full spreadsheet-table border-collapse text-left">
             <thead>
               <tr>
-                <th className="w-12 text-center">Qty</th>
+                {!hideQuantityColumn ? <th className="w-12 text-center">Qty</th> : null}
                 {categoryColumnsExpanded ? (
                   <>
                     <th className="w-36 min-w-0">
@@ -116,14 +123,20 @@ export default function NegotiationTablesSection({
                           onClick={() => setCategoryColumnsExpanded(false)}
                           className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-white/95 transition-colors hover:bg-white/15 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--brand-blue)]"
                           aria-expanded
-                          title="Hide Category and NosPos columns"
+                          title={
+                            hideNosposCategoryColumn
+                              ? 'Hide Category column'
+                              : 'Hide Category and NosPos columns'
+                          }
                         >
                           <span className="material-symbols-outlined text-[20px] leading-none">keyboard_double_arrow_left</span>
                         </button>
                         <span className="min-w-0 truncate">Category</span>
                       </div>
                     </th>
-                    <th className="min-w-[160px] max-w-[240px]">NosPos category</th>
+                    {!hideNosposCategoryColumn ? (
+                      <th className="min-w-[160px] max-w-[240px]">NosPos category</th>
+                    ) : null}
                   </>
                 ) : (
                   <th className="w-10 px-0.5 text-center">
@@ -132,7 +145,11 @@ export default function NegotiationTablesSection({
                       onClick={() => setCategoryColumnsExpanded(true)}
                       className="inline-flex h-8 w-8 items-center justify-center rounded-md text-white transition-colors hover:bg-white/15 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--brand-blue)]"
                       aria-expanded={false}
-                      title="Show Category and NosPos columns"
+                      title={
+                        hideNosposCategoryColumn
+                          ? 'Show Category column'
+                          : 'Show Category and NosPos columns'
+                      }
                     >
                       <span className="material-symbols-outlined text-[20px] leading-none">keyboard_double_arrow_right</span>
                     </button>
@@ -143,8 +160,12 @@ export default function NegotiationTablesSection({
                 ) : null}
                 <th className="min-w-[220px]">Item Name &amp; Attributes</th>
                 <th className="w-24 spreadsheet-th-cex">Sell</th>
-                <th className="w-24 spreadsheet-th-cex">Voucher</th>
-                <th className="w-24 spreadsheet-th-cex">Cash</th>
+                {!hideCexVoucherCashColumns ? (
+                  <>
+                    <th className="w-24 spreadsheet-th-cex">Voucher</th>
+                    <th className="w-24 spreadsheet-th-cex">Cash</th>
+                  </>
+                ) : null}
                 {!hideCustomerExpectation ? (
                   <th className="w-32">Customer Expectation</th>
                 ) : null}
@@ -206,6 +227,9 @@ export default function NegotiationTablesSection({
                   onOpenNosposRequiredFieldsEditor={onOpenNosposRequiredFieldsEditor}
                   onOpenNosposCategoryPicker={onOpenNosposCategoryPicker}
                   hideNosposRequiredColumn={hideNosposRequiredColumn}
+                  hideNosposCategoryColumn={hideNosposCategoryColumn}
+                  hideQuantityColumn={hideQuantityColumn}
+                  hideCexVoucherCashColumns={hideCexVoucherCashColumns}
                   categoryColumnsExpanded={categoryColumnsExpanded}
                   hideOfferColumns={hideOfferColumns}
                   hideCustomerExpectation={hideCustomerExpectation}

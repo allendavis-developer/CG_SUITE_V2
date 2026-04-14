@@ -46,6 +46,8 @@ export default function CexProductView({
   item,
   cexProduct,
   isRepricing,
+  /** Primary add CTA when `isRepricing` (upload vs repricing list wording). */
+  workspaceListAddButtonLabel = 'Add to reprice list',
   useVoucherOffers,
   customerData,
   onSelectOfferForCartItem,
@@ -376,7 +378,7 @@ export default function CexProductView({
             style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
           >
             <span className="material-symbols-outlined text-[20px]">sell</span>
-            Add to reprice list
+            {workspaceListAddButtonLabel}
           </button>
         )}
       </div>

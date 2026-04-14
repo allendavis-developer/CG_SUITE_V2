@@ -1,10 +1,20 @@
 import React from 'react';
 
 export default function RepricingJobOverlay({
+  workspace = 'repricing',
   repricingJob,
   activeCartKey,
   onCancel,
 }) {
+  const isUpload = workspace === 'upload';
+  const eyebrow = isUpload ? 'Background upload in progress' : 'Background Repricing In Progress';
+  const headline = isUpload
+    ? 'Please wait while CG Suite completes your upload'
+    : 'Please wait while CG Suite updates NoSpos';
+  const subline = isUpload
+    ? 'The rest of this screen is locked while the hidden NoSpos worker finishes your upload.'
+    : 'The rest of this screen is locked while the hidden NoSpos worker is running so the process stays consistent.';
+
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
       <div className="cg-animate-modal-backdrop absolute inset-0 bg-slate-950/55 backdrop-blur-sm" />
@@ -13,10 +23,10 @@ export default function RepricingJobOverlay({
           <div className="flex items-start gap-4">
             <span className="material-symbols-outlined text-brand-orange text-3xl animate-spin">progress_activity</span>
             <div className="min-w-0 flex-1">
-              <p className="text-xs font-black uppercase tracking-[0.18em] text-white/70">Background Repricing In Progress</p>
-              <h3 className="text-xl font-black text-white mt-1">Please wait while CG Suite updates NoSpos</h3>
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-white/70">{eyebrow}</p>
+              <h3 className="text-xl font-black text-white mt-1">{headline}</h3>
               <p className="text-sm text-white/80 mt-2">
-                The rest of this screen is locked while the hidden NoSpos worker is running so the process stays consistent.
+                {subline}
               </p>
             </div>
             <button

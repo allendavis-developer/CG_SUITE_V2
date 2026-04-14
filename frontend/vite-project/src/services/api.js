@@ -435,6 +435,31 @@ export const fetchRepricingSessionDetail = async (id) => {
   return apiFetch(`/repricing-sessions/${id}/`);
 };
 
+// ─── Upload module (same payloads as repricing; separate tables) ─────────────
+
+export const saveUploadSession = async (payload) => {
+  if (!payload) return null;
+  return apiFetch('/upload-sessions/', { method: 'POST', body: payload });
+};
+
+export const updateUploadSession = async (sessionId, updates, { keepalive = false } = {}) => {
+  if (!sessionId) return null;
+  return apiFetch(`/upload-sessions/${sessionId}/`, {
+    method: 'PATCH',
+    body: updates,
+    keepalive,
+  });
+};
+
+export const fetchUploadSessionDetail = async (id) => {
+  if (!id) return null;
+  return apiFetch(`/upload-sessions/${id}/`);
+};
+
+export const fetchUploadSessionsOverview = async () => {
+  return apiFetch('/upload-sessions/overview/');
+};
+
 // ─── Pricing Rules ─────────────────────────────────────────────────────────────
 
 export const fetchPricingRules = () => apiFetch('/pricing-rules/');

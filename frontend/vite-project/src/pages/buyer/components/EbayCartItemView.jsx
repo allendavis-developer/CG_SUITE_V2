@@ -5,6 +5,8 @@ import { EBAY_TOP_LEVEL_CATEGORY } from '@/pages/buyer/constants';
 export default function EbayCartItemView({
   item,
   isRepricing,
+  /** When set, used for the research form primary action (repricing vs upload list wording). */
+  addActionLabel,
   useVoucherOffers,
   onSelectOfferForCartItem,
   onEbayResearchComplete,
@@ -53,7 +55,7 @@ export default function EbayCartItemView({
               initialHistogramState={false} showManualOffer={false} resetDrillOnOpen={true}
               onAddNewItem={onDeselectCartItem}
               onOfferSelect={handleOfferSelect}
-              addActionLabel={isRepricing ? 'Add to Reprice List' : 'Add to Cart'} hideOfferCards={isRepricing}
+              addActionLabel={addActionLabel ?? (isRepricing ? 'Add to Reprice List' : 'Add to Cart')} hideOfferCards={isRepricing}
               useVoucherOffers={useVoucherOffers}
               onOffersChange={onOffersChange}
             />

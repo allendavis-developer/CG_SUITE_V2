@@ -35,6 +35,8 @@ from .models_v2 import (
     RepricingSession,
     RepricingSessionItem,
     RepricingSessionStatus,
+    UploadSession,
+    UploadSessionItem,
     PricingRule,
     MarketResearchSession,
     RequestJewelleryReferenceSnapshot,
@@ -60,9 +62,15 @@ from .serializers import (
     RequestSerializer, RequestItemSerializer, CustomerSerializer,
     ProductCategorySerializer, ProductSerializer, VariantMarketStatsSerializer,
     RepricingSessionSerializer,
+    UploadSessionSerializer,
 )
 
 _RESEARCH_SESSION_PREFETCH = Prefetch(
+    "items__market_research_sessions",
+    queryset=MarketResearchSession.objects.prefetch_related("listings", "drill_levels"),
+)
+
+_UPLOAD_SESSION_PREFETCH = Prefetch(
     "items__market_research_sessions",
     queryset=MarketResearchSession.objects.prefetch_related("listings", "drill_levels"),
 )
@@ -100,7 +108,15 @@ def _resolve_cex_sku_to_variant(item_payload):
 _decimal_or_none = parse_decimal
 
 
-def _create_repricing_session_item_from_payload(session, item_data, idx):
+def _create_stock_session_line_from_payload(
+    session,
+    item_data,
+    idx,
+    *,
+    parent_fk_field: str,
+    line_model,
+    ingest_post_create,
+):
     barcode = (item_data.get('barcode') or '').strip()
     if not barcode:
         raise ValueError(f"items_data[{idx}].barcode is required")
@@ -110,26 +126,51 @@ def _create_repricing_session_item_from_payload(session, item_data, idx):
     except (TypeError, ValueError):
         raise ValueError(f"Invalid quantity for items_data[{idx}]")
 
-    line = RepricingSessionItem.objects.create(
-        repricing_session=session,
-        item_identifier=str(item_data.get('item_identifier') or item_data.get('itemId') or '').strip(),
-        title=(item_data.get('title') or '').strip(),
-        quantity=quantity,
-        barcode=barcode,
-        stock_barcode=(item_data.get('stock_barcode') or '').strip(),
-        stock_url=(item_data.get('stock_url') or '').strip(),
-        old_retail_price=_decimal_or_none(item_data.get('old_retail_price'), 'old_retail_price'),
-        new_retail_price=_decimal_or_none(item_data.get('new_retail_price'), 'new_retail_price'),
-        cex_sell_at_repricing=_decimal_or_none(item_data.get('cex_sell_at_repricing'), 'cex_sell_at_repricing'),
-        our_sale_price_at_repricing=_decimal_or_none(item_data.get('our_sale_price_at_repricing'), 'our_sale_price_at_repricing'),
-    )
-    research_storage.ingest_repricing_line_post_create(
+    kwargs = {
+        parent_fk_field: session,
+        "item_identifier": str(item_data.get('item_identifier') or item_data.get('itemId') or '').strip(),
+        "title": (item_data.get('title') or '').strip(),
+        "quantity": quantity,
+        "barcode": barcode,
+        "stock_barcode": (item_data.get('stock_barcode') or '').strip(),
+        "stock_url": (item_data.get('stock_url') or '').strip(),
+        "old_retail_price": _decimal_or_none(item_data.get('old_retail_price'), 'old_retail_price'),
+        "new_retail_price": _decimal_or_none(item_data.get('new_retail_price'), 'new_retail_price'),
+        "cex_sell_at_repricing": _decimal_or_none(item_data.get('cex_sell_at_repricing'), 'cex_sell_at_repricing'),
+        "our_sale_price_at_repricing": _decimal_or_none(
+            item_data.get('our_sale_price_at_repricing'), 'our_sale_price_at_repricing'
+        ),
+    }
+    line = line_model.objects.create(**kwargs)
+    ingest_post_create(
         line,
         item_data.get('raw_data'),
         item_data.get('cash_converters_data'),
         item_data.get('cg_data'),
     )
     return line
+
+
+def _create_repricing_session_item_from_payload(session, item_data, idx):
+    return _create_stock_session_line_from_payload(
+        session,
+        item_data,
+        idx,
+        parent_fk_field="repricing_session",
+        line_model=RepricingSessionItem,
+        ingest_post_create=research_storage.ingest_repricing_line_post_create,
+    )
+
+
+def _create_upload_session_item_from_payload(session, item_data, idx):
+    return _create_stock_session_line_from_payload(
+        session,
+        item_data,
+        idx,
+        parent_fk_field="upload_session",
+        line_model=UploadSessionItem,
+        ingest_post_create=research_storage.ingest_upload_line_post_create,
+    )
 
 
 def _sync_request_jewellery_reference_snapshot(existing_request, jewellery_reference_scrape):
@@ -684,6 +725,117 @@ def repricing_session_detail(request, repricing_session_id):
         session.save(update_fields=update_fields + ['updated_at'])
 
     serializer = RepricingSessionSerializer(session)
+    return Response(serializer.data)
+
+
+@api_view(['GET', 'POST'])
+def upload_sessions_view(request):
+    if request.method == 'GET':
+        sessions = UploadSession.objects.prefetch_related(
+            _UPLOAD_SESSION_PREFETCH
+        ).order_by("-created_at")
+        serializer = UploadSessionSerializer(sessions, many=True)
+        return Response(serializer.data)
+
+    items_data = request.data.get('items_data') or []
+    session_data = request.data.get('session_data')
+    cart_key = (request.data.get('cart_key') or '').strip()
+
+    if session_data is not None and not items_data:
+        item_count = int(request.data.get('item_count', 0))
+        session = UploadSession.objects.create(
+            cart_key=cart_key,
+            item_count=item_count,
+            barcode_count=0,
+            status=RepricingSessionStatus.IN_PROGRESS,
+            session_data=session_data,
+        )
+        serializer = UploadSessionSerializer(session)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    if not isinstance(items_data, list) or len(items_data) == 0:
+        return Response(
+            {"error": "items_data must be a non-empty list"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    unique_item_ids = {
+        str(item.get('item_identifier') or item.get('itemId') or '').strip()
+        for item in items_data
+        if (item.get('item_identifier') or item.get('itemId'))
+    }
+
+    with transaction.atomic():
+        session = UploadSession.objects.create(
+            cart_key=cart_key,
+            item_count=len(unique_item_ids),
+            barcode_count=len(items_data),
+            status=RepricingSessionStatus.COMPLETED,
+        )
+
+        for idx, item_data in enumerate(items_data):
+            try:
+                _create_upload_session_item_from_payload(session, item_data, idx)
+            except ValueError as exc:
+                transaction.set_rollback(True)
+                return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    serializer = UploadSessionSerializer(session)
+    return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+@api_view(['GET', 'PATCH'])
+def upload_session_detail(request, upload_session_id):
+    session = get_object_or_404(
+        UploadSession.objects.prefetch_related(_UPLOAD_SESSION_PREFETCH),
+        upload_session_id=upload_session_id,
+    )
+
+    if request.method == 'GET':
+        serializer = UploadSessionSerializer(session)
+        return Response(serializer.data)
+
+    items_data = request.data.get('items_data') or []
+    update_fields = []
+
+    if 'session_data' in request.data:
+        session.session_data = request.data['session_data']
+        update_fields.append('session_data')
+
+    if 'status' in request.data:
+        new_status = request.data['status']
+        if new_status in RepricingSessionStatus.values:
+            session.status = new_status
+            update_fields.append('status')
+            if new_status == RepricingSessionStatus.IN_PROGRESS:
+                session.items.all().delete()
+                session.barcode_count = 0
+                update_fields.append('barcode_count')
+
+    if 'cart_key' in request.data:
+        session.cart_key = (request.data['cart_key'] or '').strip()
+        update_fields.append('cart_key')
+
+    if 'item_count' in request.data:
+        session.item_count = int(request.data['item_count'] or 0)
+        update_fields.append('item_count')
+
+    if 'barcode_count' in request.data:
+        session.barcode_count = int(request.data['barcode_count'] or 0)
+        update_fields.append('barcode_count')
+
+    if isinstance(items_data, list) and len(items_data) > 0:
+        with transaction.atomic():
+            for idx, item_data in enumerate(items_data):
+                try:
+                    _create_upload_session_item_from_payload(session, item_data, idx)
+                except ValueError as exc:
+                    return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    if update_fields:
+        session.save(update_fields=update_fields + ['updated_at'])
+
+    serializer = UploadSessionSerializer(session)
     return Response(serializer.data)
 
 

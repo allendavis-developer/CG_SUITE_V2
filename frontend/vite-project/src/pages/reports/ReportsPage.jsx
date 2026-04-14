@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import AppHeader from '@/components/AppHeader';
 
 /**
- * Reports page - choose between Request Overview and Repricing Report.
+ * Reports page - request overview, repricing report, and upload report.
  */
 const ReportCard = ({ icon, title, description, route }) => {
   const navigate = useNavigate();
@@ -52,11 +52,11 @@ const ReportsPage = () => (
               Reports
             </h1>
             <p className="text-slate-500 dark:text-slate-400 text-lg">
-              Choose a report to view detailed transaction and repricing data.
+              Choose a report to view detailed transaction, repricing, and upload data.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <ReportCard
               icon="receipt_long"
               title="Request Overview"
@@ -68,6 +68,12 @@ const ReportsPage = () => (
               title="Repricing Report"
               description="View repricing sessions, history, and completed repricing runs across your inventory."
               route="/repricing-overview"
+            />
+            <ReportCard
+              icon="upload"
+              title="Upload Report"
+              description="View upload sessions, history, and completed upload runs (same flow as upload module)."
+              route="/upload-overview"
             />
           </div>
         </div>

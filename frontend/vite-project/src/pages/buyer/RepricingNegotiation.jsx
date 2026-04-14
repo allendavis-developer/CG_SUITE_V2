@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import AppHeader from "@/components/AppHeader";
 import QuickRepriceModal from "@/components/modals/QuickRepriceModal";
@@ -19,8 +19,22 @@ import {
 } from './components/repricing/RepricingCompletionModals';
 import { getModuleFeatures } from './config/moduleFeatures';
 
-import { cancelNosposRepricing, clearLastRepricingResult, getLastRepricingResult, getNosposRepricingStatus, openNospos, searchNosposBarcode } from "@/services/extensionClient";
-import { saveRepricingSession, updateRepricingSession } from "@/services/api";
+import {
+  cancelNosposRepricing,
+  clearLastRepricingResult,
+  getLastRepricingResult,
+  getNosposRepricingStatus,
+  openNospos,
+  openWebEposUpload,
+  searchNosposBarcode,
+  withExtensionCallTimeout,
+} from "@/services/extensionClient";
+import {
+  saveRepricingSession,
+  updateRepricingSession,
+  saveUploadSession,
+  updateUploadSession,
+} from "@/services/api";
 import { getCartKey, loadRepricingProgress, saveRepricingProgress, clearRepricingProgress } from "@/utils/repricingProgress";
 import { getEditableSalePriceState, resolveRepricingSalePrice } from "./utils/repricingDisplay";
 import useAppStore from '@/store/useAppStore';
@@ -38,7 +52,7 @@ import { useRefreshCexRowData } from './hooks/useRefreshCexRowData';
 import { NEGOTIATION_ROW_CONTEXT } from './rowContextZones';
 import { handlePriceSourceAsRrpOffersSource } from './utils/priceSourceAsRrpOffers';
 
-const features = getModuleFeatures('repricing');
+const barcodeCap = (f) => (Number.isFinite(f.maxBarcodesPerItem) ? f.maxBarcodesPerItem : Infinity);
 
 const getNosposIdFromUrl = (stockUrl) => {
   if (!stockUrl) return "";
@@ -96,8 +110,82 @@ const buildUnverifiedBarcodeEntries = (payload) =>
     stockUrl: entry?.stockUrl || "",
   }));
 
+/** User-facing strings for repricing vs upload workspace (upload opens Web EPOS via the extension). */
+function negotiationWorkspaceCopy(isUpload) {
+  if (isUpload) {
+    return {
+      workspace: 'upload',
+      saveFailLog: '[CG Suite] Upload save failed:',
+      listName: 'upload list',
+      removedFromList: (title) => `"${title || 'Item'}" removed from upload list`,
+      addedOne: (title) => `Added "${title || 'Item'}" to upload list`,
+      addedMany: (n) => `${n} item${n !== 1 ? 's' : ''} added to upload list`,
+      loadingList: 'Loading upload list...',
+      newConfirmTitle: 'Start a new upload?',
+      newConfirmBody: 'This will clear your current upload list and start fresh from the upload workspace.',
+      newConfirmYes: 'Yes, start new upload',
+      contextRemoveLabel: 'Remove from upload list',
+      jobCompletedMessage: 'Upload completed.',
+      persistSavedWithIssues: (uv) =>
+        uv > 0
+          ? `Saved upload items. ${uv} barcode(s) couldn't be verified — check below.`
+          : 'Saved the upload items. Some barcodes need to be more specific.',
+      persistNoItemsRetry: 'No items were updated. Enter more specific barcodes to retry.',
+      persistDoneWithUnverified: (uv) =>
+        `Upload done. ${uv} barcode(s) couldn't be auto-verified — check the items below.`,
+      persistDoneSaved: 'Upload is done and has been saved.',
+      persistNoItems: 'No items were updated.',
+      persistSaveError: 'Upload finished but could not be saved.',
+      startBackground: 'Opening Web EPOS…',
+      jobLogStart: 'Opening Web EPOS…',
+      webEposOpened: 'Web EPOS opened successfully.',
+      webEposOpenFailed: 'Could not open Web EPOS.',
+      uploadExactlyOneBarcode: (title) =>
+        `Add exactly one verified barcode for: ${title || 'Unknown Item'}`,
+      cancelOk: 'Upload cancelled',
+      cancelErr: 'Could not cancel upload',
+    };
+  }
+  return {
+    workspace: 'repricing',
+    saveFailLog: '[CG Suite] Repricing save failed:',
+    listName: 'reprice list',
+    removedFromList: (title) => `"${title || 'Item'}" removed from reprice list`,
+    addedOne: (title) => `Added "${title || 'Item'}" to reprice list`,
+    addedMany: (n) => `${n} item${n !== 1 ? 's' : ''} added to reprice list`,
+    loadingList: 'Loading reprice list...',
+    newConfirmTitle: 'Start a new repricing?',
+    newConfirmBody: 'This will clear your current reprice list and start fresh from the repricing workspace.',
+    newConfirmYes: 'Yes, start new repricing',
+    contextRemoveLabel: 'Remove from reprice list',
+    jobCompletedMessage: 'Repricing completed.',
+    persistSavedWithIssues: (uv) =>
+      uv > 0
+        ? `Saved repriced items. ${uv} barcode(s) couldn't be verified — check below.`
+        : 'Saved the repriced items. Some barcodes need to be more specific.',
+    persistNoItemsRetry: 'No items were repriced. Enter more specific barcodes to retry.',
+    persistDoneWithUnverified: (uv) =>
+      `Repricing done. ${uv} barcode(s) couldn't be auto-verified — check the items below.`,
+    persistDoneSaved: 'Repricing is done and has been saved.',
+    persistNoItems: 'No items were repriced.',
+    persistSaveError: 'Repricing finished but could not be saved.',
+    startBackground: 'Starting background repricing…',
+    jobLogStart: 'Starting background repricing…',
+    cancelOk: 'Repricing cancelled',
+    cancelErr: 'Could not cancel repricing',
+  };
+}
+
 // ─── Main component ────────────────────────────────────────────────────────────
-const RepricingNegotiation = () => {
+const RepricingNegotiation = ({ moduleKey = 'repricing' }) => {
+  const features = getModuleFeatures(moduleKey);
+  const maxBarcodesPerItem = barcodeCap(features);
+  const useUploadSessions = moduleKey === 'upload';
+  const copy = useMemo(() => negotiationWorkspaceCopy(useUploadSessions), [useUploadSessions]);
+  const saveWorkspaceSession = useUploadSessions ? saveUploadSession : saveRepricingSession;
+  const updateWorkspaceSession = useUploadSessions ? updateUploadSession : updateRepricingSession;
+  const readSessionIdFromResponse = (resp) =>
+    (useUploadSessions ? resp?.upload_session_id : resp?.repricing_session_id) ?? null;
   const navigate = useNavigate();
   const location = useLocation();
   const { showNotification } = useNotification();
@@ -209,12 +297,12 @@ const RepricingNegotiation = () => {
     const activeCount = state.items.filter(i => !i.isRemoved).length;
     if (autoSaveTimer.current) { clearTimeout(autoSaveTimer.current); autoSaveTimer.current = null; }
     hasPendingSave.current = false;
-    updateRepricingSession(dbSessionId, {
+    updateWorkspaceSession(dbSessionId, {
       session_data: buildSessionDataSnapshot(state),
       cart_key: getCartKey(state.items.filter(i => !i.isRemoved)),
       item_count: activeCount,
-    }, opts).catch(err => console.warn('[CG Suite] Repricing save failed:', err));
-  }, [dbSessionId, isRepricingFinished, buildSessionDataSnapshot]);
+    }, opts).catch(err => console.warn(copy.saveFailLog, err));
+  }, [dbSessionId, isRepricingFinished, buildSessionDataSnapshot, updateWorkspaceSession, copy.saveFailLog]);
 
   useEffect(() => {
     if (!dbSessionId || isLoading || isRepricingFinished) return;
@@ -223,7 +311,7 @@ const RepricingNegotiation = () => {
     autoSaveTimer.current = setTimeout(() => {
       hasPendingSave.current = false;
       const activeCount = items.filter(i => !i.isRemoved).length;
-      updateRepricingSession(dbSessionId, {
+      updateWorkspaceSession(dbSessionId, {
         session_data: buildSessionDataSnapshot({ items, barcodes, nosposLookups }),
         cart_key: getCartKey(items.filter(i => !i.isRemoved)),
         item_count: activeCount,
@@ -250,14 +338,15 @@ const RepricingNegotiation = () => {
     if (prevLen > 0 || items.length === 0) return;
     if (dbSessionId || isCreatingSession.current) return;
     isCreatingSession.current = true;
-    saveRepricingSession({
+    saveWorkspaceSession({
       cart_key: getCartKey(items),
       item_count: items.length,
       session_data: buildSessionDataSnapshot({ items, barcodes: {}, nosposLookups: {} }),
     }).then(resp => {
-      if (resp?.repricing_session_id) {
-        setDbSessionId(resp.repricing_session_id);
-        useAppStore.getState().setRepricingSessionId(resp.repricing_session_id);
+      const sid = readSessionIdFromResponse(resp);
+      if (sid) {
+        setDbSessionId(sid);
+        useAppStore.getState().setRepricingSessionId(sid);
       }
     }).catch(err => {
       console.warn('[CG Suite] Failed to create draft session:', err);
@@ -289,18 +378,18 @@ const RepricingNegotiation = () => {
           updateData.item_count = savePayload.item_count;
           updateData.cart_key = savePayload.cart_key;
         }
-        try { await updateRepricingSession(dbSessionId, updateData); } catch {}
+        try { await updateWorkspaceSession(dbSessionId, updateData); } catch {}
         if (savePayload.barcode_count > 0) clearRepricingProgress(activeCartKey);
         useAppStore.getState().clearRepricingSessionDraft();
       } else if (savePayload.barcode_count > 0) {
-        await saveRepricingSession(savePayload);
+        await saveWorkspaceSession(savePayload);
         clearRepricingProgress(activeCartKey);
       }
 
       try { await clearLastRepricingResult(); } catch {}
 
       setIsRepricingFinished(true);
-      setRepricingJob((prev) => prev ? { ...prev, running: false, done: true, step: 'completed', message: 'Repricing completed.' } : prev);
+      setRepricingJob((prev) => prev ? { ...prev, running: false, done: true, step: 'completed', message: copy.jobCompletedMessage } : prev);
 
       if (savePayload.barcode_count > 0) {
         setCompletedItemsData(savePayload.items_data);
@@ -315,29 +404,27 @@ const RepricingNegotiation = () => {
         setAmbiguousBarcodeModal({ entries: ambiguousEntries, isRetrying: false });
         if (savePayload.barcode_count > 0) {
           showNotification(
-            unverifiedEntries.length > 0
-              ? `Saved repriced items. ${unverifiedEntries.length} barcode(s) couldn't be verified — check below.`
-              : "Saved the repriced items. Some barcodes need to be more specific.",
+            copy.persistSavedWithIssues(unverifiedEntries.length),
             "warning"
           );
         } else {
-          showNotification("No items were repriced. Enter more specific barcodes to retry.", "warning");
+          showNotification(copy.persistNoItemsRetry, "warning");
         }
       } else if (savePayload.barcode_count > 0) {
         showNotification(
           unverifiedEntries.length > 0
-            ? `Repricing done. ${unverifiedEntries.length} barcode(s) couldn't be auto-verified — check the items below.`
-            : "Repricing is done and has been saved.",
+            ? copy.persistDoneWithUnverified(unverifiedEntries.length)
+            : copy.persistDoneSaved,
           unverifiedEntries.length > 0 ? "warning" : "success"
         );
       } else {
-        showNotification("No items were repriced.", "info");
+        showNotification(copy.persistNoItems, "info");
       }
 
       return true;
     } catch (err) {
       lastHandledCompletionRef.current = "";
-      showNotification(err?.message || "Repricing finished but could not be saved.", "error");
+      showNotification(err?.message || copy.persistSaveError, "error");
       return false;
     }
   };
@@ -381,9 +468,10 @@ const RepricingNegotiation = () => {
           seen.add(key);
           return true;
         });
-        if (uniqueBarcodes.length > 0) {
-          prePopulated[item.id] = uniqueBarcodes.map(b => b.barserial);
-          uniqueBarcodes.forEach((b, index) => {
+        const cappedBarcodes = uniqueBarcodes.slice(0, maxBarcodesPerItem);
+        if (cappedBarcodes.length > 0) {
+          prePopulated[item.id] = cappedBarcodes.map(b => b.barserial);
+          cappedBarcodes.forEach((b, index) => {
             prePopulatedLookups[`${item.id}_${index}`] = {
               status: 'selected',
               results: b.href
@@ -423,14 +511,15 @@ const RepricingNegotiation = () => {
       }));
       const restoredBarcodes = saved?.barcodes || sessionBarcodes || {};
       const restoredLookups = saved?.nosposLookups || sessionNosposLookups || {};
-      saveRepricingSession({
+      saveWorkspaceSession({
         cart_key: cartKey,
         item_count: cartItems.length,
         session_data: { items: itemsSnapshot, barcodes: restoredBarcodes, nosposLookups: restoredLookups },
       }).then(resp => {
-        if (resp?.repricing_session_id) {
-          setDbSessionId(resp.repricing_session_id);
-          useAppStore.getState().setRepricingSessionId(resp.repricing_session_id);
+        const sid = readSessionIdFromResponse(resp);
+        if (sid) {
+          setDbSessionId(sid);
+          useAppStore.getState().setRepricingSessionId(sid);
         }
       }).catch(err => {
         console.warn('[CG Suite] Failed to create draft session:', err);
@@ -468,7 +557,7 @@ const RepricingNegotiation = () => {
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  }, [activeCartKey, showNotification]);
+  }, [activeCartKey, showNotification, copy]);
 
   useEffect(() => {
     if (!activeCartKey) return;
@@ -546,7 +635,7 @@ const RepricingNegotiation = () => {
   // ── Handlers ─────────────────────────────────────────────────────────────────
   const handleRemoveItem = (item) => {
     setItems(prev => prev.filter(i => i.id !== item.id));
-    showNotification(`"${item.title || 'Item'}" removed from reprice list`, 'info');
+    showNotification(copy.removedFromList(item.title), 'info');
   };
 
   const addItemsWithBarcodePrepopulation = useCallback((newItems) => {
@@ -561,9 +650,10 @@ const RepricingNegotiation = () => {
         seen.add(key);
         return true;
       });
-      if (uniqueBarcodes.length > 0) {
-        newBarcodes[item.id] = uniqueBarcodes.map(b => b.barserial);
-        uniqueBarcodes.forEach((b, index) => {
+      const cappedBarcodes = uniqueBarcodes.slice(0, maxBarcodesPerItem);
+      if (cappedBarcodes.length > 0) {
+        newBarcodes[item.id] = cappedBarcodes.map(b => b.barserial);
+        cappedBarcodes.forEach((b, index) => {
           newLookups[`${item.id}_${index}`] = {
             status: 'selected',
             results: b.href ? [{ barserial: b.barserial, href: b.href.replace(/^https:\/\/nospos\.com/i, '') }] : [],
@@ -579,7 +669,7 @@ const RepricingNegotiation = () => {
       setBarcodes(prev => ({ ...prev, ...newBarcodes }));
       setNosposLookups(prev => ({ ...prev, ...newLookups }));
     }
-  }, []);
+  }, [maxBarcodesPerItem]);
 
   const handleAddRepricingItem = useCallback((cartItem) => {
     if (!cartItem) return;
@@ -603,8 +693,8 @@ const RepricingNegotiation = () => {
       },
     });
     addItemsWithBarcodePrepopulation([item]);
-    showNotification(`Added "${item.title || 'Item'}" to reprice list`, 'success');
-  }, [addItemsWithBarcodePrepopulation, showNotification]);
+    showNotification(copy.addedOne(item.title), 'success');
+  }, [addItemsWithBarcodePrepopulation, showNotification, copy]);
 
   const handleEbayResearchCompleteFromHeader = useCallback((data) => {
     if (!data) return;
@@ -643,8 +733,8 @@ const RepricingNegotiation = () => {
       isRemoved: false,
     };
     addItemsWithBarcodePrepopulation([customItem]);
-    showNotification(`Added "${customItem.title}" to reprice list`, 'success');
-  }, [addItemsWithBarcodePrepopulation, showNotification]);
+    showNotification(copy.addedOne(customItem.title), 'success');
+  }, [addItemsWithBarcodePrepopulation, showNotification, copy]);
 
   const handleQuickRepriceItems = useCallback((foundItems) => {
     if (!foundItems?.length) return;
@@ -689,8 +779,8 @@ const RepricingNegotiation = () => {
       };
     });
     addItemsWithBarcodePrepopulation(newItems);
-    showNotification(`${newItems.length} item${newItems.length !== 1 ? 's' : ''} added to reprice list`, 'success');
-  }, [addItemsWithBarcodePrepopulation, showNotification]);
+    showNotification(copy.addedMany(newItems.length), 'success');
+  }, [addItemsWithBarcodePrepopulation, showNotification, copy]);
 
   const handleRefreshCeXData = useRefreshCexRowData({
     handleAddFromCeX,
@@ -785,14 +875,26 @@ const RepricingNegotiation = () => {
     if (!barcodeModal) return;
     const code = barcodeInput.trim();
     if (!code) return;
-    const newIdx = (barcodes[barcodeModal.item.id] || []).length;
-    setBarcodes(prev => ({
-      ...prev,
-      [barcodeModal.item.id]: [...(prev[barcodeModal.item.id] || []), code]
-    }));
+    const itemId = barcodeModal.item.id;
+    const existing = barcodes[itemId] || [];
+    const atCap = Number.isFinite(maxBarcodesPerItem) && existing.length >= maxBarcodesPerItem;
+    const newIdx = atCap ? 0 : existing.length;
+    if (atCap) {
+      setNosposLookups((prev) => {
+        const next = { ...prev };
+        existing.forEach((_, i) => { delete next[`${itemId}_${i}`]; });
+        return next;
+      });
+      setBarcodes((prev) => ({ ...prev, [itemId]: [code] }));
+    } else {
+      setBarcodes((prev) => ({
+        ...prev,
+        [itemId]: [...(prev[itemId] || []), code],
+      }));
+    }
     setBarcodeInput('');
     runNosposLookup(code, newIdx);
-  }, [barcodeModal, barcodeInput, barcodes, runNosposLookup]);
+  }, [barcodeModal, barcodeInput, barcodes, runNosposLookup, maxBarcodesPerItem]);
 
   const removeBarcode = useCallback((code) => {
     if (!barcodeModal) return;
@@ -844,6 +946,13 @@ const RepricingNegotiation = () => {
         showNotification(`Add at least one barcode for: ${item.title || 'Unknown Item'}`, 'error');
         return;
       }
+      if (useUploadSessions) {
+        const bc = barcodes[item.id] || [];
+        if (bc.length !== 1) {
+          showNotification(copy.uploadExactlyOneBarcode(item.title), 'error');
+          return;
+        }
+      }
       if (!isItemReadyForRepricing(item.id)) {
         showNotification(`Verify the NosPos barcode for: ${item.title || 'Unknown Item'}`, 'error');
         return;
@@ -853,7 +962,24 @@ const RepricingNegotiation = () => {
       setZeroSalePriceModal({ itemTitles: zeroSalePriceItems });
       return;
     }
-    showNotification("Starting background repricing…", 'info');
+
+    if (useUploadSessions) {
+      showNotification(copy.startBackground, 'info');
+      try {
+        const result = await withExtensionCallTimeout(
+          openWebEposUpload(),
+          65000,
+          'Web EPOS did not respond in time. Try again or refresh this page.'
+        );
+        if (result?.cancelled) return;
+        showNotification(copy.webEposOpened, 'success');
+      } catch (err) {
+        showNotification(err?.message || copy.webEposOpenFailed, 'error');
+      }
+      return;
+    }
+
+    showNotification(copy.startBackground, 'info');
     try {
       lastHandledCompletionRef.current = "";
       setCompletedBarcodes({});
@@ -869,7 +995,7 @@ const RepricingNegotiation = () => {
         completedBarcodeCount: 0,
         completedBarcodes: freshCompletedBarcodes,
         completedItems: freshCompletedItems,
-        logs: [{ timestamp: new Date().toISOString(), level: 'info', message: 'Starting background repricing…' }]
+        logs: [{ timestamp: new Date().toISOString(), level: 'info', message: copy.jobLogStart }]
       });
       const repricingData = activeItems.map((item) => {
         const resolvedSalePrice = resolveRepricingSalePrice(item);
@@ -893,8 +1019,12 @@ const RepricingNegotiation = () => {
 
   const handleConfirmNewRepricing = useCallback(() => {
     setShowNewRepricingConfirm(false);
-    useAppStore.getState().resetRepricingWorkspace();
-    navigate('/repricing');
+    const { repricingHomePath } = useAppStore.getState();
+    useAppStore.getState().resetRepricingWorkspace({
+      homePath: repricingHomePath,
+      negotiationPath: useAppStore.getState().repricingNegotiationPath,
+    });
+    navigate(repricingHomePath || '/repricing');
   }, [navigate]);
 
   const handleRetryAmbiguousBarcodes = async () => {
@@ -933,9 +1063,20 @@ const RepricingNegotiation = () => {
     try {
       lastHandledCompletionRef.current = "";
       await clearLastRepricingResult().catch(() => {});
-      await openNospos(retryData, { completedBarcodes: {}, completedItems: [], cartKey: activeCartKey });
-      setAmbiguousBarcodeModal(null);
-      showNotification("Retrying the more specific barcodes in NoSpos…", "info");
+      if (useUploadSessions) {
+        const result = await withExtensionCallTimeout(
+          openWebEposUpload(),
+          65000,
+          'Web EPOS did not respond in time. Try again or refresh this page.'
+        );
+        if (result?.cancelled) return;
+        setAmbiguousBarcodeModal(null);
+        showNotification(copy.webEposOpened, 'success');
+      } else {
+        await openNospos(retryData, { completedBarcodes: {}, completedItems: [], cartKey: activeCartKey });
+        setAmbiguousBarcodeModal(null);
+        showNotification("Retrying the more specific barcodes in NoSpos…", "info");
+      }
     } catch (err) {
       setAmbiguousBarcodeModal((prev) => (prev ? { ...prev, isRetrying: false } : prev));
       showNotification(err?.message || "Could not retry those barcodes.", "error");
@@ -946,6 +1087,7 @@ const RepricingNegotiation = () => {
   const renderBarcodeCell = useCallback((item) => {
     const itemBarcodes = barcodes[item.id] || [];
     const hasBarcodes = itemBarcodes.length > 0;
+    const single = maxBarcodesPerItem === 1;
     return (
       <td>
         <button
@@ -957,15 +1099,15 @@ const RepricingNegotiation = () => {
               : 'border-red-300 bg-red-50 text-red-600 hover:bg-red-100'
           }`}
           onClick={() => { setBarcodeModal({ item }); setBarcodeInput(''); }}
-          title="Click to manage barcodes"
+          title={single ? 'Click to set barcode' : 'Click to manage barcodes'}
         >
           <span className="material-symbols-outlined text-[14px]">barcode</span>
           <span className="flex-1 text-left">
             {hasBarcodes
               ? isItemReadyForRepricing(item.id)
-                ? 'Barcodes verified'
-                : 'Barcodes need review'
-              : 'Add barcodes'}
+                ? (single ? 'Barcode verified' : 'Barcodes verified')
+                : (single ? 'Barcode needs review' : 'Barcodes need review')
+              : (single ? 'Add barcode' : 'Add barcodes')}
           </span>
           {isItemReadyForRepricing(item.id) && (
             <span className="material-symbols-outlined text-[14px] text-emerald-600">check_circle</span>
@@ -979,13 +1121,13 @@ const RepricingNegotiation = () => {
         </button>
       </td>
     );
-  }, [barcodes, isItemReadyForRepricing]);
+  }, [barcodes, isItemReadyForRepricing, maxBarcodesPerItem]);
 
   // ── Loading state ───────────────────────────────────────────────────────────
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--ui-bg)' }}>
-        <p className="text-sm text-gray-500">Loading reprice list...</p>
+        <p className="text-sm text-gray-500">{copy.loadingList}</p>
       </div>
     );
   }
@@ -998,6 +1140,8 @@ const RepricingNegotiation = () => {
       <AppHeader
         buyerControls={{
           enabled: true,
+          repricingWorkspace: true,
+          reserveWorkspaceRightForRepriceRail: features.hasRepriceListSidebar,
           selectedCategory,
           onCategorySelect: selectCategory,
           onAddFromCeX: (opts) =>
@@ -1012,11 +1156,12 @@ const RepricingNegotiation = () => {
           clearCexProduct,
           existingItems: items,
           showNotification,
-          onQuickReprice: () => setIsQuickRepriceOpen(true),
+          ...(features.hasQuickReprice ? { onQuickReprice: () => setIsQuickRepriceOpen(true) } : {}),
         }}
       />
 
-      <main className="relative flex min-h-0 flex-1 overflow-hidden">
+      <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* Shared table section — same component as buying, with offers/customer hidden */}
         <NegotiationTablesSection
           mode="negotiate"
@@ -1051,28 +1196,35 @@ const RepricingNegotiation = () => {
           onOpenNosposRequiredFieldsEditor={null}
           onOpenNosposCategoryPicker={null}
           hideNosposRequiredColumn
+          hideNosposCategoryColumn={useUploadSessions}
+          hideQuantityColumn={useUploadSessions}
+          hideCexVoucherCashColumns={useUploadSessions}
           hideOfferColumns={!features.hasOffers}
           hideCustomerExpectation={!features.hasCustomer}
           salePriceLabel={features.salePriceLabel}
           renderRowSuffix={renderBarcodeCell}
         />
 
-        <RepricingBarcodeSidebar
-          activeItems={activeItems}
-          barcodes={barcodes}
-          isItemReadyForRepricing={isItemReadyForRepricing}
-          allItemsReadyForRepricing={allItemsReadyForRepricing}
-          isRepricingFinished={isRepricingFinished}
-          isBackgroundRepricingRunning={isBackgroundRepricingRunning}
-          completedItemsData={completedItemsData}
-          headerWorkspaceOpen={headerWorkspaceOpen}
-          researchItem={researchItem}
-          cashConvertersResearchItem={cashConvertersResearchItem}
-          cgResearchItem={cgResearchItem}
-          onProceed={handleProceed}
-          onOpenBarcodePrintTab={openBarcodePrintTab}
-          onNewRepricing={() => setShowNewRepricingConfirm(true)}
-        />
+        {features.hasRepriceListSidebar ? (
+          <RepricingBarcodeSidebar
+            variant="sidebar"
+            workspace={copy.workspace}
+            activeItems={activeItems}
+            barcodes={barcodes}
+            isItemReadyForRepricing={isItemReadyForRepricing}
+            allItemsReadyForRepricing={allItemsReadyForRepricing}
+            isRepricingFinished={isRepricingFinished}
+            isBackgroundRepricingRunning={isBackgroundRepricingRunning}
+            completedItemsData={completedItemsData}
+            headerWorkspaceOpen={headerWorkspaceOpen}
+            researchItem={researchItem}
+            cashConvertersResearchItem={cashConvertersResearchItem}
+            cgResearchItem={cgResearchItem}
+            onProceed={handleProceed}
+            onOpenBarcodePrintTab={openBarcodePrintTab}
+            onNewRepricing={() => setShowNewRepricingConfirm(true)}
+          />
+        ) : null}
 
         <ResearchOverlayPanel
           items={items}
@@ -1084,7 +1236,30 @@ const RepricingNegotiation = () => {
           onCashGeneratorResearchComplete={handleCashGeneratorResearchComplete}
           hideOfferCards={features.hideOfferCards}
           onCategoryResolved={handleResearchItemCategoryResolved}
+          reserveRightSidebar={features.hasRepriceListSidebar}
         />
+        </div>
+
+        {!features.hasRepriceListSidebar ? (
+          <RepricingBarcodeSidebar
+            variant="actionsOnly"
+            workspace={copy.workspace}
+            activeItems={activeItems}
+            barcodes={barcodes}
+            isItemReadyForRepricing={isItemReadyForRepricing}
+            allItemsReadyForRepricing={allItemsReadyForRepricing}
+            isRepricingFinished={isRepricingFinished}
+            isBackgroundRepricingRunning={isBackgroundRepricingRunning}
+            completedItemsData={completedItemsData}
+            headerWorkspaceOpen={headerWorkspaceOpen}
+            researchItem={researchItem}
+            cashConvertersResearchItem={cashConvertersResearchItem}
+            cgResearchItem={cgResearchItem}
+            onProceed={handleProceed}
+            onOpenBarcodePrintTab={openBarcodePrintTab}
+            onNewRepricing={() => setShowNewRepricingConfirm(true)}
+          />
+        ) : null}
       </main>
 
       {/* Context Menu */}
@@ -1093,7 +1268,7 @@ const RepricingNegotiation = () => {
           x={contextMenu.x}
           y={contextMenu.y}
           zone={contextMenu.zone}
-          removeLabel="Remove from reprice list"
+          removeLabel={copy.contextRemoveLabel}
           onClose={() => setContextMenu(null)}
           onRemove={() => handleRemoveItem(contextMenu.item)}
           onUseAsRrpOffersSource={() =>
@@ -1119,11 +1294,11 @@ const RepricingNegotiation = () => {
 
       {showNewRepricingConfirm && (
         <TinyModal
-          title="Start a new repricing?"
+          title={copy.newConfirmTitle}
           onClose={() => setShowNewRepricingConfirm(false)}
         >
           <p className="text-xs text-slate-600 mb-5">
-            This will clear your current reprice list and start fresh from the repricing workspace.
+            {copy.newConfirmBody}
           </p>
           <div className="flex items-center justify-end gap-3">
             <button
@@ -1140,7 +1315,7 @@ const RepricingNegotiation = () => {
               style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
               onClick={handleConfirmNewRepricing}
             >
-              Yes, start new repricing
+              {copy.newConfirmYes}
             </button>
           </div>
         </TinyModal>
@@ -1148,14 +1323,15 @@ const RepricingNegotiation = () => {
 
       {isBackgroundRepricingRunning && (
         <RepricingJobOverlay
+          workspace={copy.workspace}
           repricingJob={repricingJob}
           activeCartKey={activeCartKey}
           onCancel={async (cartKey) => {
             try {
               await cancelNosposRepricing(cartKey);
-              showNotification('Repricing cancelled', 'info');
+              showNotification(copy.cancelOk, 'info');
             } catch {
-              showNotification('Could not cancel repricing', 'error');
+              showNotification(copy.cancelErr, 'error');
             }
           }}
         />
@@ -1195,6 +1371,7 @@ const RepricingNegotiation = () => {
         nosposResultsPanel={nosposResultsPanel}
         setNosposResultsPanel={setNosposResultsPanel}
         completedBarcodes={completedBarcodes}
+        maxBarcodesPerItem={maxBarcodesPerItem}
         onClose={() => { setBarcodeModal(null); setNosposResultsPanel(null); }}
         onAddBarcode={addBarcode}
         onRemoveBarcode={removeBarcode}
@@ -1203,12 +1380,12 @@ const RepricingNegotiation = () => {
         onSkipNosposLookup={skipNosposLookup}
       />
 
-      {isQuickRepriceOpen && (
+      {features.hasQuickReprice && isQuickRepriceOpen ? (
         <QuickRepriceModal
           onClose={() => setIsQuickRepriceOpen(false)}
           onAddItems={handleQuickRepriceItems}
         />
-      )}
+      ) : null}
     </div>
   );
 };

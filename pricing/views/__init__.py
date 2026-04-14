@@ -41,6 +41,8 @@ from pricing.views_v2 import (
     complete_request_after_testing,
     repricing_sessions_view,
     repricing_session_detail,
+    upload_sessions_view,
+    upload_session_detail,
     quick_reprice_lookup,
     variant_prices,
     cex_product_prices,

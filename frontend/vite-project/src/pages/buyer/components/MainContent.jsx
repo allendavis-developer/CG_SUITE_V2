@@ -24,11 +24,19 @@ import {
 } from '@/utils/cexOfferMapping';
 import { validateBuyerCartItemOffers } from '@/utils/cartOfferValidation';
 import { titleForEbayCcOfferIndex } from '@/components/forms/researchStats';
-import useAppStore, { useCartItems, useSelectedCartItem, useIsRepricing, useUseVoucherOffers } from '@/store/useAppStore';
+import useAppStore, {
+  useCartItems,
+  useSelectedCartItem,
+  useIsRepricing,
+  useIsUploadWorkspace,
+  useUseVoucherOffers,
+} from '@/store/useAppStore';
 import { useNotification } from '@/contexts/NotificationContext';
 
 const MainContent = ({ mode = 'buyer' }) => {
   const isRepricing = useIsRepricing();
+  const isUploadWorkspace = useIsUploadWorkspace();
+  const repriceLikeAddLabel = isUploadWorkspace ? 'Add to upload list' : 'Add to Reprice List';
   const useVoucherOffers = useUseVoucherOffers();
   const selectedCartItem = useSelectedCartItem();
 
@@ -566,6 +574,7 @@ const MainContent = ({ mode = 'buyer' }) => {
       <CexProductView
         item={selectedCartItem}
         isRepricing={isRepricing}
+        workspaceListAddButtonLabel={repriceLikeAddLabel}
         useVoucherOffers={useVoucherOffers}
         customerData={customerData}
         onSelectOfferForCartItem={handleSelectOfferForSelectedItem}
@@ -596,6 +605,7 @@ const MainContent = ({ mode = 'buyer' }) => {
       <CexProductView
         cexProduct={cexProductData}
         isRepricing={isRepricing}
+        workspaceListAddButtonLabel={repriceLikeAddLabel}
         useVoucherOffers={useVoucherOffers}
         customerData={customerData}
         onAddToCart={addToCart}
@@ -615,6 +625,7 @@ const MainContent = ({ mode = 'buyer' }) => {
       <EbayCartItemView
         item={selectedCartItem}
         isRepricing={isRepricing}
+        addActionLabel={isRepricing ? repriceLikeAddLabel : 'Add to Cart'}
         useVoucherOffers={useVoucherOffers}
         onSelectOfferForCartItem={handleSelectOfferForSelectedItem}
         onEbayResearchComplete={handleEbayResearchComplete}
@@ -755,7 +766,7 @@ const MainContent = ({ mode = 'buyer' }) => {
               mode="page" category={EBAY_TOP_LEVEL_CATEGORY}
               onComplete={handleEbayResearchComplete} savedState={savedEbayState}
               initialHistogramState={false} showManualOffer={false}
-              addActionLabel={isRepricing ? 'Add to Reprice List' : 'Add to Cart'} hideOfferCards={isRepricing}
+              addActionLabel={isRepricing ? repriceLikeAddLabel : 'Add to Cart'} hideOfferCards={isRepricing}
               useVoucherOffers={useVoucherOffers}
               lineItemContext={selectedCartItem?.isCustomEbayItem ? selectedCartItem : null}
             />
@@ -792,7 +803,7 @@ const MainContent = ({ mode = 'buyer' }) => {
             {isRepricing && variant && !isAlreadyInCart && (
               <div className="flex justify-end pt-4">
                 <Button variant="primary" icon="sell" className="px-6 py-3 font-bold uppercase tracking-tight" onClick={() => handleAddToCart(null)}>
-                  Add to Reprice List
+                  {repriceLikeAddLabel}
                 </Button>
               </div>
             )}

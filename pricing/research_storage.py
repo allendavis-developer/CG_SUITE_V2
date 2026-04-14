@@ -21,6 +21,7 @@ from .models_v2 import (
     MarketResearchPlatform,
     MarketResearchSession,
     RepricingSessionItem,
+    UploadSessionItem,
     RequestItem,
     RequestItemJewellery,
     RequestItemJewelleryValuation,
@@ -228,15 +229,32 @@ def _replace_market_research(
     payload: dict | None,
     request_item: RequestItem | None = None,
     repricing_item: RepricingSessionItem | None = None,
+    upload_item: UploadSessionItem | None = None,
 ) -> None:
-    if request_item is None and repricing_item is None:
+    n = sum(1 for x in (request_item, repricing_item, upload_item) if x is not None)
+    if n != 1:
         return
     if request_item is not None:
         session_filter = {"request_item": request_item, "platform": platform}
-        owner_fields = {"request_item": request_item, "repricing_session_item": None}
+        owner_fields = {
+            "request_item": request_item,
+            "repricing_session_item": None,
+            "upload_session_item": None,
+        }
+    elif upload_item is not None:
+        session_filter = {"upload_session_item": upload_item, "platform": platform}
+        owner_fields = {
+            "request_item": None,
+            "repricing_session_item": None,
+            "upload_session_item": upload_item,
+        }
     else:
         session_filter = {"repricing_session_item": repricing_item, "platform": platform}
-        owner_fields = {"request_item": None, "repricing_session_item": repricing_item}
+        owner_fields = {
+            "request_item": None,
+            "repricing_session_item": repricing_item,
+            "upload_session_item": None,
+        }
 
     prev_adv = (
         MarketResearchSession.objects.filter(**session_filter)
@@ -354,6 +372,18 @@ def replace_repricing_item_research(
     )
 
 
+def replace_upload_item_research(
+    upload_item: UploadSessionItem,
+    platform: str,
+    payload: dict | None,
+) -> None:
+    _replace_market_research(
+        upload_item=upload_item,
+        platform=platform,
+        payload=payload,
+    )
+
+
 def session_to_client_payload(session: MarketResearchSession) -> dict:
     listings_out = []
     for row in session.listings.all().order_by("sort_order", "listing_id"):
@@ -434,10 +464,18 @@ def session_to_client_payload(session: MarketResearchSession) -> dict:
     return out
 
 
-def _get_session(ri_or_rsi: RequestItem | RepricingSessionItem, platform: str):
+def _get_session(ri_or_rsi: RequestItem | RepricingSessionItem | UploadSessionItem, platform: str):
     if isinstance(ri_or_rsi, RequestItem):
         return (
             MarketResearchSession.objects.filter(request_item=ri_or_rsi, platform=platform)
+            .prefetch_related("listings", "drill_levels")
+            .first()
+        )
+    if isinstance(ri_or_rsi, UploadSessionItem):
+        return (
+            MarketResearchSession.objects.filter(
+                upload_session_item=ri_or_rsi, platform=platform
+            )
             .prefetch_related("listings", "drill_levels")
             .first()
         )
@@ -505,17 +543,23 @@ def compose_cash_generator_for_request_item(item: RequestItem) -> dict:
     return session_to_client_payload(cg) if cg else {}
 
 
-def compose_raw_data_for_repricing_item(item: RepricingSessionItem) -> dict:
+def compose_raw_data_for_repricing_item(
+    item: RepricingSessionItem | UploadSessionItem,
+) -> dict:
     ebay = _get_session(item, MarketResearchPlatform.EBAY)
     return session_to_client_payload(ebay) if ebay else {}
 
 
-def compose_cash_converters_for_repricing_item(item: RepricingSessionItem) -> dict:
+def compose_cash_converters_for_repricing_item(
+    item: RepricingSessionItem | UploadSessionItem,
+) -> dict:
     cc = _get_session(item, MarketResearchPlatform.CASH_CONVERTERS)
     return session_to_client_payload(cc) if cc else {}
 
 
-def compose_cash_generator_for_repricing_item(item: RepricingSessionItem) -> dict:
+def compose_cash_generator_for_repricing_item(
+    item: RepricingSessionItem | UploadSessionItem,
+) -> dict:
     cg = _get_session(item, MarketResearchPlatform.CASH_GENERATOR)
     return session_to_client_payload(cg) if cg else {}
 
@@ -688,6 +732,33 @@ def finish_sync_request_item_research(
 def ingest_repricing_line_post_create(
     line: RepricingSessionItem, raw_data: Any, cc_data: Any, cg_data: Any = None
 ) -> None:
+    ingest_stock_session_line_post_create(line, raw_data, cc_data, cg_data)
+
+
+def ingest_upload_line_post_create(
+    line: UploadSessionItem, raw_data: Any, cc_data: Any, cg_data: Any = None
+) -> None:
+    ingest_stock_session_line_post_create(line, raw_data, cc_data, cg_data)
+
+
+def ingest_stock_session_line_post_create(
+    line: RepricingSessionItem | UploadSessionItem,
+    raw_data: Any,
+    cc_data: Any,
+    cg_data: Any = None,
+) -> None:
+    if isinstance(line, UploadSessionItem):
+        if isinstance(raw_data, dict) and raw_data:
+            replace_upload_item_research(line, MarketResearchPlatform.EBAY, raw_data)
+        if isinstance(cc_data, dict) and cc_data:
+            replace_upload_item_research(
+                line, MarketResearchPlatform.CASH_CONVERTERS, cc_data
+            )
+        if isinstance(cg_data, dict) and cg_data:
+            replace_upload_item_research(
+                line, MarketResearchPlatform.CASH_GENERATOR, cg_data
+            )
+        return
     if isinstance(raw_data, dict) and raw_data:
         replace_repricing_item_research(line, MarketResearchPlatform.EBAY, raw_data)
     if isinstance(cc_data, dict) and cc_data:

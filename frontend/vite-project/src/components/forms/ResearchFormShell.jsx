@@ -29,6 +29,13 @@ function displayPctOfSaleForOffer(offer, suggestedPrice) {
   return null;
 }
 
+/** Repricing rail vs upload module — same CeX/eBay “add to list” control, different label text. */
+function isWorkspaceListAddActionLabel(label) {
+  if (!label || typeof label !== 'string') return false;
+  const n = label.trim();
+  return n === 'Add to Reprice List' || n === 'Add to reprice list' || n === 'Add to upload list';
+}
+
 /** Parse a sold-date string like: `Sold  23 Feb 2026` into a day bucket with deterministic ms. */
 function parseSoldDateDayStart(soldStr) {
   if (!soldStr) return null;
@@ -1022,7 +1029,7 @@ export default function ResearchFormShell({
                 }`}
                 disabled={disableAddAction}
               >
-                <Icon name={addActionLabel === 'Add to Reprice List' ? 'sell' : 'add_shopping_cart'} className="text-[22px]" />
+                <Icon name={isWorkspaceListAddActionLabel(addActionLabel) ? 'sell' : 'add_shopping_cart'} className="text-[22px]" />
                 {addActionLabel}
               </button>
             </>
@@ -1106,7 +1113,7 @@ export default function ResearchFormShell({
               onClick={() => onAddToCartWithOffer(null)}
               disabled={disableAddAction}
             >
-              <Icon name={addActionLabel === 'Add to Reprice List' ? 'sell' : 'add_shopping_cart'} className="text-[22px]" />
+              <Icon name={isWorkspaceListAddActionLabel(addActionLabel) ? 'sell' : 'add_shopping_cart'} className="text-[22px]" />
               {addActionLabel}
             </Button>
           )}

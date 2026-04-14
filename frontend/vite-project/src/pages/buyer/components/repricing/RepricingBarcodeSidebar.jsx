@@ -1,6 +1,113 @@
 import React from 'react';
 
+const DEFAULT_WORKSPACE_LABELS = {
+  newButton: 'New Repricing',
+  newButtonTitle: 'Clear reprice list and start a new repricing session',
+  proceedIdle: 'Proceed with Repricing',
+  proceedRunning: 'Repricing Running in Background',
+  proceedDone: 'Repricing Finished',
+  finishedNote: 'Repricing finished',
+  verifyHint: 'Verify a NoSpos barcode for every item before proceeding',
+};
+
+function RepricingActionsBlock({
+  headerWorkspaceOpen,
+  researchItem,
+  cashConvertersResearchItem,
+  cgResearchItem,
+  allItemsReadyForRepricing,
+  isRepricingFinished,
+  isBackgroundRepricingRunning,
+  completedItemsData,
+  onProceed,
+  onOpenBarcodePrintTab,
+  onNewRepricing,
+  layout = 'vertical',
+  labels = DEFAULT_WORKSPACE_LABELS,
+}) {
+  const proceedDisabled =
+    headerWorkspaceOpen ||
+    researchItem ||
+    cashConvertersResearchItem ||
+    cgResearchItem ||
+    !allItemsReadyForRepricing ||
+    isRepricingFinished ||
+    isBackgroundRepricingRunning;
+
+  const btnClassProceed = `font-bold rounded-xl transition-all flex items-center justify-center gap-2 group active:scale-[0.98] ${
+    proceedDisabled ? 'opacity-50 cursor-not-allowed' : ''
+  } ${layout === 'vertical' ? 'w-full py-4' : 'px-6 py-3 whitespace-nowrap'}`;
+
+  return (
+    <div className={layout === 'vertical' ? 'p-6 bg-white border-t space-y-4' : 'flex flex-wrap items-center justify-between gap-3 w-full'} style={{ borderColor: 'var(--brand-blue-alpha-20)' }}>
+      {layout === 'horizontal' && (
+        <button
+          type="button"
+          onClick={onNewRepricing}
+          title={labels.newButtonTitle}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold border transition-colors"
+          style={{ borderColor: 'var(--brand-blue-alpha-20)', color: 'var(--brand-blue)' }}
+        >
+          <span className="material-symbols-outlined text-[16px]">refresh</span>
+          {labels.newButton}
+        </button>
+      )}
+      <div className={layout === 'horizontal' ? 'flex flex-wrap items-center justify-end gap-2 flex-1 min-w-0' : ''}>
+        <button
+          className={btnClassProceed}
+          style={{
+            background: 'var(--brand-orange)',
+            color: 'var(--brand-blue)',
+            boxShadow: layout === 'vertical' ? '0 10px 15px -3px rgba(247,185,24,0.3)' : undefined,
+          }}
+          onClick={onProceed}
+          disabled={proceedDisabled}
+        >
+          <span className={`uppercase tracking-tight ${layout === 'vertical' ? 'text-base' : 'text-sm'}`}>
+            {isRepricingFinished ? labels.proceedDone : isBackgroundRepricingRunning ? labels.proceedRunning : labels.proceedIdle}
+          </span>
+          {!isRepricingFinished && !isBackgroundRepricingRunning && (
+            <span className={`material-symbols-outlined group-hover:translate-x-1 transition-transform ${layout === 'vertical' ? 'text-xl' : 'text-lg'}`}>
+              arrow_forward
+            </span>
+          )}
+          {isBackgroundRepricingRunning && (
+            <span className={`material-symbols-outlined animate-spin ${layout === 'vertical' ? 'text-xl' : 'text-lg'}`}>progress_activity</span>
+          )}
+        </button>
+        {!allItemsReadyForRepricing && !isRepricingFinished && layout === 'vertical' && (
+          <p className="text-[10px] text-center text-red-600 font-semibold -mt-2">
+            {labels.verifyHint}
+          </p>
+        )}
+        {isRepricingFinished && completedItemsData.length > 0 && (
+          <button
+            onClick={() => onOpenBarcodePrintTab(completedItemsData)}
+            className={`font-bold rounded-xl transition-all flex items-center justify-center gap-2 active:scale-[0.98] ${layout === 'vertical' ? 'w-full py-3' : 'px-5 py-3'}`}
+            style={{ background: 'var(--brand-blue)', color: '#fff' }}
+          >
+            <span className="material-symbols-outlined text-xl">print</span>
+            <span className={`uppercase tracking-tight ${layout === 'vertical' ? 'text-sm' : 'text-xs'}`}>Print Barcodes</span>
+          </button>
+        )}
+        {isRepricingFinished && completedItemsData.length === 0 && layout === 'vertical' && (
+          <p className="text-[10px] text-center text-emerald-700 font-semibold -mt-2">
+            {labels.finishedNote}
+          </p>
+        )}
+      </div>
+      {!allItemsReadyForRepricing && !isRepricingFinished && layout === 'horizontal' && (
+        <p className="text-[10px] text-red-600 font-semibold w-full text-right">
+          {labels.verifyHint}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function RepricingBarcodeSidebar({
+  variant = 'sidebar',
+  workspace = 'repricing',
   activeItems,
   barcodes,
   isItemReadyForRepricing,
@@ -16,6 +123,50 @@ export default function RepricingBarcodeSidebar({
   onOpenBarcodePrintTab,
   onNewRepricing,
 }) {
+  const labels =
+    workspace === 'upload'
+      ? {
+          headerTitle: 'Upload list',
+          headerIcon: 'upload',
+          newButton: 'New upload',
+          newButtonTitle: 'Clear upload list and start a new upload session',
+          proceedIdle: 'Proceed with upload',
+          proceedRunning: 'Upload running in background',
+          proceedDone: 'Upload finished',
+          finishedNote: 'Upload finished',
+          verifyHint: 'Verify a NoSpos barcode for every item before proceeding',
+        }
+      : {
+          headerTitle: 'Reprice List',
+          headerIcon: 'sell',
+          ...DEFAULT_WORKSPACE_LABELS,
+        };
+
+  if (variant === 'actionsOnly') {
+    return (
+      <div
+        className="shrink-0 border-t flex flex-col gap-2 px-4 py-3 bg-white"
+        style={{ borderColor: 'var(--brand-blue-alpha-20)' }}
+      >
+        <RepricingActionsBlock
+          headerWorkspaceOpen={headerWorkspaceOpen}
+          researchItem={researchItem}
+          cashConvertersResearchItem={cashConvertersResearchItem}
+          cgResearchItem={cgResearchItem}
+          allItemsReadyForRepricing={allItemsReadyForRepricing}
+          isRepricingFinished={isRepricingFinished}
+          isBackgroundRepricingRunning={isBackgroundRepricingRunning}
+          completedItemsData={completedItemsData}
+          onProceed={onProceed}
+          onOpenBarcodePrintTab={onOpenBarcodePrintTab}
+          onNewRepricing={onNewRepricing}
+          layout="horizontal"
+          labels={labels}
+        />
+      </div>
+    );
+  }
+
   return (
     <aside
       className="w-80 border-l flex flex-col bg-white shrink-0"
@@ -24,9 +175,9 @@ export default function RepricingBarcodeSidebar({
       <div className="px-5 py-4 border-b bg-brand-blue" style={{ borderColor: 'var(--brand-blue-alpha-20)' }}>
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <span className="material-symbols-outlined text-brand-orange text-2xl">sell</span>
+            <span className="material-symbols-outlined text-brand-orange text-2xl">{labels.headerIcon}</span>
             <div>
-              <p className="text-sm font-black uppercase tracking-wider text-white">Reprice List</p>
+              <p className="text-sm font-black uppercase tracking-wider text-white">{labels.headerTitle}</p>
               <p className="text-xs text-white/70">
                 {activeItems.length} item{activeItems.length !== 1 ? 's' : ''}
               </p>
@@ -36,10 +187,10 @@ export default function RepricingBarcodeSidebar({
             type="button"
             onClick={onNewRepricing}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-white/10 hover:bg-white/20 text-white transition-colors"
-            title="Clear reprice list and start a new repricing session"
+            title={labels.newButtonTitle}
           >
             <span className="material-symbols-outlined text-[16px]">refresh</span>
-            New Repricing
+            {labels.newButton}
           </button>
         </div>
       </div>
@@ -76,55 +227,21 @@ export default function RepricingBarcodeSidebar({
         </div>
       </div>
 
-      <div
-        className="p-6 bg-white border-t space-y-4"
-        style={{ borderColor: 'var(--brand-blue-alpha-20)' }}
-      >
-        <button
-          className={`w-full font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 group active:scale-[0.98] ${
-            headerWorkspaceOpen || researchItem || cashConvertersResearchItem || cgResearchItem || !allItemsReadyForRepricing || isRepricingFinished || isBackgroundRepricingRunning ? 'opacity-50 cursor-not-allowed' : ''
-          }`}
-          style={{
-            background: 'var(--brand-orange)',
-            color: 'var(--brand-blue)',
-            boxShadow: '0 10px 15px -3px rgba(247,185,24,0.3)'
-          }}
-          onClick={onProceed}
-          disabled={headerWorkspaceOpen || researchItem || cashConvertersResearchItem || cgResearchItem || !allItemsReadyForRepricing || isRepricingFinished || isBackgroundRepricingRunning}
-        >
-          <span className="text-base uppercase tracking-tight">
-            {isRepricingFinished ? 'Repricing Finished' : isBackgroundRepricingRunning ? 'Repricing Running in Background' : 'Proceed with Repricing'}
-          </span>
-          {!isRepricingFinished && !isBackgroundRepricingRunning && (
-            <span className="material-symbols-outlined text-xl group-hover:translate-x-1 transition-transform">
-              arrow_forward
-            </span>
-          )}
-          {isBackgroundRepricingRunning && (
-            <span className="material-symbols-outlined text-xl animate-spin">progress_activity</span>
-          )}
-        </button>
-        {!allItemsReadyForRepricing && !isRepricingFinished && (
-          <p className="text-[10px] text-center text-red-600 font-semibold -mt-2">
-            Verify a NoSpos barcode for every item before proceeding
-          </p>
-        )}
-        {isRepricingFinished && completedItemsData.length > 0 && (
-          <button
-            onClick={() => onOpenBarcodePrintTab(completedItemsData)}
-            className="w-full font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
-            style={{ background: 'var(--brand-blue)', color: '#fff' }}
-          >
-            <span className="material-symbols-outlined text-xl">print</span>
-            <span className="text-sm uppercase tracking-tight">Print Barcodes</span>
-          </button>
-        )}
-        {isRepricingFinished && completedItemsData.length === 0 && (
-          <p className="text-[10px] text-center text-emerald-700 font-semibold -mt-2">
-            Repricing finished
-          </p>
-        )}
-      </div>
+      <RepricingActionsBlock
+        headerWorkspaceOpen={headerWorkspaceOpen}
+        researchItem={researchItem}
+        cashConvertersResearchItem={cashConvertersResearchItem}
+        cgResearchItem={cgResearchItem}
+        allItemsReadyForRepricing={allItemsReadyForRepricing}
+        isRepricingFinished={isRepricingFinished}
+        isBackgroundRepricingRunning={isBackgroundRepricingRunning}
+        completedItemsData={completedItemsData}
+        onProceed={onProceed}
+        onOpenBarcodePrintTab={onOpenBarcodePrintTab}
+        onNewRepricing={onNewRepricing}
+        layout="vertical"
+        labels={labels}
+      />
     </aside>
   );
 }

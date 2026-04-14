@@ -15,6 +15,8 @@ from .models_v2 import (
     RequestIntent,
     RepricingSession,
     RepricingSessionItem,
+    UploadSession,
+    UploadSessionItem,
     RequestItemOfferType,
 )
 from . import research_storage
@@ -471,3 +473,64 @@ class RepricingSessionSerializer(serializers.ModelSerializer):
             'items',
         ]
         read_only_fields = ['repricing_session_id', 'created_at', 'updated_at']
+
+
+class UploadSessionItemSerializer(serializers.ModelSerializer):
+    raw_data = serializers.SerializerMethodField()
+    cash_converters_data = serializers.SerializerMethodField()
+    cg_data = serializers.SerializerMethodField()
+
+    class Meta:
+        model = UploadSessionItem
+        fields = [
+            'upload_session_item_id',
+            'item_identifier',
+            'title',
+            'quantity',
+            'barcode',
+            'stock_barcode',
+            'stock_url',
+            'old_retail_price',
+            'new_retail_price',
+            'cex_sell_at_repricing',
+            'our_sale_price_at_repricing',
+            'raw_data',
+            'cash_converters_data',
+            'cg_data',
+            'created_at',
+        ]
+        read_only_fields = [
+            'upload_session_item_id',
+            'created_at',
+            'raw_data',
+            'cash_converters_data',
+            'cg_data',
+        ]
+
+    def get_raw_data(self, obj):
+        return research_storage.compose_raw_data_for_repricing_item(obj)
+
+    def get_cash_converters_data(self, obj):
+        return research_storage.compose_cash_converters_for_repricing_item(obj)
+
+    def get_cg_data(self, obj):
+        return research_storage.compose_cash_generator_for_repricing_item(obj)
+
+
+class UploadSessionSerializer(serializers.ModelSerializer):
+    items = UploadSessionItemSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = UploadSession
+        fields = [
+            'upload_session_id',
+            'cart_key',
+            'item_count',
+            'barcode_count',
+            'status',
+            'session_data',
+            'created_at',
+            'updated_at',
+            'items',
+        ]
+        read_only_fields = ['upload_session_id', 'created_at', 'updated_at']

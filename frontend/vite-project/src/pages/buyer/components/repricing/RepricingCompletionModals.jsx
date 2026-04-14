@@ -217,6 +217,7 @@ export function RepricingBarcodeModal({
   nosposResultsPanel,
   setNosposResultsPanel,
   completedBarcodes,
+  maxBarcodesPerItem = Number.POSITIVE_INFINITY,
   onClose,
   onAddBarcode,
   onRemoveBarcode,
@@ -227,9 +228,10 @@ export function RepricingBarcodeModal({
   if (!barcodeModal) return null;
   const modalItem = barcodeModal.item;
   const itemBarcodes = barcodes[modalItem.id] || [];
+  const singleBarcode = Number.isFinite(maxBarcodesPerItem) && maxBarcodesPerItem === 1;
 
   return (
-    <TinyModal title="Barcodes" onClose={onClose}>
+    <TinyModal title={singleBarcode ? 'Barcode' : 'Barcodes'} onClose={onClose}>
       <p className="text-xs font-semibold mb-4" style={{ color: 'var(--brand-blue)' }}>
         {modalItem.title}
       </p>
@@ -392,6 +394,9 @@ export function RepricingBarcodeModal({
         <p className="text-xs text-slate-400 italic mb-4">No barcodes added yet.</p>
       )}
 
+      {singleBarcode && itemBarcodes.length > 0 ? (
+        <p className="text-[10px] text-slate-500 mb-2">Add replaces the current barcode.</p>
+      ) : null}
       <div className="flex gap-2 mb-4">
         <input
           autoFocus
@@ -408,7 +413,7 @@ export function RepricingBarcodeModal({
           style={{ background: 'var(--brand-blue)', color: 'white' }}
           onClick={onAddBarcode}
         >
-          Add
+          {singleBarcode && itemBarcodes.length > 0 ? 'Replace' : 'Add'}
         </button>
       </div>
 

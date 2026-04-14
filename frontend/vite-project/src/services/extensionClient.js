@@ -154,6 +154,11 @@ export async function openNospos(repricingData, progress = {}) {
   });
 }
 
+/** Upload workspace: open Web EPOS in a background tab; extension rejects if redirected to /login. */
+export async function openWebEposUpload() {
+  return sendMessage({ action: 'openWebEposUpload' });
+}
+
 /**
  * Search NosPos for a barcode in the background (no tab switch).
  * Returns { ok: true, results: [{ barserial, href, name, costPrice, retailPrice, quantity }] }

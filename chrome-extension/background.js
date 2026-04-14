@@ -1951,6 +1951,139 @@ async function failNosposRequestAndCloseTab(requestId, entry, message) {
   }
 }
 
+const WEB_EPOS_UPLOAD_HOST = 'webepos.cashgenerator.co.uk';
+const WEB_EPOS_LOGIN_PATH = /^\/login(\/|$)/i;
+
+/**
+ * After opening Web EPOS for upload: fail fast if the site lands on /login (not logged in),
+ * otherwise resolve the bridge promise so the app can continue. Tab stays open on success.
+ */
+function watchWebEposUploadTab(webeposTabId, requestId, entry) {
+  let resolved = false;
+  let settleTimer = null;
+  let timeoutId = null;
+
+  async function cleanupListeners() {
+    if (settleTimer) {
+      clearTimeout(settleTimer);
+      settleTimer = null;
+    }
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      timeoutId = null;
+    }
+    chrome.tabs.onUpdated.removeListener(onUpdated);
+    chrome.tabs.onRemoved.removeListener(onRemoved);
+  }
+
+  async function fail(err) {
+    if (resolved) return;
+    resolved = true;
+    await cleanupListeners();
+    await clearPendingRequest(requestId);
+    const msg = err || 'Web EPOS did not load.';
+    if (entry.appTabId != null) {
+      chrome.tabs
+        .sendMessage(entry.appTabId, {
+          type: 'EXTENSION_RESPONSE_TO_PAGE',
+          requestId,
+          error: msg,
+        })
+        .catch(() => {});
+      await focusAppTab(entry.appTabId);
+    }
+    await chrome.tabs.remove(webeposTabId).catch(() => {});
+  }
+
+  async function ok(finalUrl) {
+    if (resolved) return;
+    resolved = true;
+    await cleanupListeners();
+    await clearPendingRequest(requestId);
+    if (entry.appTabId != null) {
+      await notifyAppExtensionResponse(entry.appTabId, requestId, { ok: true, url: finalUrl || '' });
+    }
+  }
+
+  function scheduleSettle() {
+    if (settleTimer) clearTimeout(settleTimer);
+    settleTimer = setTimeout(async () => {
+      settleTimer = null;
+      if (resolved) return;
+      try {
+        const t = await chrome.tabs.get(webeposTabId);
+        const u = (t.url || '').trim();
+        if (!u) return;
+        const parsed = new URL(u);
+        if (parsed.hostname.toLowerCase() !== WEB_EPOS_UPLOAD_HOST) return;
+        const path = (parsed.pathname || '/').toLowerCase();
+        if (WEB_EPOS_LOGIN_PATH.test(path)) {
+          await fail('You must be logged into Web EPOS to continue.');
+          return;
+        }
+        await ok(u);
+      } catch (e) {
+        await fail(e?.message || 'Web EPOS check failed.');
+      }
+    }, 600);
+  }
+
+  async function onUpdated(id, info) {
+    if (id !== webeposTabId || resolved) return;
+    if (info.status !== 'complete') return;
+    try {
+      const t = await chrome.tabs.get(webeposTabId);
+      const u = (t.url || '').trim();
+      if (!u || u.startsWith('chrome://')) return;
+      let parsed;
+      try {
+        parsed = new URL(u);
+      } catch {
+        return;
+      }
+      if (parsed.hostname.toLowerCase() !== WEB_EPOS_UPLOAD_HOST) return;
+      const path = (parsed.pathname || '/').toLowerCase();
+      if (WEB_EPOS_LOGIN_PATH.test(path)) {
+        if (settleTimer) {
+          clearTimeout(settleTimer);
+          settleTimer = null;
+        }
+        await fail('You must be logged into Web EPOS to continue.');
+        return;
+      }
+      scheduleSettle();
+    } catch (e) {
+      await fail(e?.message || 'Web EPOS check failed.');
+    }
+  }
+
+  async function onRemoved(removedTabId) {
+    if (removedTabId !== webeposTabId || resolved) return;
+    const pendingNow = await getPending();
+    if (!pendingNow[requestId]) {
+      resolved = true;
+      await cleanupListeners();
+      return;
+    }
+    await fail('Web EPOS tab was closed.');
+  }
+
+  timeoutId = setTimeout(() => {
+    void fail('Timed out waiting for Web EPOS to load.');
+  }, 60000);
+  chrome.tabs.onUpdated.addListener(onUpdated);
+  chrome.tabs.onRemoved.addListener(onRemoved);
+  chrome.tabs
+    .get(webeposTabId)
+    .then((t) => {
+      if (resolved) return;
+      if (t.status === 'complete' && t.url) {
+        void onUpdated(webeposTabId, { status: 'complete' });
+      }
+    })
+    .catch(() => {});
+}
+
 // focusAppTab, waitForTabLoadComplete — imported from bg/tab-utils.js
 
 importScripts('tasks/jewellery-scrap-prices-tab.js');
@@ -3145,6 +3278,19 @@ async function handleBridgeForward(message, sender) {
     } catch (e) {
       console.warn('[CG Suite] openJewelleryScrapPrices failed:', e?.message);
     }
+    return { ok: true };
+  }
+
+  // Upload workspace: open Web EPOS; if redirected to /login, close tab and reject bridge promise.
+  if (payload.action === 'openWebEposUpload' && appTabId != null) {
+    const url = 'https://webepos.cashgenerator.co.uk/';
+    const { tabId: webeposTabId } = await openBackgroundNosposTab(url, appTabId);
+    const pending = await getPending();
+    const entry = { appTabId, listingTabId: webeposTabId, type: 'openWebEposUpload' };
+    pending[requestId] = entry;
+    await setPending(pending);
+    watchWebEposUploadTab(webeposTabId, requestId, entry);
+    console.log('[CG Suite] openWebEposUpload – watching tab', { requestId, listingTabId: webeposTabId });
     return { ok: true };
   }
 
