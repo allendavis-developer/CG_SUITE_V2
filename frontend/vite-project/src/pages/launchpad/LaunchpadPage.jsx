@@ -98,52 +98,66 @@ const LaunchpadPage = () => {
       <div className="layout-container flex h-full grow flex-col">
         <AppHeader />
 
-        <main className="flex-1 px-6 md:px-20 lg:px-40 py-8">
-          <div className="max-w-[1200px] mx-auto">
+        <main className="flex-1 px-4 sm:px-8 lg:px-12 py-8">
+          <div className="max-w-[1120px] mx-auto">
             <LaunchpadWelcome />
 
             {/* Module Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-10">
-              <ModuleCard
-                icon="shopping_cart_checkout"
-                title="Buying Module"
-                description="Manage and process all buys."
-                route="/buyer"
-                buttonLabel="Open Buying Module"
-                onNavigate={handleOpenBuyer}
-              />
-              <ModuleCard
-                icon="analytics"
-                title="Repricing Module"
-                description="Analyse real-time competitor data, and update product pricing."
-                route="/repricing"
-                buttonLabel="Open Repricing Module"
-                onNavigate={handleOpenRepricing}
-              />
-              <ModuleCard
-                icon="summarize"
-                title="Reports"
-                description="View reporting."
-                route="/reports"
-                buttonLabel="Open Reports"
-              />
+            <div className="mb-8">
+              <div className="mb-4">
+                <h2 className="cg-section-title">Modules</h2>
+                <p className="cg-section-subtitle">Select a module to get started</p>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <ModuleCard
+                  icon="shopping_cart_checkout"
+                  title="Buying Module"
+                  description="Manage customer buy-backs, store credits, and direct sales."
+                  route="/buyer"
+                  buttonLabel="Open Buying Module"
+                  onNavigate={handleOpenBuyer}
+                />
+                <ModuleCard
+                  icon="analytics"
+                  title="Repricing Module"
+                  description="Analyse real-time competitor data and update product pricing."
+                  route="/repricing"
+                  buttonLabel="Open Repricing Module"
+                  onNavigate={handleOpenRepricing}
+                />
+                <ModuleCard
+                  icon="summarize"
+                  title="Reports"
+                  description="View transaction history, performance summaries, and analytics."
+                  route="/reports"
+                  buttonLabel="Open Reports"
+                />
+                <ModuleCard
+                  icon="tune"
+                  title="Pricing rules"
+                  description="Configure category-based CeX, margin, and offer tiers used in buying and repricing."
+                  route="/pricing-rules"
+                  buttonLabel="Open pricing rules"
+                />
+              </div>
             </div>
 
             {/* Daily Overview */}
             {loading ? (
-              <section className="mb-10">
-                <div className="flex items-center justify-center py-12 text-slate-500">
-                  <span className="material-symbols-outlined animate-spin text-2xl mr-2">
-                    progress_activity
-                  </span>
-                  Loading overview…
+              <section className="mb-8">
+                <div className="cg-card flex items-center justify-center py-12 text-slate-400 gap-2">
+                  <span className="material-symbols-outlined animate-spin text-xl">progress_activity</span>
+                  <span className="text-sm font-medium">Loading overview…</span>
                 </div>
               </section>
             ) : error ? (
-              <section className="mb-10">
-                <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-amber-800">
-                  <p className="font-medium">Could not load overview data</p>
-                  <p className="text-sm mt-1">{error}</p>
+              <section className="mb-8">
+                <div className="cg-card p-6 flex items-start gap-3 border-amber-200 bg-amber-50/60">
+                  <span className="material-symbols-outlined text-amber-500 text-xl shrink-0 mt-0.5">warning</span>
+                  <div>
+                    <p className="text-sm font-semibold text-amber-900">Could not load overview data</p>
+                    <p className="text-xs text-amber-700 mt-0.5">{error}</p>
+                  </div>
                 </div>
               </section>
             ) : (
@@ -156,8 +170,9 @@ const LaunchpadPage = () => {
             {/* Recent Activity */}
             {loading ? (
               <section>
-                <div className="flex items-center justify-center py-12 text-slate-500">
-                  Loading recent activity…
+                <div className="cg-card flex items-center justify-center py-12 text-slate-400 gap-2">
+                  <span className="material-symbols-outlined animate-spin text-xl">progress_activity</span>
+                  <span className="text-sm font-medium">Loading recent activity…</span>
                 </div>
               </section>
             ) : (

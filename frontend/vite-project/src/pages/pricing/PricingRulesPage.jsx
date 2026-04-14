@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import AppHeader from '@/components/AppHeader';
+import HierarchicalCategoryPickerPanel from '@/components/pickers/HierarchicalCategoryPickerPanel';
 import {
   fetchPricingRules,
   createPricingRule,
@@ -9,16 +10,12 @@ import {
   fetchCustomerOfferRules,
   updateCustomerOfferRule,
   updateCustomerRuleSettings,
-  fetchNosposCategoryMappings,
-  createNosposCategoryMapping,
-  updateNosposCategoryMapping,
-  deleteNosposCategoryMapping,
 } from '@/services/api';
 import { useNotification } from '@/contexts/NotificationContext';
 import useAppStore from '@/store/useAppStore';
 import { CUSTOMER_TYPE_LABELS } from '@/utils/customerOfferRules';
 import { SPREADSHEET_TABLE_STYLES } from '@/styles/spreadsheetTableStyles';
-import { parseNosposPath } from '@/utils/nosposCategoryMappings';
+import { flatCategoriesToNestedRoots, ebayPickerFilterChildren } from '@/utils/categoryPickerTree';
 
 const inputFocus =
   'focus:outline-none focus:ring-1 focus:ring-[var(--brand-blue)] focus:border-[var(--brand-blue)]';
@@ -52,11 +49,19 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
   const { showNotification } = useNotification();
   const isEditing = Boolean(rule);
 
+  const categoryRoots = useMemo(
+    () => flatCategoriesToNestedRoots(Array.isArray(categories) ? categories : []),
+    [categories]
+  );
+
   const [scopeKind, setScopeKind] = useState(
     isEditing ? scopeType(rule) : 'global'
   );
   const [categoryId, setCategoryId] = useState(
     isEditing && rule.category ? String(rule.category.id) : ''
+  );
+  const [categoryPathNames, setCategoryPathNames] = useState(() =>
+    isEditing && rule.category?.name ? [rule.category.name] : []
   );
   const [sellPct, setSellPct] = useState(
     isEditing ? String((rule.sell_price_multiplier * 100).toFixed(2)) : '85'
@@ -97,6 +102,15 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
       : ''
   );
   const [saving, setSaving] = useState(false);
+  const [categoryPickerOpen, setCategoryPickerOpen] = useState(false);
+
+  useEffect(() => {
+    if (scopeKind === 'global') {
+      setCategoryId('');
+      setCategoryPathNames([]);
+      setCategoryPickerOpen(false);
+    }
+  }, [scopeKind]);
 
   const handleSave = async () => {
     const multiplierVal = parseFloat(sellPct);
@@ -175,7 +189,12 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="cg-animate-modal-backdrop absolute inset-0 bg-black/50" onClick={onClose} />
+      <div
+        className="cg-animate-modal-backdrop absolute inset-0 bg-black/50"
+        onClick={() => {
+          if (!categoryPickerOpen) onClose();
+        }}
+      />
       <div className="cg-animate-modal-panel relative z-10 flex w-full max-w-lg flex-col overflow-hidden border border-[var(--ui-border)] bg-white shadow-lg">
         <header
           className="flex items-center justify-between px-6 py-3 text-white"
@@ -219,24 +238,58 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
             </div>
           )}
 
-          {/* Category picker — shown when creating a category rule */}
+          {/* Category scope — opens hierarchical picker in a nested overlay */}
           {!isEditing && scopeKind === 'category' && (
             <div>
               <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
                 Category
               </label>
-              <select
-                value={categoryId}
-                onChange={(e) => setCategoryId(e.target.value)}
-                className={`w-full border border-[var(--ui-border)] bg-white px-3 py-2 text-sm ${inputFocus}`}
-              >
-                <option value="">— Select category —</option>
-                {categories.map((c) => (
-                  <option key={c.category_id} value={String(c.category_id)}>
-                    {'—'.repeat(c.depth)}{c.depth > 0 ? ' ' : ''}{c.name}
-                  </option>
-                ))}
-              </select>
+              <p className="mb-3 text-[11px] leading-snug text-[var(--text-muted)]">
+                Pick the internal category this rule applies to. You can choose any level of the tree (parent or leaf).
+              </p>
+              {categoryId ? (
+                <div className="mb-3 rounded-lg border border-[var(--brand-blue-alpha-30)] bg-[var(--brand-blue-alpha-05)] px-3 py-2.5">
+                  <p className="text-xs font-semibold leading-snug text-[var(--text-main)]">
+                    {categoryPathNames.length > 0
+                      ? categoryPathNames.join(' › ')
+                      : `Category #${categoryId}`}
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setCategoryPickerOpen(true)}
+                      className={`${btnSecondary} !py-2 !text-[11px]`}
+                    >
+                      Change category
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCategoryId('');
+                        setCategoryPathNames([]);
+                      }}
+                      className="border border-[var(--ui-border)] px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-[var(--text-muted)] hover:bg-[var(--ui-bg)]"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setCategoryPickerOpen(true)}
+                  disabled={categoryRoots.length === 0}
+                  className="flex w-full items-center justify-center gap-2 border-2 border-dashed border-[var(--brand-blue-alpha-30)] bg-[var(--brand-blue-alpha-05)] px-4 py-3 text-xs font-bold uppercase tracking-wide text-[var(--brand-blue)] transition-colors hover:border-[var(--brand-blue)] hover:bg-[var(--brand-blue-alpha-08)] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <span className="material-symbols-outlined text-[20px]">folder_open</span>
+                  Choose category
+                </button>
+              )}
+              {categoryRoots.length === 0 && (
+                <p className="mt-2 text-[11px] text-amber-800">
+                  No categories loaded. Refresh the page or check your connection.
+                </p>
+              )}
             </div>
           )}
 
@@ -334,6 +387,75 @@ function RuleModal({ rule, categories, onClose, onSaved }) {
           </button>
         </footer>
       </div>
+
+      {/* Nested overlay: full category tree (same picker as eBay research) */}
+      {categoryPickerOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-6">
+          <button
+            type="button"
+            className="cg-animate-modal-backdrop absolute inset-0 bg-black/55"
+            aria-label="Close category picker"
+            onClick={() => setCategoryPickerOpen(false)}
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="pricing-rule-category-picker-title"
+            className="cg-animate-modal-panel relative flex max-h-[min(90vh,720px)] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-[var(--ui-border)] bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <header
+              className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--ui-border)] px-4 py-3 sm:px-5"
+              style={{ background: 'var(--brand-blue)' }}
+            >
+              <div className="min-w-0">
+                <h2
+                  id="pricing-rule-category-picker-title"
+                  className="text-xs font-bold uppercase tracking-wider text-white"
+                >
+                  Choose category
+                </h2>
+                <p className="mt-0.5 truncate text-[11px] text-white/80">
+                  Browse, search, or use &ldquo;Use … as category&rdquo; on a parent folder
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCategoryPickerOpen(false)}
+                className="shrink-0 rounded-lg p-1.5 text-white/80 hover:bg-white/10 hover:text-white"
+                aria-label="Close"
+              >
+                <span className="material-symbols-outlined text-[22px] leading-none">close</span>
+              </button>
+            </header>
+            <div className="min-h-0 flex-1 overflow-hidden bg-slate-50/80">
+              {categoryRoots.length === 0 ? (
+                <div className="flex flex-1 items-center justify-center p-8 text-center text-sm text-[var(--text-muted)]">
+                  No category tree available.
+                </div>
+              ) : (
+                <HierarchicalCategoryPickerPanel
+                  roots={categoryRoots}
+                  isLoading={false}
+                  loadError={null}
+                  filterChildren={ebayPickerFilterChildren}
+                  onSelect={({ node, pathNames }) => {
+                    setCategoryId(String(node.category_id));
+                    setCategoryPathNames(pathNames);
+                    setCategoryPickerOpen(false);
+                  }}
+                  currentSelectionCategoryId={categoryId ? Number(categoryId) : null}
+                />
+              )}
+            </div>
+            <footer className="flex shrink-0 justify-end border-t border-[var(--ui-border)] bg-[var(--ui-bg)] px-4 py-3 sm:px-5">
+              <button type="button" onClick={() => setCategoryPickerOpen(false)} className={btnSecondary}>
+                Cancel
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -469,284 +591,12 @@ function RulesSection({ title, rules, onEdit, onDelete, emptyText }) {
   );
 }
 
-// ─── NoSpos Category Mappings ─────────────────────────────────────────────────
-
-function NosposCategoryMappingsSection({ categories, mappings, onMappingsChange }) {
-  const { showNotification } = useNotification();
-  const [addCatId, setAddCatId] = useState('');
-  const [addNosposPath, setAddNosposPath] = useState('');
-  const [addError, setAddError] = useState('');
-  const [addSaving, setAddSaving] = useState(false);
-  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
-  const [deletingId, setDeletingId] = useState(null);
-  const [editingId, setEditingId] = useState(null);
-  const [editNosposPath, setEditNosposPath] = useState('');
-  const [editSaving, setEditSaving] = useState(false);
-
-  const handleAdd = async () => {
-    if (!addCatId) { setAddError('Select a category.'); return; }
-    const trimmedPath = addNosposPath.trim();
-    if (!trimmedPath) { setAddError('Enter a NoSpos path.'); return; }
-    if (!parseNosposPath(trimmedPath).length) { setAddError('Path must contain at least one level.'); return; }
-    if (mappings.some((m) => Number(m.internalCategoryId) === Number(addCatId))) {
-      setAddError('A mapping for this category already exists. Delete it first.');
-      return;
-    }
-    setAddSaving(true);
-    setAddError('');
-    try {
-      const created = await createNosposCategoryMapping({ internalCategoryId: Number(addCatId), nosposPath: trimmedPath });
-      onMappingsChange([...mappings, created]);
-      setAddCatId('');
-      setAddNosposPath('');
-      showNotification('Mapping saved', 'success');
-    } catch (err) {
-      setAddError(err?.message || 'Failed to save mapping.');
-    } finally {
-      setAddSaving(false);
-    }
-  };
-
-  const handleDelete = async (id) => {
-    setDeletingId(id);
-    try {
-      await deleteNosposCategoryMapping(id);
-      onMappingsChange(mappings.filter((m) => m.id !== id));
-      setConfirmDeleteId(null);
-      showNotification('Mapping removed', 'success');
-    } catch (err) {
-      showNotification(err?.message || 'Failed to delete mapping.', 'error');
-    } finally {
-      setDeletingId(null);
-    }
-  };
-
-  const handleEditStart = (m) => {
-    setEditingId(m.id);
-    setEditNosposPath(m.nosposPath);
-  };
-
-  const handleEditSave = async (id) => {
-    const trimmed = editNosposPath.trim();
-    if (!trimmed || !parseNosposPath(trimmed).length) return;
-    setEditSaving(true);
-    try {
-      const updated = await updateNosposCategoryMapping(id, { nosposPath: trimmed });
-      onMappingsChange(mappings.map((m) => m.id === id ? updated : m));
-      setEditingId(null);
-      showNotification('Mapping updated', 'success');
-    } catch (err) {
-      showNotification(err?.message || 'Failed to update mapping.', 'error');
-    } finally {
-      setEditSaving(false);
-    }
-  };
-
-  const previewSegments = addNosposPath.trim() ? parseNosposPath(addNosposPath) : null;
-
-  return (
-    <div className="mt-8 border-t border-[var(--ui-border)] pt-8">
-      <h2 className="text-xs font-bold uppercase tracking-wider text-brand-blue">NoSpos category mappings</h2>
-      <p className="mt-1.5 max-w-2xl text-xs text-[var(--text-muted)]">
-        Map your internal categories to NoSpos category paths. When opening an item for testing, the mapped
-        path is applied directly instead of AI — or used as a starting prefix if the path is partial.
-        Use <code className="rounded bg-[var(--ui-bg)] px-1 font-mono text-[11px]">&gt;</code> to separate hierarchy levels,
-        e.g. <span className="font-mono text-[11px] text-[var(--text-main)]">Gaming &gt; Consoles &gt; Sony &gt; PlayStation5</span>.
-      </p>
-
-      {/* Existing mappings */}
-      {mappings.length > 0 && (
-        <div className="mt-4 overflow-x-auto border border-[var(--ui-border)] bg-white">
-          <table className="spreadsheet-table spreadsheet-table--static-header w-full border-collapse text-left">
-            <thead>
-              <tr>
-                <th className="min-w-[180px]">Our category</th>
-                <th>NoSpos path</th>
-                <th className="w-28 text-right" />
-              </tr>
-            </thead>
-            <tbody className="text-xs">
-              {mappings.map((m) => (
-                <tr key={m.id}>
-                  <td className="font-medium text-[var(--text-main)]">{m.internalCategoryName}</td>
-                  <td>
-                    {editingId === m.id ? (
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="text"
-                          value={editNosposPath}
-                          onChange={(e) => setEditNosposPath(e.target.value)}
-                          onKeyDown={(e) => { if (e.key === 'Enter') handleEditSave(m.id); if (e.key === 'Escape') setEditingId(null); }}
-                          className={`w-full border border-[var(--brand-blue)] px-2 py-1 font-mono text-xs ${inputFocus}`}
-                          autoFocus
-                        />
-                        <button
-                          type="button"
-                          disabled={editSaving}
-                          onClick={() => handleEditSave(m.id)}
-                          className="shrink-0 border border-[var(--brand-blue)] bg-[var(--brand-blue-alpha-05)] px-2 py-1 text-[10px] font-bold uppercase text-[var(--brand-blue)] hover:bg-[var(--brand-blue)] hover:text-white disabled:opacity-50"
-                        >
-                          {editSaving ? '…' : 'Save'}
-                        </button>
-                        <button
-                          type="button"
-                          disabled={editSaving}
-                          onClick={() => setEditingId(null)}
-                          className="shrink-0 border border-[var(--ui-border)] px-2 py-1 text-[10px] font-bold uppercase text-[var(--text-muted)] hover:bg-[var(--ui-bg)] disabled:opacity-50"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    ) : (
-                      <span className="font-mono text-[var(--text-main)]">
-                        {parseNosposPath(m.nosposPath).map((seg, i, arr) => (
-                          <span key={i}>
-                            <span>{seg}</span>
-                            {i < arr.length - 1 && (
-                              <span className="mx-1 font-normal text-[var(--text-muted)]">&rsaquo;</span>
-                            )}
-                          </span>
-                        ))}
-                      </span>
-                    )}
-                  </td>
-                  <td className="text-right">
-                    {confirmDeleteId === m.id ? (
-                      <div className="flex items-center justify-end gap-1">
-                        <span className="mr-1 text-[11px] font-semibold text-[var(--text-muted)]">Delete?</span>
-                        <button
-                          type="button"
-                          disabled={deletingId === m.id}
-                          onClick={() => handleDelete(m.id)}
-                          className="border border-[var(--ui-border)] px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-[var(--text-main)] hover:bg-[var(--brand-blue-alpha-05)] disabled:opacity-50"
-                        >
-                          {deletingId === m.id ? '…' : 'Yes'}
-                        </button>
-                        <button
-                          type="button"
-                          disabled={deletingId === m.id}
-                          onClick={() => setConfirmDeleteId(null)}
-                          className="border border-[var(--ui-border)] px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-[var(--text-muted)] hover:bg-[var(--ui-bg)] disabled:opacity-50"
-                        >
-                          No
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center justify-end gap-1">
-                        {editingId !== m.id && (
-                          <button
-                            type="button"
-                            onClick={() => handleEditStart(m)}
-                            title="Edit path"
-                            className="flex size-7 items-center justify-center text-[var(--text-muted)] hover:bg-[var(--brand-blue-alpha-08)] hover:text-[var(--brand-blue)]"
-                          >
-                            <span className="material-symbols-outlined text-[16px]">edit</span>
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => setConfirmDeleteId(m.id)}
-                          title="Delete"
-                          className="flex size-7 items-center justify-center text-[var(--text-muted)] hover:bg-[var(--brand-blue-alpha-08)] hover:text-[var(--brand-blue)]"
-                        >
-                          <span className="material-symbols-outlined text-[16px]">delete</span>
-                        </button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {mappings.length === 0 && (
-        <div className="mt-4 border border-dashed border-[var(--ui-border)] bg-white py-6 text-center text-xs text-[var(--text-muted)]">
-          No mappings yet. Add one below.
-        </div>
-      )}
-
-      {/* Add form */}
-      <div className="mt-4 border border-[var(--ui-border)] bg-white p-4">
-        <h3 className="mb-3 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-          Add mapping
-        </h3>
-        <div className="grid grid-cols-1 items-end gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_auto]">
-          <div>
-            <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
-              Our category
-            </label>
-            <select
-              value={addCatId}
-              onChange={(e) => { setAddCatId(e.target.value); setAddError(''); }}
-              className={`w-full border border-[var(--ui-border)] bg-white px-3 py-2 text-sm ${inputFocus}`}
-            >
-              <option value="">— Select category —</option>
-              {categories.map((c) => (
-                <option key={c.category_id} value={String(c.category_id)}>
-                  {'—'.repeat(c.depth)}{c.depth > 0 ? ' ' : ''}{c.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
-              NoSpos path
-            </label>
-            <input
-              type="text"
-              value={addNosposPath}
-              onChange={(e) => { setAddNosposPath(e.target.value); setAddError(''); }}
-              onKeyDown={(e) => { if (e.key === 'Enter') handleAdd(); }}
-              placeholder="Gaming > Consoles > Sony > PlayStation5"
-              className={`w-full border border-[var(--ui-border)] px-3 py-2 font-mono text-sm ${inputFocus}`}
-            />
-            {previewSegments && previewSegments.length > 0 && (
-              <div className="mt-1.5 flex flex-wrap items-center gap-1">
-                {previewSegments.map((seg, i) => (
-                  <React.Fragment key={i}>
-                    <span className="rounded bg-[var(--brand-blue-alpha-05)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--brand-blue)]">
-                      {seg}
-                    </span>
-                    {i < previewSegments.length - 1 && (
-                      <span className="text-[10px] text-[var(--text-muted)]">&rsaquo;</span>
-                    )}
-                  </React.Fragment>
-                ))}
-                <span className="ml-1 text-[10px] text-[var(--text-muted)]">
-                  ({previewSegments.length} level{previewSegments.length !== 1 ? 's' : ''})
-                </span>
-              </div>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={handleAdd}
-            disabled={addSaving}
-            className={`${btnPrimary} flex items-center gap-1.5`}
-          >
-            {addSaving
-              ? <span className="material-symbols-outlined animate-spin text-[16px]">progress_activity</span>
-              : <span className="material-symbols-outlined text-[16px]">add</span>}
-            {addSaving ? 'Saving…' : 'Add'}
-          </button>
-        </div>
-        {addError && (
-          <p className="mt-2 text-xs font-medium text-red-600">{addError}</p>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function PricingRulesPage() {
   const { showNotification } = useNotification();
   const [rules, setRules] = useState([]);
   const [categories, setCategories] = useState([]);
-  const [nosposMappings, setNosposMappings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modalRule, setModalRule] = useState(null);
   const [showModal, setShowModal] = useState(false);
@@ -794,7 +644,6 @@ export default function PricingRulesPage() {
       loadRules(),
       loadCustomerRules(),
       fetchAllCategoriesFlat().then(setCategories).catch(() => []),
-      fetchNosposCategoryMappings().then(setNosposMappings).catch(() => []),
     ]).finally(() => setLoading(false));
   }, [loadRules, loadCustomerRules]);
 
@@ -1182,11 +1031,6 @@ export default function PricingRulesPage() {
               )}
             </div>
 
-            <NosposCategoryMappingsSection
-              categories={categories}
-              mappings={nosposMappings}
-              onMappingsChange={setNosposMappings}
-            />
           </>
         )}
       </main>

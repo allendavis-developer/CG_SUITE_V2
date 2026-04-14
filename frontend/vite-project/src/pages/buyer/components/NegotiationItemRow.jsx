@@ -142,6 +142,9 @@ export default function NegotiationItemRow({
   categoryColumnsExpanded = true,
   onApplyRrpPriceSource = null,
   onApplyOffersPriceSource = null,
+  hideOfferColumns = false,
+  hideCustomerExpectation = false,
+  renderSuffix = null,
 }) {
   const quantity = item.quantity || 1;
   const displayOffers = getDisplayOffers(item, useVoucherOffers);
@@ -407,48 +410,52 @@ export default function NegotiationItemRow({
       <PriceCell value={item.cexBuyPrice} quantity={quantity} className="font-medium text-red-700" onContextMenu={ctxRemoveOnly} />
 
       {/* Customer Expectation */}
-      <td className="p-0" onContextMenu={ctxRemoveOnly}>
-        <input
-          className="w-full h-full border-0 text-xs font-semibold text-center px-3 py-2 focus:outline-none focus:ring-0"
-          style={{ background: '#f8fafc', outline: 'none' }}
-          placeholder="£0.00"
-          type="text"
-          value={item.customerExpectation || ''}
-          onChange={isViewMode ? undefined : (e) => onCustomerExpectationChange(item.id, e.target.value)}
-          onKeyDown={isViewMode ? undefined : (e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              e.currentTarget.blur();
-            }
-          }}
-          readOnly={isViewMode}
-        />
-      </td>
+      {!hideCustomerExpectation ? (
+        <td className="p-0" onContextMenu={ctxRemoveOnly}>
+          <input
+            className="w-full h-full border-0 text-xs font-semibold text-center px-3 py-2 focus:outline-none focus:ring-0"
+            style={{ background: '#f8fafc', outline: 'none' }}
+            placeholder="£0.00"
+            type="text"
+            value={item.customerExpectation || ''}
+            onChange={isViewMode ? undefined : (e) => onCustomerExpectationChange(item.id, e.target.value)}
+            onKeyDown={isViewMode ? undefined : (e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                e.currentTarget.blur();
+              }
+            }}
+            readOnly={isViewMode}
+          />
+        </td>
+      ) : null}
 
-      <NegotiationPriceSourcePickerCell
-        mode={mode}
-        currentZone={offerSourceZone}
-        options={offerZonesAvailable}
-        titlePrefix="Offer source"
-        onSelectZone={onApplyOffersPriceSource ? (zone) => onApplyOffersPriceSource(item, zone) : undefined}
-      />
+      {!hideOfferColumns ? (
+        <>
+          <NegotiationPriceSourcePickerCell
+            mode={mode}
+            currentZone={offerSourceZone}
+            options={offerZonesAvailable}
+            titlePrefix="Offer source"
+            onSelectZone={onApplyOffersPriceSource ? (zone) => onApplyOffersPriceSource(item, zone) : undefined}
+          />
 
-      {/* 1st / 2nd / 3rd / 4th Offer */}
-      <OfferCell offer={offer1} item={item} quantity={quantity} mode={mode} ourSalePrice={ourSalePrice}
-        isSelected={item.selectedOfferId === offer1?.id} onSelect={(id) => onSelectOffer(item.id, id)} onContextMenu={ctxRemoveOnly}
-        blockedOfferSlots={blockedOfferSlots} onBlockedOfferClick={onBlockedOfferClick} />
-      <OfferCell offer={offer2} item={item} quantity={quantity} mode={mode} ourSalePrice={ourSalePrice}
-        isSelected={item.selectedOfferId === offer2?.id} onSelect={(id) => onSelectOffer(item.id, id)} onContextMenu={ctxRemoveOnly}
-        blockedOfferSlots={blockedOfferSlots} onBlockedOfferClick={onBlockedOfferClick} />
-      <OfferCell offer={offer3} item={item} quantity={quantity} mode={mode} ourSalePrice={ourSalePrice}
-        isSelected={item.selectedOfferId === offer3?.id} onSelect={(id) => onSelectOffer(item.id, id)} onContextMenu={ctxRemoveOnly}
-        blockedOfferSlots={blockedOfferSlots} onBlockedOfferClick={onBlockedOfferClick} />
-      <OfferCell offer={offer4} item={item} quantity={quantity} mode={mode} ourSalePrice={ourSalePrice}
-        isSelected={item.selectedOfferId === offer4?.id} onSelect={(id) => onSelectOffer(item.id, id)} onContextMenu={ctxRemoveOnly}
-        blockedOfferSlots={blockedOfferSlots} onBlockedOfferClick={onBlockedOfferClick} />
+          {/* 1st / 2nd / 3rd / 4th Offer */}
+          <OfferCell offer={offer1} item={item} quantity={quantity} mode={mode} ourSalePrice={ourSalePrice}
+            isSelected={item.selectedOfferId === offer1?.id} onSelect={(id) => onSelectOffer(item.id, id)} onContextMenu={ctxRemoveOnly}
+            blockedOfferSlots={blockedOfferSlots} onBlockedOfferClick={onBlockedOfferClick} />
+          <OfferCell offer={offer2} item={item} quantity={quantity} mode={mode} ourSalePrice={ourSalePrice}
+            isSelected={item.selectedOfferId === offer2?.id} onSelect={(id) => onSelectOffer(item.id, id)} onContextMenu={ctxRemoveOnly}
+            blockedOfferSlots={blockedOfferSlots} onBlockedOfferClick={onBlockedOfferClick} />
+          <OfferCell offer={offer3} item={item} quantity={quantity} mode={mode} ourSalePrice={ourSalePrice}
+            isSelected={item.selectedOfferId === offer3?.id} onSelect={(id) => onSelectOffer(item.id, id)} onContextMenu={ctxRemoveOnly}
+            blockedOfferSlots={blockedOfferSlots} onBlockedOfferClick={onBlockedOfferClick} />
+          <OfferCell offer={offer4} item={item} quantity={quantity} mode={mode} ourSalePrice={ourSalePrice}
+            isSelected={item.selectedOfferId === offer4?.id} onSelect={(id) => onSelectOffer(item.id, id)} onContextMenu={ctxRemoveOnly}
+            blockedOfferSlots={blockedOfferSlots} onBlockedOfferClick={onBlockedOfferClick} />
 
-      {/* Manual Offer */}
-      <td
+          {/* Manual Offer */}
+          <td
         className={`relative ${mode === 'negotiate' ? 'cursor-pointer' : ''}`}
         onClick={mode === 'negotiate' ? (e) => {
           e.stopPropagation();
@@ -524,8 +531,10 @@ export default function NegotiationItemRow({
           </div>
         )}
       </td>
+        </>
+      ) : null}
 
-      {/* Our RRP (explicit per-unit retail; was fed by research or CeX reference) */}
+      {/* Our RRP / New Sale Price (explicit per-unit retail; was fed by research or CeX reference) */}
       <td className="font-medium text-red-700" onContextMenu={ctxRemoveOnly}>
         {isViewMode ? (
           perUnitOurPrice != null ? (
@@ -577,12 +586,12 @@ export default function NegotiationItemRow({
 
       {/* eBay Research */}
       <td
-        className={hlEbayRrp ? RRP_SOURCE_CELL_CLASS : undefined}
+        className={[hlEbayRrp ? RRP_SOURCE_CELL_CLASS : '', 'align-top px-1'].filter(Boolean).join(' ')}
         onContextMenu={mode === 'negotiate' && onRowContextMenu ? (e) => openRowContext(e, NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY) : undefined}
       >
         {ebayData?.stats?.median ? (
-          <div className="flex items-center justify-between gap-2">
-            <div>
+          <div className="flex items-center justify-end gap-1">
+            <div className="min-w-0 text-right">
               <div
                 className="text-[13px] font-bold"
                 style={{ color: hlEbayRrp ? '#fff' : 'var(--brand-blue)' }}
@@ -609,9 +618,9 @@ export default function NegotiationItemRow({
             </button>
           </div>
         ) : (
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center justify-end gap-1">
             <span
-              className="text-[13px] font-medium"
+              className="min-w-0 flex-1 text-right text-[13px] font-medium"
               style={{ color: hlEbayRrp ? 'rgba(255,255,255,0.85)' : 'var(--text-muted)' }}
             >
               —
@@ -631,13 +640,13 @@ export default function NegotiationItemRow({
 
       {/* Cash Converters */}
       <td
-        className={hlCcRrp ? RRP_SOURCE_CELL_CLASS : undefined}
+        className={[hlCcRrp ? RRP_SOURCE_CELL_CLASS : '', 'align-top px-1'].filter(Boolean).join(' ')}
         onContextMenu={mode === 'negotiate' && onRowContextMenu ? (e) => openRowContext(e, NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS) : undefined}
       >
         {cashConvertersData?.stats?.median ? (
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center justify-end gap-1">
             <div
-              className="text-[13px] font-medium"
+              className="min-w-0 text-right text-[13px] font-medium"
               style={{ color: hlCcRrp ? '#fff' : 'var(--brand-blue)' }}
             >
               <div>£{(Number(cashConvertersData.stats.median) * quantity).toFixed(2)}</div>
@@ -661,9 +670,9 @@ export default function NegotiationItemRow({
             </button>
           </div>
         ) : (
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center justify-end gap-1">
             <span
-              className="text-[13px] font-medium"
+              className="min-w-0 flex-1 text-right text-[13px] font-medium"
               style={{ color: hlCcRrp ? 'rgba(255,255,255,0.85)' : 'var(--text-muted)' }}
             >
               —
@@ -732,6 +741,8 @@ export default function NegotiationItemRow({
           </label>
         </td>
       ) : null}
+
+      {renderSuffix ? renderSuffix() : null}
     </tr>
   );
 }

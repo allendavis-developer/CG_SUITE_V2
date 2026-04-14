@@ -1284,7 +1284,8 @@ const Negotiation = ({ mode }) => {
           enabled: true,
           selectedCategory,
           onCategorySelect: selectCategory,
-          onAddFromCeX: (opts) => handleAddFromCeX({ showNotification, ...opts }),
+          onAddFromCeX: (opts) =>
+            handleAddFromCeX({ showNotification, awaitPricing: false, ...opts }),
           isCeXLoading: cexLoading,
           enableNegotiationItemBuilder: true,
           useVoucherOffers,

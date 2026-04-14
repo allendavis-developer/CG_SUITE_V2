@@ -26,47 +26,67 @@ export const Button = ({
   icon, 
   onClick, 
   className = '',
-  disabled = false 
+  disabled = false,
+  type = 'button',
 }) => {
-  const baseStyles = "font-bold rounded-lg flex items-center justify-center gap-2 transition-all";
+  const baseStyles = "font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all duration-150 select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1";
   
   const variants = {
     primary:
-      "bg-brand-orange hover:bg-brand-orange-hover text-brand-blue shadow-md shadow-brand-orange/20 active:scale-95",
-    secondary: "bg-brand-blue hover:bg-brand-blue-hover text-white",
+      "bg-brand-orange hover:bg-brand-orange-hover text-brand-blue shadow-sm shadow-brand-orange/25 active:scale-[0.98] focus-visible:ring-brand-orange",
+    secondary:
+      "bg-brand-blue hover:bg-brand-blue-hover text-white shadow-sm active:scale-[0.98] focus-visible:ring-brand-blue",
     outline:
-      "border border-ui-border bg-white text-text-main hover:border-brand-orange",
-    ghost: "text-brand-blue/35 hover:text-brand-blue",
+      "border border-slate-200 bg-white text-slate-700 hover:border-brand-blue hover:text-brand-blue hover:bg-brand-blue/5 focus-visible:ring-brand-blue",
+    ghost:
+      "text-slate-500 hover:text-brand-blue hover:bg-brand-blue/5 focus-visible:ring-brand-blue",
+    danger:
+      "bg-red-600 hover:bg-red-700 text-white shadow-sm active:scale-[0.98] focus-visible:ring-red-500",
   };
   
   const sizes = {
-    sm: "px-4 py-1.5 text-xs",
-    md: "px-6 py-2.5 text-sm",
-    lg: "px-6 py-3.5 text-sm"
+    sm: "px-3 py-1.5 text-xs",
+    md: "px-5 py-2.5 text-sm",
+    lg: "px-6 py-3 text-sm"
   };
+
+  const disabledStyles = disabled ? "opacity-50 cursor-not-allowed pointer-events-none" : "";
   
   return (
     <button 
+      type={type}
       onClick={onClick}
       disabled={disabled}
-      className={`${baseStyles} ${variants[variant]} ${sizes[size]} ${className}`}
+      className={`${baseStyles} ${variants[variant] ?? variants.primary} ${sizes[size]} ${disabledStyles} ${className}`}
     >
-      {icon && <Icon name={icon} className="text-sm" />}
+      {icon && <Icon name={icon} className="text-[18px] leading-none" />}
       {children}
     </button>
   );
 };
 
 // Badge Component
-export const Badge = ({ children, variant = 'default', className = '' }) => {
+export const Badge = ({ children, variant = 'default', dot = false, className = '' }) => {
   const variants = {
-    default: "bg-brand-blue/[0.06] text-brand-blue border-brand-blue/20",
-    warning: "bg-brand-orange/10 text-brand-orange border-brand-orange/20",
-    success: "bg-emerald-600/10 text-emerald-600 border-emerald-600/20"
+    default:  "bg-brand-blue/[0.07] text-brand-blue border-brand-blue/15",
+    warning:  "bg-amber-50 text-amber-700 border-amber-200",
+    success:  "bg-emerald-50 text-emerald-700 border-emerald-200",
+    danger:   "bg-red-50 text-red-700 border-red-200",
+    purple:   "bg-purple-50 text-purple-700 border-purple-200",
+    neutral:  "bg-slate-100 text-slate-600 border-slate-200",
   };
-  
+  const dotColors = {
+    default: "bg-brand-blue",
+    warning: "bg-amber-500",
+    success: "bg-emerald-500",
+    danger:  "bg-red-500",
+    purple:  "bg-purple-500",
+    neutral: "bg-slate-500",
+  };
+
   return (
-    <span className={`text-[10px] font-bold px-2 py-1 rounded border uppercase ${variants[variant]} ${className}`}>
+    <span className={`inline-flex items-center gap-1.5 text-[10.5px] font-bold px-2.5 py-0.5 rounded-full border uppercase tracking-wide ${variants[variant] ?? variants.default} ${className}`}>
+      {dot && <span className={`size-1.5 rounded-full shrink-0 ${dotColors[variant] ?? dotColors.default}`} />}
       {children}
     </span>
   );
@@ -597,28 +617,33 @@ export const SearchableDropdown = ({
 // Tab Component
 export const Tab = ({ icon, label, isActive, onClick }) => (
   <button 
+    type="button"
     onClick={onClick}
-    className={`px-6 py-4 text-sm font-bold flex items-center gap-2 transition-all border-b-2 ${
+    className={`relative px-5 py-3.5 text-sm font-semibold flex items-center gap-2 transition-all duration-150 border-b-2 select-none focus-visible:outline-none ${
       isActive 
-        ? 'border-brand-orange text-brand-orange bg-white' 
-        : 'border-transparent text-gray-500 hover:text-brand-blue hover:bg-white/50'
+        ? 'border-brand-orange text-brand-blue bg-white' 
+        : 'border-transparent text-slate-500 hover:text-brand-blue hover:bg-slate-50/70'
     }`}
   >
-    <Icon name={icon} className="text-sm" />
+    <Icon name={icon} className="text-[18px] leading-none" />
     {label}
   </button>
 );
 
 // Breadcrumb Component
 export const Breadcrumb = ({ items }) => (
-  <nav className="flex items-center gap-2 mb-3">
+  <nav className="flex items-center gap-1.5 mb-3 flex-wrap">
     {items.map((item, index) => (
       <React.Fragment key={index}>
-        {index > 0 && <span className="text-xs text-gray-400/30">/</span>}
+        {index > 0 && (
+          <span className="material-symbols-outlined text-[14px] text-slate-300 leading-none select-none">
+            chevron_right
+          </span>
+        )}
         {index === items.length - 1 ? (
-          <span className="text-xs font-medium text-brand-blue">{item}</span>
+          <span className="text-xs font-semibold text-brand-blue">{item}</span>
         ) : (
-          <a className="text-xs font-medium text-gray-500 hover:text-brand-blue" href="#">{item}</a>
+          <a className="text-xs font-medium text-slate-400 hover:text-brand-blue transition-colors" href="#">{item}</a>
         )}
       </React.Fragment>
     ))}
@@ -963,59 +988,49 @@ export const OfferCard = ({ title, price, margin, isHighlighted, onClick, size =
     <div
       onClick={onClick}
       className={`
-        ${compact ? 'p-3 h-full min-h-0 flex flex-col justify-center' : 'p-6'} rounded-xl bg-white cursor-pointer text-center relative overflow-hidden group
-        border-2
-        transition-all duration-200 ease-out
+        ${compact ? 'p-3 h-full min-h-0 flex flex-col justify-center' : 'p-5'} rounded-xl bg-white cursor-pointer text-center relative overflow-hidden group
+        border transition-all duration-200 ease-out select-none
         ${
           isHighlighted
-            ? `
-              border-brand-blue
-              ring-2 ring-brand-blue ring-offset-2 ring-offset-white
-              shadow-xl shadow-brand-blue/10
-              hover:border-emerald-500
-              hover:bg-emerald-50/60
-              hover:shadow-lg hover:shadow-emerald-500/20
-              ${compact ? 'scale-[1.02]' : 'scale-[1.03]'}
-            `
-            : `
-              border-brand-blue/40
-              hover:border-emerald-500
-              hover:bg-emerald-50/60
-              hover:shadow-lg hover:shadow-emerald-500/20
-            `
+            ? `border-brand-blue shadow-lg shadow-brand-blue/10
+               ring-2 ring-brand-blue/20 ring-offset-1 ring-offset-white
+               hover:border-emerald-500 hover:bg-emerald-50/50 hover:shadow-emerald-200/60
+               ${compact ? 'scale-[1.02]' : 'scale-[1.03]'}`
+            : `border-slate-200 shadow-sm
+               hover:border-emerald-400 hover:bg-emerald-50/50 hover:shadow-md hover:shadow-emerald-100`
         }
       `}
     >
       {/* Top accent bar */}
       <div
-        className={`absolute top-0 left-0 w-full ${
+        className={`absolute top-0 left-0 w-full transition-all duration-200 ${
           isHighlighted
-            ? 'h-1.5 bg-brand-orange'
-            : 'h-1 bg-brand-orange/60 group-hover:bg-emerald-500/80'
+            ? 'h-[3px] bg-brand-orange'
+            : 'h-[2px] bg-slate-200 group-hover:bg-emerald-400 group-hover:h-[3px]'
         }`}
       />
 
       <h4
-        className={`font-black uppercase tracking-wider ${
-          isHighlighted ? 'text-brand-blue' : 'text-brand-blue group-hover:text-emerald-700'
-        } ${compact ? 'text-[9px] mb-2' : 'text-[10px] mb-4'}`}
+        className={`font-bold uppercase tracking-wider ${
+          isHighlighted ? 'text-brand-blue' : 'text-slate-500 group-hover:text-emerald-700'
+        } ${compact ? 'text-[9px] mb-1.5' : 'text-[10px] mb-3'}`}
       >
         {title}
       </h4>
 
       <p
-        className={`font-extrabold ${
-          isHighlighted ? 'text-brand-blue' : 'text-brand-blue group-hover:text-emerald-700'
-        } ${compact ? 'text-2xl mb-1' : 'text-4xl mb-2'}`}
+        className={`font-extrabold tabular-nums ${
+          isHighlighted ? 'text-brand-blue' : 'text-slate-800 group-hover:text-emerald-700'
+        } ${compact ? 'text-xl mb-1' : 'text-3xl mb-2'}`}
       >
         {price}
       </p>
 
-      <div className="flex items-center justify-center gap-1.5">
-        <span className="text-[10px] font-bold text-gray-500 uppercase">
+      <div className="flex items-center justify-center gap-1">
+        <span className="text-[9.5px] font-semibold text-slate-400 uppercase tracking-wide">
           Margin
         </span>
-        <span className="text-xs font-extrabold text-brand-orange">
+        <span className={`text-[11px] font-extrabold ${isHighlighted ? 'text-brand-orange' : 'text-slate-600 group-hover:text-emerald-600'}`}>
           {margin}%
         </span>
       </div>

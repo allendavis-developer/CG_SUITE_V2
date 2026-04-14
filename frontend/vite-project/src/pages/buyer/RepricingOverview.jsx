@@ -132,123 +132,115 @@ const RepricingOverview = () => {
     navigate('/repricing');
   };
 
+  const FILTER_LABELS = { ALL: 'All', IN_PROGRESS: 'In Progress', COMPLETED: 'Completed' };
+
   if (loading) {
-    return <div className="bg-gray-50 min-h-screen flex items-center justify-center"><p className="text-gray-600 font-semibold">Loading repricing sessions...</p></div>;
+    return (
+      <div className="bg-ui-bg min-h-screen flex items-center justify-center">
+        <div className="flex items-center gap-2 text-slate-500">
+          <span className="material-symbols-outlined animate-spin text-xl">progress_activity</span>
+          <span className="text-sm font-medium">Loading repricing sessions…</span>
+        </div>
+      </div>
+    );
   }
 
   if (error) {
-    return <div className="bg-gray-50 min-h-screen flex items-center justify-center"><p className="text-red-600 font-semibold">Error: {error}</p></div>;
+    return (
+      <div className="bg-ui-bg min-h-screen flex items-center justify-center">
+        <div className="cg-card p-6 flex items-start gap-3 max-w-sm">
+          <span className="material-symbols-outlined text-red-500 text-xl shrink-0 mt-0.5">error</span>
+          <div>
+            <p className="text-sm font-semibold text-slate-800">Failed to load sessions</p>
+            <p className="text-xs text-slate-500 mt-0.5">{error}</p>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="bg-gray-50 text-gray-900 min-h-screen flex flex-col text-sm">
-      <style>{`
-        .material-symbols-outlined { font-size: 20px; }
-        .data-table th {
-          background: var(--ui-bg);
-          color: var(--brand-blue);
-          font-weight: 700;
-          font-size: 11px;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-          padding: 1rem 1.5rem;
-          border-bottom: 1px solid var(--ui-border);
-          position: sticky;
-          top: 0;
-          z-index: 10;
-        }
-        .data-table td {
-          padding: 1rem 1.5rem;
-          border-bottom: 1px solid var(--ui-border);
-          vertical-align: middle;
-        }
-        .data-table tr {
-          cursor: pointer;
-          transition: background-color 150ms;
-        }
-        .data-table tr:hover {
-          background-color: var(--ui-bg);
-        }
-      `}</style>
-
+    <div className="bg-ui-bg text-slate-900 min-h-screen flex flex-col text-sm">
       <AppHeader />
 
       <main className="flex flex-1 overflow-hidden h-[calc(100vh-65px)]">
-        <aside className="w-64 bg-brand-blue flex flex-col shrink-0">
-          <div className="p-6 space-y-8">
+        {/* Sidebar */}
+        <aside className="w-60 bg-brand-blue flex flex-col shrink-0 overflow-y-auto">
+          <div className="p-5 space-y-6">
             <div>
-              <h3 className="text-white/40 text-[10px] font-black uppercase tracking-widest mb-4">Main Menu</h3>
-              <nav className="space-y-1">
-                <div className="flex items-center gap-3 text-white py-2 bg-white/10 rounded-lg px-3 -mx-3">
-                  <span className="material-symbols-outlined text-sm text-brand-orange">sell</span>
-                  <span className="text-sm font-bold">Overview</span>
+              <p className="text-white/40 text-[9.5px] font-bold uppercase tracking-widest mb-3">Navigation</p>
+              <nav className="space-y-0.5">
+                <div className="flex items-center gap-2.5 text-white py-2 bg-white/10 rounded-lg px-3">
+                  <span className="material-symbols-outlined text-[18px] text-brand-orange">sell</span>
+                  <span className="text-sm font-semibold">Overview</span>
                 </div>
               </nav>
             </div>
+
             <div>
-              <h3 className="text-white/40 text-[10px] font-black uppercase tracking-widest mb-4">Stats</h3>
-              <div className="space-y-4">
-                <div className="bg-white/5 p-3 rounded-lg border border-white/10">
-                  <p className="text-white/50 text-[10px] font-bold uppercase tracking-wider">Total Sessions</p>
-                  <p className="text-xl font-extrabold text-white mt-1">{sessions.length}</p>
-                </div>
-                {inProgressCount > 0 && (
-                  <div className="bg-amber-500/10 p-3 rounded-lg border border-amber-400/30">
-                    <p className="text-amber-300/70 text-[10px] font-bold uppercase tracking-wider">In Progress</p>
-                    <p className="text-xl font-extrabold text-amber-300 mt-1">{inProgressCount}</p>
+              <p className="text-white/40 text-[9.5px] font-bold uppercase tracking-widest mb-3">Session Stats</p>
+              <div className="space-y-2">
+                {[
+                  { label: 'Total Sessions', value: sessions.length, cls: 'bg-white/5 border-white/10', valCls: 'text-white' },
+                  inProgressCount > 0 ? { label: 'In Progress', value: inProgressCount, cls: 'bg-amber-500/10 border-amber-400/25', valCls: 'text-amber-300' } : null,
+                  { label: 'Completed', value: completedCount, cls: 'bg-emerald-500/10 border-emerald-400/25', valCls: 'text-emerald-300' },
+                  { label: 'Barcodes Repriced', value: totalBarcodeCount, cls: 'bg-white/5 border-white/10', valCls: 'text-white' },
+                ].filter(Boolean).map((stat) => (
+                  <div key={stat.label} className={`${stat.cls} border rounded-lg px-3 py-2.5`}>
+                    <p className="text-white/45 text-[9.5px] font-bold uppercase tracking-wider">{stat.label}</p>
+                    <p className={`text-lg font-extrabold mt-0.5 tabular-nums ${stat.valCls}`}>{stat.value}</p>
                   </div>
-                )}
-                <div className="bg-emerald-500/10 p-3 rounded-lg border border-emerald-400/30">
-                  <p className="text-emerald-300/70 text-[10px] font-bold uppercase tracking-wider">Completed</p>
-                  <p className="text-xl font-extrabold text-emerald-300 mt-1">{completedCount}</p>
-                </div>
-                <div className="bg-white/5 p-3 rounded-lg border border-white/10">
-                  <p className="text-white/50 text-[10px] font-bold uppercase tracking-wider">Barcodes Repriced</p>
-                  <p className="text-xl font-extrabold text-white mt-1">{totalBarcodeCount}</p>
-                </div>
+                ))}
               </div>
             </div>
           </div>
         </aside>
 
+        {/* Main content */}
         <section className="flex-1 bg-white flex flex-col overflow-hidden">
-          <div className="px-6 py-4 flex items-center justify-between border-b border-gray-200 bg-white">
-            <div className="flex items-center gap-4">
-              <h1 className="text-xl font-extrabold text-brand-blue">Repricing Overview</h1>
-              <span className="bg-brand-blue/10 text-brand-blue text-[11px] font-black px-2.5 py-0.5 rounded-full">
-                {filteredSessions.length} TOTAL
+          {/* Toolbar */}
+          <div className="px-5 py-3.5 flex items-center justify-between border-b border-slate-200 bg-white shrink-0 gap-3 flex-wrap">
+            <div className="flex items-center gap-3">
+              <h1 className="text-lg font-bold text-brand-blue">Repricing Overview</h1>
+              <span className="bg-brand-blue/8 text-brand-blue text-[10.5px] font-bold px-2.5 py-0.5 rounded-full border border-brand-blue/15">
+                {filteredSessions.length}
               </span>
             </div>
-            <div className="flex items-center gap-3">
-              <div className="flex items-center rounded-lg border border-gray-200 overflow-hidden">
-                {STATUS_FILTERS.map(f => (
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Filter tabs */}
+              <div className="flex items-center rounded-lg border border-slate-200 overflow-hidden bg-slate-50">
+                {STATUS_FILTERS.map((f) => (
                   <button
                     key={f}
+                    type="button"
                     onClick={() => setFilterStatus(f)}
-                    className={`px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider transition-colors ${
+                    className={`px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide transition-colors whitespace-nowrap ${
                       filterStatus === f
                         ? 'bg-brand-blue text-white'
-                        : 'bg-white text-gray-500 hover:bg-gray-50'
+                        : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'
                     }`}
                   >
-                    {f === 'ALL' ? 'All' : f === 'IN_PROGRESS' ? 'In Progress' : 'Completed'}
+                    {FILTER_LABELS[f]}
                   </button>
                 ))}
               </div>
               <button
-                className="flex items-center gap-2 px-4 py-2 bg-brand-blue text-white rounded-lg hover:bg-brand-blue-hover transition-colors font-bold"
+                type="button"
+                className="flex items-center gap-1.5 px-4 py-2 bg-brand-blue text-white rounded-lg hover:bg-brand-blue-hover transition-colors font-semibold text-sm shadow-sm"
                 onClick={handleNewRepricing}
               >
-                <span className="material-symbols-outlined text-sm">add</span>
-                <span>New Repricing</span>
+                <span className="material-symbols-outlined text-[17px] leading-none">add</span>
+                New Repricing
               </button>
             </div>
           </div>
 
+          {/* Table */}
           <div className="overflow-auto flex-1">
             {filteredSessions.length === 0 ? (
-              <div className="flex items-center justify-center h-64">
-                <p className="text-gray-500 font-semibold">No repricing sessions found.</p>
+              <div className="flex flex-col items-center justify-center h-64 gap-3 text-slate-400">
+                <span className="material-symbols-outlined text-4xl">sell</span>
+                <p className="text-sm font-medium">No repricing sessions found</p>
               </div>
             ) : (
               <table className="w-full data-table border-collapse text-left">
@@ -257,87 +249,100 @@ const RepricingOverview = () => {
                     <th className="w-24">Session</th>
                     <th className="w-32">Status</th>
                     <th className="min-w-[200px]">Items</th>
-                    <th className="w-24">Count</th>
-                    <th className="w-28">Barcodes</th>
+                    <th className="w-20">Count</th>
+                    <th className="w-24">Barcodes</th>
                     <th className="w-40">Created</th>
                     <th className="w-40">Last Updated</th>
                     <th className="w-32">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="text-xs">
+                <tbody>
                   {filteredSessions.map((session) => {
                     const isInProgress = session.status === 'IN_PROGRESS';
                     const itemSummary = getItemSummary(session);
-                    const hasSessionItems = Array.isArray(session.session_data?.items) && session.session_data.items.length > 0;
+                    const hasSessionItems =
+                      Array.isArray(session.session_data?.items) &&
+                      session.session_data.items.length > 0;
                     return (
-                      <tr key={session.repricing_session_id} onClick={() => handleSessionClick(session)}>
-                        <td className="font-bold text-gray-600">#{session.repricing_session_id}</td>
+                      <tr
+                        key={session.repricing_session_id}
+                        onClick={() => handleSessionClick(session)}
+                      >
+                        <td>
+                          <span className="font-mono text-xs font-semibold text-brand-blue bg-brand-blue/6 px-2 py-0.5 rounded">
+                            #{session.repricing_session_id}
+                          </span>
+                        </td>
                         <td>
                           {isInProgress ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-300">
-                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                              <span className="size-1.5 rounded-full bg-amber-500" />
                               In Progress
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-300">
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              <span className="size-1.5 rounded-full bg-emerald-500" />
                               Completed
                             </span>
                           )}
                         </td>
                         <td>
                           {itemSummary ? (
-                            <span className="text-brand-blue font-semibold text-[12px]">{itemSummary}</span>
+                            <span className="text-slate-700 font-medium text-xs">{itemSummary}</span>
                           ) : (
-                            <span className="text-gray-400 italic">No item data</span>
+                            <span className="text-slate-400 italic text-xs">No item data</span>
                           )}
                         </td>
-                        <td className="font-semibold text-brand-blue">{session.item_count || 0}</td>
-                        <td className="font-semibold text-brand-blue">{session.barcode_count || 0}</td>
-                        <td className="text-gray-600">
+                        <td className="font-semibold text-slate-700 tabular-nums">{session.item_count || 0}</td>
+                        <td className="font-semibold text-slate-700 tabular-nums">{session.barcode_count || 0}</td>
+                        <td className="text-slate-500 tabular-nums">
                           {new Date(session.created_at).toLocaleString('en-GB', {
                             day: '2-digit',
                             month: 'short',
                             year: 'numeric',
                             hour: '2-digit',
-                            minute: '2-digit'
+                            minute: '2-digit',
                           })}
                         </td>
-                        <td className="text-gray-500">
-                          {session.updated_at ? new Date(session.updated_at).toLocaleString('en-GB', {
-                            day: '2-digit',
-                            month: 'short',
-                            year: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit'
-                          }) : '—'}
+                        <td className="text-slate-400 tabular-nums">
+                          {session.updated_at
+                            ? new Date(session.updated_at).toLocaleString('en-GB', {
+                                day: '2-digit',
+                                month: 'short',
+                                year: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })
+                            : '—'}
                         </td>
-                        <td>
-                          <div className="flex items-center gap-2">
+                        <td onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center gap-1.5">
                             {isInProgress ? (
-                              <span
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-colors"
-                                title="Resume session"
+                              <button
+                                type="button"
+                                onClick={() => handleSessionClick(session)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10.5px] font-bold bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-colors"
                               >
-                                <span className="material-symbols-outlined text-[14px]">play_arrow</span>
+                                <span className="material-symbols-outlined text-[14px] leading-none">play_arrow</span>
                                 Resume
-                              </span>
+                              </button>
                             ) : (
                               <>
-                                <span
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-bold bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100 transition-colors"
-                                  title="View session details"
+                                <button
+                                  type="button"
+                                  onClick={() => handleSessionClick(session)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10.5px] font-bold bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100 transition-colors"
                                 >
-                                  <span className="material-symbols-outlined text-[14px]">visibility</span>
+                                  <span className="material-symbols-outlined text-[14px] leading-none">visibility</span>
                                   View
-                                </span>
+                                </button>
                                 {hasSessionItems && (
                                   <button
+                                    type="button"
                                     onClick={(e) => handleRedoRepricing(e, session)}
-                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-bold bg-brand-blue/5 text-brand-blue border border-brand-blue/20 hover:bg-brand-blue/10 transition-colors"
-                                    title="Start a new repricing session with the same items"
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10.5px] font-bold bg-brand-blue/6 text-brand-blue border border-brand-blue/15 hover:bg-brand-blue/10 transition-colors"
                                   >
-                                    <span className="material-symbols-outlined text-[14px]">refresh</span>
+                                    <span className="material-symbols-outlined text-[14px] leading-none">refresh</span>
                                     Redo
                                   </button>
                                 )}
@@ -353,9 +358,11 @@ const RepricingOverview = () => {
             )}
           </div>
 
-          <div className="px-6 py-4 border-t border-gray-200 bg-slate-50 flex items-center justify-between">
-            <p className="text-[11px] text-gray-600 font-bold uppercase tracking-widest">
-              Showing {filteredSessions.length} of {sessions.length} sessions
+          {/* Footer */}
+          <div className="px-5 py-3 border-t border-slate-200 bg-slate-50 shrink-0 flex items-center justify-between">
+            <p className="text-xs text-slate-500 font-medium">
+              Showing <span className="font-semibold text-slate-700">{filteredSessions.length}</span> of{' '}
+              <span className="font-semibold text-slate-700">{sessions.length}</span> sessions
             </p>
           </div>
         </section>

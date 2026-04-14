@@ -146,13 +146,22 @@ The JSON must conform exactly to this schema:
 }
 
 Rules for searchTerm:
+- PRIMARY ANCHOR: The exact product / game / device title given under PRODUCT TITLE (LISTING) below
+  is the main search phrase. Keep that specific title (including subtitle / edition in the title),
+  not a paraphrase. Never replace it with a generic category phrase (e.g. do NOT output
+  "pokemon games for switch" or "Xbox games" when the title is a specific game name).
+- For video games: start from the game title in PRODUCT TITLE. Add platform only when it helps
+  disambiguate the same title on multiple systems (e.g. "… PS5", "… Switch") — one console hint
+  is enough; do not substitute the game name with "games for {console}".
 - Keep it broad enough to return comparable listings (do not paste long product descriptions).
 - Include only details that typically change resale value: model / variant, storage, colour,
-  region or edition, key compatibility (e.g. console generation), network lock status when known,
-  capacity, size, material tier, etc.
+  region or edition, key compatibility (e.g. console generation) when needed for disambiguation,
+  network lock status when known, capacity, size, material tier, etc.
 - Omit fluff: seller marketing phrases, "brand new sealed" unless explicitly part of the variant,
   SKU-only strings unless they are the common public name, redundant words, condition unless it
   is the main value driver for that category.
+- INTERNAL STOCK CATEGORY is context only (shelf taxonomy). Do not let it override or replace
+  the listing title.
 - Use the same language style a UK shopper would type into a search box (natural keywords).
 - If unsure between narrower vs broader, prefer slightly broader while keeping value-driving variants.
 """
@@ -169,12 +178,15 @@ def _build_research_search_user_msg(
         else "    (none provided)"
     )
     return (
-        f"ITEM NAME\n  {item_name}\n\n"
-        f"INTERNAL CATEGORY (may be approximate)\n  {db_category or '(unknown)'}\n\n"
+        f"PRODUCT TITLE (LISTING) — use as the main search anchor; exact game/product name\n"
+        f"  {item_name}\n\n"
+        f"INTERNAL STOCK CATEGORY (taxonomy only; do not replace the title with this)\n"
+        f"  {db_category or '(unknown)'}\n\n"
         f"ATTRIBUTES (label: value)\n{attr_lines}\n\n"
         "TASK\n"
         "  Propose a single broad marketplace search string (searchTerm) that would help find\n"
-        "  comparable listings for pricing. Only include value-driving variant facts from above.\n"
+        "  comparable listings for pricing. Lead with the listing title; add value-driving\n"
+        "  facts from attributes only when they change comparables.\n"
     )
 
 

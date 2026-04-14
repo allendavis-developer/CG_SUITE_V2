@@ -35,7 +35,7 @@ const TinyModal = ({
       onClick={(e) => e.stopPropagation()}
     >
       <div className="mb-4 flex shrink-0 items-center justify-between">
-        <h3 className="text-sm font-black uppercase tracking-wider" style={{ color: 'var(--brand-blue)' }}>{title}</h3>
+        <h3 className="text-sm font-bold text-brand-blue tracking-tight">{title}</h3>
         {showCloseButton ? (
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors">
             <span className="material-symbols-outlined text-[20px]">close</span>

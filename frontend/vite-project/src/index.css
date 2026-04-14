@@ -11,11 +11,18 @@
     --brand-blue-hover: #0d315e;
     --brand-orange: #f7b918;
     --brand-orange-hover: #e5ab14;
-    --ui-bg: #f8f9fa;
+    --ui-bg: #f4f6f9;
     --ui-card: #ffffff;
-    --ui-border: #e5e7eb;
-    --text-main: #1a1a1a;
+    --ui-border: #e2e8f0;
+    --text-main: #0f172a;
     --text-muted: #64748b;
+
+    /* Elevation shadows */
+    --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.04);
+    --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.07), 0 1px 2px -1px rgb(0 0 0 / 0.05);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.07), 0 2px 4px -2px rgb(0 0 0 / 0.05);
+    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.07), 0 4px 6px -4px rgb(0 0 0 / 0.05);
+    --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.08), 0 8px 10px -6px rgb(0 0 0 / 0.04);
 
     /* Brand blue at alpha (one source; replaces rgba(20,69,132,…)) */
     --brand-blue-alpha-03: color-mix(in srgb, var(--brand-blue) 3%, transparent);
@@ -164,20 +171,29 @@
     @apply border-border outline-ring/50;
     }
   body {
-    @apply font-sans bg-background text-foreground;
+    @apply font-sans bg-background text-foreground antialiased;
     }
   html {
     @apply font-sans;
     }
 
   /* Custom scrollbar styles */
-  ::-webkit-scrollbar { width: 6px; }
-  ::-webkit-scrollbar-track { background: #f1f5f9; }
-  ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: var(--radius-md); }
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 99px; }
   ::-webkit-scrollbar-thumb:hover { background: var(--brand-blue); }
 
   /* Material symbols font size */
-  .material-symbols-outlined { font-size: 20px; }
+  .material-symbols-outlined { font-size: 20px; line-height: 1; }
+
+  /* Remove default button outline – rely on focus-visible only */
+  button:focus { outline: none; }
+  button:focus-visible { outline: 2px solid var(--brand-orange); outline-offset: 2px; }
+
+  /* Smooth focus transitions for inputs */
+  input, select, textarea {
+    transition: border-color 150ms ease, box-shadow 150ms ease;
+  }
 }
 
 /* Buyer page: independent scrollable panels with styled scrollbars */
@@ -213,17 +229,64 @@
 }
 
 @layer components {
+  /* ── Data table ── */
   .data-table th {
-    @apply bg-slate-50 text-brand-blue font-bold text-[11px] uppercase tracking-wider px-6 py-4 border-b border-ui-border sticky top-0 z-10;
+    @apply bg-slate-50/80 text-brand-blue font-bold text-[10.5px] uppercase tracking-wider px-5 py-3.5 border-b border-ui-border sticky top-0 z-10 whitespace-nowrap;
+    box-shadow: inset 0 -1px 0 var(--ui-border);
   }
   .data-table td {
-    @apply px-6 py-4 border-b border-ui-border align-middle;
+    @apply px-5 py-3.5 border-b border-slate-100 align-middle text-sm;
   }
-  .data-table tr {
-    @apply hover:bg-slate-50 cursor-pointer transition-colors;
+  .data-table tbody tr {
+    @apply hover:bg-blue-50/40 cursor-pointer transition-colors duration-100;
   }
+  .data-table tbody tr:last-child td {
+    @apply border-b-0;
+  }
+
+  /* ── Status pill ── */
   .status-pill {
-    @apply px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider inline-flex items-center justify-center;
+    @apply px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider inline-flex items-center gap-1.5;
+  }
+  .status-pill-dot {
+    @apply size-1.5 rounded-full shrink-0;
+  }
+
+  /* ── Card ── */
+  .cg-card {
+    @apply bg-white rounded-xl border border-slate-200 shadow-[var(--shadow-sm)];
+  }
+  .cg-card-hover {
+    @apply transition-shadow duration-200 hover:shadow-[var(--shadow-md)];
+  }
+
+  /* ── Page section header ── */
+  .cg-section-title {
+    @apply text-slate-900 text-xl font-bold tracking-tight;
+  }
+  .cg-section-subtitle {
+    @apply text-slate-500 text-sm mt-0.5;
+  }
+
+  /* ── Stat card ── */
+  .cg-stat-card {
+    @apply bg-white rounded-xl border border-slate-200 p-5 shadow-[var(--shadow-sm)] flex flex-col gap-1;
+  }
+  .cg-stat-label {
+    @apply text-[10.5px] font-bold uppercase tracking-wider text-slate-500;
+  }
+  .cg-stat-value {
+    @apply text-2xl font-extrabold text-slate-900 tabular-nums leading-tight;
+  }
+
+  /* ── Input ── */
+  .cg-input {
+    @apply w-full bg-white border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/15 transition-all;
+  }
+
+  /* ── Tag / badge ── */
+  .cg-tag {
+    @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold uppercase tracking-wide;
   }
 
   /* SearchableDropdown: match CustomDropdown look (control + dropdown + options), no gradient */

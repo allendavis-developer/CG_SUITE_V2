@@ -34,11 +34,29 @@ export default function NegotiationTablesSection({
   onOpenNosposRequiredFieldsEditor,
   onOpenNosposCategoryPicker,
   hideNosposRequiredColumn = false,
+  hideOfferColumns = false,
+  hideCustomerExpectation = false,
+  salePriceLabel = 'Our RRP',
+  renderRowSuffix = null,
 }) {
   const [categoryColumnsExpanded, setCategoryColumnsExpanded] = useState(false);
-  const baseColSpan =
-    (researchSandboxBookedView ? 19 : 18) + (hideNosposRequiredColumn ? 0 : 1);
-  const colSpan = categoryColumnsExpanded ? baseColSpan : baseColSpan - 1;
+
+  const visibleColumnCount = (() => {
+    let count = 0;
+    count += 1; // Qty
+    count += categoryColumnsExpanded ? 2 : 1; // category columns
+    if (!hideNosposRequiredColumn) count += 1;
+    count += 1; // Item Name
+    count += 3; // CeX Sell/Voucher/Cash
+    if (!hideCustomerExpectation) count += 1;
+    if (!hideOfferColumns) count += 6; // Offer source + 4 tiers + Manual
+    count += 1; // Our RRP / Sale Price
+    count += 1; // RRP source
+    count += 2; // eBay + CC
+    if (researchSandboxBookedView) count += 1; // Skip NosPos
+    if (renderRowSuffix) count += 1; // extra column slot
+    return count;
+  })();
 
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-white">
@@ -126,22 +144,29 @@ export default function NegotiationTablesSection({
                 <th className="w-24 spreadsheet-th-cex">Sell</th>
                 <th className="w-24 spreadsheet-th-cex">Voucher</th>
                 <th className="w-24 spreadsheet-th-cex">Cash</th>
-                <th className="w-32">Customer Expectation</th>
-                <th className="w-[5.5rem] min-w-[5rem] text-[9px] leading-tight">Offer source</th>
-                <th className="w-24 spreadsheet-th-offer-tier">1st</th>
-                <th className="w-24 spreadsheet-th-offer-tier">2nd</th>
-                <th className="w-24 spreadsheet-th-offer-tier">3rd</th>
-                <th className="w-24 spreadsheet-th-offer-tier">4th</th>
-                <th className="w-36">Manual</th>
-                <th className="w-24">Our RRP</th>
+                {!hideCustomerExpectation ? (
+                  <th className="w-32">Customer Expectation</th>
+                ) : null}
+                {!hideOfferColumns ? (
+                  <>
+                    <th className="w-[5.5rem] min-w-[5rem] text-[9px] leading-tight">Offer source</th>
+                    <th className="w-24 spreadsheet-th-offer-tier">1st</th>
+                    <th className="w-24 spreadsheet-th-offer-tier">2nd</th>
+                    <th className="w-24 spreadsheet-th-offer-tier">3rd</th>
+                    <th className="w-24 spreadsheet-th-offer-tier">4th</th>
+                    <th className="w-36">Manual</th>
+                  </>
+                ) : null}
+                <th className="w-24">{salePriceLabel}</th>
                 <th className="w-[5.5rem] min-w-[5rem] text-[9px] leading-tight">RRP source</th>
-                <th className="w-36">eBay Price</th>
-                <th className="w-36">Cash Converters</th>
+                <th className="w-24 px-1 text-left">eBay</th>
+                <th className="w-24 px-1 text-left">CC</th>
                 {researchSandboxBookedView ? (
                   <th className="w-16 text-center text-[10px] font-bold uppercase tracking-wide text-amber-600">
                     Skip NosPos
                   </th>
                 ) : null}
+                {renderRowSuffix ? <th className="w-44">Barcodes</th> : null}
               </tr>
             </thead>
             <tbody className="text-xs">
@@ -179,13 +204,16 @@ export default function NegotiationTablesSection({
                   onOpenNosposCategoryPicker={onOpenNosposCategoryPicker}
                   hideNosposRequiredColumn={hideNosposRequiredColumn}
                   categoryColumnsExpanded={categoryColumnsExpanded}
+                  hideOfferColumns={hideOfferColumns}
+                  hideCustomerExpectation={hideCustomerExpectation}
+                  renderSuffix={renderRowSuffix ? () => renderRowSuffix(item) : null}
                 />
               ))}
               <tr className="h-10 opacity-50">
-                <td colSpan={colSpan}></td>
+                <td colSpan={visibleColumnCount}></td>
               </tr>
               <tr className="h-10 opacity-50">
-                <td colSpan={colSpan}></td>
+                <td colSpan={visibleColumnCount}></td>
               </tr>
             </tbody>
           </table>

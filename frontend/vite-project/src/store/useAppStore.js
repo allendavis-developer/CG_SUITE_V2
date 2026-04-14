@@ -603,7 +603,7 @@ const useAppStore = create(
       cexProductData: null,
       cexLoading: false,
 
-      handleAddFromCeX: async ({ showNotification, searchQuery } = {}) => {
+      handleAddFromCeX: async ({ showNotification, searchQuery, awaitPricing = true } = {}) => {
         const trimmedQuery =
           searchQuery != null && String(searchQuery).trim() !== ''
             ? String(searchQuery).trim()
@@ -654,6 +654,17 @@ const useAppStore = create(
               // best effort: keep category text-only object
             }
 
+            const listingPageUrl = data.listingPageUrl;
+            const baseMerged = {
+              ...product,
+              categoryObject,
+              aiInternalCategoryFromCascade,
+              listingPageUrl,
+            };
+
+            // Category (and extension scrape) is ready — hide blocking chrome before pricing rules / network.
+            set({ cexProductData: baseMerged, cexLoading: false });
+
             const payload = {
               sellPrice: product.sellPrice ?? product.price,
               tradeInCash: product.tradeInCash ?? 0,
@@ -664,15 +675,9 @@ const useAppStore = create(
               image: product.image,
               id: product.id,
             };
-            const priceData = await fetchCeXProductPrices(payload);
-            const merged = {
-              ...product,
-              ...priceData,
-              categoryObject,
-              aiInternalCategoryFromCascade,
-              listingPageUrl: data.listingPageUrl,
-            };
-            if (typeof console !== 'undefined') {
+
+            const logCexMerged = (merged) => {
+              if (typeof console === 'undefined') return;
               const ref = merged?.referenceData || {};
               console.log('[CG Suite][CategoryRule]', {
                 context: 'cex-product-loaded-from-extension',
@@ -687,10 +692,46 @@ const useAppStore = create(
                   cexBasedSalePrice: ref.cex_based_sale_price ?? null,
                 },
               });
+            };
+
+            const applyPricing = async () => {
+              const priceData = await fetchCeXProductPrices(payload);
+              const merged = {
+                ...product,
+                ...priceData,
+                categoryObject,
+                aiInternalCategoryFromCascade,
+                listingPageUrl,
+              };
+              set((state) => {
+                const cur = state.cexProductData;
+                if (cur?.id != null && product?.id != null && String(cur.id) !== String(product.id)) {
+                  return state;
+                }
+                return { cexProductData: merged };
+              });
+              logCexMerged(merged);
+              return merged;
+            };
+
+            if (awaitPricing) {
+              try {
+                const merged = await applyPricing();
+                showNotification?.('CeX product loaded', 'success');
+                return merged;
+              } catch (err) {
+                console.error('[Store] fetchCeXProductPrices error:', err);
+                showNotification?.(err?.message || 'Could not load pricing rules', 'warning');
+                return baseMerged;
+              }
             }
-            set({ cexProductData: merged });
+
             showNotification?.('CeX product loaded', 'success');
-            return merged;
+            void applyPricing().catch((err) => {
+              console.error('[Store] fetchCeXProductPrices error:', err);
+              showNotification?.(err?.message || 'Could not load pricing rules — offers may be incomplete', 'warning');
+            });
+            return baseMerged;
           } else if (data?.cancelled) {
             // Tab closed or extension cancelled — workspace closes in AppHeader; no error toast
             return null;

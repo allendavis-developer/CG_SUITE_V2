@@ -655,8 +655,9 @@ function ExtensionResearchForm({
         suggestedSearchTerm: null,
       };
     }
+    // pending / missing: do not block the dialog — user can continue with the pre-filled query while AI runs.
     return {
-      suggestedSearchLoading: true,
+      suggestedSearchLoading: false,
       suggestedSearchError: null,
       suggestedSearchTerm: null,
     };

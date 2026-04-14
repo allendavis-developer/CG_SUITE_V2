@@ -114,9 +114,22 @@ export function summariseNegotiationItemForAi(item) {
     return { name: 'Unknown item', dbCategory: null, attributes: {} };
   }
   const ref = item.referenceData || {};
+  const cexProductTitle =
+    item.isCustomCeXItem && item.cexProductData && typeof item.cexProductData === 'object'
+      ? String(item.cexProductData.title || item.cexProductData.modelName || '').trim()
+      : '';
   const name = item.isJewelleryItem
     ? (ref.item_name || ref.line_title || ref.reference_display_name || ref.product_name || item.variantName || item.title || 'Unknown item')
-    : (item.variantName || item.title || ref.product_name || item.subtitle || 'Unknown item');
+    : item.isCustomCeXItem
+      ? (
+          item.title ||
+          cexProductTitle ||
+          item.variantName ||
+          ref.product_name ||
+          item.subtitle ||
+          'Unknown item'
+        )
+      : (item.variantName || item.title || ref.product_name || item.subtitle || 'Unknown item');
   const dbCategory =
     item.categoryName ||
     item.category ||

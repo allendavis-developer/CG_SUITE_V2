@@ -144,14 +144,14 @@ const CartSidebar = ({ mode = 'buyer', onTransactionTypeChange = null }) => {
       {/* Footer */}
       <div className="p-6 bg-white border-t border-brand-blue/20 space-y-4">
         {!isRepricing && allItemsHaveOffer && (
-          <div className="flex justify-between items-baseline">
-            <div className="flex flex-col">
-              <span className="text-2xl font-black uppercase tracking-widest text-brand-blue">Total Offer</span>
-              <span className="text-[9px] text-gray-500 font-bold">
+          <div className="flex justify-between items-baseline gap-4">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-3xl font-black uppercase tracking-tight text-brand-blue leading-none">Total Offer</span>
+              <span className="text-lg font-semibold text-gray-600 leading-none">
                 {customerData.transactionType === 'store_credit' ? '(Voucher)' : '(Cash)'}
               </span>
             </div>
-            <span className="text-3xl font-black text-brand-blue tabular-nums">£{totalOffer.toFixed(2)}</span>
+            <span className="text-3xl font-black text-brand-blue tabular-nums leading-none">£{totalOffer.toFixed(2)}</span>
           </div>
         )}
 

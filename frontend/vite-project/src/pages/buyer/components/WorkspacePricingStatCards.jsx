@@ -35,9 +35,9 @@ export default function WorkspacePricingStatCards({
 
   const StatCard = ({ label, cardClass, children }) => (
     <div
-      className={`relative flex min-h-14 shrink-0 flex-col justify-between rounded-lg border px-2.5 py-1.5 shadow-sm ${cardClass}`}
+      className={`relative flex min-h-[3.5rem] shrink-0 flex-col justify-between rounded-lg border px-2.5 py-2 ${cardClass}`}
     >
-      <span className="text-[10px] font-bold uppercase tracking-wider leading-none text-gray-500">{label}</span>
+      <span className="text-[9.5px] font-bold uppercase tracking-wider leading-none text-slate-500 mb-1">{label}</span>
       {children}
     </div>
   );
@@ -48,10 +48,10 @@ export default function WorkspacePricingStatCards({
     return (
       <StatCard
         label={label}
-        cardClass={isEmpty ? 'border-gray-200 bg-gray-50/80' : 'border-brand-blue/20 bg-brand-blue/5'}
+        cardClass={isEmpty ? 'border-slate-200 bg-slate-50/70' : 'border-brand-blue/15 bg-brand-blue/5'}
       >
         <span
-          className={`text-lg font-extrabold leading-tight ${isEmpty ? 'text-gray-400' : 'text-brand-blue'}`}
+          className={`text-base font-extrabold leading-tight tabular-nums ${isEmpty ? 'text-slate-300' : 'text-brand-blue'}`}
         >
           {isEmpty ? '—' : `£${formatted}`}
         </span>
@@ -61,10 +61,11 @@ export default function WorkspacePricingStatCards({
 
   return (
     <div
-      className={`flex min-h-0 min-w-0 flex-wrap content-center items-center gap-2 self-stretch ${className}`.trim()}
+      className={`flex min-h-0 min-w-0 flex-wrap content-center items-center gap-1.5 self-stretch ${className}`.trim()}
     >
       {cexOutOfStock ? (
-        <span className="mr-0.5 inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-700">
+        <span className="mr-0.5 inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-700">
+          <span className="size-1.5 rounded-full bg-red-500" />
           Out of stock
         </span>
       ) : null}
@@ -78,8 +79,8 @@ export default function WorkspacePricingStatCards({
         </>
       ) : null}
 
-      <StatCard label="Suggested RRP" cardClass="border-red-200 bg-red-50">
-        <span className={`text-lg font-extrabold leading-tight ${ourNum != null ? 'text-red-600' : 'text-gray-400'}`}>
+      <StatCard label="Suggested RRP" cardClass="border-rose-200 bg-rose-50/60">
+        <span className={`text-base font-extrabold leading-tight tabular-nums ${ourNum != null ? 'text-rose-600' : 'text-slate-300'}`}>
           {ourNum != null ? `£${formatStatPrice(ourNum)}` : '—'}
         </span>
       </StatCard>
@@ -87,11 +88,11 @@ export default function WorkspacePricingStatCards({
       <StatCard
         label="Method"
         cardClass={
-          methodLabel === '—' ? 'border-gray-200 bg-gray-50/80' : 'border-brand-blue/20 bg-brand-blue/5'
+          methodLabel === '—' ? 'border-slate-200 bg-slate-50/70' : 'border-brand-blue/15 bg-brand-blue/5'
         }
       >
         <span
-          className={`text-lg font-extrabold leading-tight ${methodLabel === '—' ? 'text-gray-400' : 'text-brand-blue'}`}
+          className={`text-base font-extrabold leading-tight ${methodLabel === '—' ? 'text-slate-300' : 'text-brand-blue'}`}
         >
           {methodLabel}
         </span>

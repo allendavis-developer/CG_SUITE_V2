@@ -1,18 +1,19 @@
 import React, { forwardRef } from 'react';
 
 function TotalPill({ label, value, emphasize = false }) {
+  const valueCls = emphasize ? 'text-2xl leading-none sm:text-3xl' : 'text-lg';
+  const labelCls = emphasize
+    ? 'text-2xl leading-none sm:text-3xl font-black uppercase tracking-tight text-white/85'
+    : 'text-lg font-black uppercase tracking-tight text-white/80';
+
   return (
     <div className={`flex min-w-0 flex-row items-baseline gap-2 ${emphasize ? 'px-1' : ''}`}>
       {label ? (
-        <span className="shrink-0 text-[10px] font-black uppercase tracking-widest text-white/75">
+        <span className={`shrink-0 ${labelCls}`}>
           {label}
         </span>
       ) : null}
-      <span
-        className={`font-black tabular-nums tracking-tight text-white ${
-          emphasize ? 'text-2xl leading-none sm:text-3xl' : 'text-lg'
-        }`}
-      >
+      <span className={`font-black tabular-nums tracking-tight text-white ${valueCls}`}>
         £{value.toFixed(2)}
       </span>
     </div>
@@ -80,7 +81,7 @@ const NegotiationTotalsFooter = forwardRef(function NegotiationTotalsFooter(
             >
               <div className="flex min-w-0 flex-wrap items-baseline justify-center gap-x-3 gap-y-1">
                 <span
-                  className={`shrink-0 text-[10px] font-black uppercase tracking-wider ${
+                  className={`shrink-0 text-lg font-black uppercase tracking-tight sm:text-xl ${
                     targetMatched ? 'text-emerald-100' : 'text-red-100'
                   }`}
                 >

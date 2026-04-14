@@ -225,7 +225,7 @@ export default function SalePriceConfirmModal({
         {repricingMode ? (
           <>
             If you confirm, the <span className="font-semibold">New Sale Price</span> updates to this value (your RRP
-            for repricing), and the column for this research ({source === "ebay" ? "eBay" : "Cash Converters"}) will be
+            for repricing), and the column for this research ({source === "ebay" ? "eBay" : "CC"}) will be
             highlighted as the source. 
           </>
         ) : (

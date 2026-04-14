@@ -84,7 +84,14 @@ const RepricingSessionView = () => {
   }, [repricingSessionId, navigate, showNotification]);
 
   if (loading) {
-    return <div className="bg-gray-50 min-h-screen flex items-center justify-center"><p className="text-gray-600 font-semibold">Loading repricing session...</p></div>;
+    return (
+      <div className="bg-ui-bg min-h-screen flex items-center justify-center">
+        <div className="flex items-center gap-2 text-slate-500">
+          <span className="material-symbols-outlined animate-spin text-xl">progress_activity</span>
+          <span className="text-sm font-medium">Loading repricing session…</span>
+        </div>
+      </div>
+    );
   }
 
   if (!session) return null;
@@ -138,36 +145,36 @@ const RepricingSessionView = () => {
 
       <main className="flex min-h-0 flex-1 overflow-hidden">
         <section className="flex-1 bg-white flex flex-col overflow-hidden">
-          <div className="p-6 border-b" style={{ borderColor: 'var(--ui-border)' }}>
-            <div className="flex items-center justify-between gap-6">
-              <button
-                onClick={() => navigate('/repricing-overview')}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg border font-medium text-sm transition-all hover:shadow-md"
-                style={{ borderColor: 'var(--ui-border)', color: 'var(--brand-blue)' }}
-              >
-                <span className="material-symbols-outlined text-lg">arrow_back</span>
-                Back to Repricing
-              </button>
-
-              <div className="flex items-center gap-3 px-5 py-3 rounded-xl border" style={{ borderColor: 'rgba(20,69,132,0.2)', background: 'rgba(20,69,132,0.03)' }}>
-                <span className="material-symbols-outlined text-2xl" style={{ color: 'var(--brand-blue)' }}>sell</span>
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-wider" style={{ color: 'var(--brand-blue)' }}>Repricing Session</p>
-                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                    {session.item_count} item{session.item_count !== 1 ? 's' : ''}, {session.barcode_count} barcode{session.barcode_count !== 1 ? 's' : ''}
-                  </p>
+          <div className="px-5 py-3.5 border-b border-slate-200 bg-white shrink-0">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => navigate('/repricing-overview')}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 font-medium text-sm text-brand-blue hover:bg-brand-blue/5 hover:border-brand-blue/30 transition-colors"
+                >
+                  <span className="material-symbols-outlined text-[17px] leading-none">arrow_back</span>
+                  Back
+                </button>
+                <div className="flex items-center gap-2.5 px-4 py-2 rounded-lg border border-brand-blue/15 bg-brand-blue/5">
+                  <span className="material-symbols-outlined text-[18px] text-brand-blue">sell</span>
+                  <div>
+                    <p className="text-[9.5px] font-bold uppercase tracking-wider text-brand-blue/60">Repricing Session</p>
+                    <p className="text-xs font-semibold text-brand-blue">
+                      {session.item_count} item{session.item_count !== 1 ? 's' : ''} · {session.barcode_count} barcode{session.barcode_count !== 1 ? 's' : ''}
+                    </p>
+                  </div>
                 </div>
               </div>
 
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2 flex-wrap">
                 <button
                   type="button"
                   onClick={handlePrintNewBarcodes}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-xs uppercase tracking-wide transition-all hover:shadow-md"
-                  style={{ backgroundColor: 'var(--brand-blue)', color: 'white', border: 'none' }}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-brand-blue hover:bg-brand-blue-hover text-white font-semibold text-sm shadow-sm transition-colors"
                 >
-                  <span className="material-symbols-outlined text-base">print</span>
-                  {selectedItemIds.size > 0 ? "Print Selected Barcodes" : "Print All Barcodes"}
+                  <span className="material-symbols-outlined text-[17px] leading-none">print</span>
+                  {selectedItemIds.size > 0 ? 'Print Selected' : 'Print All Barcodes'}
                 </button>
                 {session.session_data?.items?.length > 0 && (
                   <button
@@ -187,16 +194,15 @@ const RepricingSessionView = () => {
                         },
                       });
                     }}
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-xs uppercase tracking-wide transition-all hover:shadow-md border"
-                    style={{ borderColor: 'rgba(20,69,132,0.3)', color: 'var(--brand-blue)', background: 'white' }}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-brand-blue/20 text-brand-blue bg-white hover:bg-brand-blue/5 font-semibold text-sm transition-colors"
                   >
-                    <span className="material-symbols-outlined text-base">refresh</span>
+                    <span className="material-symbols-outlined text-[17px] leading-none">refresh</span>
                     Redo Repricing
                   </button>
                 )}
-                <div className="text-right">
-                  <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Session ID</p>
-                  <p className="text-lg font-bold" style={{ color: 'var(--brand-blue)' }}>#{session.repricing_session_id}</p>
+                <div className="pl-2 border-l border-slate-200 ml-1">
+                  <p className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400">Session ID</p>
+                  <p className="text-sm font-bold text-brand-blue tabular-nums">#{session.repricing_session_id}</p>
                 </div>
               </div>
             </div>
@@ -240,8 +246,8 @@ const RepricingSessionView = () => {
                   <th className="w-28">Old Retail</th>
                   <th className="w-28">New Retail</th>
                   <th className="w-28 spreadsheet-th-cex">Sell</th>
-                  <th className="w-28">eBay</th>
-                  <th className="w-32">Cash Converters</th>
+                  <th className="w-24 px-1 text-left">eBay</th>
+                  <th className="w-24 px-1 text-left">CC</th>
                 </tr>
               </thead>
               <tbody className="text-xs">
@@ -265,7 +271,7 @@ const RepricingSessionView = () => {
                       />
                     </td>
                     <td>
-                      <div className="font-bold text-[13px] leading-snug" style={{ color: 'var(--brand-blue)' }}>
+                      <div className="font-semibold text-xs text-brand-blue leading-snug">
                         {resolveNosposListingName(session.session_data, item) || '—'}
                       </div>
                     </td>
@@ -296,31 +302,31 @@ const RepricingSessionView = () => {
                       {formatMoney(item.new_retail_price ?? item.our_sale_price_at_repricing)}
                     </td>
                     <td className="font-semibold text-red-700">{formatMoney(item.cex_sell_at_repricing)}</td>
-                    <td>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-semibold">{getResearchMedian(item.raw_data)}</span>
+                    <td className="px-1 align-top">
+                      <div className="flex items-center justify-end gap-1">
+                        <span className="min-w-0 text-right font-semibold tabular-nums">{getResearchMedian(item.raw_data)}</span>
                         <button
-                          className={`flex items-center justify-center size-7 rounded transition-colors shrink-0 ${!hasSavedState(item.raw_data) ? 'opacity-50 cursor-not-allowed' : ''}`}
-                          style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
+                          type="button"
+                          className={`flex items-center justify-center size-7 rounded bg-brand-orange text-brand-blue transition-colors shrink-0 hover:bg-brand-orange-hover ${!hasSavedState(item.raw_data) ? 'opacity-40 cursor-not-allowed' : ''}`}
                           onClick={() => hasSavedState(item.raw_data) && setResearchItem(item)}
                           title={hasSavedState(item.raw_data) ? 'View eBay Research (Read-only)' : 'No research available'}
                           disabled={!hasSavedState(item.raw_data)}
                         >
-                          <span className="material-symbols-outlined text-[16px]">search_insights</span>
+                          <span className="material-symbols-outlined text-[15px] leading-none">search_insights</span>
                         </button>
                       </div>
                     </td>
-                    <td>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-semibold">{getResearchMedian(item.cash_converters_data)}</span>
+                    <td className="px-1 align-top">
+                      <div className="flex items-center justify-end gap-1">
+                        <span className="min-w-0 text-right font-semibold tabular-nums">{getResearchMedian(item.cash_converters_data)}</span>
                         <button
-                          className={`flex items-center justify-center size-7 rounded transition-colors shrink-0 ${!hasSavedState(item.cash_converters_data) ? 'opacity-50 cursor-not-allowed' : ''}`}
-                          style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
+                          type="button"
+                          className={`flex items-center justify-center size-7 rounded bg-brand-orange text-brand-blue transition-colors shrink-0 hover:bg-brand-orange-hover ${!hasSavedState(item.cash_converters_data) ? 'opacity-40 cursor-not-allowed' : ''}`}
                           onClick={() => hasSavedState(item.cash_converters_data) && setCashConvertersResearchItem(item)}
-                          title={hasSavedState(item.cash_converters_data) ? 'View Cash Converters Research (Read-only)' : 'No research available'}
+                          title={hasSavedState(item.cash_converters_data) ? 'View CC research (read-only)' : 'No research available'}
                           disabled={!hasSavedState(item.cash_converters_data)}
                         >
-                          <span className="material-symbols-outlined text-[16px]">store</span>
+                          <span className="material-symbols-outlined text-[15px] leading-none">store</span>
                         </button>
                       </div>
                     </td>

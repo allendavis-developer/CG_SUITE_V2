@@ -209,7 +209,7 @@ export function getAvailableRrpZonesForNegotiationItem(item) {
   }
   const cc = item.cashConvertersResearchData;
   if (cc?.stats && resolveSuggestedRetailFromResearchStats(cc.stats) != null) {
-    out.push({ zone: NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS, label: 'Cash Converters' });
+    out.push({ zone: NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS, label: 'CC' });
   }
   return out;
 }
@@ -236,7 +236,7 @@ export function getAvailableOfferZonesForNegotiationItem(item, useVoucherOffers)
   if (cc?.stats) {
     const rrp = resolveSuggestedRetailFromResearchStats(cc.stats);
     if (rrp != null && rrp > 0) {
-      out.push({ zone: NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS, label: 'Cash Converters' });
+      out.push({ zone: NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS, label: 'CC' });
     }
   }
   return out;
@@ -1327,14 +1327,14 @@ export function normalizeCartItemForNegotiation(item, useVoucherOffers = false) 
   const isCexItem = !!(cexName || item.isCustomCeXItem || (item.cexBuyPrice != null || item.cexSellPrice != null));
   let next = item;
   if (isCexItem) {
-    // Prefer explicit variantName first (e.g. CeX add-from-browser: title + specs for eBay search).
-    // For custom CeX items subtitle is often only category — it must not overwrite variantName.
-    // Legacy buyer cart used subtitle as the specific variant line when variantName was unset.
+    // Prefer explicit variantName first (e.g. CeX add-from-browser: research query / title).
+    // Subtitle is almost always CeX category — it must not win over cexName/title when variantName is unset
+    // (otherwise AI marketplace search + summaries see category as the product name).
     const variantName =
       item.variantName
-      || item.subtitle
       || cexName
       || item.title
+      || item.subtitle
       || null;
     next = { ...item, title: cexName || item.title, variantName, subtitle: '' };
   } else if (
