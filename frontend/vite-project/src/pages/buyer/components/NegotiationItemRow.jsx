@@ -105,7 +105,7 @@ export default function NegotiationItemRow({
   item,
   index,
   mode,
-  /** When true (booked-for-testing view), eBay/CC research buttons stay usable as an unsaved preview. */
+  /** When true (booked-for-testing view), eBay/CC/CG research buttons stay usable as an unsaved preview. */
   allowResearchSandboxInView = false,
   useVoucherOffers,
   onQuantityChange,
@@ -119,6 +119,7 @@ export default function NegotiationItemRow({
   onRefreshCeXData,
   onReopenResearch,
   onReopenCashConvertersResearch,
+  onReopenCashGeneratorResearch,
   /** Set<string> of blocked offer slot keys, e.g. new Set(['offer1','offer2','manual']) */
   blockedOfferSlots = null,
   /** Called when user clicks a blocked offer: (slot, offer) => void */
@@ -156,6 +157,7 @@ export default function NegotiationItemRow({
   const researchButtonsDisabled = isViewMode && !allowResearchSandboxInView;
   const ebayData = item.ebayResearchData;
   const cashConvertersData = item.cashConvertersResearchData;
+  const cgData = item.cgResearchData;
   const ourSalePrice = resolveOurSalePrice(item);
   const cexOutOfStock = item.cexOutOfStock || item.cexProductData?.isOutOfStock || false;
   const primaryItemName = item.variantName || item.title || 'N/A';
@@ -200,6 +202,7 @@ export default function NegotiationItemRow({
   const hlCexRrp = item.rrpOffersSource === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL;
   const hlEbayRrp = item.rrpOffersSource === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY;
   const hlCcRrp = item.rrpOffersSource === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS;
+  const hlCgRrp = item.rrpOffersSource === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_GENERATOR;
   const offerSourceZone = resolveOffersSource(item);
   const offerZonesAvailable = getAvailableOfferZonesForNegotiationItem(item, useVoucherOffers);
   const rrpZonesAvailable = getAvailableRrpZonesForNegotiationItem(item);
@@ -666,7 +669,7 @@ export default function NegotiationItemRow({
               title={researchButtonsDisabled ? 'View-only: research locked' : 'View/Refine Research'}
               disabled={researchButtonsDisabled}
             >
-              <span className="material-symbols-outlined text-[16px]">store</span>
+              <span className="material-symbols-outlined text-[16px]">edit_note</span>
             </button>
           </div>
         ) : (
@@ -684,7 +687,59 @@ export default function NegotiationItemRow({
               title={researchButtonsDisabled ? 'View-only: research locked' : (!cashConvertersData ? 'Research' : 'View/Refine Research')}
               disabled={researchButtonsDisabled}
             >
-              <span className="material-symbols-outlined text-[16px]">store</span>
+              <span className="material-symbols-outlined text-[16px]">search_insights</span>
+            </button>
+          </div>
+        )}
+      </td>
+
+      {/* Cash Generator */}
+      <td
+        className={[hlCgRrp ? RRP_SOURCE_CELL_CLASS : '', 'align-top px-1'].filter(Boolean).join(' ')}
+        onContextMenu={mode === 'negotiate' && onRowContextMenu ? (e) => openRowContext(e, NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_GENERATOR) : undefined}
+      >
+        {cgData?.stats?.median ? (
+          <div className="flex items-center justify-end gap-1">
+            <div
+              className="min-w-0 text-right text-[13px] font-medium"
+              style={{ color: hlCgRrp ? '#fff' : 'var(--brand-blue)' }}
+            >
+              <div>£{(Number(cgData.stats.median) * quantity).toFixed(2)}</div>
+              {quantity > 1 && (
+                <div
+                  className="text-[9px]"
+                  style={{ opacity: hlCgRrp ? 0.88 : 0.7 }}
+                >
+                  (£{Number(cgData.stats.median).toFixed(2)} × {quantity})
+                </div>
+              )}
+            </div>
+            <button
+              className="flex items-center justify-center size-7 rounded transition-colors shrink-0"
+              style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
+              onClick={researchButtonsDisabled ? undefined : () => onReopenCashGeneratorResearch?.(item)}
+              title={researchButtonsDisabled ? 'View-only: research locked' : 'View/Refine research'}
+              disabled={researchButtonsDisabled || typeof onReopenCashGeneratorResearch !== 'function'}
+            >
+              <span className="material-symbols-outlined text-[16px]">edit_note</span>
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-end gap-1">
+            <span
+              className="min-w-0 flex-1 text-right text-[13px] font-medium"
+              style={{ color: hlCgRrp ? 'rgba(255,255,255,0.85)' : 'var(--text-muted)' }}
+            >
+              —
+            </span>
+            <button
+              className={`flex items-center justify-center size-7 rounded transition-colors shrink-0 ${researchButtonsDisabled || typeof onReopenCashGeneratorResearch !== 'function' ? 'opacity-50 cursor-not-allowed' : ''}`}
+              style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
+              onClick={researchButtonsDisabled ? undefined : () => onReopenCashGeneratorResearch?.(item)}
+              title={researchButtonsDisabled ? 'View-only: research locked' : (!cgData ? 'Research' : 'View/Refine research')}
+              disabled={researchButtonsDisabled || typeof onReopenCashGeneratorResearch !== 'function'}
+            >
+              <span className="material-symbols-outlined text-[16px]">search_insights</span>
             </button>
           </div>
         )}

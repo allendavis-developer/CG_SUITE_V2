@@ -849,6 +849,7 @@ export function useNegotiationItemHandlers({
             variantId: lineCartItem.variantId,
             rawData: rawDataPayload,
             cashConvertersData: lineCartItem.cashConvertersResearchData || null,
+            cgData: lineCartItem.cgResearchData || null,
             cashOffers: lineCartItem.cashOffers || [],
             voucherOffers: lineCartItem.voucherOffers || [],
             selectedOfferId: lineCartItem.selectedOfferId ?? null,
@@ -891,6 +892,9 @@ export function useNegotiationItemHandlers({
                     }
                   : normalizedItem.rawData,
               ebayResearchData: prevRow.ebayResearchData ?? normalizedItem.ebayResearchData,
+              cashConvertersResearchData:
+                prevRow.cashConvertersResearchData ?? normalizedItem.cashConvertersResearchData,
+              cgResearchData: prevRow.cgResearchData ?? normalizedItem.cgResearchData,
             };
             const next = [...prev];
             next[idx] = nextRow;

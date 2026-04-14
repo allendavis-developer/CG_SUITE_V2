@@ -9,6 +9,7 @@ export const NEGOTIATION_ROW_CONTEXT = {
   PRICE_SOURCE_CEX_SELL: 'price-source-cex-sell',
   PRICE_SOURCE_EBAY: 'price-source-ebay',
   PRICE_SOURCE_CASH_CONVERTERS: 'price-source-cash-converters',
+  PRICE_SOURCE_CASH_GENERATOR: 'price-source-cash-generator',
 };
 
 /** @param {string} zone @returns {boolean} */
@@ -16,7 +17,8 @@ export function isNegotiationPriceSourceZone(zone) {
   return (
     zone === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL ||
     zone === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY ||
-    zone === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS
+    zone === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS ||
+    zone === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_GENERATOR
   );
 }
 

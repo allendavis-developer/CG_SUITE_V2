@@ -393,18 +393,32 @@ const useAppStore = create(
         set((state) => ({
           [key]: state[key].map((item) => {
             if (item.variantId !== variantId) return item;
-            const updated =
-              type === 'ebay' ? { ...item, ebayResearchData: data } : { ...item, cashConvertersResearchData: data };
+            let updated = item;
+            if (type === 'ebay') {
+              updated = { ...item, ebayResearchData: data };
+            } else if (type === 'cashConverters') {
+              updated = { ...item, cashConvertersResearchData: data };
+            } else if (type === 'cashGenerator' || type === 'cg') {
+              updated = { ...item, cgResearchData: data };
+            } else {
+              updated = { ...item, cashConvertersResearchData: data };
+            }
             if (item.request_item_id) {
-              const payload =
-                type === 'ebay'
-                  ? {
-                      raw_data: buildPersistedEbayRawData(data, {
-                        categoryObject: item.categoryObject,
-                        referenceData: item.referenceData,
-                      }),
-                    }
-                  : { cash_converters_data: data };
+              let payload;
+              if (type === 'ebay') {
+                payload = {
+                  raw_data: buildPersistedEbayRawData(data, {
+                    categoryObject: item.categoryObject,
+                    referenceData: item.referenceData,
+                  }),
+                };
+              } else if (type === 'cashConverters') {
+                payload = { cash_converters_data: data };
+              } else if (type === 'cashGenerator' || type === 'cg') {
+                payload = { cg_data: data };
+              } else {
+                payload = { cash_converters_data: data };
+              }
               updateRequestItemRawData(item.request_item_id, payload).catch(() => {});
             }
             return updated;
@@ -512,6 +526,7 @@ const useAppStore = create(
           expectation_gbp: null,
           raw_data: itemPayload.rawData,
           cash_converters_data: itemPayload.cashConvertersData,
+          cg_data: itemPayload.cgData ?? itemPayload.cgResearchData ?? null,
           notes: '',
         };
         if (itemPayload.cexSku != null) payload.cex_sku = itemPayload.cexSku;
@@ -1046,6 +1061,7 @@ const useAppStore = create(
             selectedOfferId: null,
             ebayResearchData: null,
             cashConvertersResearchData: null,
+            cgResearchData: null,
             referenceData: null,
             request_item_id: null,
           };

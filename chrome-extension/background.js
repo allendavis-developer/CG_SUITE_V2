@@ -2284,6 +2284,10 @@ async function handleBridgeForward(message, sender) {
       url = searchQuery
         ? `https://www.cashconverters.co.uk/search-results?Sort=default&page=1&query=${encodeURIComponent(searchQuery)}`
         : 'https://www.cashconverters.co.uk/';
+    } else if (competitor === 'CashGenerator') {
+      url = searchQuery
+        ? `https://cashgenerator.co.uk/pages/search-results-page?q=${encodeURIComponent(searchQuery)}`
+        : 'https://cashgenerator.co.uk/';
     } else if (competitor === 'CeX') {
       // With a header search term: CeX site search. Without: homepage (unchanged).
       url = searchQuery
@@ -3255,10 +3259,15 @@ async function handleBridgeForward(message, sender) {
 
   if (payload.action === 'startRefine' && appTabId != null) {
     const listingPageUrl = payload.listingPageUrl;
-    const competitor = payload.competitor === 'CashConverters' ? 'CashConverters' : 'eBay';
-    const defaultUrl = competitor === 'CashConverters'
-      ? 'https://www.cashconverters.co.uk/'
-      : 'https://www.ebay.co.uk/';
+    let competitor = 'eBay';
+    if (payload.competitor === 'CashConverters') competitor = 'CashConverters';
+    else if (payload.competitor === 'CashGenerator') competitor = 'CashGenerator';
+    const defaultUrl =
+      competitor === 'CashConverters'
+        ? 'https://www.cashconverters.co.uk/'
+        : competitor === 'CashGenerator'
+          ? 'https://cashgenerator.co.uk/'
+          : 'https://www.ebay.co.uk/';
     const urlToOpen = ensureEbayFilters(listingPageUrl) || defaultUrl;
     const marketComparisonContext = payload.marketComparisonContext || null;
 

@@ -125,6 +125,7 @@ export function mapRequestItemsToCartItems(items, transactionType) {
       ebayResearchBlob = { ...ebayResearchBlob, aiSuggestedNosposStockCategory: nosposHintTop };
     }
     const cashConvertersResearchData = item.cash_converters_data || rawData?.cashConvertersResearchData || null;
+    const cgResearchData = item.cg_data || rawData?.cgResearchData || null;
 
     let savedCashOffers = item.cash_offers_json || [];
     let savedVoucherOffers = item.voucher_offers_json || [];
@@ -195,6 +196,7 @@ export function mapRequestItemsToCartItems(items, transactionType) {
         customerExpectation: item.customer_expectation_gbp?.toString() || '',
         ebayResearchData: null,
         cashConvertersResearchData: null,
+        cgResearchData: null,
         cashOffers: cash,
         voucherOffers: voucher,
         offers: displayOffers,
@@ -306,6 +308,10 @@ export function mapRequestItemsToCartItems(items, transactionType) {
       cashConvertersResearchData?.searchTerm ||
       cashConvertersResearchData?.title ||
       null;
+    const cgTitle =
+      cgResearchData?.searchTerm ||
+      cgResearchData?.title ||
+      null;
 
     const ebaySubtitleFromFilters =
       isEbayResearchPayload || hasPersistedExtensionEbayResearch
@@ -371,7 +377,7 @@ export function mapRequestItemsToCartItems(items, transactionType) {
       ? savedDisplayTitle
       : isCexItem
         ? cexTitle || rawCeXTitle || 'N/A'
-        : rawEbayTitle || cashConvertersTitle || 'N/A';
+        : rawEbayTitle || cashConvertersTitle || cgTitle || 'N/A';
     const subtitle = hasSavedDisplay
       ? savedDisplaySubtitle ?? ''
       : isCexItem
@@ -399,6 +405,7 @@ export function mapRequestItemsToCartItems(items, transactionType) {
         rawData?.other_workspace_manual_item === true || rawData?.otherWorkspaceManualItem === true,
       ebayResearchData: hasPersistedExtensionEbayResearch ? ebayResearchBlob : null,
       cashConvertersResearchData,
+      cgResearchData,
       cashOffers: savedCashOffers,
       voucherOffers: savedVoucherOffers,
       offers: displayOffers,
@@ -479,6 +486,12 @@ export function mapRequestItemsToCartItems(items, transactionType) {
       cartItem.isCustomCeXItem = false;
       cartItem.isCustomCashConvertersItem = true;
       cartItem.category = cashConvertersResearchData?.category || 'Other';
+    } else if (cgResearchData) {
+      cartItem.variantId = null;
+      cartItem.isCustomEbayItem = false;
+      cartItem.isCustomCeXItem = false;
+      cartItem.isCustomCashConvertersItem = false;
+      cartItem.category = cgResearchData?.category || 'Other';
     } else {
       cartItem.variantId = variantId;
       cartItem.cexSku = cexSku;

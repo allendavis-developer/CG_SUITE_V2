@@ -26,10 +26,13 @@ import {
   calculateNonJewelleryOfferTotal,
   applyEbayResearchToItem,
   applyCashConvertersResearchToItem,
+  applyCashGeneratorResearchToItem,
   applyEbayResearchCommittedPricingToItem,
   applyCashConvertersResearchCommittedPricingToItem,
+  applyCashGeneratorResearchCommittedPricingToItem,
   mergeEbayResearchDataIntoItem,
   mergeCashConvertersResearchDataIntoItem,
+  mergeCashGeneratorResearchDataIntoItem,
   resolveOffersSource,
   resolveSuggestedRetailFromResearchStats,
   sumOfferMinMaxForNegotiationItems,
@@ -170,6 +173,7 @@ const Negotiation = ({ mode }) => {
   /** Live research tier rows while eBay / CC overlay or header eBay workspace is open — drives Offer min/max. */
   const [overlayEbayLiveBuyOffers, setOverlayEbayLiveBuyOffers] = useState(null);
   const [overlayCcLiveBuyOffers, setOverlayCcLiveBuyOffers] = useState(null);
+  const [overlayCgLiveBuyOffers, setOverlayCgLiveBuyOffers] = useState(null);
   const [headerEbayLiveBuyOffers, setHeaderEbayLiveBuyOffers] = useState(null);
   /** Live CeX tier rows from header builder while variant/offers are shown — drives Offer min/max (scoped like eBay header). */
   const [headerBuilderLiveOffers, setHeaderBuilderLiveOffers] = useState(null);
@@ -229,12 +233,19 @@ const Negotiation = ({ mode }) => {
     (item, state) => applyCashConvertersResearchToItem(item, state, useVoucherOffers),
     [useVoucherOffers]
   );
+  const applyCG = useCallback(
+    (item, state) => applyCashGeneratorResearchToItem(item, state, useVoucherOffers),
+    [useVoucherOffers]
+  );
   const onResearchPersisted = useCallback((mergedItem) => {
     if (!mergedItem || mergedItem.selectedOfferId !== 'manual') return;
     const manualPerUnit = parseManualOfferValue(mergedItem.manualOffer);
     let rrp = resolveOurSalePrice(mergedItem);
     if ((rrp == null || rrp <= 0) && mergedItem.cashConvertersResearchData?.stats) {
       rrp = resolveSuggestedRetailFromResearchStats(mergedItem.cashConvertersResearchData.stats);
+    }
+    if ((rrp == null || rrp <= 0) && mergedItem.cgResearchData?.stats) {
+      rrp = resolveSuggestedRetailFromResearchStats(mergedItem.cgResearchData.stats);
     }
     if (!Number.isFinite(manualPerUnit) || manualPerUnit <= 0 || !Number.isFinite(rrp) || rrp <= 0) return;
     setTimeout(() => {
@@ -269,15 +280,18 @@ const Negotiation = ({ mode }) => {
   const {
     researchItem, setResearchItem,
     cashConvertersResearchItem, setCashConvertersResearchItem,
+    cgResearchItem, setCgResearchItem,
     salePriceConfirmModal, setSalePriceConfirmModal,
     handleResearchComplete,
     handleCashConvertersResearchComplete,
+    handleCashGeneratorResearchComplete,
     handleResearchItemCategoryResolved,
   } = useResearchOverlay({
     items,
     setItems,
     applyEbayResearch: applyEbay,
     applyCCResearch: applyCC,
+    applyCGResearch: applyCG,
     resolveSalePrice: resolveOurSalePrice,
     readOnly: researchFormReadOnly,
     persistResearchOnComplete: mode === 'negotiate',
@@ -292,6 +306,10 @@ const Negotiation = ({ mode }) => {
   useEffect(() => {
     if (!cashConvertersResearchItem) setOverlayCcLiveBuyOffers(null);
   }, [cashConvertersResearchItem]);
+
+  useEffect(() => {
+    if (!cgResearchItem) setOverlayCgLiveBuyOffers(null);
+  }, [cgResearchItem]);
 
   useEffect(() => {
     if (!headerWorkspaceOpen || headerWorkspaceMode !== 'ebay') {
@@ -356,6 +374,29 @@ const Negotiation = ({ mode }) => {
     [cashConvertersResearchItem?.id, setItems, useVoucherOffers]
   );
 
+  const handleOverlayCgResearchOffersLive = useCallback(
+    (payload) => {
+      setOverlayCgLiveBuyOffers(payload?.buyOffers ?? null);
+      const rid = cgResearchItem?.id;
+      if (!rid || !payload) return;
+      setItems((prev) =>
+        prev.map((i) => {
+          if (i.id !== rid) return i;
+          const offersCg = resolveOffersSource(i) === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_GENERATOR;
+          const rrpCg = i.rrpOffersSource === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_GENERATOR;
+          if (!offersCg && !rrpCg) return i;
+          const synthetic = {
+            ...(i.cgResearchData && typeof i.cgResearchData === 'object' ? i.cgResearchData : {}),
+            ...payload,
+          };
+          const merged = mergeCashGeneratorResearchDataIntoItem(i, synthetic);
+          return applyCashGeneratorResearchCommittedPricingToItem(i, merged, synthetic, useVoucherOffers);
+        })
+      );
+    },
+    [cgResearchItem?.id, setItems, useVoucherOffers]
+  );
+
   const handleHeaderEbayResearchOffersLive = useCallback((payload) => {
     setHeaderEbayLiveBuyOffers(payload?.buyOffers ?? null);
   }, []);
@@ -367,8 +408,9 @@ const Negotiation = ({ mode }) => {
   const handleCloseTransientPanels = useCallback(() => {
     setResearchItem(null);
     setCashConvertersResearchItem(null);
+    setCgResearchItem(null);
     setSalePriceConfirmModal(null);
-  }, [setResearchItem, setCashConvertersResearchItem, setSalePriceConfirmModal]);
+  }, [setResearchItem, setCashConvertersResearchItem, setCgResearchItem, setSalePriceConfirmModal]);
 
   const pendingCustomerExpectationRef = useRef({});
   useEffect(() => {
@@ -917,6 +959,15 @@ const Negotiation = ({ mode }) => {
       return sumOfferMinMaxForNegotiationItems([live], useVoucherOffers);
     }
 
+    if (cgResearchItem) {
+      const live =
+        items.find((i) => i.id === cgResearchItem.id && !i.isRemoved) ?? cgResearchItem;
+      if (Array.isArray(overlayCgLiveBuyOffers) && overlayCgLiveBuyOffers.length > 0) {
+        return offerMinMaxFromResearchBuyOffers(overlayCgLiveBuyOffers, useVoucherOffers);
+      }
+      return sumOfferMinMaxForNegotiationItems([live], useVoucherOffers);
+    }
+
     const activeItems = items.filter((i) => !i.isRemoved);
 
     if (mode === 'negotiate' && headerWorkspaceOpen && headerWorkspaceMode === 'ebay') {
@@ -982,8 +1033,10 @@ const Negotiation = ({ mode }) => {
     useVoucherOffers,
     researchItem,
     cashConvertersResearchItem,
+    cgResearchItem,
     overlayEbayLiveBuyOffers,
     overlayCcLiveBuyOffers,
+    overlayCgLiveBuyOffers,
     headerEbayLiveBuyOffers,
     headerBuilderLiveOffers,
     builderWorkspaceLineId,
@@ -1398,6 +1451,7 @@ const Negotiation = ({ mode }) => {
             handleApplyOffersPriceSource={handleApplyOffersPriceSource}
             setResearchItem={setResearchItem}
             setCashConvertersResearchItem={setCashConvertersResearchItem}
+            setCgResearchItem={setCgResearchItem}
             useVoucherOffers={useVoucherOffers}
             nosposCategoriesResults={nosposSchema.categories}
             nosposCategoryMappings={nosposSchema.mappings ?? []}
@@ -1409,8 +1463,10 @@ const Negotiation = ({ mode }) => {
             items={items}
             researchItem={researchItem}
             cashConvertersResearchItem={cashConvertersResearchItem}
+            cgResearchItem={cgResearchItem}
             onResearchComplete={handleResearchComplete}
             onCashConvertersResearchComplete={handleCashConvertersResearchComplete}
+            onCashGeneratorResearchComplete={handleCashGeneratorResearchComplete}
             readOnly={researchFormReadOnly}
             ephemeralSessionNotice={researchEphemeralNotice}
             showManualOffer={true}
@@ -1422,6 +1478,7 @@ const Negotiation = ({ mode }) => {
             bottomInsetPx={researchOverlayBottomInsetPx}
             onEbayResearchOffersLiveChange={handleOverlayEbayResearchOffersLive}
             onCashConvertersResearchOffersLiveChange={handleOverlayCcResearchOffersLive}
+            onCashGeneratorResearchOffersLiveChange={handleOverlayCgResearchOffersLive}
           />
         </div>
         <NegotiationTotalsFooter
@@ -1444,6 +1501,7 @@ const Negotiation = ({ mode }) => {
           headerWorkspaceOpen={headerWorkspaceOpen}
           researchItem={researchItem}
           cashConvertersResearchItem={cashConvertersResearchItem}
+          cgResearchItem={cgResearchItem}
           handleFinalizeTransaction={handleFinalizeTransaction}
         />
       </div>

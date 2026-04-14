@@ -139,17 +139,25 @@ const RepricingNegotiation = () => {
     cashConvertersResearchData: state,
     ...(state?.resolvedCategory ? { categoryObject: state.resolvedCategory } : {}),
   }), []);
+  const applyCGRepriceResearch = useCallback((item, state) => ({
+    ...item,
+    cgResearchData: state,
+    ...(state?.resolvedCategory ? { categoryObject: state.resolvedCategory } : {}),
+  }), []);
   const {
     researchItem, setResearchItem,
     cashConvertersResearchItem, setCashConvertersResearchItem,
+    cgResearchItem, setCgResearchItem,
     salePriceConfirmModal, setSalePriceConfirmModal,
     handleResearchComplete,
     handleCashConvertersResearchComplete,
+    handleCashGeneratorResearchComplete,
     handleResearchItemCategoryResolved,
   } = useResearchOverlay({
     items, setItems,
     applyEbayResearch: applyEbayRepriceResearch,
     applyCCResearch: applyCCRepriceResearch,
+    applyCGResearch: applyCGRepriceResearch,
     resolveSalePrice: resolveRepricingSalePrice,
   });
   useMarketplaceSearchPrefetch(items, setItems);
@@ -180,13 +188,13 @@ const RepricingNegotiation = () => {
       items: snapshotItems.map(({ id, title, subtitle, category, model, cexSellPrice, cexBuyPrice,
         cexVoucherPrice, cexUrl, ourSalePrice, ourSalePriceInput, cexOutOfStock, cexProductData,
         isCustomCeXItem, isCustomEbayItem, isCustomCashConvertersItem, condition, categoryObject,
-        nosposBarcodes, ebayResearchData, cashConvertersResearchData, quantity, isRemoved,
+        nosposBarcodes, ebayResearchData, cashConvertersResearchData, cgResearchData, quantity, isRemoved,
         variantId, cexSku, attributeValues, referenceData, offers, cashOffers, voucherOffers,
         image, rrpOffersSource, offersSource }) => ({
         id, title, subtitle, category, model, cexSellPrice, cexBuyPrice, cexVoucherPrice, cexUrl,
         ourSalePrice, ourSalePriceInput, cexOutOfStock, cexProductData, isCustomCeXItem,
         isCustomEbayItem, isCustomCashConvertersItem, condition, categoryObject, nosposBarcodes,
-        ebayResearchData, cashConvertersResearchData, quantity, isRemoved, variantId, cexSku,
+        ebayResearchData, cashConvertersResearchData, cgResearchData, quantity, isRemoved, variantId, cexSku,
         attributeValues, referenceData, offers, cashOffers, voucherOffers, image, rrpOffersSource,
         offersSource,
       })),
@@ -405,7 +413,9 @@ const RepricingNegotiation = () => {
         isCustomCashConvertersItem: item.isCustomCashConvertersItem,
         condition: item.condition, categoryObject: item.categoryObject,
         nosposBarcodes: item.nosposBarcodes, ebayResearchData: item.ebayResearchData,
-        cashConvertersResearchData: item.cashConvertersResearchData, quantity: item.quantity,
+        cashConvertersResearchData: item.cashConvertersResearchData,
+        cgResearchData: item.cgResearchData,
+        quantity: item.quantity,
         variantId: item.variantId, cexSku: item.cexSku, attributeValues: item.attributeValues,
         referenceData: item.referenceData, offers: item.offers, cashOffers: item.cashOffers,
         voucherOffers: item.voucherOffers, image: item.image, rrpOffersSource: item.rrpOffersSource,
@@ -580,6 +590,7 @@ const RepricingNegotiation = () => {
       nosposBarcodes: cartItem.nosposBarcodes || [],
       ebayResearchData: cartItem.ebayResearchData || null,
       cashConvertersResearchData: cartItem.cashConvertersResearchData || null,
+      cgResearchData: cartItem.cgResearchData || null,
       isRemoved: false,
     };
     logCategoryRuleDecision({
@@ -617,6 +628,7 @@ const RepricingNegotiation = () => {
       ourSalePrice: data.stats?.suggestedPrice != null ? Number(formatOfferPrice(data.stats.suggestedPrice)) : null,
       nosposBarcodes: [],
       cashConvertersResearchData: null,
+      cgResearchData: null,
       referenceData: null,
       variantId: null,
       cexSku: null,
@@ -670,6 +682,7 @@ const RepricingNegotiation = () => {
         selectedOfferId: null,
         ebayResearchData: null,
         cashConvertersResearchData: null,
+        cgResearchData: null,
         referenceData: null,
         quantity: 1,
         isRemoved: false,
@@ -868,6 +881,7 @@ const RepricingNegotiation = () => {
           cexSellAtRepricing: item.cexSellPrice ?? null,
           raw_data: item.ebayResearchData || {},
           cash_converters_data: item.cashConvertersResearchData || {},
+          cg_data: item.cgResearchData || {},
           barcodes: getVerifiedBarcodesForItem(item.id)
         };
       });
@@ -904,6 +918,7 @@ const RepricingNegotiation = () => {
           cexSellAtRepricing: item.cexSellPrice ?? null,
           raw_data: item.ebayResearchData || {},
           cash_converters_data: item.cashConvertersResearchData || {},
+          cg_data: item.cgResearchData || {},
           barcodes: []
         });
       }
@@ -1029,6 +1044,7 @@ const RepricingNegotiation = () => {
           handleApplyOffersPriceSource={null}
           setResearchItem={setResearchItem}
           setCashConvertersResearchItem={setCashConvertersResearchItem}
+          setCgResearchItem={setCgResearchItem}
           useVoucherOffers={false}
           nosposCategoriesResults={null}
           nosposCategoryMappings={null}
@@ -1052,6 +1068,7 @@ const RepricingNegotiation = () => {
           headerWorkspaceOpen={headerWorkspaceOpen}
           researchItem={researchItem}
           cashConvertersResearchItem={cashConvertersResearchItem}
+          cgResearchItem={cgResearchItem}
           onProceed={handleProceed}
           onOpenBarcodePrintTab={openBarcodePrintTab}
           onNewRepricing={() => setShowNewRepricingConfirm(true)}
@@ -1061,8 +1078,10 @@ const RepricingNegotiation = () => {
           items={items}
           researchItem={researchItem}
           cashConvertersResearchItem={cashConvertersResearchItem}
+          cgResearchItem={cgResearchItem}
           onResearchComplete={handleResearchComplete}
           onCashConvertersResearchComplete={handleCashConvertersResearchComplete}
+          onCashGeneratorResearchComplete={handleCashGeneratorResearchComplete}
           hideOfferCards={features.hideOfferCards}
           onCategoryResolved={handleResearchItemCategoryResolved}
         />

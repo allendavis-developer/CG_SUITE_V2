@@ -127,6 +127,7 @@ def _create_repricing_session_item_from_payload(session, item_data, idx):
         line,
         item_data.get('raw_data'),
         item_data.get('cash_converters_data'),
+        item_data.get('cg_data'),
     )
     return line
 
@@ -866,9 +867,12 @@ def update_request_item_raw_data(request, request_item_id):
 
     has_raw_data = 'raw_data' in request.data
     has_cash_converters_data = 'cash_converters_data' in request.data
-    if not has_raw_data and not has_cash_converters_data:
+    has_cg_data = 'cg_data' in request.data
+    if not has_raw_data and not has_cash_converters_data and not has_cg_data:
         return Response(
-            {"error": "Provide 'raw_data' and/or 'cash_converters_data' in request data"},
+            {
+                "error": "Provide at least one of: 'raw_data', 'cash_converters_data', 'cg_data' in request data"
+            },
             status=status.HTTP_400_BAD_REQUEST
         )
 
@@ -890,6 +894,15 @@ def update_request_item_raw_data(request, request_item_id):
             )
         research_storage.apply_partial_cc_data_update(existing_item, new_cc)
 
+    if has_cg_data:
+        new_cg = request.data.get("cg_data")
+        if new_cg is not None and not isinstance(new_cg, dict):
+            return Response(
+                {"error": "'cg_data' must be a JSON object/dict or null"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        research_storage.apply_partial_cg_data_update(existing_item, new_cg)
+
     return Response(
         {
             "request_item_id": existing_item.request_item_id,
@@ -897,6 +910,7 @@ def update_request_item_raw_data(request, request_item_id):
             "cash_converters_data": research_storage.compose_cash_converters_for_request_item(
                 existing_item
             ),
+            "cg_data": research_storage.compose_cash_generator_for_request_item(existing_item),
         },
         status=status.HTTP_200_OK,
     )
@@ -1108,11 +1122,16 @@ def finish_request(request, request_id):
                     {"error": f"negotiated_price_gbp for item {request_item_id}: {e.messages[0]}"},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-        if "raw_data" in item_data or "cash_converters_data" in item_data:
+        if (
+            "raw_data" in item_data
+            or "cash_converters_data" in item_data
+            or "cg_data" in item_data
+        ):
             research_storage.finish_sync_request_item_research(
                 request_item,
                 item_data.get("raw_data"),
                 item_data.get("cash_converters_data"),
+                item_data.get("cg_data"),
             )
 
         if 'cash_offers_json' in item_data:

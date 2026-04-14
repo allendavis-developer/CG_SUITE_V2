@@ -237,8 +237,18 @@ const SOURCE_CONFIG = {
     idPrefix: 'cc',
     label: 'Cash Converters',
     headerTitle: 'Cash Converters Market Research',
-    headerIcon: 'store',
+    headerIcon: 'search_insights',
     getDataPrompt: 'Click below to open Cash Converters in a new tab. Go to a page with multiple listings, then use the extension panel to confirm and send data back.',
+    enableAdvancedSoldDateFilter: false,
+    supportsCancelRefine: false,
+  },
+  CashGenerator: {
+    idPrefix: 'cg',
+    label: 'Cash Generator',
+    headerTitle: 'Cash Generator Market Research',
+    headerIcon: 'search_insights',
+    getDataPrompt:
+      'Click below to open Cash Generator in a new tab. When the search results have loaded, use the extension panel to confirm and send data back (store location is captured per listing, like Cash Converters).',
     enableAdvancedSoldDateFilter: false,
     supportsCancelRefine: false,
   },
@@ -316,6 +326,7 @@ function ExtensionResearchForm({
 }) {
   const config = SOURCE_CONFIG[source] ?? SOURCE_CONFIG.eBay;
   const isEbay = source === 'eBay';
+  const isCashGenerator = source === 'CashGenerator';
 
   // resolvedCategory: either the category prop (if it has an id), one restored from saved state,
   // or one the user picks during this session
@@ -425,6 +436,7 @@ function ExtensionResearchForm({
       'ebay',
       'cash converters',
       'cashconverters',
+      'cash generator',
       'other',
       'n/a',
       'unknown',
@@ -535,7 +547,6 @@ function ExtensionResearchForm({
   const handleGetData = useCallback(async (queryOverride) => {
     userCancelledRef.current = false;
     setError(null);
-    setLoading(true);
     let effective = '';
     if (queryOverride !== undefined && queryOverride !== null && String(queryOverride).trim() !== '') {
       effective = String(queryOverride).trim();
@@ -544,6 +555,7 @@ function ExtensionResearchForm({
     } else if (initialSearchQuery != null && String(initialSearchQuery).trim() !== '') {
       effective = String(initialSearchQuery).trim();
     }
+    setLoading(true);
     try {
       const result = await getDataFromListingPage(source, effective || undefined, marketComparisonContext);
       if (isEbay && userCancelledRef.current) return;
@@ -613,7 +625,13 @@ function ExtensionResearchForm({
   const autoTriggeredRef = useRef(false);
   useEffect(() => {
     // Only auto-trigger when we're actually on the get-data step (not category step)
-    if (mode === 'modal' && step === 'get-data' && !readOnly && savedState == null && !autoTriggeredRef.current) {
+    if (
+      mode === 'modal' &&
+      step === 'get-data' &&
+      !readOnly &&
+      savedState == null &&
+      !autoTriggeredRef.current
+    ) {
       autoTriggeredRef.current = true;
       handleGetData();
     }
@@ -1358,7 +1376,11 @@ function ExtensionResearchForm({
       headerTitle={searchTerm || config.headerTitle}
       headerSubtitle={
         searchTerm
-          ? (isEbay ? `eBay: ${searchTerm}` : `Cash Converters: ${searchTerm}`)
+          ? (isEbay
+              ? `eBay: ${searchTerm}`
+              : isCashGenerator
+                ? `Cash Generator: ${searchTerm}`
+                : `Cash Converters: ${searchTerm}`)
           : 'Real-time valuation lookup'
       }
       headerIcon={config.headerIcon}

@@ -23,6 +23,10 @@ export const resolveRepricingSalePrice = (item) => {
     const n = Number(item.cashConvertersResearchData.stats.suggestedPrice);
     return Number.isFinite(n) ? roundSalePrice(n) : null;
   }
+  if (item?.cgResearchData?.stats?.suggestedPrice != null) {
+    const n = Number(item.cgResearchData.stats.suggestedPrice);
+    return Number.isFinite(n) ? roundSalePrice(n) : null;
+  }
   return null;
 };
 

@@ -1,7 +1,7 @@
 /**
  * CG Suite Research – content script for eBay, Cash Converters, and CeX.
  *
- * Runs on ebay.co.uk, cashconverters.co.uk, and uk.webuy.com (CeX).
+ * Runs on ebay.co.uk, cashconverters.co.uk, cashgenerator.co.uk (Shopify Snize), and uk.webuy.com (CeX).
  * Injects a side panel: "Have you got the data yet?" [Yes].
  * On Yes, scrapes the page using site-specific config and sends data to the app.
  *
@@ -367,6 +367,63 @@
             image: image,
             sold: null,
             shop: shop
+          });
+        });
+        return results;
+      }
+    },
+    cashgenerator: {
+      competitor: 'CashGenerator',
+      isListingsPage(url) {
+        const u = (url || window.location.href || '').toLowerCase();
+        return u.includes('cashgenerator.co.uk') && u.includes('/pages/search-results-page');
+      },
+      getSearchTerm() {
+        const fromUrl = searchTermFromUrlParams(['q']);
+        if (fromUrl) return fromUrl;
+        const input = document.querySelector(
+          'input[name="q"], input[type="search"][name="q"], .snize-search input[type="text"], input.snize-ac-input'
+        );
+        return (input && String(input.value || '').trim()) || '';
+      },
+      getListContainer() {
+        return document.body;
+      },
+      scrapeCards(container) {
+        const doc = container || document;
+        const results = [];
+        const cards = doc.querySelectorAll('li.snize-product');
+        const origin = window.location.origin || '';
+        cards.forEach(function (li) {
+          const titleEl = li.querySelector('.snize-title');
+          const priceEl = li.querySelector('span.snize-price.money') || li.querySelector('.snize-price');
+          const linkEl = li.querySelector('a.snize-view-link');
+          const imgEls = li.querySelectorAll('img.snize-item-image');
+          const imgEl = imgEls.length ? imgEls[0] : null;
+          const attrEl = li.querySelector('.snize-attribute');
+          let shop = attrEl ? String(attrEl.textContent || '').replace(/\s+/g, ' ').trim() : '';
+          if (!shop) shop = null;
+          if (!titleEl || !priceEl) return;
+          const title = String(titleEl.textContent || '').replace(/\s+/g, ' ').trim();
+          if (!title) return;
+          const priceRaw = String(priceEl.textContent || '').trim();
+          const price = priceRaw.replace(/[^0-9.]/g, '').trim() || '0';
+          let itemUrl = window.location.href;
+          if (linkEl) {
+            const href = linkEl.getAttribute('href') || '';
+            if (href) itemUrl = href.startsWith('http') ? href : origin + href;
+          }
+          let image = null;
+          if (imgEl && imgEl.src) image = imgEl.src;
+          const pid = li.getAttribute('data-original-product-id') || '';
+          results.push({
+            title: title.slice(0, 200),
+            price: price,
+            url: itemUrl,
+            image: image,
+            sold: null,
+            shop: shop,
+            itemId: pid || null,
           });
         });
         return results;
@@ -755,6 +812,7 @@
   function getSiteConfig() {
     const host = window.location.hostname || '';
     if (host.includes('ebay')) return SITE_CONFIGS.ebay;
+    if (host.includes('cashgenerator')) return SITE_CONFIGS.cashgenerator;
     if (host.includes('cashconverters')) return SITE_CONFIGS.cashconverters;
     if (host.includes('webuy.com')) return SITE_CONFIGS.cex;
     return null;

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "CG Suite Research",
   "version": "1.2.0",
-  "description": "Capture listing data from eBay and Cash Converters for CG Suite research forms.",
+  "description": "Capture listing data from eBay, Cash Converters, and Cash Generator for CG Suite research forms.",
   "permissions": [
     "activeTab",
     "scripting",
@@ -19,6 +19,8 @@
     "https://ebay.co.uk/*",
     "https://www.cashconverters.co.uk/*",
     "https://cashconverters.co.uk/*",
+    "https://www.cashgenerator.co.uk/*",
+    "https://cashgenerator.co.uk/*",
     "https://uk.webuy.com/*",
     "https://www.webuy.com/*",
     "https://www.\u006d\u0061\u0073\u0074\u0065\u0072\u006d\u0065\u006c\u0074\u0067\u0072\u006f\u0075\u0070.com/*",
@@ -46,6 +48,11 @@
     },
     {
       "matches": ["https://www.cashconverters.co.uk/*", "https://cashconverters.co.uk/*"],
+      "js": ["shared/dom-utils.js", "shared/constants.js", "content-listings.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.cashgenerator.co.uk/*", "https://cashgenerator.co.uk/*"],
       "js": ["shared/dom-utils.js", "shared/constants.js", "content-listings.js"],
       "run_at": "document_idle"
     },

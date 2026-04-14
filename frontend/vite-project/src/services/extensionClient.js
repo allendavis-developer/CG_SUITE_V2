@@ -11,12 +11,12 @@ import { JEWELLERY_SCRAP_OPEN_TAB_ACTION } from '@/constants/jewelleryScrapBridg
  * so the "Have you got the data yet?" panel appears. If it doesn't appear, check extension console (CeX tab and background)
  * for logs: LISTING_PAGE_READY, WAITING_FOR_DATA, and content-listings maybeNotifyReady/showPanel.
  *
- * @param {string} competitor - 'eBay', 'CashConverters', or 'CeX'
+ * @param {string} competitor - 'eBay', 'CashConverters', 'CashGenerator', or 'CeX'
  * @param {string} [searchQuery] - Optional search term to pre-populate the URL (e.g. product name)
  * @param {Object} [marketComparisonContext] - Optional context from market comparisons table to show in the extension panel (cexSalePrice, ourSalePrice, ebaySalePrice, cashConvertersSalePrice)
  */
 export async function getDataFromListingPage(competitor, searchQuery, marketComparisonContext) {
-  const competitorVal = ['CashConverters', 'CeX'].includes(competitor) ? competitor : 'eBay';
+  const competitorVal = ['CashConverters', 'CashGenerator', 'CeX'].includes(competitor) ? competitor : 'eBay';
   return sendMessage({
     action: 'startWaitingForData',
     competitor: competitorVal,
@@ -355,7 +355,12 @@ export async function cancelNosposRepricing(cartKey = '') {
  * returns scraped data and focuses the app tab (same as getDataFromListingPage).
  */
 export async function getDataFromRefine(competitor, listingPageUrl, marketComparisonContext) {
-  const competitorVal = competitor === 'CashConverters' ? 'CashConverters' : 'eBay';
+  const competitorVal =
+    competitor === 'CashConverters'
+      ? 'CashConverters'
+      : competitor === 'CashGenerator'
+        ? 'CashGenerator'
+        : 'eBay';
   return sendMessage({
     action: 'startRefine',
     competitor: competitorVal,

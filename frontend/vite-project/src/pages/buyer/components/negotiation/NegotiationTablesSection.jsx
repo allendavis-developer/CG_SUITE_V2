@@ -28,6 +28,7 @@ export default function NegotiationTablesSection({
   handleApplyOffersPriceSource,
   setResearchItem,
   setCashConvertersResearchItem,
+  setCgResearchItem,
   useVoucherOffers,
   nosposCategoriesResults,
   nosposCategoryMappings,
@@ -52,7 +53,7 @@ export default function NegotiationTablesSection({
     if (!hideOfferColumns) count += 6; // Offer source + 4 tiers + Manual
     count += 1; // Our RRP / Sale Price
     count += 1; // RRP source
-    count += 2; // eBay + CC
+    count += 3; // eBay + CC + CG
     if (researchSandboxBookedView) count += 1; // Skip NosPos
     if (renderRowSuffix) count += 1; // extra column slot
     return count;
@@ -161,6 +162,7 @@ export default function NegotiationTablesSection({
                 <th className="w-[5.5rem] min-w-[5rem] text-[9px] leading-tight">RRP source</th>
                 <th className="w-24 px-1 text-left">eBay</th>
                 <th className="w-24 px-1 text-left">CC</th>
+                <th className="w-24 px-1 text-left">CG</th>
                 {researchSandboxBookedView ? (
                   <th className="w-16 text-center text-[10px] font-bold uppercase tracking-wide text-amber-600">
                     Skip NosPos
@@ -192,6 +194,7 @@ export default function NegotiationTablesSection({
                   onApplyOffersPriceSource={handleApplyOffersPriceSource}
                   onReopenResearch={setResearchItem}
                   onReopenCashConvertersResearch={setCashConvertersResearchItem}
+                  onReopenCashGeneratorResearch={setCgResearchItem}
                   blockedOfferSlots={blockedOfferSlots}
                   onBlockedOfferClick={(slot, offer) => handleBlockedOfferClick(slot, offer, item)}
                   testingPassedColumnMode={null}

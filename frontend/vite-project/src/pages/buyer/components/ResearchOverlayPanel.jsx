@@ -1,6 +1,7 @@
 import React from 'react';
 import EbayResearchForm from '@/components/forms/EbayResearchForm';
 import CashConvertersResearchForm from '@/components/forms/CashConvertersResearchForm';
+import CashGeneratorResearchForm from '@/components/forms/CashGeneratorResearchForm';
 import { buildMarketComparisonContext, buildInitialSearchQuery } from '../hooks/useResearchOverlay';
 
 /** Align with ExtensionResearchForm + mapRequestItemsToCartItems (quotes may omit `selectedFilters`). */
@@ -28,10 +29,12 @@ function resolvedEbaySavedState(item) {
 export default function ResearchOverlayPanel({
   researchItem,
   cashConvertersResearchItem,
+  cgResearchItem,
   /** When set, eBay/CC `lineItemContext` is merged from this array by id so async fields (e.g. prefetch) stay fresh. */
   items = null,
   onResearchComplete,
   onCashConvertersResearchComplete,
+  onCashGeneratorResearchComplete,
   readOnly = false,
   /** Shown at top of research UI when edits are intentionally not persisted (e.g. booked-for-testing preview). */
   ephemeralSessionNotice = null,
@@ -51,8 +54,9 @@ export default function ResearchOverlayPanel({
   /** Live tier rows from the open eBay research form (for metrics bar min/max while overlay is open). */
   onEbayResearchOffersLiveChange = null,
   onCashConvertersResearchOffersLiveChange = null,
+  onCashGeneratorResearchOffersLiveChange = null,
 }) {
-  if (!researchItem && !cashConvertersResearchItem) return null;
+  if (!researchItem && !cashConvertersResearchItem && !cgResearchItem) return null;
 
   const ebayLine =
     researchItem && Array.isArray(items)
@@ -62,6 +66,10 @@ export default function ResearchOverlayPanel({
     cashConvertersResearchItem && Array.isArray(items)
       ? items.find((i) => i.id === cashConvertersResearchItem.id) ?? cashConvertersResearchItem
       : cashConvertersResearchItem;
+  const cgLine =
+    cgResearchItem && Array.isArray(items)
+      ? items.find((i) => i.id === cgResearchItem.id) ?? cgResearchItem
+      : cgResearchItem;
 
   return (
     <div
@@ -117,6 +125,29 @@ export default function ResearchOverlayPanel({
             onBlockedOfferClick={(payload) => onBlockedOfferClick?.(payload, ccLine)}
             onCategoryResolved={onCategoryResolved ? (cat) => onCategoryResolved(ccLine.id, cat) : null}
             onOffersChange={onCashConvertersResearchOffersLiveChange}
+          />
+        )}
+        {cgResearchItem && (
+          <CashGeneratorResearchForm
+            mode="modal"
+            containModalInParent
+            category={cgLine.categoryObject || { path: [cgLine.category], name: cgLine.category }}
+            savedState={cgLine.cgResearchData}
+            onComplete={onCashGeneratorResearchComplete}
+            initialHistogramState={true}
+            readOnly={readOnly}
+            ephemeralSessionNotice={ephemeralSessionNotice}
+            showManualOffer={showManualOffer}
+            hideAddAction={true}
+            hideOfferCards={hideOfferCards}
+            useVoucherOffers={useVoucherOffers}
+            initialSearchQuery={buildInitialSearchQuery(cgLine)}
+            marketComparisonContext={buildMarketComparisonContext(cgLine)}
+            lineItemContext={cgLine}
+            blockedOfferSlots={blockedOfferSlots}
+            onBlockedOfferClick={(payload) => onBlockedOfferClick?.(payload, cgLine)}
+            onCategoryResolved={onCategoryResolved ? (cat) => onCategoryResolved(cgLine.id, cat) : null}
+            onOffersChange={onCashGeneratorResearchOffersLiveChange}
           />
         )}
       </div>

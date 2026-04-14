@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import AppHeader from "@/components/AppHeader";
 import EbayResearchForm from "@/components/forms/EbayResearchForm";
 import CashConvertersResearchForm from "@/components/forms/CashConvertersResearchForm";
+import CashGeneratorResearchForm from "@/components/forms/CashGeneratorResearchForm";
 import { useNotification } from "@/contexts/NotificationContext";
 import { fetchRepricingSessionDetail, updateRepricingSession } from "@/services/api";
 import { formatMoney, getResearchMedian } from "./utils/repricingDisplay";
@@ -51,6 +52,11 @@ function resolveResearchListName(lineItem) {
     const t = cc.searchTerm || cc.display_title || cc.title;
     if (t != null && String(t).trim()) return String(t).trim();
   }
+  const cg = lineItem.cg_data;
+  if (cg && typeof cg === 'object') {
+    const t = cg.searchTerm || cg.display_title || cg.title;
+    if (t != null && String(t).trim()) return String(t).trim();
+  }
   return (lineItem.title || '').trim();
 }
 
@@ -62,6 +68,7 @@ const RepricingSessionView = () => {
   const [loading, setLoading] = useState(true);
   const [researchItem, setResearchItem] = useState(null);
   const [cashConvertersResearchItem, setCashConvertersResearchItem] = useState(null);
+  const [cgResearchItem, setCgResearchItem] = useState(null);
   const [selectedItemIds, setSelectedItemIds] = useState(new Set());
 
   const hasSavedState = (data) => !!(data && typeof data === "object" && Object.keys(data).length > 0);
@@ -248,6 +255,7 @@ const RepricingSessionView = () => {
                   <th className="w-28 spreadsheet-th-cex">Sell</th>
                   <th className="w-24 px-1 text-left">eBay</th>
                   <th className="w-24 px-1 text-left">CC</th>
+                  <th className="w-24 px-1 text-left">CG</th>
                 </tr>
               </thead>
               <tbody className="text-xs">
@@ -326,7 +334,21 @@ const RepricingSessionView = () => {
                           title={hasSavedState(item.cash_converters_data) ? 'View CC research (read-only)' : 'No research available'}
                           disabled={!hasSavedState(item.cash_converters_data)}
                         >
-                          <span className="material-symbols-outlined text-[15px] leading-none">store</span>
+                          <span className="material-symbols-outlined text-[15px] leading-none">search_insights</span>
+                        </button>
+                      </div>
+                    </td>
+                    <td className="px-1 align-top">
+                      <div className="flex items-center justify-end gap-1">
+                        <span className="min-w-0 text-right font-semibold tabular-nums">{getResearchMedian(item.cg_data)}</span>
+                        <button
+                          type="button"
+                          className={`flex items-center justify-center size-7 rounded bg-brand-orange text-brand-blue transition-colors shrink-0 hover:bg-brand-orange-hover ${!hasSavedState(item.cg_data) ? 'opacity-40 cursor-not-allowed' : ''}`}
+                          onClick={() => hasSavedState(item.cg_data) && setCgResearchItem(item)}
+                          title={hasSavedState(item.cg_data) ? 'View CG research (read-only)' : 'No research available'}
+                          disabled={!hasSavedState(item.cg_data)}
+                        >
+                          <span className="material-symbols-outlined text-[15px] leading-none">search_insights</span>
                         </button>
                       </div>
                     </td>
@@ -356,6 +378,18 @@ const RepricingSessionView = () => {
           category={{ name: "Repricing", path: ["Repricing"] }}
           savedState={cashConvertersResearchItem.cash_converters_data}
           onComplete={() => setCashConvertersResearchItem(null)}
+          initialHistogramState={true}
+          readOnly={true}
+          showManualOffer={false}
+        />
+      )}
+
+      {cgResearchItem && (
+        <CashGeneratorResearchForm
+          mode="modal"
+          category={{ name: "Repricing", path: ["Repricing"] }}
+          savedState={cgResearchItem.cg_data}
+          onComplete={() => setCgResearchItem(null)}
           initialHistogramState={true}
           readOnly={true}
           showManualOffer={false}

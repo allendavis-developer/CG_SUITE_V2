@@ -4,6 +4,18 @@ import { roundSalePrice } from "@/utils/helpers";
 import { applyRrpAndOffersFromPriceSource } from "@/pages/buyer/utils/negotiationHelpers";
 import { NEGOTIATION_ROW_CONTEXT } from "@/pages/buyer/rowContextZones";
 
+function rrpZoneFromResearchModalSource(source) {
+  if (source === "ebay") return NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY;
+  if (source === "cashGenerator") return NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_GENERATOR;
+  return NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS;
+}
+
+function researchChannelLabelFromSource(source) {
+  if (source === "ebay") return "eBay";
+  if (source === "cashGenerator") return "Cash Generator";
+  return "Cash Converters";
+}
+
 /**
  * Shared "Update Our Sale Price?" modal for Negotiation and RepricingNegotiation.
  * When research returns a new suggested price, this asks the user whether to keep
@@ -59,10 +71,7 @@ export default function SalePriceConfirmModal({
     const nextOurSale = String(roundSalePrice(newPricePerUnit));
 
     if (repricingMode) {
-      const rrpZone =
-        source === "ebay"
-          ? NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY
-          : NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS;
+      const rrpZone = rrpZoneFromResearchModalSource(source);
       setItems((prev) =>
         prev.map((i) => {
           if (i.id !== itemId) return i;
@@ -76,10 +85,7 @@ export default function SalePriceConfirmModal({
       return;
     }
 
-    const zone =
-      source === "ebay"
-        ? NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY
-        : NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS;
+    const zone = rrpZoneFromResearchModalSource(source);
 
     let notify = null;
     setItems((prev) => {
@@ -140,7 +146,7 @@ export default function SalePriceConfirmModal({
         <p className="text-[11px] text-slate-600 mb-4">
           {source === "ebay"
             ? `Based on the latest eBay research, the suggested ${repricingMode ? "New Sale Price" : "sale price"} is £0.00.`
-            : `Based on the latest Cash Converters research, the suggested ${repricingMode ? "New Sale Price" : "sale price"} is £0.00.`}
+            : `Based on the latest ${researchChannelLabelFromSource(source)} research, the suggested ${repricingMode ? "New Sale Price" : "sale price"} is £0.00.`}
         </p>
         <p className="text-[11px] text-slate-600 mb-4">
           {repricingMode ? (
@@ -177,10 +183,10 @@ export default function SalePriceConfirmModal({
         {repricingMode
           ? source === "ebay"
             ? "Based on the latest eBay research, a new RRP is available for the New Sale Price column."
-            : "Based on the latest Cash Converters research, a new RRP is available for the New Sale Price column."
+            : `Based on the latest ${researchChannelLabelFromSource(source)} research, a new RRP is available for the New Sale Price column.`
           : source === "ebay"
             ? "Based on the latest eBay research, a new suggested sale price is available."
-            : "Based on the latest Cash Converters research, a new suggested sale price is available."}
+            : `Based on the latest ${researchChannelLabelFromSource(source)} research, a new suggested sale price is available.`}
       </p>
 
       <div
@@ -225,8 +231,8 @@ export default function SalePriceConfirmModal({
         {repricingMode ? (
           <>
             If you confirm, the <span className="font-semibold">New Sale Price</span> updates to this value (your RRP
-            for repricing), and the column for this research ({source === "ebay" ? "eBay" : "CC"}) will be
-            highlighted as the source. 
+            for repricing), and the column for this research ({researchChannelLabelFromSource(source)}) will be
+            highlighted as the source.
           </>
         ) : (
           <>

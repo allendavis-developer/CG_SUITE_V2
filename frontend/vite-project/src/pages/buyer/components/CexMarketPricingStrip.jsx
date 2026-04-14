@@ -184,7 +184,7 @@ export default function CexMarketPricingStrip({
         <Button
           variant={hasCcResearch ? 'outline' : 'primary'}
           size="sm"
-          icon={hasCcResearch ? 'refresh' : 'store'}
+          icon={hasCcResearch ? 'refresh' : 'search_insights'}
           onClick={() => onOpenCashConvertersResearch()}
           className="!h-10 !min-h-0 !px-4 text-sm font-bold sm:!h-11 sm:!px-5 sm:text-base"
         >

@@ -21,7 +21,7 @@ function itemTopLevelOffersAreEbayOrCashConvertersTiers(item) {
   if (item.isCustomEbayItem === true || item.isCustomCashConvertersItem === true) return true;
   const sample = item.cashOffers?.[0] ?? item.voucherOffers?.[0];
   const id = sample?.id != null ? String(sample.id) : '';
-  return /^ebay-(cash|voucher)[_-]|^cc-(cash|voucher)[_-]/.test(id);
+  return /^ebay-(cash|voucher)[_-]|^cc-(cash|voucher)[_-]|^cg-(cash|voucher)[_-]/.test(id);
 }
 
 function fmtMoney(n) {
@@ -250,7 +250,7 @@ function tableRowsFromCeX(item, useVoucherOffers) {
 
 /**
  * @param {object|null|undefined} item
- * @param {'eBay'|'CashConverters'} activeResearchSource
+ * @param {'eBay'|'CashConverters'|'CashGenerator'} activeResearchSource
  * @param {{ ebayOfferMargins?: [number, number, number] | null, useVoucherOffers?: boolean }} [options]
  * @returns {{ blocks: { title: string, rows: SummaryRow[] }[] } | null}
  */
@@ -262,15 +262,7 @@ export function buildOtherResearchChannelsSummaries(item, activeResearchSource, 
   const cexRows = tableRowsFromCeX(item, useVoucherOffers);
   if (cexRows.length) blocks.push({ title: 'CeX', rows: cexRows });
 
-  if (activeResearchSource === 'eBay') {
-    const rows = tableRowsFromResearchSnapshot(
-      item.cashConvertersResearchData,
-      ebayOfferMargins,
-      useVoucherOffers,
-      true
-    );
-    if (rows.length) blocks.push({ title: 'Cash Converters', rows });
-  } else {
+  if (activeResearchSource !== 'eBay') {
     const rows = tableRowsFromResearchSnapshot(
       item.ebayResearchData,
       ebayOfferMargins,
@@ -278,6 +270,24 @@ export function buildOtherResearchChannelsSummaries(item, activeResearchSource, 
       true
     );
     if (rows.length) blocks.push({ title: 'eBay', rows });
+  }
+  if (activeResearchSource !== 'CashConverters') {
+    const rows = tableRowsFromResearchSnapshot(
+      item.cashConvertersResearchData,
+      ebayOfferMargins,
+      useVoucherOffers,
+      true
+    );
+    if (rows.length) blocks.push({ title: 'Cash Converters', rows });
+  }
+  if (activeResearchSource !== 'CashGenerator') {
+    const rows = tableRowsFromResearchSnapshot(
+      item.cgResearchData,
+      ebayOfferMargins,
+      useVoucherOffers,
+      true
+    );
+    if (rows.length) blocks.push({ title: 'Cash Generator', rows });
   }
 
   if (!blocks.length) return null;

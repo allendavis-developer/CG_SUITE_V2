@@ -193,6 +193,7 @@ class RequestItemSerializer(serializers.ModelSerializer):
     variant_details = VariantSerializer(source='variant', read_only=True)
     raw_data = serializers.SerializerMethodField()
     cash_converters_data = serializers.SerializerMethodField()
+    cg_data = serializers.SerializerMethodField()
     selected_offer_id = serializers.SerializerMethodField()
     senior_mgmt_approved_by = serializers.SerializerMethodField()
     cash_offers_json = serializers.JSONField(required=False)
@@ -207,6 +208,7 @@ class RequestItemSerializer(serializers.ModelSerializer):
             'variant_details',
             'raw_data',
             'cash_converters_data',
+            'cg_data',
             'notes',
             'quantity',
             'selected_offer_id',
@@ -230,6 +232,7 @@ class RequestItemSerializer(serializers.ModelSerializer):
             'cex_sell_at_negotiation',
             'raw_data',
             'cash_converters_data',
+            'cg_data',
             'testing_passed',
         ]
 
@@ -239,6 +242,9 @@ class RequestItemSerializer(serializers.ModelSerializer):
     def get_cash_converters_data(self, obj):
         return research_storage.compose_cash_converters_for_request_item(obj)
 
+    def get_cg_data(self, obj):
+        return research_storage.compose_cash_generator_for_request_item(obj)
+
     def create(self, validated_data):
         cash_offers = validated_data.pop("cash_offers_json", None)
         voucher_offers = validated_data.pop("voucher_offers_json", None)
@@ -247,6 +253,7 @@ class RequestItemSerializer(serializers.ModelSerializer):
             item,
             self.initial_data.get('raw_data'),
             self.initial_data.get('cash_converters_data'),
+            self.initial_data.get('cg_data'),
         )
         if cash_offers is not None or voucher_offers is not None:
             try:
@@ -408,6 +415,7 @@ class RequestSerializer(serializers.ModelSerializer):
 class RepricingSessionItemSerializer(serializers.ModelSerializer):
     raw_data = serializers.SerializerMethodField()
     cash_converters_data = serializers.SerializerMethodField()
+    cg_data = serializers.SerializerMethodField()
 
     class Meta:
         model = RepricingSessionItem
@@ -425,6 +433,7 @@ class RepricingSessionItemSerializer(serializers.ModelSerializer):
             'our_sale_price_at_repricing',
             'raw_data',
             'cash_converters_data',
+            'cg_data',
             'created_at',
         ]
         read_only_fields = [
@@ -432,6 +441,7 @@ class RepricingSessionItemSerializer(serializers.ModelSerializer):
             'created_at',
             'raw_data',
             'cash_converters_data',
+            'cg_data',
         ]
 
     def get_raw_data(self, obj):
@@ -439,6 +449,9 @@ class RepricingSessionItemSerializer(serializers.ModelSerializer):
 
     def get_cash_converters_data(self, obj):
         return research_storage.compose_cash_converters_for_repricing_item(obj)
+
+    def get_cg_data(self, obj):
+        return research_storage.compose_cash_generator_for_repricing_item(obj)
 
 
 class RepricingSessionSerializer(serializers.ModelSerializer):

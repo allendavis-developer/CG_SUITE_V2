@@ -43,6 +43,7 @@ const NegotiationTotalsFooter = forwardRef(function NegotiationTotalsFooter(
     headerWorkspaceOpen,
     researchItem,
     cashConvertersResearchItem,
+    cgResearchItem,
     handleFinalizeTransaction,
   },
   ref,
@@ -52,6 +53,7 @@ const NegotiationTotalsFooter = forwardRef(function NegotiationTotalsFooter(
     headerWorkspaceOpen ||
     researchItem ||
     cashConvertersResearchItem ||
+    cgResearchItem ||
     (hasTarget && !targetMatched);
 
   return (

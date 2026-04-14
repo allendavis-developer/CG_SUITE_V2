@@ -1481,11 +1481,12 @@ class RepricingSessionItem(models.Model):
 class MarketResearchPlatform(models.TextChoices):
     EBAY = "EBAY", "eBay"
     CASH_CONVERTERS = "CASH_CONVERTERS", "Cash Converters"
+    CASH_GENERATOR = "CASH_GENERATOR", "Cash Generator"
 
 
 class MarketResearchSession(models.Model):
     """
-    Normalized market research snapshot (eBay or Cash Converters) for a buying line or repricing line.
+    Normalized market research snapshot (eBay, Cash Converters, or Cash Generator) for a buying line or repricing line.
     Query listings via MarketResearchListing; session-level stats are indexed columns.
     """
 

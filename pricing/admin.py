@@ -335,6 +335,7 @@ class RequestItemAdmin(admin.ModelAdmin):
     readonly_fields = (
         "get_ebay_research_summary",
         "get_cc_research_summary",
+        "get_cg_research_summary",
         "get_line_context_summary",
         "customer_expectation_gbp",
         "negotiated_price_gbp",
@@ -372,10 +373,11 @@ class RequestItemAdmin(admin.ModelAdmin):
             'fields': (
                 'get_ebay_research_summary',
                 'get_cc_research_summary',
+                'get_cg_research_summary',
                 'get_line_context_summary',
             ),
             'classes': ('collapse',),
-            'description': "eBay / Cash Converters research is stored relationally; CeX snapshots in JSON fields.",
+            'description': "eBay / Cash Converters / Cash Generator research is stored relationally; CeX snapshots in JSON fields.",
         }),
     )
     inlines = [RequestItemOfferInline]
@@ -397,6 +399,15 @@ class RequestItemAdmin(admin.ModelAdmin):
         return f"median £{s.stat_median_gbp} · suggested £{s.stat_suggested_sale_gbp} · {n} listing(s)"
 
     get_cc_research_summary.short_description = "Cash Converters research"
+
+    def get_cg_research_summary(self, obj):
+        s = obj.market_research_sessions.filter(platform="CASH_GENERATOR").first()
+        if not s:
+            return "—"
+        n = s.listings.count()
+        return f"median £{s.stat_median_gbp} · suggested £{s.stat_suggested_sale_gbp} · {n} listing(s)"
+
+    get_cg_research_summary.short_description = "Cash Generator research"
 
     def get_line_context_summary(self, obj):
         parts = []
@@ -711,6 +722,7 @@ class RepricingSessionItemAdmin(admin.ModelAdmin):
         "our_sale_price_at_repricing",
         "get_ebay_research_summary",
         "get_cc_research_summary",
+        "get_cg_research_summary",
         "created_at",
     )
 
@@ -731,6 +743,15 @@ class RepricingSessionItemAdmin(admin.ModelAdmin):
         return f"median £{s.stat_median_gbp} · suggested £{s.stat_suggested_sale_gbp} · {n} listing(s)"
 
     get_cc_research_summary.short_description = "Cash Converters research"
+
+    def get_cg_research_summary(self, obj):
+        s = obj.market_research_sessions.filter(platform="CASH_GENERATOR").first()
+        if not s:
+            return "—"
+        n = s.listings.count()
+        return f"median £{s.stat_median_gbp} · suggested £{s.stat_suggested_sale_gbp} · {n} listing(s)"
+
+    get_cg_research_summary.short_description = "Cash Generator research"
 
     def short_stock_url(self, obj):
         if not obj.stock_url:

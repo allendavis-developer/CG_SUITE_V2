@@ -7,7 +7,7 @@ export default function CashConvertersCartItemView({ item, savedState, onDeselec
       <div className="flex items-center px-8 bg-gray-50 border-b border-gray-200 sticky top-0 z-40">
         <div className="flex items-center gap-3 py-4">
           <div className="bg-brand-blue p-1.5 rounded">
-            <span className="material-symbols-outlined text-brand-orange text-sm">store</span>
+            <span className="material-symbols-outlined text-brand-orange text-sm">search_insights</span>
           </div>
           <div>
             <h2 className="text-sm font-bold text-brand-blue">Cash Converters Research Item</h2>

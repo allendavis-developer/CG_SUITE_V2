@@ -11,6 +11,7 @@ export default function RepricingBarcodeSidebar({
   headerWorkspaceOpen,
   researchItem,
   cashConvertersResearchItem,
+  cgResearchItem,
   onProceed,
   onOpenBarcodePrintTab,
   onNewRepricing,
@@ -81,7 +82,7 @@ export default function RepricingBarcodeSidebar({
       >
         <button
           className={`w-full font-bold py-4 rounded-xl transition-all flex items-center justify-center gap-2 group active:scale-[0.98] ${
-            headerWorkspaceOpen || researchItem || cashConvertersResearchItem || !allItemsReadyForRepricing || isRepricingFinished || isBackgroundRepricingRunning ? 'opacity-50 cursor-not-allowed' : ''
+            headerWorkspaceOpen || researchItem || cashConvertersResearchItem || cgResearchItem || !allItemsReadyForRepricing || isRepricingFinished || isBackgroundRepricingRunning ? 'opacity-50 cursor-not-allowed' : ''
           }`}
           style={{
             background: 'var(--brand-orange)',
@@ -89,7 +90,7 @@ export default function RepricingBarcodeSidebar({
             boxShadow: '0 10px 15px -3px rgba(247,185,24,0.3)'
           }}
           onClick={onProceed}
-          disabled={headerWorkspaceOpen || researchItem || cashConvertersResearchItem || !allItemsReadyForRepricing || isRepricingFinished || isBackgroundRepricingRunning}
+          disabled={headerWorkspaceOpen || researchItem || cashConvertersResearchItem || cgResearchItem || !allItemsReadyForRepricing || isRepricingFinished || isBackgroundRepricingRunning}
         >
           <span className="text-base uppercase tracking-tight">
             {isRepricingFinished ? 'Repricing Finished' : isBackgroundRepricingRunning ? 'Repricing Running in Background' : 'Proceed with Repricing'}

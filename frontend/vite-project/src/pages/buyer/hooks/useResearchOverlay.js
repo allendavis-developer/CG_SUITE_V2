@@ -14,6 +14,7 @@ import { buildItemSpecs, buildInitialSearchQuery, logCategoryRuleDecision } from
  * @param {Function} opts.setItems - State setter for items
  * @param {Function} opts.applyEbayResearch - `(item, updatedState) => newItem` (merge research + row pricing when applicable).
  * @param {Function} opts.applyCCResearch - Same contract as applyEbayResearch.
+ * @param {Function} opts.applyCGResearch - Same contract as applyEbayResearch (Cash Generator).
  * @param {Function} opts.resolveSalePrice - Sale price resolver; drives getResearchCompleteSalePriceFollowUp.
  * @param {boolean} [opts.readOnly=false] - Reserved for read-only overlay behaviour.
  * @param {boolean} [opts.persistResearchOnComplete=true] - When false, OK/complete does not apply research back to `items` (sandbox / preview).
@@ -25,6 +26,7 @@ export function useResearchOverlay({
   setItems,
   applyEbayResearch,
   applyCCResearch,
+  applyCGResearch = null,
   resolveSalePrice,
   readOnly = false,
   persistResearchOnComplete = true,
@@ -34,6 +36,7 @@ export function useResearchOverlay({
   void readOnly;
   const [researchItem, setResearchItem] = useState(null);
   const [cashConvertersResearchItem, setCashConvertersResearchItem] = useState(null);
+  const [cgResearchItem, setCgResearchItem] = useState(null);
   const [salePriceConfirmModal, setSalePriceConfirmModal] = useState(null);
 
   /**
@@ -97,15 +100,39 @@ export function useResearchOverlay({
     setCashConvertersResearchItem(null);
   }, [cashConvertersResearchItem, items, persistResearchOnComplete, setItems, applyCCResearch, resolveSalePrice, onResearchPersisted]);
 
+  const handleCashGeneratorResearchComplete = useCallback((updatedState) => {
+    if (updatedState?.cancel) { setCgResearchItem(null); return; }
+    if (updatedState && cgResearchItem && persistResearchOnComplete && typeof applyCGResearch === 'function') {
+      const currentItem = items.find(i => i.id === cgResearchItem.id);
+      const followUp = getResearchCompleteSalePriceFollowUp(updatedState, currentItem, resolveSalePrice);
+      const mergedItem = currentItem ? applyCGResearch(currentItem, updatedState) : null;
+      setItems(prev => prev.map(i => {
+        if (i.id !== cgResearchItem.id) return i;
+        return applyCGResearch(i, updatedState);
+      }));
+      openSalePriceConfirmModalFromFollowUp(
+        followUp,
+        cgResearchItem,
+        'cashGenerator',
+        setSalePriceConfirmModal
+      );
+      if (mergedItem) onResearchPersisted?.(mergedItem);
+    }
+    setCgResearchItem(null);
+  }, [cgResearchItem, items, persistResearchOnComplete, setItems, applyCGResearch, resolveSalePrice, onResearchPersisted]);
+
   return {
     researchItem,
     setResearchItem,
     cashConvertersResearchItem,
     setCashConvertersResearchItem,
+    cgResearchItem,
+    setCgResearchItem,
     salePriceConfirmModal,
     setSalePriceConfirmModal,
     handleResearchComplete,
     handleCashConvertersResearchComplete,
+    handleCashGeneratorResearchComplete,
     handleResearchItemCategoryResolved,
   };
 }
@@ -121,12 +148,14 @@ export function buildMarketComparisonContext(item) {
     ourSalePrice: item.ourSalePrice ?? null,
     ebaySalePrice: item.ebayResearchData?.stats?.median ?? null,
     cashConvertersSalePrice: item.cashConvertersResearchData?.stats?.median ?? null,
+    cashGeneratorSalePrice: item.cgResearchData?.stats?.median ?? null,
     itemTitle: item.title || null,
     itemCondition: item.condition || null,
     itemSpecs: item.isCustomCeXItem ? null : buildItemSpecs(item),
     cexSpecs: item.isCustomCeXItem ? buildItemSpecs(item) : null,
     ebaySearchTerm: item.ebayResearchData?.searchTerm || null,
     cashConvertersSearchTerm: item.cashConvertersResearchData?.searchTerm || null,
+    cashGeneratorSearchTerm: item.cgResearchData?.searchTerm || null,
   };
 }
 

@@ -1,7 +1,7 @@
 """
-Normalized persistence for eBay / Cash Converters market research plus jewellery data.
+Normalized persistence for eBay / Cash Converters / Cash Generator market research plus jewellery data.
 
-API responses still expose `raw_data`/`cash_converters_data` dicts for frontend
+API responses still expose `raw_data`/`cash_converters_data`/`cg_data` dicts for frontend
 compatibility, but jewellery reference/valuation state is sourced from normalized tables.
 """
 
@@ -500,6 +500,11 @@ def compose_cash_converters_for_request_item(item: RequestItem) -> dict:
     return session_to_client_payload(cc) if cc else {}
 
 
+def compose_cash_generator_for_request_item(item: RequestItem) -> dict:
+    cg = _get_session(item, MarketResearchPlatform.CASH_GENERATOR)
+    return session_to_client_payload(cg) if cg else {}
+
+
 def compose_raw_data_for_repricing_item(item: RepricingSessionItem) -> dict:
     ebay = _get_session(item, MarketResearchPlatform.EBAY)
     return session_to_client_payload(ebay) if ebay else {}
@@ -510,17 +515,26 @@ def compose_cash_converters_for_repricing_item(item: RepricingSessionItem) -> di
     return session_to_client_payload(cc) if cc else {}
 
 
+def compose_cash_generator_for_repricing_item(item: RepricingSessionItem) -> dict:
+    cg = _get_session(item, MarketResearchPlatform.CASH_GENERATOR)
+    return session_to_client_payload(cg) if cg else {}
+
+
 def ingest_request_item_post_create(
-    item: RequestItem, raw_data: Any, cc_data: Any
+    item: RequestItem, raw_data: Any, cc_data: Any, cg_data: Any = None
 ) -> None:
     """After RequestItem INSERT: split legacy blobs into normalized rows + JSON context."""
     if raw_data is not None and not isinstance(raw_data, dict):
         raw_data = None
     if cc_data is not None and not isinstance(cc_data, dict):
         cc_data = None
+    if cg_data is not None and not isinstance(cg_data, dict):
+        cg_data = None
     sync_merged_raw_into_request_item(item, raw_data)
     if cc_data:
         replace_request_item_research(item, MarketResearchPlatform.CASH_CONVERTERS, cc_data)
+    if cg_data:
+        replace_request_item_research(item, MarketResearchPlatform.CASH_GENERATOR, cg_data)
 
 
 def sync_merged_raw_into_request_item(item: RequestItem, raw: dict | None) -> None:
@@ -605,12 +619,17 @@ def sync_merged_raw_into_request_item(item: RequestItem, raw: dict | None) -> No
             item, MarketResearchPlatform.CASH_CONVERTERS, cc_embed
         )
 
+    cg_embed = raw.get("cgResearchData")
+    if isinstance(cg_embed, dict) and _is_market_research_dict(cg_embed):
+        replace_request_item_research(item, MarketResearchPlatform.CASH_GENERATOR, cg_embed)
+
     if _is_cex_product_snapshot_dict(raw):
         strip_keys = {
             "referenceData",
             "reference_data",
             "ebayResearchData",
             "cashConvertersResearchData",
+            "cgResearchData",
             "display_title",
             "display_subtitle",
         }
@@ -643,8 +662,16 @@ def apply_partial_cc_data_update(item: RequestItem, raw: Any) -> None:
         replace_request_item_research(item, MarketResearchPlatform.CASH_CONVERTERS, raw)
 
 
+def apply_partial_cg_data_update(item: RequestItem, raw: Any) -> None:
+    if raw is None:
+        replace_request_item_research(item, MarketResearchPlatform.CASH_GENERATOR, None)
+        return
+    if isinstance(raw, dict) and raw:
+        replace_request_item_research(item, MarketResearchPlatform.CASH_GENERATOR, raw)
+
+
 def finish_sync_request_item_research(
-    item: RequestItem, raw_data: Any, cc_data: Any
+    item: RequestItem, raw_data: Any, cc_data: Any, cg_data: Any = None
 ) -> None:
     if raw_data is not None and isinstance(raw_data, dict):
         sync_merged_raw_into_request_item(item, raw_data)
@@ -652,14 +679,22 @@ def finish_sync_request_item_research(
         replace_request_item_research(
             item, MarketResearchPlatform.CASH_CONVERTERS, cc_data
         )
+    if cg_data is not None and isinstance(cg_data, dict) and cg_data:
+        replace_request_item_research(
+            item, MarketResearchPlatform.CASH_GENERATOR, cg_data
+        )
 
 
 def ingest_repricing_line_post_create(
-    line: RepricingSessionItem, raw_data: Any, cc_data: Any
+    line: RepricingSessionItem, raw_data: Any, cc_data: Any, cg_data: Any = None
 ) -> None:
     if isinstance(raw_data, dict) and raw_data:
         replace_repricing_item_research(line, MarketResearchPlatform.EBAY, raw_data)
     if isinstance(cc_data, dict) and cc_data:
         replace_repricing_item_research(
             line, MarketResearchPlatform.CASH_CONVERTERS, cc_data
+        )
+    if isinstance(cg_data, dict) and cg_data:
+        replace_repricing_item_research(
+            line, MarketResearchPlatform.CASH_GENERATOR, cg_data
         )
