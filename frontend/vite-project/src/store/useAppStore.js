@@ -112,6 +112,9 @@ const useAppStore = create(
        * JewelleryLineItems opens the type/material picker when idle and data is ready.
        */
       jewelleryPickerOpenNonce: 0,
+      /** `{ lastUrl }` when the extension reports the Web EPOS upload window was closed (reopen from launchpad). */
+      webEposWorkerClosedPrompt: null,
+      setWebEposWorkerClosedPrompt: (payload) => set({ webEposWorkerClosedPrompt: payload }),
 
       bumpRepricingWorkspace: () =>
         set((s) => ({ repricingWorkspaceNonce: s.repricingWorkspaceNonce + 1 })),

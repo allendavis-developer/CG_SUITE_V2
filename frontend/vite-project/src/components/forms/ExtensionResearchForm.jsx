@@ -1388,7 +1388,9 @@ function ExtensionResearchForm({
       customControls={null}
       allowHistogramToggle={initialHistogramState !== false}
       manualOffer={manualOffer}
-      onManualOfferChange={!readOnly && (showManualOffer || isEbay) ? setManualOffer : null}
+      onManualOfferChange={
+        !readOnly && (showManualOffer || (isEbay && !hideOfferCards)) ? setManualOffer : null
+      }
       showManualOffer={showManualOffer}
       hideSearchAndFilters={true}
       onRefineSearch={handleRefineSearch}

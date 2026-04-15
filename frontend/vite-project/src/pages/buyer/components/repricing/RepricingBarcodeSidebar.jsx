@@ -22,6 +22,8 @@ function RepricingActionsBlock({
   onProceed,
   onOpenBarcodePrintTab,
   onNewRepricing,
+  onViewWebEposProducts,
+  viewWebEposProductsDisabled,
   layout = 'vertical',
   labels = DEFAULT_WORKSPACE_LABELS,
 }) {
@@ -52,7 +54,29 @@ function RepricingActionsBlock({
           {labels.newButton}
         </button>
       )}
-      <div className={layout === 'horizontal' ? 'flex flex-wrap items-center justify-end gap-2 flex-1 min-w-0' : ''}>
+      <div
+        className={
+          layout === 'horizontal'
+            ? 'flex flex-wrap items-center justify-end gap-2 flex-1 min-w-0'
+            : 'flex flex-col gap-3 w-full'
+        }
+      >
+        {onViewWebEposProducts && (
+          <button
+            type="button"
+            className={`font-semibold rounded-xl transition-all flex items-center justify-center gap-2 border-2 active:scale-[0.98] ${
+              viewWebEposProductsDisabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-50 dark:hover:bg-slate-800'
+            } ${layout === 'vertical' ? 'w-full py-3' : 'px-4 py-2.5 whitespace-nowrap'}`}
+            style={{ borderColor: 'var(--brand-blue)', color: 'var(--brand-blue)' }}
+            onClick={onViewWebEposProducts}
+            disabled={viewWebEposProductsDisabled}
+          >
+            <span className="material-symbols-outlined text-[18px]">table_rows</span>
+            <span className={layout === 'vertical' ? 'text-sm uppercase tracking-tight' : 'text-xs uppercase tracking-tight'}>
+              View products
+            </span>
+          </button>
+        )}
         <button
           className={btnClassProceed}
           style={{
@@ -122,6 +146,8 @@ export default function RepricingBarcodeSidebar({
   onProceed,
   onOpenBarcodePrintTab,
   onNewRepricing,
+  onViewWebEposProducts,
+  viewWebEposProductsDisabled,
 }) {
   const labels =
     workspace === 'upload'
@@ -160,6 +186,8 @@ export default function RepricingBarcodeSidebar({
           onProceed={onProceed}
           onOpenBarcodePrintTab={onOpenBarcodePrintTab}
           onNewRepricing={onNewRepricing}
+          onViewWebEposProducts={onViewWebEposProducts}
+          viewWebEposProductsDisabled={viewWebEposProductsDisabled}
           layout="horizontal"
           labels={labels}
         />
@@ -239,6 +267,8 @@ export default function RepricingBarcodeSidebar({
         onProceed={onProceed}
         onOpenBarcodePrintTab={onOpenBarcodePrintTab}
         onNewRepricing={onNewRepricing}
+        onViewWebEposProducts={onViewWebEposProducts}
+        viewWebEposProductsDisabled={viewWebEposProductsDisabled}
         layout="vertical"
         labels={labels}
       />

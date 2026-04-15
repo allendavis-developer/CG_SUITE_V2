@@ -48,6 +48,15 @@
     if (msg.type === JEWELLERY_SCRAP_TO_PAGE) {
       window.postMessage({ type: JEWELLERY_SCRAP_WINDOW, payload: msg.payload }, '*');
       sendResponse({ ok: true });
+      return true;
+    }
+    if (msg.type === 'WEB_EPOS_UPLOAD_WORKER_TO_PAGE') {
+      window.postMessage(
+        { type: 'WEB_EPOS_UPLOAD_WORKER_CLOSED', lastUrl: msg.lastUrl || '' },
+        '*'
+      );
+      sendResponse({ ok: true });
+      return true;
     }
     return true;
   });
@@ -73,7 +82,7 @@
       payload: message
     }, (bridgeResponse) => {
       // For these actions we don't resolve here; the target page will send data/ready later and background will send EXTENSION_RESPONSE_TO_PAGE to this tab.
-      if (message.action === 'startWaitingForData' || message.action === 'startRefine' || message.action === 'openNosposAndWait' || message.action === 'openWebEposUpload' || message.action === 'openNosposForCustomerIntake' || message.action === 'openNosposSiteOnly' || message.action === 'openNosposSiteForFields' || message.action === 'openNosposSiteForCategoryFields' || message.action === 'openNosposSiteForCategoryFieldsBulk' || message.action === 'scrapeCexSuperCategories') {
+      if (message.action === 'startWaitingForData' || message.action === 'startRefine' || message.action === 'openNosposAndWait' || message.action === 'openWebEposUpload' || message.action === 'reopenWebEposUpload' || message.action === 'scrapeWebEposProducts' || message.action === 'openNosposForCustomerIntake' || message.action === 'openNosposSiteOnly' || message.action === 'openNosposSiteForFields' || message.action === 'openNosposSiteForCategoryFields' || message.action === 'openNosposSiteForCategoryFieldsBulk' || message.action === 'scrapeCexSuperCategories') {
         if (typeof console !== 'undefined') {
           console.log('[CG Suite content-bridge] deferred action – not posting response; waiting for target page', message.action);
         }

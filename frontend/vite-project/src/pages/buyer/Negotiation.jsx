@@ -75,8 +75,9 @@ import {
   negotiationLineNosposFieldAiPending,
 } from './utils/nosposAgreementFirstItemFill';
 import { resolveNosposStockLeafIdForNegotiationLine } from '@/utils/nosposCategoryMappings';
+import ListWorkspaceNegotiation from './listWorkspace/ListWorkspaceNegotiation';
 
-const Negotiation = ({ mode }) => {
+function NegotiationBuyer({ mode }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { requestId: paramsRequestId } = useParams();
@@ -1590,6 +1591,15 @@ const Negotiation = ({ mode }) => {
 
     </div>
   );
-};
+}
 
-export default Negotiation;
+/**
+ * Buyer negotiation surface: standard buy flow, read-only quote view, or repricing/upload list workspace.
+ * Repricing and upload reuse the same table/research stack via ListWorkspaceNegotiation (see listWorkspace/).
+ */
+export default function Negotiation({ mode, listWorkspaceModuleKey = null }) {
+  if (listWorkspaceModuleKey && mode === 'negotiate') {
+    return <ListWorkspaceNegotiation moduleKey={listWorkspaceModuleKey} />;
+  }
+  return <NegotiationBuyer mode={mode} />;
+}

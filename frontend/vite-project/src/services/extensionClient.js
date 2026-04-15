@@ -159,6 +159,42 @@ export async function openWebEposUpload() {
   return sendMessage({ action: 'openWebEposUpload' });
 }
 
+/** Same timeout/message as upload flows; races `openWebEposUpload` so the UI cannot hang. */
+export const WEB_EPOS_UPLOAD_CLIENT_TIMEOUT_MS = 65000;
+
+const WEB_EPOS_UPLOAD_TIMEOUT_MESSAGE =
+  'Web EPOS did not respond in time. Try again or refresh this page.';
+
+export function openWebEposUploadWithTimeout() {
+  return withExtensionCallTimeout(
+    openWebEposUpload(),
+    WEB_EPOS_UPLOAD_CLIENT_TIMEOUT_MS,
+    WEB_EPOS_UPLOAD_TIMEOUT_MESSAGE
+  );
+}
+
+/**
+ * Entry gate: open Web EPOS, or after a worker close use `reopenUrl` for a fresh worker at that page.
+ */
+export function startWebEposUploadWithTimeout(options = {}) {
+  const reopenUrl = options.reopenUrl;
+  const promise =
+    reopenUrl != null && String(reopenUrl).trim()
+      ? sendMessage({ action: 'reopenWebEposUpload', url: reopenUrl })
+      : openWebEposUpload();
+  return withExtensionCallTimeout(promise, WEB_EPOS_UPLOAD_CLIENT_TIMEOUT_MS, WEB_EPOS_UPLOAD_TIMEOUT_MESSAGE);
+}
+
+/** Scrape the Web EPOS /products table via the extension (reuses the upload worker tab). */
+export async function scrapeWebEposProducts() {
+  return sendMessage({ action: 'scrapeWebEposProducts' }, { timeoutMs: 120_000 });
+}
+
+/** Close the minimised Web EPOS worker and clear session (call when leaving the upload workspace). */
+export async function closeWebEposUploadFromApp() {
+  return sendMessage({ action: 'closeWebEposUploadSession' });
+}
+
 /**
  * Search NosPos for a barcode in the background (no tab switch).
  * Returns { ok: true, results: [{ barserial, href, name, costPrice, retailPrice, quantity }] }

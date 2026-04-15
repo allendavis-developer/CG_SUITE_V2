@@ -1953,6 +1953,704 @@ async function failNosposRequestAndCloseTab(requestId, entry, message) {
 
 const WEB_EPOS_UPLOAD_HOST = 'webepos.cashgenerator.co.uk';
 const WEB_EPOS_LOGIN_PATH = /^\/login(\/|$)/i;
+/** Upload / gate / scrape: [products list](https://webepos.cashgenerator.co.uk/products) (logged-in table). */
+const WEB_EPOS_PRODUCTS_URL = `https://${WEB_EPOS_UPLOAD_HOST}/products`;
+const WEB_EPOS_UPLOAD_SESSION_KEY = 'cgWebEposUploadSession';
+
+function normalizeWebEposUploadUrl(raw) {
+  let url = String(raw || WEB_EPOS_PRODUCTS_URL).trim() || WEB_EPOS_PRODUCTS_URL;
+  try {
+    const pu = new URL(url);
+    if (pu.hostname.toLowerCase() !== WEB_EPOS_UPLOAD_HOST) return WEB_EPOS_PRODUCTS_URL;
+    return url;
+  } catch {
+    return WEB_EPOS_PRODUCTS_URL;
+  }
+}
+
+/** Close the worker tab; if it is the only tab in its window, close the whole window (dedicated Web EPOS window). */
+async function removeWebEposWorkerByTabId(tabId) {
+  if (tabId == null) return;
+  const workerTab = await chrome.tabs.get(tabId).catch(() => null);
+  const wid = workerTab?.windowId;
+  if (wid == null) {
+    await chrome.tabs.remove(tabId).catch(() => {});
+    return;
+  }
+  try {
+    const w = await chrome.windows.get(wid, { populate: true });
+    const onlyTab =
+      Array.isArray(w.tabs) &&
+      w.tabs.length === 1 &&
+      Number(w.tabs[0]?.id) === Number(tabId);
+    if (onlyTab) {
+      await chrome.windows.remove(wid).catch(() => chrome.tabs.remove(tabId).catch(() => {}));
+    } else {
+      await chrome.tabs.remove(tabId).catch(() => {});
+    }
+  } catch {
+    await chrome.tabs.remove(tabId).catch(() => {});
+  }
+}
+
+/** @returns {'wait'|'login'|{ kind: 'ready', url: string }} */
+function classifyWebEposUrl(u) {
+  const url = String(u || '').trim();
+  if (!url || url.startsWith('chrome://')) return 'wait';
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return 'wait';
+  }
+  if (parsed.hostname.toLowerCase() !== WEB_EPOS_UPLOAD_HOST) return 'wait';
+  const path = (parsed.pathname || '/').toLowerCase();
+  if (WEB_EPOS_LOGIN_PATH.test(path)) return 'login';
+  return { kind: 'ready', url };
+}
+
+async function readWebEposUploadSession() {
+  try {
+    const raw = await chrome.storage.session.get(WEB_EPOS_UPLOAD_SESSION_KEY);
+    const s = raw[WEB_EPOS_UPLOAD_SESSION_KEY];
+    if (!s || typeof s !== 'object') return null;
+    return s;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function writeWebEposUploadSession(partial) {
+  try {
+    const raw = await chrome.storage.session.get(WEB_EPOS_UPLOAD_SESSION_KEY);
+    const cur =
+      raw[WEB_EPOS_UPLOAD_SESSION_KEY] && typeof raw[WEB_EPOS_UPLOAD_SESSION_KEY] === 'object'
+        ? raw[WEB_EPOS_UPLOAD_SESSION_KEY]
+        : {};
+    await chrome.storage.session.set({
+      [WEB_EPOS_UPLOAD_SESSION_KEY]: { ...cur, ...partial },
+    });
+  } catch (_) {}
+}
+
+async function clearWebEposUploadSession() {
+  try {
+    await chrome.storage.session.remove(WEB_EPOS_UPLOAD_SESSION_KEY);
+  } catch (_) {}
+}
+
+async function closeWebEposUploadSessionForAppTab(appTabId) {
+  if (appTabId == null) return;
+  const session = await readWebEposUploadSession();
+  if (!session || Number(session.appTabId) !== Number(appTabId)) return;
+  const workerTabId = session.workerTabId;
+  if (workerTabId != null) {
+    await writeWebEposUploadSession({ ...session, workerTabId: null });
+    await removeWebEposWorkerByTabId(workerTabId);
+  }
+  await clearWebEposUploadSession();
+}
+
+/**
+ * Only the tab id stored in our upload session is reused (never arbitrary Web EPOS tabs).
+ * Otherwise opens a new minimised window via openBackgroundNosposTab.
+ */
+async function ensureWebEposUploadWorkerTabOpen(url, appTabId) {
+  let session = await readWebEposUploadSession();
+  if (
+    session?.workerTabId != null &&
+    session.appTabId != null &&
+    Number(session.appTabId) !== Number(appTabId)
+  ) {
+    const wid = session.workerTabId;
+    await writeWebEposUploadSession({ ...session, workerTabId: null });
+    await removeWebEposWorkerByTabId(wid);
+    await clearWebEposUploadSession();
+    session = null;
+  }
+  if (session?.workerTabId != null) {
+    try {
+      await chrome.tabs.get(session.workerTabId);
+      await chrome.tabs.update(session.workerTabId, { url });
+      await writeWebEposUploadSession({
+        workerTabId: session.workerTabId,
+        appTabId,
+        lastUrl: url,
+      });
+      if (appTabId != null) await focusAppTab(appTabId);
+      return { tabId: session.workerTabId };
+    } catch {
+      await writeWebEposUploadSession({ workerTabId: null, appTabId, lastUrl: url });
+    }
+  }
+  const { tabId } = await openBackgroundNosposTab(url, appTabId);
+  await writeWebEposUploadSession({
+    workerTabId: tabId,
+    appTabId,
+    lastUrl: url,
+  });
+  return { tabId };
+}
+
+chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
+  if (info.status !== 'complete') return;
+  void (async () => {
+    try {
+      const session = await readWebEposUploadSession();
+      if (
+        !session ||
+        session.workerTabId == null ||
+        Number(session.workerTabId) !== Number(tabId)
+      ) {
+        return;
+      }
+      const u = (tab.url || tab.pendingUrl || '').trim();
+      if (!u || u.startsWith('chrome://')) return;
+      let p;
+      try {
+        p = new URL(u);
+      } catch {
+        return;
+      }
+      if (p.hostname.toLowerCase() !== WEB_EPOS_UPLOAD_HOST) return;
+      await writeWebEposUploadSession({ lastUrl: u });
+    } catch (_) {}
+  })();
+});
+
+/** Abort active `watchWebEposUploadTab` timers/listeners when the worker tab is removed (global handler). */
+const webEposUploadWatchAbortByTabId = new Map();
+
+/**
+ * Always detect the upload worker closing — including after the initial open/watch has finished.
+ * (Per-tab watch removes its listeners on success; without this, the app never learns the window was closed.)
+ */
+async function handleWebEposWorkerTabRemovedGlobally(removedTabId) {
+  const abort = webEposUploadWatchAbortByTabId.get(removedTabId);
+  if (typeof abort === 'function') abort();
+
+  const session = await readWebEposUploadSession();
+  if (
+    !session ||
+    session.workerTabId == null ||
+    Number(session.workerTabId) !== Number(removedTabId)
+  ) {
+    return;
+  }
+
+  const lastUrl = session.lastUrl || WEB_EPOS_PRODUCTS_URL;
+  const appTabId = session.appTabId;
+
+  await writeWebEposUploadSession({
+    workerTabId: null,
+    appTabId,
+    lastUrl,
+  });
+
+  const pending = await getPending();
+  for (const [reqId, entry] of Object.entries(pending)) {
+    if (
+      entry.type === 'openWebEposUpload' &&
+      entry.appTabId === appTabId &&
+      Number(entry.listingTabId) === Number(removedTabId)
+    ) {
+      delete pending[reqId];
+      await setPending(pending);
+      chrome.tabs
+        .sendMessage(appTabId, {
+          type: 'EXTENSION_RESPONSE_TO_PAGE',
+          requestId: reqId,
+          error: 'Web EPOS window was closed.',
+        })
+        .catch(() => {});
+      break;
+    }
+  }
+
+  if (appTabId != null) {
+    chrome.tabs
+      .sendMessage(appTabId, {
+        type: 'WEB_EPOS_UPLOAD_WORKER_TO_PAGE',
+        lastUrl,
+      })
+      .catch(() => {});
+    await focusAppTab(appTabId);
+  }
+}
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  void handleWebEposWorkerTabRemovedGlobally(tabId);
+});
+
+/**
+ * Injected into the Web EPOS products tab. Waits for SPA/async table render (polls).
+ * Must stay self-contained for MV3 serialization; returns a Promise Chrome will await.
+ * @param {number} maxWaitMs
+ * @returns {Promise<{ ok: true, headers: string[], rows: object[], pagingText: string|null, pageUrl: string } | { ok: false, error: string }>}
+ */
+async function scrapeWebEposProductsTableInPageWithWait(maxWaitMs) {
+  const ms = Math.min(Math.max(Number(maxWaitMs) || 25000, 5000), 180000);
+  const sleep = (t) => new Promise((r) => setTimeout(r, t));
+  const host = typeof location !== 'undefined' ? location.hostname : '';
+  const globalDeadline = Date.now() + ms;
+  const MAX_PAGES = 200;
+
+  function rowLooksLikeProduct(tr) {
+    const cells = tr.querySelectorAll('td');
+    if (cells.length < 5) return false;
+    const t = String(cells[0].textContent || '').trim();
+    if (t.length < 4) return false;
+    return true;
+  }
+
+  function scoreProductRows(table) {
+    let n = 0;
+    if (!table) return 0;
+    table.querySelectorAll('tbody tr').forEach((tr) => {
+      if (rowLooksLikeProduct(tr)) n += 1;
+    });
+    return n;
+  }
+
+  /** Prefer the table with the most valid product rows (avoids grabbing a small/static table before the real grid). */
+  function findProductsTable() {
+    const seen = new Set();
+    const list = [];
+    const selectors = [
+      '.col-sm-12 table',
+      'div.col-sm-12 table',
+      'table.table',
+      'main table',
+      '[class*="product"] table',
+      'article table',
+      '#root table',
+      'body table',
+    ];
+    for (let i = 0; i < selectors.length; i += 1) {
+      document.querySelectorAll(selectors[i]).forEach((t) => {
+        if (t && !seen.has(t)) {
+          seen.add(t);
+          list.push(t);
+        }
+      });
+    }
+    if (list.length === 0) {
+      document.querySelectorAll('table').forEach((t) => {
+        if (!seen.has(t)) {
+          seen.add(t);
+          list.push(t);
+        }
+      });
+    }
+    let best = null;
+    let bestScore = 0;
+    for (let k = 0; k < list.length; k += 1) {
+      const t = list[k];
+      const s = scoreProductRows(t);
+      if (s > bestScore) {
+        bestScore = s;
+        best = t;
+      }
+    }
+    return bestScore > 0 ? best : null;
+  }
+
+  function isUsableNextButton(b) {
+    if (!b) return false;
+    if (b.disabled) return false;
+    if (b.classList.contains('disabled')) return false;
+    if (String(b.getAttribute('aria-disabled') || '').toLowerCase() === 'true') return false;
+    return true;
+  }
+
+  /**
+   * Must not use container.querySelector('.paging') — that returns the *first* pager in the tree,
+   * often a header/stub with no working Next, so we never click and only scrape page 1.
+   */
+  function findPagingNearTable(table) {
+    const all = Array.from(document.querySelectorAll('.paging'));
+    if (all.length === 0) return null;
+    const hasUsableNext = (root) =>
+      Array.from(root.querySelectorAll('button.next')).some(isUsableNextButton);
+
+    if (!table) {
+      for (let i = 0; i < all.length; i += 1) {
+        if (hasUsableNext(all[i])) return all[i];
+      }
+      return all[0];
+    }
+
+    for (let i = 0; i < all.length; i += 1) {
+      const p = all[i];
+      const pos = table.compareDocumentPosition(p);
+      if ((pos & Node.DOCUMENT_POSITION_FOLLOWING) === 0) continue;
+      if (!hasUsableNext(p)) continue;
+      return p;
+    }
+
+    let n = table.nextElementSibling;
+    for (let i = 0; i < 8 && n; i += 1) {
+      if (n.matches && n.matches('.paging') && hasUsableNext(n)) return n;
+      const inner = n.querySelector ? n.querySelector(':scope .paging') : null;
+      if (inner && hasUsableNext(inner)) return inner;
+      n = n.nextElementSibling;
+    }
+
+    for (let i = 0; i < all.length; i += 1) {
+      if (hasUsableNext(all[i])) return all[i];
+    }
+    return all[0];
+  }
+
+  function extractFromTable(table) {
+    const thead = table.querySelector('thead tr');
+    const headers = thead
+      ? Array.from(thead.querySelectorAll('th')).map((th) =>
+          String(th.textContent || '')
+            .trim()
+            .replace(/\s+/g, ' ')
+        )
+      : [];
+    const rows = [];
+    table.querySelectorAll('tbody tr').forEach((tr) => {
+      if (!rowLooksLikeProduct(tr)) return;
+      const cells = tr.querySelectorAll('td');
+      const bcLink = cells[0].querySelector('a');
+      const lastCell = cells[cells.length - 1];
+      const extLink =
+        lastCell && lastCell.querySelector ? lastCell.querySelector('a[href^="http"]') : null;
+      let productHref = bcLink ? bcLink.getAttribute('href') : null;
+      if (productHref && productHref.startsWith('/') && host) {
+        productHref = `https://${host}${productHref}`;
+      }
+      rows.push({
+        barcode: (bcLink ? bcLink.textContent : cells[0].textContent || '')
+          .trim()
+          .replace(/\s+/g, ' '),
+        productHref,
+        productName: String(cells[1].textContent || '')
+          .trim()
+          .replace(/\s+/g, ' '),
+        price: String(cells[2].textContent || '').trim(),
+        quantity: String(cells[3].textContent || '').trim(),
+        status: String(cells[4].textContent || '')
+          .trim()
+          .replace(/\s+/g, ' '),
+        retailUrl: extLink && extLink.href ? extLink.href : null,
+      });
+    });
+    const pagingRoot = findPagingNearTable(table);
+    const pagingEl = pagingRoot ? pagingRoot.querySelector('p') : null;
+    return {
+      ok: true,
+      headers,
+      rows,
+      pagingText: pagingEl
+        ? String(pagingEl.textContent || '')
+            .trim()
+            .replace(/\s+/g, ' ')
+        : null,
+      pageUrl: typeof location !== 'undefined' ? location.href : '',
+    };
+  }
+
+  function readPagingMeta(pagingRoot) {
+    const root = pagingRoot || findPagingNearTable(findProductsTable());
+    const el = root ? root.querySelector('p') : document.querySelector('.paging p');
+    const raw = el
+      ? String(el.textContent || '')
+          .trim()
+          .replace(/\s+/g, ' ')
+      : '';
+    const m = raw.match(/\bpage\s+(\d+)\s+of\s+(\d+)\b/i);
+    let current = m ? Number(m[1]) : null;
+    let total = m ? Number(m[2]) : null;
+    if (root && (total == null || Number.isNaN(total))) {
+      const tsp = root.querySelector('.total-page-count');
+      const tm = tsp && String(tsp.textContent || '').match(/(\d+)/);
+      if (tm) total = Number(tm[1]);
+    }
+    if (current != null && Number.isNaN(current)) current = null;
+    if (total != null && Number.isNaN(total)) total = null;
+    return { raw, current, total };
+  }
+
+  function pickNextFromPagingRoot(root) {
+    if (!root) return null;
+    const buttons = Array.from(root.querySelectorAll('button.next')).filter(isUsableNextButton);
+    if (buttons.length === 0) return null;
+    const single = buttons.find((b) => String(b.textContent || '').trim() === '»');
+    return single || buttons[0];
+  }
+
+  function findNextPageButton(pagingRoot) {
+    const direct = pickNextFromPagingRoot(pagingRoot);
+    if (direct) return direct;
+    const pagings = document.querySelectorAll('.paging');
+    for (let i = 0; i < pagings.length; i += 1) {
+      const b = pickNextFromPagingRoot(pagings[i]);
+      if (b) return b;
+    }
+    return null;
+  }
+
+  function triggerClick(el) {
+    if (!el) return;
+    try {
+      el.scrollIntoView({ block: 'center', inline: 'nearest' });
+    } catch (_) {}
+    try {
+      el.focus();
+    } catch (_) {}
+    try {
+      if (typeof el.click === 'function') el.click();
+    } catch (_) {}
+    try {
+      el.dispatchEvent(
+        new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window })
+      );
+      el.dispatchEvent(
+        new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window })
+      );
+      el.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true, view: window })
+      );
+    } catch (_) {}
+  }
+
+  function tableBarcodeSignature(table) {
+    const parts = [];
+    if (!table) return '';
+    table.querySelectorAll('tbody tr').forEach((tr) => {
+      if (!rowLooksLikeProduct(tr)) return;
+      const cells = tr.querySelectorAll('td');
+      const bc = String(cells[0].textContent || '')
+        .trim()
+        .replace(/\s+/g, ' ');
+      if (bc) parts.push(bc);
+    });
+    const joined = parts.join('|');
+    return joined.length > 4000 ? joined.slice(0, 4000) : joined;
+  }
+
+  function tryJumpToPageNum(targetPage, pagingRoot) {
+    const root = pagingRoot || document.querySelector('.paging');
+    const jump = root
+      ? root.querySelector('.jump-to-page')
+      : document.querySelector('.paging .jump-to-page') || document.querySelector('.jump-to-page');
+    if (!jump) return false;
+    const inp = jump.querySelector('input[type="number"]');
+    const go =
+      jump.querySelector('button.go-to-page-button') ||
+      (root && root.querySelector('button.go-to-page-button')) ||
+      document.querySelector('.paging button.go-to-page-button');
+    if (!inp || !go) return false;
+    try {
+      inp.focus();
+    } catch (_) {}
+    inp.value = String(targetPage);
+    inp.dispatchEvent(new Event('input', { bubbles: true }));
+    inp.dispatchEvent(new Event('change', { bubbles: true }));
+    triggerClick(go);
+    return true;
+  }
+
+  let table = null;
+  while (Date.now() < globalDeadline) {
+    table = findProductsTable();
+    if (table && scoreProductRows(table) > 0) break;
+    await sleep(350);
+  }
+  if (!table || scoreProductRows(table) === 0) {
+    return { ok: false, error: 'Products table not found on this page.' };
+  }
+
+  const allRows = [];
+  let headers = [];
+  const pagePagingTexts = [];
+  for (let pageIdx = 0; pageIdx < MAX_PAGES; pageIdx += 1) {
+    table = findProductsTable();
+    if (!table || scoreProductRows(table) === 0) {
+      if (pageIdx === 0) {
+        return { ok: false, error: 'Products table not found on this page.' };
+      }
+      break;
+    }
+
+    const extracted = extractFromTable(table);
+    if (!extracted.ok) return extracted;
+    if (pageIdx === 0) headers = extracted.headers;
+    allRows.push(...extracted.rows);
+    if (extracted.pagingText) pagePagingTexts.push(extracted.pagingText);
+
+    const pagingRoot = findPagingNearTable(table);
+    const metaAfter = readPagingMeta(pagingRoot);
+    if (
+      metaAfter.current != null &&
+      metaAfter.total != null &&
+      metaAfter.current >= metaAfter.total
+    ) {
+      break;
+    }
+
+    const nextBtn = findNextPageButton(pagingRoot);
+    if (!nextBtn) break;
+
+    const prevSig = tableBarcodeSignature(table);
+    const prevPage = metaAfter.current;
+    triggerClick(nextBtn);
+
+    /**
+     * Pager text ("page 2 of 2") often updates before tbody rows swap; do not treat meta alone as done.
+     * Wait until product barcode signature changes, then re-read once so React has committed.
+     */
+    let navOk = false;
+    while (Date.now() < globalDeadline) {
+      await sleep(400);
+      const t2 = findProductsTable();
+      if (!t2 || scoreProductRows(t2) === 0) continue;
+      const sig2 = tableBarcodeSignature(t2);
+      if (!sig2 || sig2 === prevSig) continue;
+      await sleep(180);
+      const t3 = findProductsTable();
+      if (!t3 || scoreProductRows(t3) === 0) continue;
+      const sig3 = tableBarcodeSignature(t3);
+      if (sig3 === sig2) {
+        table = t3;
+        navOk = true;
+        break;
+      }
+    }
+
+    if (!navOk && prevPage != null && metaAfter.total != null && prevPage < metaAfter.total) {
+      tryJumpToPageNum(prevPage + 1, pagingRoot);
+      while (Date.now() < globalDeadline) {
+        await sleep(400);
+        const t3 = findProductsTable();
+        if (!t3 || scoreProductRows(t3) === 0) continue;
+        const sig3 = tableBarcodeSignature(t3);
+        if (!sig3 || sig3 === prevSig) continue;
+        await sleep(180);
+        const t4 = findProductsTable();
+        if (!t4 || scoreProductRows(t4) === 0) continue;
+        const sig4 = tableBarcodeSignature(t4);
+        if (sig4 === sig3) {
+          table = t4;
+          navOk = true;
+          break;
+        }
+      }
+    }
+
+    if (!navOk) break;
+  }
+
+  const pagingText =
+    pagePagingTexts.length <= 1
+      ? pagePagingTexts[0] || null
+      : `${pagePagingTexts[0]} · ${pagePagingTexts.length} pages (${allRows.length} rows)`;
+
+  return {
+    ok: true,
+    headers,
+    rows: allRows,
+    pagingText,
+    pageUrl: typeof location !== 'undefined' ? location.href : '',
+  };
+}
+
+async function scrapeWebEposProductsAndRespond(requestId, appTabId) {
+  const respondErr = async (msg) => {
+    if (!appTabId) return;
+    chrome.tabs
+      .sendMessage(appTabId, {
+        type: 'EXTENSION_RESPONSE_TO_PAGE',
+        requestId,
+        error: msg,
+      })
+      .catch(() => {});
+    await focusAppTab(appTabId);
+  };
+
+  try {
+    const session = await readWebEposUploadSession();
+    if (
+      !session?.workerTabId ||
+      Number(session.appTabId) !== Number(appTabId)
+    ) {
+      await respondErr(
+        'No Web EPOS window for this session. Open the Upload module and wait for Web EPOS to load.'
+      );
+      return;
+    }
+    let tabId = session.workerTabId;
+    try {
+      await chrome.tabs.get(tabId);
+    } catch {
+      await respondErr(
+        'The Web EPOS window was closed. Reopen it from the launchpad prompt.'
+      );
+      return;
+    }
+    await chrome.tabs.update(tabId, { url: WEB_EPOS_PRODUCTS_URL });
+    await waitForTabLoadComplete(tabId, 90000, 'Web EPOS products page load timed out');
+    const tab = await chrome.tabs.get(tabId);
+    const u = (tab.url || '').trim();
+    if (!u) {
+      await respondErr('Could not read Web EPOS URL.');
+      return;
+    }
+    let parsed;
+    try {
+      parsed = new URL(u);
+    } catch {
+      await respondErr('Invalid Web EPOS URL.');
+      return;
+    }
+    if (parsed.hostname.toLowerCase() !== WEB_EPOS_UPLOAD_HOST) {
+      await respondErr('Not on Web EPOS.');
+      return;
+    }
+    const path = (parsed.pathname || '/').toLowerCase();
+    if (WEB_EPOS_LOGIN_PATH.test(path)) {
+      await respondErr('You must be logged into Web EPOS to view products.');
+      return;
+    }
+    await sleep(400);
+    const injected = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: scrapeWebEposProductsTableInPageWithWait,
+      args: [120000],
+    });
+    const payload = injected && injected[0] ? injected[0].result : null;
+    if (!payload || !payload.ok) {
+      await respondErr(payload?.error || 'Could not read products from Web EPOS.');
+      return;
+    }
+    await notifyAppExtensionResponse(appTabId, requestId, {
+      ok: true,
+      headers: payload.headers,
+      rows: payload.rows,
+      pagingText: payload.pagingText,
+      pageUrl: payload.pageUrl,
+    });
+    try {
+      const s2 = await readWebEposUploadSession();
+      const lastUrl = payload.pageUrl || s2?.lastUrl || WEB_EPOS_PRODUCTS_URL;
+      if (s2 && Number(s2.appTabId) === Number(appTabId)) {
+        await writeWebEposUploadSession({
+          workerTabId: null,
+          appTabId,
+          lastUrl,
+        });
+      }
+      await removeWebEposWorkerByTabId(tabId);
+    } catch (_) {}
+  } catch (e) {
+    await respondErr(e?.message || 'Failed to load Web EPOS products.');
+  }
+}
 
 /**
  * After opening Web EPOS for upload: fail fast if the site lands on /login (not logged in),
@@ -1963,7 +2661,7 @@ function watchWebEposUploadTab(webeposTabId, requestId, entry) {
   let settleTimer = null;
   let timeoutId = null;
 
-  async function cleanupListeners() {
+  function cleanupWatchListeners() {
     if (settleTimer) {
       clearTimeout(settleTimer);
       settleTimer = null;
@@ -1973,13 +2671,19 @@ function watchWebEposUploadTab(webeposTabId, requestId, entry) {
       timeoutId = null;
     }
     chrome.tabs.onUpdated.removeListener(onUpdated);
-    chrome.tabs.onRemoved.removeListener(onRemoved);
+    webEposUploadWatchAbortByTabId.delete(webeposTabId);
   }
+
+  webEposUploadWatchAbortByTabId.set(webeposTabId, () => {
+    if (resolved) return;
+    resolved = true;
+    cleanupWatchListeners();
+  });
 
   async function fail(err) {
     if (resolved) return;
     resolved = true;
-    await cleanupListeners();
+    cleanupWatchListeners();
     await clearPendingRequest(requestId);
     const msg = err || 'Web EPOS did not load.';
     if (entry.appTabId != null) {
@@ -1992,16 +2696,29 @@ function watchWebEposUploadTab(webeposTabId, requestId, entry) {
         .catch(() => {});
       await focusAppTab(entry.appTabId);
     }
-    await chrome.tabs.remove(webeposTabId).catch(() => {});
+    try {
+      const session = await readWebEposUploadSession();
+      if (session && Number(session.workerTabId) === Number(webeposTabId)) {
+        await writeWebEposUploadSession({ ...session, workerTabId: null });
+        await removeWebEposWorkerByTabId(webeposTabId);
+      }
+      await clearWebEposUploadSession();
+    } catch (_) {}
   }
 
   async function ok(finalUrl) {
     if (resolved) return;
     resolved = true;
-    await cleanupListeners();
+    cleanupWatchListeners();
     await clearPendingRequest(requestId);
+    const lastUrl = finalUrl || WEB_EPOS_PRODUCTS_URL;
+    await writeWebEposUploadSession({
+      workerTabId: webeposTabId,
+      appTabId: entry.appTabId,
+      lastUrl,
+    });
     if (entry.appTabId != null) {
-      await notifyAppExtensionResponse(entry.appTabId, requestId, { ok: true, url: finalUrl || '' });
+      await notifyAppExtensionResponse(entry.appTabId, requestId, { ok: true, url: lastUrl });
     }
   }
 
@@ -2012,16 +2729,12 @@ function watchWebEposUploadTab(webeposTabId, requestId, entry) {
       if (resolved) return;
       try {
         const t = await chrome.tabs.get(webeposTabId);
-        const u = (t.url || '').trim();
-        if (!u) return;
-        const parsed = new URL(u);
-        if (parsed.hostname.toLowerCase() !== WEB_EPOS_UPLOAD_HOST) return;
-        const path = (parsed.pathname || '/').toLowerCase();
-        if (WEB_EPOS_LOGIN_PATH.test(path)) {
+        const c = classifyWebEposUrl(t.url || '');
+        if (c === 'login') {
           await fail('You must be logged into Web EPOS to continue.');
           return;
         }
-        await ok(u);
+        if (c !== 'wait' && c.kind === 'ready') await ok(c.url);
       } catch (e) {
         await fail(e?.message || 'Web EPOS check failed.');
       }
@@ -2033,17 +2746,8 @@ function watchWebEposUploadTab(webeposTabId, requestId, entry) {
     if (info.status !== 'complete') return;
     try {
       const t = await chrome.tabs.get(webeposTabId);
-      const u = (t.url || '').trim();
-      if (!u || u.startsWith('chrome://')) return;
-      let parsed;
-      try {
-        parsed = new URL(u);
-      } catch {
-        return;
-      }
-      if (parsed.hostname.toLowerCase() !== WEB_EPOS_UPLOAD_HOST) return;
-      const path = (parsed.pathname || '/').toLowerCase();
-      if (WEB_EPOS_LOGIN_PATH.test(path)) {
+      const c = classifyWebEposUrl(t.url || '');
+      if (c === 'login') {
         if (settleTimer) {
           clearTimeout(settleTimer);
           settleTimer = null;
@@ -2051,28 +2755,16 @@ function watchWebEposUploadTab(webeposTabId, requestId, entry) {
         await fail('You must be logged into Web EPOS to continue.');
         return;
       }
-      scheduleSettle();
+      if (c !== 'wait' && c.kind === 'ready') scheduleSettle();
     } catch (e) {
       await fail(e?.message || 'Web EPOS check failed.');
     }
-  }
-
-  async function onRemoved(removedTabId) {
-    if (removedTabId !== webeposTabId || resolved) return;
-    const pendingNow = await getPending();
-    if (!pendingNow[requestId]) {
-      resolved = true;
-      await cleanupListeners();
-      return;
-    }
-    await fail('Web EPOS tab was closed.');
   }
 
   timeoutId = setTimeout(() => {
     void fail('Timed out waiting for Web EPOS to load.');
   }, 60000);
   chrome.tabs.onUpdated.addListener(onUpdated);
-  chrome.tabs.onRemoved.addListener(onRemoved);
   chrome.tabs
     .get(webeposTabId)
     .then((t) => {
@@ -2260,6 +2952,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === 'CG_APP_PAGE_UNLOADING') {
+    const tabId = sender.tab?.id;
+    if (tabId != null) {
+      void closeWebEposUploadSessionForAppTab(tabId);
+    }
     sendResponse({ ok: true });
     return true;
   }
@@ -3281,16 +3977,41 @@ async function handleBridgeForward(message, sender) {
     return { ok: true };
   }
 
-  // Upload workspace: open Web EPOS; if redirected to /login, close tab and reject bridge promise.
+  // Upload workspace: open Web EPOS products; if redirected to /login, close tab and reject bridge promise.
   if (payload.action === 'openWebEposUpload' && appTabId != null) {
-    const url = 'https://webepos.cashgenerator.co.uk/';
-    const { tabId: webeposTabId } = await openBackgroundNosposTab(url, appTabId);
+    const { tabId: webeposTabId } = await ensureWebEposUploadWorkerTabOpen(
+      WEB_EPOS_PRODUCTS_URL,
+      appTabId
+    );
     const pending = await getPending();
     const entry = { appTabId, listingTabId: webeposTabId, type: 'openWebEposUpload' };
     pending[requestId] = entry;
     await setPending(pending);
     watchWebEposUploadTab(webeposTabId, requestId, entry);
     console.log('[CG Suite] openWebEposUpload – watching tab', { requestId, listingTabId: webeposTabId });
+    return { ok: true };
+  }
+
+  if (payload.action === 'reopenWebEposUpload' && appTabId != null) {
+    const url = normalizeWebEposUploadUrl(payload.url);
+    await clearWebEposUploadSession();
+    const { tabId: webeposTabId } = await ensureWebEposUploadWorkerTabOpen(url, appTabId);
+    const pending = await getPending();
+    const entry = { appTabId, listingTabId: webeposTabId, type: 'openWebEposUpload' };
+    pending[requestId] = entry;
+    await setPending(pending);
+    watchWebEposUploadTab(webeposTabId, requestId, entry);
+    console.log('[CG Suite] reopenWebEposUpload – watching tab', { requestId, listingTabId: webeposTabId, url });
+    return { ok: true };
+  }
+
+  if (payload.action === 'closeWebEposUploadSession' && appTabId != null) {
+    await closeWebEposUploadSessionForAppTab(appTabId);
+    return { ok: true };
+  }
+
+  if (payload.action === 'scrapeWebEposProducts' && appTabId != null) {
+    void scrapeWebEposProductsAndRespond(requestId, appTabId);
     return { ok: true };
   }
 

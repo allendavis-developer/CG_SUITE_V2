@@ -8,7 +8,8 @@
     "scripting",
     "storage",
     "tabs",
-    "tabGroups"
+    "tabGroups",
+    "windows"
   ],
   "host_permissions": [
     "http://127.0.0.1:8000/*",

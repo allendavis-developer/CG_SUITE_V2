@@ -1,11 +1,12 @@
 import React, { useEffect, useLayoutEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import Negotiation from "./pages/buyer/Negotiation";
-import RepricingNegotiation from "./pages/buyer/RepricingNegotiation";
 import RepricingOverview from "./pages/buyer/RepricingOverview";
 import RepricingSessionView from "./pages/buyer/RepricingSessionView";
 import UploadOverview from "./pages/buyer/UploadOverview";
 import UploadSessionView from "./pages/buyer/UploadSessionView";
+import WebEposProductsPage from "./pages/buyer/WebEposProductsPage";
+import WebEposUploadLifecycle from "./components/WebEposUploadLifecycle";
 import TransactionComplete from "./pages/buyer/TransactionComplete";
 import RequestsOverview from "./pages/buyer/RequestsOverview";
 import LaunchpadPage from "./pages/launchpad/LaunchpadPage";
@@ -50,9 +51,10 @@ function RepricingWorkspaceRoute() {
   }, [location.key, isUpload]);
 
   return (
-    <RepricingNegotiation
+    <Negotiation
       key={`${location.pathname}-${repricingWorkspaceNonce}-${location.key}`}
-      moduleKey={isUpload ? 'upload' : 'repricing'}
+      mode="negotiate"
+      listWorkspaceModuleKey={isUpload ? 'upload' : 'repricing'}
     />
   );
 }
@@ -64,6 +66,7 @@ export default function App() {
   }, []);
   return (
     <BrowserRouter>
+      <WebEposUploadLifecycle />
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/buyer" element={<BuyerNegotiationRoute />} />
@@ -82,6 +85,7 @@ export default function App() {
         <Route path="/repricing-overview" element={<RepricingOverview />} />
         <Route path="/repricing-sessions/:repricingSessionId/view" element={<RepricingSessionView />} />
         <Route path="/upload-overview" element={<UploadOverview />} />
+        <Route path="/upload/webepos-products" element={<WebEposProductsPage />} />
         <Route path="/upload-sessions/:uploadSessionId/view" element={<UploadSessionView />} />
         {/* Route for viewing existing requests in a read-only negotiation interface */}
         <Route path="/requests/:requestId/view" element={<Negotiation mode="view" />} />
