@@ -9,6 +9,7 @@ import {
 } from "@/services/api";
 import useAppStore from "@/store/useAppStore";
 import { attachBarcodesFromSessionItems, deduplicateBarcodes } from "./utils/repricingSessionMapping";
+import { UPLOAD_BARCODE_WORKSPACE_VERSION } from "./listWorkspace/listWorkspaceUtils";
 
 const STATUS_FILTERS = ['ALL', 'IN_PROGRESS', 'COMPLETED'];
 
@@ -69,19 +70,86 @@ const UploadOverview = () => {
   /** Build React Router state for the upload workspace (`/upload`). */
   const buildWorkspaceNavigationState = (session, detail = null) => {
     const sd = detail?.session_data ?? session.session_data;
-    if (!sd || !Array.isArray(sd.items) || sd.items.length === 0) return null;
-    const lineItems = detail?.items ?? session.items ?? [];
-    const mapped = sd.items.map((item) => ({
-      ...item,
-      nosposBarcodes: deduplicateBarcodes(item.nosposBarcodes),
-    }));
-    const cartItems = attachBarcodesFromSessionItems(mapped, lineItems);
-    return {
-      cartItems,
-      sessionId: session.upload_session_id,
-      sessionBarcodes: sd.barcodes ?? null,
-      sessionNosposLookups: sd.nosposLookups ?? null,
-    };
+    if (!sd) return null;
+    const uploadScanSlotIds = Array.isArray(sd.uploadScanSlotIds) ? sd.uploadScanSlotIds : [];
+    const uploadPendingSlotIds = Array.isArray(sd.uploadPendingSlotIds) ? sd.uploadPendingSlotIds : [];
+    const uploadBarcodeIntakeDone = sd.uploadBarcodeIntakeDone !== false;
+    const hasWorkspace = sd.uploadBarcodeWorkspace?.version === UPLOAD_BARCODE_WORKSPACE_VERSION;
+    const resumeExtras = hasWorkspace
+      ? {
+          uploadBarcodeWorkspace: sd.uploadBarcodeWorkspace,
+          uploadBarcodeIntakeOpen:
+            typeof sd.uploadBarcodeIntakeOpen === "boolean"
+              ? sd.uploadBarcodeIntakeOpen
+              : Boolean(sd.uploadBarcodeWorkspace.intakeOpen),
+          uploadStockDetailsBySlotId: sd.uploadStockDetailsBySlotId ?? null,
+        }
+      : {};
+
+    if (hasWorkspace) {
+      if (Array.isArray(sd.items) && sd.items.length > 0) {
+        const lineItems = detail?.items ?? session.items ?? [];
+        const mapped = sd.items.map((item) => ({
+          ...item,
+          nosposBarcodes: deduplicateBarcodes(item.nosposBarcodes),
+        }));
+        const cartItems = attachBarcodesFromSessionItems(mapped, lineItems);
+        return {
+          cartItems,
+          sessionId: session.upload_session_id,
+          sessionBarcodes: sd.barcodes ?? null,
+          sessionNosposLookups: sd.nosposLookups ?? null,
+          uploadPendingSlotIds,
+          uploadBarcodeIntakeDone,
+          ...resumeExtras,
+        };
+      }
+      return {
+        cartItems: [],
+        sessionId: session.upload_session_id,
+        sessionBarcodes: sd.barcodes ?? null,
+        sessionNosposLookups: sd.nosposLookups ?? null,
+        ...resumeExtras,
+      };
+    }
+
+    if (Array.isArray(sd.items) && sd.items.length > 0) {
+      const lineItems = detail?.items ?? session.items ?? [];
+      const mapped = sd.items.map((item) => ({
+        ...item,
+        nosposBarcodes: deduplicateBarcodes(item.nosposBarcodes),
+      }));
+      const cartItems = attachBarcodesFromSessionItems(mapped, lineItems);
+      return {
+        cartItems,
+        sessionId: session.upload_session_id,
+        sessionBarcodes: sd.barcodes ?? null,
+        sessionNosposLookups: sd.nosposLookups ?? null,
+        uploadPendingSlotIds,
+        uploadBarcodeIntakeDone,
+      };
+    }
+    if (uploadPendingSlotIds.length > 0) {
+      return {
+        cartItems: [],
+        sessionId: session.upload_session_id,
+        sessionBarcodes: sd.barcodes ?? null,
+        sessionNosposLookups: sd.nosposLookups ?? null,
+        uploadPendingSlotIds,
+        uploadBarcodeIntakeDone,
+      };
+    }
+    if (uploadScanSlotIds.length > 0) {
+      return {
+        cartItems: [],
+        sessionId: session.upload_session_id,
+        sessionBarcodes: sd.barcodes ?? null,
+        sessionNosposLookups: sd.nosposLookups ?? null,
+        uploadScanSlotIds,
+        uploadBarcodeIntakeDone: false,
+      };
+    }
+    return null;
   };
 
   const handleSessionClick = async (session) => {

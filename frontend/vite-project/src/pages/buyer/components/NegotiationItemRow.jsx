@@ -1,6 +1,8 @@
 import React from 'react';
 import { normalizeExplicitSalePrice, roundSalePrice } from '@/utils/helpers';
 import { getNosposCategoryHierarchyLabelFromItem } from '@/utils/nosposCategoryMappings';
+import { getCgCategoryHierarchyLabelFromItem } from '@/utils/cgCategoryMappings';
+import MirroredStockCategoryColumnCell from '@/components/negotiation/MirroredStockCategoryColumnCell';
 import {
   resolveOurSalePrice,
   getDisplayOffers,
@@ -12,10 +14,7 @@ import { NEGOTIATION_ROW_CONTEXT, RRP_SOURCE_CELL_CLASS } from '../rowContextZon
 import NegotiationPriceSourcePickerCell from './NegotiationPriceSourcePickerCell';
 import { isBlockedForItem, offerIdToSlot, manualSlotCommitRequiresAuthorisation } from '@/utils/customerOfferRules';
 import TestingPassedCell from './TestingPassedCell';
-import NosposRequiredFieldsColumnCell, {
-  NosposRequiredFieldsEditorTriggerButton,
-  NosposSchemaCellSpinner,
-} from './NosposRequiredFieldsColumnCell';
+import NosposRequiredFieldsColumnCell, { NosposRequiredFieldsEditorTriggerButton } from './NosposRequiredFieldsColumnCell';
 
 // ─── Reusable offer cell (1st / 2nd / 3rd / 4th) ─────────────────────────────
 
@@ -138,11 +137,18 @@ export default function NegotiationItemRow({
   actualRequestId = null,
   onOpenNosposRequiredFieldsEditor = null,
   onOpenNosposCategoryPicker = null,
+  /** When true, show CG retail category column next to Category (upload + negotiate). */
+  showCgCategoryColumn = false,
+  /** Rows from GET /cash-generator/retail-categories/ (null while loading). */
+  cgCategoriesResults = null,
+  onOpenCgCategoryPicker = null,
   hideNosposRequiredColumn = false,
   /** When true, omit the NosPos category cell and any inline field-AI trigger there (upload workspace). */
   hideNosposCategoryColumn = false,
   hideQuantityColumn = false,
   hideCexVoucherCashColumns = false,
+  /** Upload workspace: four NosPos stock-edit columns after item name (cost, buyer, date, retail). */
+  showUploadNosposStockColumns = false,
   /** When false, Category + NosPos cells collapse to one narrow placeholder (default expanded for single-callers). */
   categoryColumnsExpanded = true,
   onApplyRrpPriceSource = null,
@@ -218,6 +224,18 @@ export default function NegotiationItemRow({
     item.category ||
     '—';
   const nosposCategoryBreadcrumb = getNosposCategoryHierarchyLabelFromItem(item);
+  const cgCategoryBreadcrumb = getCgCategoryHierarchyLabelFromItem(item);
+
+  const uploadStock = item.uploadNosposStockFromBarcode || null;
+  const fmtUploadMoney = (v) => {
+    if (v == null || String(v).trim() === '') return '—';
+    const s = String(v).trim();
+    return s.startsWith('£') ? s : `£${s}`;
+  };
+  const fmtUploadText = (v) => {
+    if (v == null || String(v).trim() === '') return '—';
+    return String(v).trim();
+  };
 
   return (
     <tr
@@ -245,76 +263,52 @@ export default function NegotiationItemRow({
       ) : null}
 
       {categoryColumnsExpanded ? (
-        hideNosposCategoryColumn ? (
+        <>
           <td className="align-top" onContextMenu={ctxRemoveOnly}>
             <div className="text-[11px] font-semibold leading-snug" style={{ color: 'var(--text-muted)' }}>
               {resolvedLeafCategory}
             </div>
           </td>
-        ) : (
-          <>
-            {/* Resolved child category */}
-            <td className="align-top" onContextMenu={ctxRemoveOnly}>
-              <div className="text-[11px] font-semibold leading-snug" style={{ color: 'var(--text-muted)' }}>
-                {resolvedLeafCategory}
+          {!hideNosposCategoryColumn ? (
+            <td className="align-top max-w-[220px]" onContextMenu={ctxRemoveOnly} title={nosposCategoryBreadcrumb || undefined}>
+              <div className="flex flex-col gap-0.5">
+                <MirroredStockCategoryColumnCell
+                  mode={mode}
+                  item={item}
+                  breadcrumb={nosposCategoryBreadcrumb}
+                  categoriesLoading={nosposCategoriesResults == null}
+                  onOpenPicker={onOpenNosposCategoryPicker}
+                  pickerTitle="NosPos category"
+                  emptyCta="No NosPos category set"
+                />
+                {hideNosposRequiredColumn ? (
+                  <NosposRequiredFieldsEditorTriggerButton
+                    item={item}
+                    negotiationIndex={index}
+                    nosposCategoriesResults={nosposCategoriesResults}
+                    nosposCategoryMappings={nosposCategoryMappings}
+                    useVoucherOffers={useVoucherOffers}
+                    requestId={actualRequestId}
+                    onOpenEditor={onOpenNosposRequiredFieldsEditor}
+                  />
+                ) : null}
               </div>
             </td>
-
-            {/* AI-resolved NosPos stock category (breadcrumb) — clickable to change in negotiate mode */}
-            <td className="align-top max-w-[220px]" onContextMenu={ctxRemoveOnly} title={nosposCategoryBreadcrumb || undefined}>
-              {item.isRemoved ? (
-                <div className="text-[10px] text-slate-400">—</div>
-              ) : nosposCategoriesResults == null ? (
-                <div className="py-1">
-                  <NosposSchemaCellSpinner />
-                </div>
-              ) : (
-                <div className="flex flex-col gap-0.5">
-                  {mode === 'negotiate' && onOpenNosposCategoryPicker ? (
-                    <button
-                      type="button"
-                      onClick={() => onOpenNosposCategoryPicker(item)}
-                      className={`group flex w-full items-start gap-1 rounded px-1 py-0.5 text-left transition-colors hover:bg-slate-100 ${
-                        nosposCategoryBreadcrumb ? '' : 'border border-dashed border-amber-300 bg-amber-50/60 hover:bg-amber-50'
-                      }`}
-                      title={nosposCategoryBreadcrumb ? `Change NosPos category (current: ${nosposCategoryBreadcrumb})` : 'No NosPos category — click to set one'}
-                    >
-                      {nosposCategoryBreadcrumb ? (
-                        <>
-                          <span className="min-w-0 flex-1 break-words text-[10px] font-medium leading-snug" style={{ color: 'var(--text-muted)' }}>
-                            {nosposCategoryBreadcrumb}
-                          </span>
-                          <span className="material-symbols-outlined mt-0.5 shrink-0 text-[10px] text-slate-300 opacity-0 transition-opacity group-hover:opacity-100">
-                            edit
-                          </span>
-                        </>
-                      ) : (
-                        <span className="text-[10px] font-semibold leading-snug text-amber-700">
-                          No category set
-                        </span>
-                      )}
-                    </button>
-                  ) : (
-                    <div className="text-[10px] font-medium leading-snug break-words" style={{ color: 'var(--text-muted)' }}>
-                      {nosposCategoryBreadcrumb || '—'}
-                    </div>
-                  )}
-                  {hideNosposRequiredColumn ? (
-                    <NosposRequiredFieldsEditorTriggerButton
-                      item={item}
-                      negotiationIndex={index}
-                      nosposCategoriesResults={nosposCategoriesResults}
-                      nosposCategoryMappings={nosposCategoryMappings}
-                      useVoucherOffers={useVoucherOffers}
-                      requestId={actualRequestId}
-                      onOpenEditor={onOpenNosposRequiredFieldsEditor}
-                    />
-                  ) : null}
-                </div>
-              )}
+          ) : null}
+          {showCgCategoryColumn ? (
+            <td className="align-top max-w-[220px]" onContextMenu={ctxRemoveOnly} title={cgCategoryBreadcrumb || undefined}>
+              <MirroredStockCategoryColumnCell
+                mode={mode}
+                item={item}
+                breadcrumb={cgCategoryBreadcrumb}
+                categoriesLoading={cgCategoriesResults == null || item.cgCategoryAiPending === true}
+                onOpenPicker={onOpenCgCategoryPicker}
+                pickerTitle="CG category"
+                emptyCta="No CG category set"
+              />
             </td>
-          </>
-        )
+          ) : null}
+        </>
       ) : (
         <td
           className="w-10 max-w-[2.5rem] p-0 align-top"
@@ -322,12 +316,16 @@ export default function NegotiationItemRow({
           title={
             item.isRemoved
               ? 'Removed from cart'
-              : hideNosposCategoryColumn
-                ? `Category: ${resolvedLeafCategory}`
-                : `Category: ${resolvedLeafCategory}\nNosPos: ${nosposCategoryBreadcrumb || '—'}`
+              : [
+                  `Category: ${resolvedLeafCategory}`,
+                  !hideNosposCategoryColumn ? `NosPos: ${nosposCategoryBreadcrumb || '—'}` : null,
+                  showCgCategoryColumn ? `CG: ${cgCategoryBreadcrumb || '—'}` : null,
+                ]
+                  .filter(Boolean)
+                  .join('\n')
           }
         >
-          <div className="flex min-h-[1.5rem] items-start justify-center pt-1">
+          <div className="flex min-h-[1.5rem] items-start justify-center gap-0.5 pt-1">
             {!hideNosposCategoryColumn &&
             !item.isRemoved &&
             mode === 'negotiate' &&
@@ -336,6 +334,17 @@ export default function NegotiationItemRow({
               <span
                 className="inline-block h-2 w-2 shrink-0 rounded-full bg-amber-400"
                 title="NosPos category not set — expand columns to edit"
+              />
+            ) : null}
+            {showCgCategoryColumn &&
+            !item.isRemoved &&
+            mode === 'negotiate' &&
+            !cgCategoryBreadcrumb &&
+            !item.cgCategoryAiPending &&
+            cgCategoriesResults != null ? (
+              <span
+                className="inline-block h-2 w-2 shrink-0 rounded-full bg-amber-400"
+                title="CG category not set — expand columns to edit"
               />
             ) : null}
           </div>
@@ -378,6 +387,26 @@ export default function NegotiationItemRow({
           </div>
         </div>
       </td>
+
+      {showUploadNosposStockColumns ? (
+        <>
+          <td className="align-top font-mono text-[11px] text-slate-800" onContextMenu={ctxRemoveOnly}>
+            {fmtUploadMoney(uploadStock?.costPrice)}
+          </td>
+          <td
+            className="align-top text-[11px] text-slate-800 leading-snug break-words max-w-[10rem]"
+            onContextMenu={ctxRemoveOnly}
+          >
+            {fmtUploadText(uploadStock?.boughtBy)}
+          </td>
+          <td className="align-top text-[11px] text-slate-700 font-mono" onContextMenu={ctxRemoveOnly}>
+            {fmtUploadText(uploadStock?.createdAt)}
+          </td>
+          <td className="align-top font-mono text-[11px] text-slate-800" onContextMenu={ctxRemoveOnly}>
+            {fmtUploadMoney(uploadStock?.retailPrice)}
+          </td>
+        </>
+      ) : null}
 
       {/* CeX Sell / Buy (Voucher) / Buy (Cash) — same order as CeX listings */}
       {isViewMode ? (

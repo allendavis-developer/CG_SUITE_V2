@@ -56,6 +56,38 @@ class ProductCategory(models.Model):
             category = category.parent_category
 
 
+class CGCategory(models.Model):
+    """
+    Cash Generator retail mega-menu categories (scraped from the public site).
+    Top-level rows have parent_category_id NULL (under implicit All Categories).
+    """
+
+    parent_category = models.ForeignKey(
+        'self',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='children',
+        db_column='parent_category_id',
+        help_text='Parent category. Root categories have this empty.',
+    )
+    name = models.CharField(max_length=255, db_index=True)
+    collection_slug = models.CharField(
+        max_length=255,
+        unique=True,
+        db_index=True,
+        help_text='Stable id from /collections/{slug} (used when merging scrapes).',
+    )
+
+    class Meta:
+        db_table = 'cg_categories'
+        verbose_name = 'CG category'
+        verbose_name_plural = 'CG categories'
+
+    def __str__(self):
+        return self.name
+
+
 class Manufacturer(models.Model):
     manufacturer_id = models.AutoField(primary_key=True)
     name = models.CharField(max_length=255, unique=True, db_index=True)

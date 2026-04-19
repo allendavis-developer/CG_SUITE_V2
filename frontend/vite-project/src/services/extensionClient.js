@@ -211,6 +211,18 @@ export async function searchNosposBarcode(barcode) {
 }
 
 /**
+ * Upload workspace: open stock edit in a minimised NosPos window (when invoked from app tab),
+ * fetch the edit page with session cookies, return { ok, details } where details is
+ * { name, boughtBy, createdAt, costPrice, retailPrice }.
+ */
+export async function scrapeNosposStockEditForUpload(stockUrl) {
+  return sendMessage(
+    { action: 'scrapeNosposStockEditForUpload', stockUrl: stockUrl || '' },
+    { timeoutMs: 55000 }
+  );
+}
+
+/**
  * Step 1 — Park agreement: credentialed fetch to `/customer/{id}/buying` with the same login detection as stock search.
  * @returns {Promise<{ ok: true } | { ok: false, loginRequired?: boolean, error?: string }>}
  */

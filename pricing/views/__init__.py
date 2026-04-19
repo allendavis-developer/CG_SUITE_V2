@@ -13,7 +13,7 @@ from pricing.views.market_research import (
     get_cashconverters_filters,
     get_cashconverters_results,
 )
-from pricing.views.integrations import react_app, address_lookup
+from pricing.views.integrations import react_app, address_lookup, cash_generator_retail_categories
 from pricing.views.nospos import (
     nospos_category_mappings_view,
     nospos_category_mapping_detail,

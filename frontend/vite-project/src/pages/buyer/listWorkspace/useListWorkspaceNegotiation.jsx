@@ -1,24 +1,25 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useNotification } from "@/contexts/NotificationContext";
 import { getModuleFeatures } from "../config/moduleFeatures";
 
 import {
-  cancelNosposRepricing,
   clearLastRepricingResult,
-  getLastRepricingResult,
-  getNosposRepricingStatus,
   openNospos,
   openWebEposUploadWithTimeout,
   searchNosposBarcode,
+  scrapeNosposStockEditForUpload,
 } from "@/services/extensionClient";
 import {
   saveRepricingSession,
   updateRepricingSession,
   saveUploadSession,
   updateUploadSession,
+  fetchCashGeneratorRetailCategories,
 } from "@/services/api";
-import { getCartKey, loadRepricingProgress, saveRepricingProgress, clearRepricingProgress } from "@/utils/repricingProgress";
+import { summariseNegotiationItemForAi, runCgStockCategoryAiMatchBackground } from '@/services/aiCategoryPathCascade';
+import { getAiSuggestedCgStockCategoryFromItem, mergeCgAiOntoNegotiationRow } from '@/utils/cgCategoryMappings';
+import { getCartKey, saveRepricingProgress } from "@/utils/repricingProgress";
 import { getEditableSalePriceState, resolveRepricingSalePrice } from "../utils/repricingDisplay";
 import useAppStore from '@/store/useAppStore';
 import { normalizeExplicitSalePrice, formatOfferPrice, roundSalePrice } from '@/utils/helpers';
@@ -35,12 +36,15 @@ import { handlePriceSourceAsRrpOffersSource } from '../utils/priceSourceAsRrpOff
 import { useWebEposUploadWorkspace } from '../hooks/useWebEposUploadWorkspace';
 import {
   barcodeCap,
-  buildAmbiguousBarcodeEntries,
-  buildSessionSavePayload,
-  buildUnverifiedBarcodeEntries,
   negotiationWorkspaceCopy,
   openBarcodePrintTab,
+  nosposLookupKeyToOwnerId,
+  buildNosposMapsFromNegotiationItems,
 } from "./listWorkspaceUtils";
+import { useListWorkspaceNegotiationPersistence } from "./useListWorkspaceNegotiationPersistence";
+import { useListWorkspaceNegotiationBootstrap } from "./useListWorkspaceNegotiationBootstrap";
+import { useListWorkspaceRepricingCompletion } from "./useListWorkspaceRepricingCompletion";
+import { ListWorkspaceBarcodeCell } from "./ListWorkspaceBarcodeCell";
 
 /** State and handlers for repricing / upload list workspaces (used by ListWorkspaceNegotiation via Negotiation). */
 export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
@@ -67,6 +71,7 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
 
   const cartItems = location.state?.cartItems || [];
   const isCartInitiallyEmptyRef = useRef(cartItems.length === 0);
+  const resumingUploadSessionFromNav = location.state?.sessionId != null;
 
   const [items, setItems] = useState([]);
   const [isQuickRepriceOpen, setIsQuickRepriceOpen] = useState(false);
@@ -77,6 +82,19 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
   const [barcodeInput, setBarcodeInput] = useState('');
   const [nosposLookups, setNosposLookups] = useState({});
   const [nosposResultsPanel, setNosposResultsPanel] = useState(null);
+
+  /** Upload-only: barcode slots while intake modal is open (building queue). */
+  const [uploadScanSlotIds, setUploadScanSlotIds] = useState([]);
+  /** Ordered slot ids waiting to be assigned to the next table row added (FIFO). */
+  const [uploadPendingSlotIds, setUploadPendingSlotIds] = useState([]);
+  /** Full-screen barcode intake (new upload only — not when resuming a DB session from reports). */
+  const [uploadBarcodeIntakeOpen, setUploadBarcodeIntakeOpen] = useState(
+    () => moduleKey === 'upload' && !resumingUploadSessionFromNav
+  );
+  const [uploadBarcodeIntakeDone, setUploadBarcodeIntakeDone] = useState(false);
+  /** Upload workspace: NosPos stock edit scrape result keyed by scan/pending slot id (scraped when user selects or single-match). */
+  const [uploadStockDetailsBySlotId, setUploadStockDetailsBySlotId] = useState({});
+  const uploadStockScrapeGenBySlotRef = useRef({});
 
   const [completedBarcodes, setCompletedBarcodes] = useState({});
   const [completedItems, setCompletedItems] = useState([]);
@@ -98,6 +116,72 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
     cgResearchData: state,
     ...(state?.resolvedCategory ? { categoryObject: state.resolvedCategory } : {}),
   }), []);
+
+  const [cgCategoryRows, setCgCategoryRows] = useState(null);
+  const [cgCategoryPickerModal, setCgCategoryPickerModal] = useState(null);
+
+  useEffect(() => {
+    if (!useUploadSessions) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const d = await fetchCashGeneratorRetailCategories();
+        if (cancelled) return;
+        setCgCategoryRows(Array.isArray(d?.rows) ? d.rows : []);
+      } catch {
+        if (!cancelled) setCgCategoryRows([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [useUploadSessions]);
+
+  const scheduleCgAiForUploadLine = useCallback(
+    (item) => {
+      const lineId = item?.id;
+      if (!lineId || item?.isRemoved) return;
+      const catId = item?.categoryObject?.id;
+      const isCeXNoInternalLeaf = item?.isCustomCeXItem === true && catId == null;
+      if (catId == null && !isCeXNoInternalLeaf) return;
+      if (getAiSuggestedCgStockCategoryFromItem(item)) return;
+      void (async () => {
+        setItems((prev) => prev.map((r) => (r.id === lineId ? { ...r, cgCategoryAiPending: true } : r)));
+        try {
+          const summary = summariseNegotiationItemForAi(item);
+          const cgMatch = await runCgStockCategoryAiMatchBackground({
+            itemSummary: summary,
+            logTag: `[CG Suite][CgPathMatch][upload][${lineId}]`,
+          });
+          if (!cgMatch?.cgCategoryId) return;
+          const aiSuggestedCgStockCategory = {
+            cgCategoryId: Number(cgMatch.cgCategoryId),
+            categoryPath: cgMatch.categoryPath,
+            pathSegments: cgMatch.pathSegments,
+            source: 'upload_workspace_ai',
+            savedAt: new Date().toISOString(),
+          };
+          setItems((prev) =>
+            prev.map((r) => (r.id !== lineId ? r : mergeCgAiOntoNegotiationRow(r, aiSuggestedCgStockCategory)))
+          );
+        } catch (e) {
+          console.warn('[CG Suite][CgPathMatch][upload]', e);
+        } finally {
+          setItems((prev) => prev.map((r) => (r.id === lineId ? { ...r, cgCategoryAiPending: false } : r)));
+        }
+      })();
+    },
+    [setItems]
+  );
+
+  const bridgeAfterEbayForUploadCg = useCallback(
+    (mergedItem) => {
+      if (!useUploadSessions || !mergedItem) return;
+      scheduleCgAiForUploadLine(mergedItem);
+    },
+    [useUploadSessions, scheduleCgAiForUploadLine]
+  );
+
   const {
     researchItem, setResearchItem,
     cashConvertersResearchItem, setCashConvertersResearchItem,
@@ -113,6 +197,7 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
     applyCCResearch: applyCCRepriceResearch,
     applyCGResearch: applyCGRepriceResearch,
     resolveSalePrice: resolveRepricingSalePrice,
+    onAfterEbayResearchMerge: useUploadSessions ? bridgeAfterEbayForUploadCg : undefined,
   });
   useMarketplaceSearchPrefetch(items, setItems);
 
@@ -120,6 +205,8 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
     uploadWebEposReady,
     handleViewWebEposProducts,
     viewWebEposProductsDisabled,
+    handleViewWebEposCategories,
+    viewWebEposCategoriesDisabled,
     bumpWebEposScrape,
   } = useWebEposUploadWorkspace({
     enabled: useUploadSessions,
@@ -144,344 +231,83 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
   const [contextMenu, setContextMenu] = useState(null);
   const [cexPencilRrpSourceModal, setCexPencilRrpSourceModal] = useState(null);
 
-  const hasInitialized = useRef(false);
-  const lastHandledCompletionRef = useRef("");
-
-  // ── DB session persistence ──────────────────────────────────────────────────
-  const [dbSessionId, setDbSessionId] = useState(location.state?.sessionId || null);
-  const autoSaveTimer = useRef(null);
   const isCreatingSession = useRef(false);
-  const hasPendingSave = useRef(false);
-  const latestStateRef = useRef({ items, barcodes, nosposLookups });
-  latestStateRef.current = { items, barcodes, nosposLookups };
+  const [dbSessionId, setDbSessionId] = useState(location.state?.sessionId || null);
 
-  const buildSessionDataSnapshot = useCallback((state) => {
-    const { items: snapshotItems, barcodes: snapshotBarcodes, nosposLookups: snapshotLookups } = state || latestStateRef.current;
-    return {
-      items: snapshotItems.map(({ id, title, subtitle, category, model, cexSellPrice, cexBuyPrice,
-        cexVoucherPrice, cexUrl, ourSalePrice, ourSalePriceInput, cexOutOfStock, cexProductData,
-        isCustomCeXItem, isCustomEbayItem, isCustomCashConvertersItem, condition, categoryObject,
-        nosposBarcodes, ebayResearchData, cashConvertersResearchData, cgResearchData, quantity, isRemoved,
-        variantId, cexSku, attributeValues, referenceData, offers, cashOffers, voucherOffers,
-        image, rrpOffersSource, offersSource }) => ({
-        id, title, subtitle, category, model, cexSellPrice, cexBuyPrice, cexVoucherPrice, cexUrl,
-        ourSalePrice, ourSalePriceInput, cexOutOfStock, cexProductData, isCustomCeXItem,
-        isCustomEbayItem, isCustomCashConvertersItem, condition, categoryObject, nosposBarcodes,
-        ebayResearchData, cashConvertersResearchData, cgResearchData, quantity, isRemoved, variantId, cexSku,
-        attributeValues, referenceData, offers, cashOffers, voucherOffers, image, rrpOffersSource,
-        offersSource,
-      })),
-      barcodes: snapshotBarcodes,
-      nosposLookups: snapshotLookups,
-    };
-  }, []);
+  const activeItems = items.filter((i) => !i.isRemoved);
+  const scanCartKey =
+    useUploadSessions && items.length === 0 && (uploadScanSlotIds.length > 0 || uploadPendingSlotIds.length > 0)
+      ? `upload-scan:${[...uploadScanSlotIds, ...uploadPendingSlotIds].join('|')}`
+      : '';
+  const activeCartKey = scanCartKey || getCartKey(activeItems);
 
-  const flushNegotiationSave = useCallback((opts = {}) => {
-    if (!dbSessionId || isRepricingFinished) return;
-    const state = latestStateRef.current;
-    const activeCount = state.items.filter(i => !i.isRemoved).length;
-    if (autoSaveTimer.current) { clearTimeout(autoSaveTimer.current); autoSaveTimer.current = null; }
-    hasPendingSave.current = false;
-    updateWorkspaceSession(dbSessionId, {
-      session_data: buildSessionDataSnapshot(state),
-      cart_key: getCartKey(state.items.filter(i => !i.isRemoved)),
-      item_count: activeCount,
-    }, opts).catch(err => console.warn(copy.saveFailLog, err));
-  }, [dbSessionId, isRepricingFinished, buildSessionDataSnapshot, updateWorkspaceSession, copy.saveFailLog]);
+  const { lastHandledCompletionRef } = useListWorkspaceRepricingCompletion({
+    activeCartKey,
+    dbSessionId,
+    useUploadSessions,
+    updateWorkspaceSession,
+    saveWorkspaceSession,
+    copy,
+    showNotification,
+    setIsRepricingFinished,
+    setRepricingJob,
+    setCompletedItemsData,
+    setUnverifiedModal,
+    setAmbiguousBarcodeModal,
+    setCompletedBarcodes,
+    setCompletedItems,
+  });
 
-  useEffect(() => {
-    if (!dbSessionId || isLoading || isRepricingFinished) return;
-    hasPendingSave.current = true;
-    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
-    autoSaveTimer.current = setTimeout(() => {
-      hasPendingSave.current = false;
-      const activeCount = items.filter(i => !i.isRemoved).length;
-      updateWorkspaceSession(dbSessionId, {
-        session_data: buildSessionDataSnapshot({ items, barcodes, nosposLookups }),
-        cart_key: getCartKey(items.filter(i => !i.isRemoved)),
-        item_count: activeCount,
-      }).catch(err => console.warn('[CG Suite] Auto-save failed:', err));
-    }, 1500);
-    return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
-  }, [items, barcodes, nosposLookups, dbSessionId, isLoading, isRepricingFinished, buildSessionDataSnapshot]);
+  useListWorkspaceNegotiationPersistence({
+    useUploadSessions,
+    copy,
+    items,
+    barcodes,
+    nosposLookups,
+    uploadScanSlotIds,
+    uploadPendingSlotIds,
+    uploadBarcodeIntakeOpen,
+    uploadBarcodeIntakeDone,
+    uploadStockDetailsBySlotId,
+    dbSessionId,
+    setDbSessionId,
+    isRepricingFinished,
+    isLoading,
+    updateWorkspaceSession,
+    saveWorkspaceSession,
+    readSessionIdFromResponse,
+    isCartInitiallyEmptyRef,
+    isCreatingSession,
+  });
 
-  useEffect(() => {
-    return () => { if (hasPendingSave.current) flushNegotiationSave(); };
-  }, [flushNegotiationSave]);
-
-  useEffect(() => {
-    const handleUnload = () => flushNegotiationSave({ keepalive: true });
-    window.addEventListener('beforeunload', handleUnload);
-    return () => window.removeEventListener('beforeunload', handleUnload);
-  }, [flushNegotiationSave]);
-
-  const prevItemsLengthRef = useRef(0);
-  useEffect(() => {
-    const prevLen = prevItemsLengthRef.current;
-    prevItemsLengthRef.current = items.length;
-    if (!isCartInitiallyEmptyRef.current) return;
-    if (prevLen > 0 || items.length === 0) return;
-    if (dbSessionId || isCreatingSession.current) return;
-    isCreatingSession.current = true;
-    saveWorkspaceSession({
-      cart_key: getCartKey(items),
-      item_count: items.length,
-      session_data: buildSessionDataSnapshot({ items, barcodes: {}, nosposLookups: {} }),
-    }).then(resp => {
-      const sid = readSessionIdFromResponse(resp);
-      if (sid) {
-        setDbSessionId(sid);
-        useAppStore.getState().setRepricingSessionId(sid);
-      }
-    }).catch(err => {
-      console.warn('[CG Suite] Failed to create draft session:', err);
-    }).finally(() => {
-      isCreatingSession.current = false;
-    });
-  }, [items.length, dbSessionId, buildSessionDataSnapshot]);
-
-  const activeItems = items.filter(i => !i.isRemoved);
-  const activeCartKey = getCartKey(activeItems);
-
-  const persistCompletedRepricing = async (payload) => {
-    if (!payload?.cart_key || payload.cart_key !== activeCartKey) return false;
-
-    const fingerprint = JSON.stringify(payload);
-    if (lastHandledCompletionRef.current === fingerprint) return false;
-    lastHandledCompletionRef.current = fingerprint;
-
-    const savePayload = buildSessionSavePayload(payload);
-    const ambiguousEntries = buildAmbiguousBarcodeEntries(payload);
-    const unverifiedEntries = buildUnverifiedBarcodeEntries(payload);
-
-    try {
-      if (dbSessionId) {
-        const updateData = { status: 'COMPLETED' };
-        if (savePayload.barcode_count > 0) {
-          updateData.items_data = savePayload.items_data;
-          updateData.barcode_count = savePayload.barcode_count;
-          updateData.item_count = savePayload.item_count;
-          updateData.cart_key = savePayload.cart_key;
-        }
-        try { await updateWorkspaceSession(dbSessionId, updateData); } catch {}
-        if (savePayload.barcode_count > 0) clearRepricingProgress(activeCartKey);
-        useAppStore.getState().clearRepricingSessionDraft();
-      } else if (savePayload.barcode_count > 0) {
-        await saveWorkspaceSession(savePayload);
-        clearRepricingProgress(activeCartKey);
-      }
-
-      try { await clearLastRepricingResult(); } catch {}
-
-      setIsRepricingFinished(true);
-      setRepricingJob((prev) => prev ? { ...prev, running: false, done: true, step: 'completed', message: copy.jobCompletedMessage } : prev);
-
-      if (savePayload.barcode_count > 0) {
-        setCompletedItemsData(savePayload.items_data);
-        openBarcodePrintTab(savePayload.items_data);
-      }
-
-      if (unverifiedEntries.length > 0) {
-        setUnverifiedModal({ entries: unverifiedEntries });
-      }
-
-      if (ambiguousEntries.length > 0) {
-        setAmbiguousBarcodeModal({ entries: ambiguousEntries, isRetrying: false });
-        if (savePayload.barcode_count > 0) {
-          showNotification(
-            copy.persistSavedWithIssues(unverifiedEntries.length),
-            "warning"
-          );
-        } else {
-          showNotification(copy.persistNoItemsRetry, "warning");
-        }
-      } else if (savePayload.barcode_count > 0) {
-        showNotification(
-          unverifiedEntries.length > 0
-            ? copy.persistDoneWithUnverified(unverifiedEntries.length)
-            : copy.persistDoneSaved,
-          unverifiedEntries.length > 0 ? "warning" : "success"
-        );
-      } else {
-        showNotification(copy.persistNoItems, "info");
-      }
-
-      return true;
-    } catch (err) {
-      lastHandledCompletionRef.current = "";
-      showNotification(err?.message || copy.persistSaveError, "error");
-      return false;
-    }
-  };
-
-  useEffect(() => {
-    if (hasInitialized.current) return;
-    hasInitialized.current = true;
-
-    const resumeSessionId = location.state?.sessionId || useAppStore.getState().repricingSessionId;
-    const sessionBarcodes = location.state?.sessionBarcodes || null;
-    const sessionNosposLookups = location.state?.sessionNosposLookups || null;
-
-    if (resumeSessionId && cartItems?.length) {
-      setDbSessionId(resumeSessionId);
-    }
-
-    if (!cartItems || cartItems.length === 0) {
-      setIsLoading(false);
-      return;
-    }
-
-    setItems(cartItems.map(item => ({ ...item })));
-    const cartKey = getCartKey(cartItems);
-    const saved = cartKey ? loadRepricingProgress(cartKey) : null;
-
-    if (saved && (Object.keys(saved.barcodes || {}).length > 0 || Object.keys(saved.nosposLookups || {}).length > 0)) {
-      setBarcodes(saved.barcodes || {});
-      setNosposLookups(saved.nosposLookups || {});
-    } else if (sessionBarcodes && Object.keys(sessionBarcodes).length > 0) {
-      setBarcodes(sessionBarcodes);
-      setNosposLookups(sessionNosposLookups || {});
-    } else {
-      const prePopulated = {};
-      const prePopulatedLookups = {};
-      for (const item of cartItems) {
-        const rawBarcodes = item.nosposBarcodes || [];
-        const seen = new Set();
-        const uniqueBarcodes = rawBarcodes.filter(b => {
-          const key = b.barserial || '';
-          if (!key || seen.has(key)) return false;
-          seen.add(key);
-          return true;
-        });
-        const cappedBarcodes = uniqueBarcodes.slice(0, maxBarcodesPerItem);
-        if (cappedBarcodes.length > 0) {
-          prePopulated[item.id] = cappedBarcodes.map(b => b.barserial);
-          cappedBarcodes.forEach((b, index) => {
-            prePopulatedLookups[`${item.id}_${index}`] = {
-              status: 'selected',
-              results: b.href
-                ? [{ barserial: b.barserial, href: b.href.replace(/^https:\/\/nospos\.com/i, '') }]
-                : [],
-              stockBarcode: b.barserial,
-              stockName: b.name || '',
-              stockUrl: b.href || ''
-            };
-          });
-        }
-      }
-      if (Object.keys(prePopulated).length > 0) {
-        setBarcodes(prePopulated);
-        setNosposLookups(prePopulatedLookups);
-      }
-    }
-
-    if (!resumeSessionId && !isCreatingSession.current) {
-      isCreatingSession.current = true;
-      const itemsSnapshot = cartItems.map(item => ({
-        id: item.id, title: item.title, subtitle: item.subtitle, category: item.category,
-        model: item.model, cexSellPrice: item.cexSellPrice, cexBuyPrice: item.cexBuyPrice,
-        cexVoucherPrice: item.cexVoucherPrice, cexUrl: item.cexUrl, ourSalePrice: item.ourSalePrice,
-        cexOutOfStock: item.cexOutOfStock, cexProductData: item.cexProductData,
-        isCustomCeXItem: item.isCustomCeXItem, isCustomEbayItem: item.isCustomEbayItem,
-        isCustomCashConvertersItem: item.isCustomCashConvertersItem,
-        condition: item.condition, categoryObject: item.categoryObject,
-        nosposBarcodes: item.nosposBarcodes, ebayResearchData: item.ebayResearchData,
-        cashConvertersResearchData: item.cashConvertersResearchData,
-        cgResearchData: item.cgResearchData,
-        quantity: item.quantity,
-        variantId: item.variantId, cexSku: item.cexSku, attributeValues: item.attributeValues,
-        referenceData: item.referenceData, offers: item.offers, cashOffers: item.cashOffers,
-        voucherOffers: item.voucherOffers, image: item.image, rrpOffersSource: item.rrpOffersSource,
-        offersSource: item.offersSource,
-      }));
-      const restoredBarcodes = saved?.barcodes || sessionBarcodes || {};
-      const restoredLookups = saved?.nosposLookups || sessionNosposLookups || {};
-      saveWorkspaceSession({
-        cart_key: cartKey,
-        item_count: cartItems.length,
-        session_data: { items: itemsSnapshot, barcodes: restoredBarcodes, nosposLookups: restoredLookups },
-      }).then(resp => {
-        const sid = readSessionIdFromResponse(resp);
-        if (sid) {
-          setDbSessionId(sid);
-          useAppStore.getState().setRepricingSessionId(sid);
-        }
-      }).catch(err => {
-        console.warn('[CG Suite] Failed to create draft session:', err);
-      });
-    }
-
-    setIsLoading(false);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useListWorkspaceNegotiationBootstrap({
+    moduleKey,
+    location,
+    cartItems,
+    resumingUploadSessionFromNav,
+    maxBarcodesPerItem,
+    saveWorkspaceSession,
+    readSessionIdFromResponse,
+    setDbSessionId,
+    setItems,
+    setBarcodes,
+    setNosposLookups,
+    setUploadScanSlotIds,
+    setUploadPendingSlotIds,
+    setUploadBarcodeIntakeOpen,
+    setUploadBarcodeIntakeDone,
+    setUploadStockDetailsBySlotId,
+    setBarcodeModal,
+    setBarcodeInput,
+    setIsLoading,
+    isCreatingSession,
+  });
 
   useEffect(() => {
     if (activeCartKey && (Object.keys(barcodes).length > 0 || Object.keys(nosposLookups).length > 0)) {
       saveRepricingProgress(activeCartKey, { barcodes, nosposLookups });
     }
   }, [barcodes, nosposLookups, activeCartKey]);
-
-  useEffect(() => {
-    const handler = (e) => {
-      if (e.data?.type === "REPRICING_PROGRESS" && e.data.payload) {
-        const { cartKey: msgCartKey, completedBarcodes: cb, completedItems: ci } = e.data.payload;
-        if (msgCartKey && msgCartKey === activeCartKey) {
-          setCompletedBarcodes(cb || {});
-          setCompletedItems(ci || []);
-          setRepricingJob(e.data.payload);
-        }
-      }
-    };
-    window.addEventListener("message", handler);
-    return () => window.removeEventListener("message", handler);
-  }, [activeCartKey]);
-
-  useEffect(() => {
-    const handler = async (e) => {
-      if (e.data?.type !== "REPRICING_COMPLETE" || !e.data.payload) return;
-      await persistCompletedRepricing(e.data.payload);
-    };
-    window.addEventListener("message", handler);
-    return () => window.removeEventListener("message", handler);
-  }, [activeCartKey, showNotification, copy]);
-
-  useEffect(() => {
-    if (!activeCartKey) return;
-    let cancelled = false;
-
-    const syncLiveStatus = async () => {
-      try {
-        const response = await getNosposRepricingStatus();
-        const payload = response?.ok ? response.payload : null;
-        if (cancelled || !payload || payload.cartKey !== activeCartKey) return;
-        setRepricingJob(payload);
-        setCompletedBarcodes(payload.completedBarcodes || {});
-        setCompletedItems(payload.completedItems || []);
-      } catch {}
-    };
-
-    const checkForCompletedResult = async () => {
-      try {
-        const response = await getLastRepricingResult();
-        if (cancelled || !response?.ok || !response.payload) return;
-        await persistCompletedRepricing(response.payload);
-      } catch {}
-    };
-
-    syncLiveStatus();
-    checkForCompletedResult();
-    const intervalId = window.setInterval(syncLiveStatus, 1500);
-    window.addEventListener("focus", checkForCompletedResult);
-    document.addEventListener("visibilitychange", checkForCompletedResult);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-      window.removeEventListener("focus", checkForCompletedResult);
-      document.removeEventListener("visibilitychange", checkForCompletedResult);
-    };
-  }, [activeCartKey]);
-
-  useEffect(() => { lastHandledCompletionRef.current = ""; }, [activeCartKey]);
 
   // ── Barcode helpers ─────────────────────────────────────────────────────────
   const getBarcodeLookup = (itemId, barcodeIndex) =>
@@ -515,44 +341,152 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
   // ── Handlers ─────────────────────────────────────────────────────────────────
   const handleRemoveItem = (item) => {
     setItems(prev => prev.filter(i => i.id !== item.id));
+    setBarcodes((prev) => {
+      if (!prev[item.id]) return prev;
+      const next = { ...prev };
+      delete next[item.id];
+      return next;
+    });
+    setNosposLookups((prev) => {
+      const next = { ...prev };
+      Object.keys(next).forEach((k) => {
+        if (k === `${item.id}_0` || k.startsWith(`${item.id}_`)) delete next[k];
+      });
+      return next;
+    });
     showNotification(copy.removedFromList(item.title), 'info');
   };
 
   const addItemsWithBarcodePrepopulation = useCallback((newItems) => {
-    const newBarcodes = {};
-    const newLookups = {};
-    newItems.forEach(item => {
-      const rawBarcodes = item.nosposBarcodes || [];
-      const seen = new Set();
-      const uniqueBarcodes = rawBarcodes.filter(b => {
-        const key = b.barserial || '';
-        if (!key || seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
-      const cappedBarcodes = uniqueBarcodes.slice(0, maxBarcodesPerItem);
-      if (cappedBarcodes.length > 0) {
-        newBarcodes[item.id] = cappedBarcodes.map(b => b.barserial);
-        cappedBarcodes.forEach((b, index) => {
-          newLookups[`${item.id}_${index}`] = {
-            status: 'selected',
-            results: b.href ? [{ barserial: b.barserial, href: b.href.replace(/^https:\/\/nospos\.com/i, '') }] : [],
-            stockBarcode: b.barserial,
-            stockName: b.name || '',
-            stockUrl: b.href || '',
-          };
-        });
-      }
-    });
+    const { barcodes: newBarcodes, nosposLookups: newLookups } = buildNosposMapsFromNegotiationItems(
+      newItems,
+      maxBarcodesPerItem
+    );
     setItems((prev) => [...prev, ...newItems.map(withDefaultRrpOffersSource)]);
     if (Object.keys(newBarcodes).length > 0) {
-      setBarcodes(prev => ({ ...prev, ...newBarcodes }));
-      setNosposLookups(prev => ({ ...prev, ...newLookups }));
+      setBarcodes((prev) => ({ ...prev, ...newBarcodes }));
+      setNosposLookups((prev) => ({ ...prev, ...newLookups }));
     }
-  }, [maxBarcodesPerItem]);
+    if (useUploadSessions) {
+      newItems.forEach((it) => scheduleCgAiForUploadLine(withDefaultRrpOffersSource(it)));
+    }
+  }, [maxBarcodesPerItem, useUploadSessions, scheduleCgAiForUploadLine]);
 
-  const handleAddRepricingItem = useCallback((cartItem) => {
+  const handleOpenCgCategoryPicker = useCallback((item) => {
+    const hint = getAiSuggestedCgStockCategoryFromItem(item);
+    setCgCategoryPickerModal({ item, currentCgCategoryId: hint?.cgCategoryId ?? null });
+  }, []);
+
+  const handleCgCategorySelected = useCallback(
+    (item, row) => {
+      const rid = row?.cgCategoryId ?? row?.cg_category_id;
+      if (!item || rid == null) return;
+      const aiSuggestedCgStockCategory = {
+        cgCategoryId: Number(rid),
+        categoryPath: row.categoryPath,
+        manuallySelected: true,
+        savedAt: new Date().toISOString(),
+      };
+      setItems((prev) =>
+        prev.map((it) => (it.id !== item.id ? it : mergeCgAiOntoNegotiationRow(it, aiSuggestedCgStockCategory)))
+      );
+      setCgCategoryPickerModal(null);
+      showNotification('CG category updated.', 'success');
+    },
+    [setItems, showNotification]
+  );
+
+  const handleAddRepricingItem = useCallback((cartItem, opts = {}) => {
     if (!cartItem) return;
+
+    if (useUploadSessions) {
+      if (uploadBarcodeIntakeOpen) {
+        showNotification(copy.uploadFinishBarcodeIntakeFirst, 'error');
+        return;
+      }
+      if (uploadPendingSlotIds.length === 0) {
+        showNotification(copy.uploadNoBarcodesLeft, 'warning');
+        return;
+      }
+      const slotId = uploadPendingSlotIds[0];
+      if (!isItemReadyForRepricing(slotId)) {
+        showNotification(copy.uploadScanAllVerified, 'error');
+        return;
+      }
+      const lk = nosposLookups[`${slotId}_0`];
+      const typedCodes = barcodes[slotId] || [];
+      const stockBarcode = lk?.stockBarcode || typedCodes[0] || '';
+      let nosposBarcodes = [];
+      if (lk?.status === 'selected' && stockBarcode) {
+        nosposBarcodes = [{
+          barserial: stockBarcode,
+          href: (lk.stockUrl || '').replace(/^https:\/\/nospos\.com/i, '') || '',
+          name: lk?.stockName || '',
+        }];
+      } else if (typedCodes[0]) {
+        nosposBarcodes = [{ barserial: typedCodes[0], href: '', name: '' }];
+      }
+
+      const newId = cartItem.id || (crypto.randomUUID?.() ?? `upload-item-${Date.now()}`);
+      setBarcodes((prev) => {
+        const next = { ...prev };
+        delete next[slotId];
+        return next;
+      });
+      setNosposLookups((prev) => {
+        const next = { ...prev };
+        delete next[`${slotId}_0`];
+        return next;
+      });
+      {
+        const g = (uploadStockScrapeGenBySlotRef.current[slotId] ?? 0) + 1;
+        uploadStockScrapeGenBySlotRef.current[slotId] = g;
+        setUploadStockDetailsBySlotId((prev) => {
+          if (!prev[slotId]) return prev;
+          const next = { ...prev };
+          delete next[slotId];
+          return next;
+        });
+      }
+      setUploadPendingSlotIds((prev) => prev.slice(1));
+
+      const scraped = uploadStockDetailsBySlotId[slotId];
+      const uploadNosposStockFromBarcode =
+        scraped && !scraped.loading && !scraped.error
+          ? {
+              costPrice: scraped.costPrice != null && scraped.costPrice !== '' ? String(scraped.costPrice).trim() : '',
+              retailPrice:
+                scraped.retailPrice != null && scraped.retailPrice !== '' ? String(scraped.retailPrice).trim() : '',
+              boughtBy: scraped.boughtBy != null ? String(scraped.boughtBy).trim() : '',
+              createdAt: scraped.createdAt != null ? String(scraped.createdAt).trim() : '',
+            }
+          : null;
+
+      const item = {
+        ...cartItem,
+        id: newId,
+        quantity: cartItem.quantity || 1,
+        nosposBarcodes,
+        ebayResearchData: cartItem.ebayResearchData || null,
+        cashConvertersResearchData: cartItem.cashConvertersResearchData || null,
+        cgResearchData: cartItem.cgResearchData || null,
+        isRemoved: false,
+        ...(uploadNosposStockFromBarcode ? { uploadNosposStockFromBarcode } : {}),
+      };
+      logCategoryRuleDecision({
+        context: 'repricing-item-added',
+        item,
+        categoryObject: item.categoryObject,
+        rule: {
+          source: item.isCustomCeXItem ? 'cex-reference-rule' : 'builder-precomputed-rule',
+          referenceDataPresent: Boolean(item.referenceData),
+        },
+      });
+      addItemsWithBarcodePrepopulation([item]);
+      showNotification(copy.addedOne(item.title), 'success');
+      return;
+    }
+
     const item = {
       ...cartItem,
       id: cartItem.id || (crypto.randomUUID?.() ?? `reprice-item-${Date.now()}`),
@@ -574,10 +508,29 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
     });
     addItemsWithBarcodePrepopulation([item]);
     showNotification(copy.addedOne(item.title), 'success');
-  }, [addItemsWithBarcodePrepopulation, showNotification, copy]);
+  }, [
+    addItemsWithBarcodePrepopulation,
+    showNotification,
+    copy,
+    useUploadSessions,
+    uploadBarcodeIntakeOpen,
+    uploadPendingSlotIds,
+    barcodes,
+    nosposLookups,
+    isItemReadyForRepricing,
+    uploadStockDetailsBySlotId,
+  ]);
 
   const handleEbayResearchCompleteFromHeader = useCallback((data) => {
     if (!data) return;
+    if (useUploadSessions) {
+      if (uploadBarcodeIntakeOpen) {
+        showNotification(copy.uploadFinishBarcodeIntakeFirst, 'error');
+        return;
+      }
+      showNotification(copy.uploadNoEbayLines, 'warning');
+      return;
+    }
     const searchTitle = data.searchTerm?.trim()?.slice(0, 200) || 'eBay Research Item';
     const resolved = data.resolvedCategory?.id != null ? data.resolvedCategory : null;
     const categoryObject = resolved ?? EBAY_TOP_LEVEL_CATEGORY;
@@ -614,9 +567,10 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
     };
     addItemsWithBarcodePrepopulation([customItem]);
     showNotification(copy.addedOne(customItem.title), 'success');
-  }, [addItemsWithBarcodePrepopulation, showNotification, copy]);
+  }, [addItemsWithBarcodePrepopulation, showNotification, copy, useUploadSessions, uploadBarcodeIntakeOpen]);
 
   const handleQuickRepriceItems = useCallback((foundItems) => {
+    if (useUploadSessions) return;
     if (!foundItems?.length) return;
     const newItems = foundItems.map(result => {
       const itemId = crypto.randomUUID?.() ?? `reprice-qr-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -660,7 +614,27 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
     });
     addItemsWithBarcodePrepopulation(newItems);
     showNotification(copy.addedMany(newItems.length), 'success');
-  }, [addItemsWithBarcodePrepopulation, showNotification, copy]);
+  }, [addItemsWithBarcodePrepopulation, showNotification, copy, useUploadSessions]);
+
+  const completeUploadBarcodeIntake = useCallback(() => {
+    if (!useUploadSessions) return;
+    if (uploadScanSlotIds.length === 0) {
+      showNotification(copy.uploadScanNeedOneLine, 'error');
+      return;
+    }
+    if (uploadScanSlotIds.some((id) => !isItemReadyForRepricing(id))) {
+      showNotification(copy.uploadScanAllVerified, 'error');
+      return;
+    }
+    setUploadPendingSlotIds([...uploadScanSlotIds]);
+    setUploadScanSlotIds([]);
+    setUploadBarcodeIntakeDone(true);
+    setUploadBarcodeIntakeOpen(false);
+    setBarcodeModal(null);
+    setBarcodeInput('');
+    setNosposResultsPanel(null);
+    showNotification('Add items from the header. Each new line uses the next barcode in order.', 'success');
+  }, [useUploadSessions, uploadScanSlotIds, isItemReadyForRepricing, showNotification, copy]);
 
   const handleRefreshCeXData = useRefreshCexRowData({
     handleAddFromCeX,
@@ -712,10 +686,153 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
     showNotification('New Sale Price updated from selected source.', 'success');
   }, [showNotification]);
 
+  const uploadBeginLineSyncLockRef = useRef(false);
+  const beginUploadScanBarcodeLine = useCallback(() => {
+    if (!useUploadSessions) return;
+    if (uploadBeginLineSyncLockRef.current) return;
+    uploadBeginLineSyncLockRef.current = true;
+    const id = crypto.randomUUID?.() ?? `upload-scan-${Date.now()}`;
+    setUploadScanSlotIds((prev) => [...prev, id]);
+    setBarcodeModal({ item: { id, title: 'New barcode line' } });
+    setBarcodeInput('');
+    queueMicrotask(() => {
+      uploadBeginLineSyncLockRef.current = false;
+    });
+  }, [useUploadSessions]);
+
+  /** Keep a draft line + composer whenever intake is open and there is nothing to edit yet. */
+  useEffect(() => {
+    if (!useUploadSessions || !uploadBarcodeIntakeOpen) return;
+    if (uploadScanSlotIds.length > 0 || barcodeModal) return;
+    beginUploadScanBarcodeLine();
+  }, [useUploadSessions, uploadBarcodeIntakeOpen, uploadScanSlotIds.length, barcodeModal, beginUploadScanBarcodeLine]);
+
+  /** When the active intake line becomes NosPos-verified, open the next line automatically (no extra “Add line”). */
+  const uploadIntakeEditorReadyBaselineRef = useRef(false);
+  useLayoutEffect(() => {
+    if (!useUploadSessions || !uploadBarcodeIntakeOpen || !barcodeModal?.item?.id) return;
+    const id = barcodeModal.item.id;
+    if (!uploadScanSlotIds.includes(id)) return;
+    uploadIntakeEditorReadyBaselineRef.current = isItemReadyForRepricing(id);
+  }, [
+    useUploadSessions,
+    uploadBarcodeIntakeOpen,
+    barcodeModal?.item?.id,
+    uploadScanSlotIds,
+    isItemReadyForRepricing,
+  ]);
+
+  useEffect(() => {
+    if (!useUploadSessions || !uploadBarcodeIntakeOpen || !barcodeModal?.item?.id) return;
+    const id = barcodeModal.item.id;
+    if (!uploadScanSlotIds.includes(id)) return;
+    const ready = isItemReadyForRepricing(id);
+    const prev = uploadIntakeEditorReadyBaselineRef.current;
+    if (ready && !prev) {
+      beginUploadScanBarcodeLine();
+    }
+    uploadIntakeEditorReadyBaselineRef.current = ready;
+  }, [
+    useUploadSessions,
+    uploadBarcodeIntakeOpen,
+    barcodeModal,
+    uploadScanSlotIds,
+    barcodes,
+    nosposLookups,
+    isItemReadyForRepricing,
+    beginUploadScanBarcodeLine,
+  ]);
+
+  const removeUploadScanSlotById = useCallback((slotId) => {
+    setUploadScanSlotIds((prev) => prev.filter((x) => x !== slotId));
+    setBarcodes((prev) => {
+      if (!prev[slotId]) return prev;
+      const next = { ...prev };
+      delete next[slotId];
+      return next;
+    });
+    setNosposLookups((prev) => {
+      const next = { ...prev };
+      delete next[`${slotId}_0`];
+      return next;
+    });
+    setNosposResultsPanel((prev) => (prev?.itemId === slotId ? null : prev));
+    setBarcodeModal((prev) => (prev?.item?.id === slotId ? null : prev));
+    const g = (uploadStockScrapeGenBySlotRef.current[slotId] ?? 0) + 1;
+    uploadStockScrapeGenBySlotRef.current[slotId] = g;
+    setUploadStockDetailsBySlotId((prev) => {
+      if (!prev[slotId]) return prev;
+      const next = { ...prev };
+      delete next[slotId];
+      return next;
+    });
+  }, []);
+
+  const triggerUploadStockScrapeForSlot = useCallback((slotId, stockUrl) => {
+    if (!useUploadSessions || !slotId || !stockUrl) return;
+    const gen = (uploadStockScrapeGenBySlotRef.current[slotId] ?? 0) + 1;
+    uploadStockScrapeGenBySlotRef.current[slotId] = gen;
+    setUploadStockDetailsBySlotId((prev) => ({
+      ...prev,
+      [slotId]: { loading: true, stockUrl },
+    }));
+    void (async () => {
+      try {
+        const r = await scrapeNosposStockEditForUpload(stockUrl);
+        if (uploadStockScrapeGenBySlotRef.current[slotId] !== gen) return;
+        if (r?.ok && r.details) {
+          setUploadStockDetailsBySlotId((prev) => ({
+            ...prev,
+            [slotId]: { loading: false, stockUrl, ...r.details },
+          }));
+        } else if (r?.loginRequired) {
+          setUploadStockDetailsBySlotId((prev) => ({
+            ...prev,
+            [slotId]: {
+              loading: false,
+              stockUrl,
+              error: 'Sign in to NosPos in Chrome first.',
+            },
+          }));
+        } else {
+          setUploadStockDetailsBySlotId((prev) => ({
+            ...prev,
+            [slotId]: {
+              loading: false,
+              stockUrl,
+              error: r?.error || 'Could not load stock page.',
+            },
+          }));
+        }
+      } catch (e) {
+        if (uploadStockScrapeGenBySlotRef.current[slotId] !== gen) return;
+        setUploadStockDetailsBySlotId((prev) => ({
+          ...prev,
+          [slotId]: {
+            loading: false,
+            stockUrl,
+            error: e?.message || 'Extension unavailable.',
+          },
+        }));
+      }
+    })();
+  }, [useUploadSessions]);
+
   // ── Barcode modal handlers ──────────────────────────────────────────────────
-  const runNosposLookup = useCallback((code, barcodeIndex) => {
-    if (!barcodeModal) return;
-    const lookupKey = `${barcodeModal.item.id}_${barcodeIndex}`;
+  const runNosposLookup = useCallback((code, barcodeIndex, ownerIdOverride) => {
+    const ownerId = ownerIdOverride ?? barcodeModal?.item?.id;
+    if (!ownerId) return;
+    const lookupKey = `${ownerId}_${barcodeIndex}`;
+    if (useUploadSessions) {
+      const g = (uploadStockScrapeGenBySlotRef.current[ownerId] ?? 0) + 1;
+      uploadStockScrapeGenBySlotRef.current[ownerId] = g;
+      setUploadStockDetailsBySlotId((prev) => {
+        if (!prev[ownerId]) return prev;
+        const next = { ...prev };
+        delete next[ownerId];
+        return next;
+      });
+    }
     setNosposLookups(prev => ({ ...prev, [lookupKey]: { status: 'searching' } }));
     searchNosposBarcode(code).then(result => {
       if (result?.loginRequired) {
@@ -737,10 +854,13 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
               stockUrl: `https://nospos.com${results[0].href}`
             }
           }));
+          if (useUploadSessions && results[0]?.href) {
+            triggerUploadStockScrapeForSlot(ownerId, `https://nospos.com${results[0].href}`);
+          }
         } else {
           showNotification(`Found ${results.length} NosPos matches for barcode ${code}. Pick the right one below.`, "info");
           setNosposLookups(prev => ({ ...prev, [lookupKey]: { status: 'found', results } }));
-          setNosposResultsPanel({ itemId: barcodeModal.item.id, barcodeIndex });
+          setNosposResultsPanel({ itemId: ownerId, barcodeIndex });
         }
       } else {
         showNotification(result?.error || "NosPos lookup failed.", "error");
@@ -750,7 +870,7 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
       showNotification(err?.message || "NosPos lookup failed.", "error");
       setNosposLookups(prev => ({ ...prev, [lookupKey]: { status: 'error', error: err?.message || 'Extension unavailable' } }));
     });
-  }, [barcodeModal, showNotification]);
+  }, [barcodeModal, showNotification, useUploadSessions, triggerUploadStockScrapeForSlot]);
 
   const addBarcode = useCallback(() => {
     if (!barcodeModal) return;
@@ -779,11 +899,18 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
 
   const removeBarcode = useCallback((code) => {
     if (!barcodeModal) return;
-    setBarcodes(prev => ({
+    if (
+      useUploadSessions &&
+      items.some((i) => String(i.id) === String(barcodeModal.item.id) && !i.isRemoved)
+    ) {
+      showNotification(copy.uploadBarcodeReplaceOnly, 'info');
+      return;
+    }
+    setBarcodes((prev) => ({
       ...prev,
-      [barcodeModal.item.id]: (prev[barcodeModal.item.id] || []).filter(b => b !== code)
+      [barcodeModal.item.id]: (prev[barcodeModal.item.id] || []).filter((b) => b !== code),
     }));
-  }, [barcodeModal]);
+  }, [barcodeModal, useUploadSessions, items, showNotification, copy]);
 
   const selectNosposResult = useCallback((lookupKey, result) => {
     setNosposLookups(prev => ({
@@ -797,7 +924,11 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
       }
     }));
     setNosposResultsPanel(null);
-  }, []);
+    const ownerId = nosposLookupKeyToOwnerId(lookupKey);
+    if (ownerId && result?.href) {
+      triggerUploadStockScrapeForSlot(ownerId, `https://nospos.com${result.href}`);
+    }
+  }, [triggerUploadStockScrapeForSlot]);
 
   const skipNosposLookup = useCallback((lookupKey) => {
     setNosposLookups(prev => ({
@@ -808,6 +939,10 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
 
   // ── Proceed / retry / new repricing ─────────────────────────────────────────
   const handleProceed = async () => {
+    if (useUploadSessions && uploadPendingSlotIds.length > 0) {
+      showNotification(copy.uploadPendingBarcodesRemain, 'warning');
+      return;
+    }
     const zeroSalePriceItems = [];
     for (const item of activeItems) {
       const rawSaleInput = String(item.ourSalePriceInput ?? '').replace(/[£,]/g, '').trim();
@@ -957,49 +1092,44 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
     }
   };
 
-  // ── Barcodes column renderer for the shared table ───────────────────────────
-  const renderBarcodeCell = useCallback((item) => {
-    const itemBarcodes = barcodes[item.id] || [];
-    const hasBarcodes = itemBarcodes.length > 0;
-    const single = maxBarcodesPerItem === 1;
-    return (
-      <td>
-        <button
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-all w-full ${
-            hasBarcodes
-              ? isItemReadyForRepricing(item.id)
-                ? 'border-emerald-400 bg-emerald-100 text-emerald-800'
-                : 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100'
-              : 'border-red-300 bg-red-50 text-red-600 hover:bg-red-100'
-          }`}
-          onClick={() => { setBarcodeModal({ item }); setBarcodeInput(''); }}
-          title={single ? 'Click to set barcode' : 'Click to manage barcodes'}
-        >
-          <span className="material-symbols-outlined text-[14px]">barcode</span>
-          <span className="flex-1 text-left">
-            {hasBarcodes
-              ? isItemReadyForRepricing(item.id)
-                ? (single ? 'Barcode verified' : 'Barcodes verified')
-                : (single ? 'Barcode needs review' : 'Barcodes need review')
-              : (single ? 'Add barcode' : 'Add barcodes')}
-          </span>
-          {isItemReadyForRepricing(item.id) && (
-            <span className="material-symbols-outlined text-[14px] text-emerald-600">check_circle</span>
-          )}
-          {hasBarcodes && !isItemReadyForRepricing(item.id) && (
-            <span className="material-symbols-outlined text-[14px] text-amber-600">pending</span>
-          )}
-          {!hasBarcodes && (
-            <span className="material-symbols-outlined text-[14px] text-red-500">error</span>
-          )}
-        </button>
-      </td>
-    );
-  }, [barcodes, isItemReadyForRepricing, maxBarcodesPerItem]);
+  const renderBarcodeCell = useCallback(
+    (item) => (
+      <ListWorkspaceBarcodeCell
+        item={item}
+        barcodes={barcodes}
+        nosposLookups={nosposLookups}
+        useUploadSessions={useUploadSessions}
+        maxBarcodesPerItem={maxBarcodesPerItem}
+        isItemReadyForRepricing={isItemReadyForRepricing}
+        onOpenModal={() => {
+          setBarcodeModal({ item });
+          setBarcodeInput('');
+        }}
+      />
+    ),
+    [barcodes, nosposLookups, isItemReadyForRepricing, maxBarcodesPerItem, useUploadSessions]
+  );
 
   const showWorkspaceLoader = isLoading || (useUploadSessions && !uploadWebEposReady);
   const workspaceLoaderMessage =
     useUploadSessions && !isLoading && !uploadWebEposReady ? copy.startBackground : copy.loadingList;
+
+  const uploadCurrentBarcodeLabel = useMemo(() => {
+    if (!useUploadSessions) return '';
+    const slotId = uploadPendingSlotIds[0];
+    if (!slotId) return '';
+    const lk = nosposLookups[`${slotId}_0`];
+    const typed = (barcodes[slotId] || [])[0];
+    return String(lk?.stockBarcode || typed || '').trim();
+  }, [useUploadSessions, uploadPendingSlotIds, barcodes, nosposLookups]);
+
+  /** Strip above table: show cached scrape for the FIFO queue head (scraped when each line was verified, not on Continue). */
+  const uploadPendingStockDetails = useMemo(() => {
+    if (!useUploadSessions) return null;
+    const head = uploadPendingSlotIds[0];
+    if (!head) return null;
+    return uploadStockDetailsBySlotId[head] ?? null;
+  }, [useUploadSessions, uploadPendingSlotIds, uploadStockDetailsBySlotId]);
 
   return {
     showWorkspaceLoader,
@@ -1007,6 +1137,15 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
     features,
     copy,
     useUploadSessions,
+    uploadBarcodeIntakeOpen,
+    uploadBarcodeIntakeDone,
+    uploadScanSlotIds,
+    uploadPendingSlotIds,
+    uploadCurrentBarcodeLabel,
+    uploadPendingStockDetails,
+    beginUploadScanBarcodeLine,
+    removeUploadScanSlotById,
+    completeUploadBarcodeIntake,
     items,
     setItems,
     selectedCategory,
@@ -1082,6 +1221,13 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
     handleQuickRepriceItems,
     handleViewWebEposProducts,
     viewWebEposProductsDisabled,
+    handleViewWebEposCategories,
+    viewWebEposCategoriesDisabled,
     openBarcodePrintTab,
+    cgCategoryRows,
+    cgCategoryPickerModal,
+    setCgCategoryPickerModal,
+    handleOpenCgCategoryPicker,
+    handleCgCategorySelected,
   };
 }

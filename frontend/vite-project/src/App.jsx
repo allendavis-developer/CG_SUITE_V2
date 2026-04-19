@@ -6,6 +6,7 @@ import RepricingSessionView from "./pages/buyer/RepricingSessionView";
 import UploadOverview from "./pages/buyer/UploadOverview";
 import UploadSessionView from "./pages/buyer/UploadSessionView";
 import WebEposProductsPage from "./pages/buyer/WebEposProductsPage";
+import WebEposCategoriesPage from "./pages/buyer/WebEposCategoriesPage";
 import WebEposUploadLifecycle from "./components/WebEposUploadLifecycle";
 import TransactionComplete from "./pages/buyer/TransactionComplete";
 import RequestsOverview from "./pages/buyer/RequestsOverview";
@@ -86,6 +87,7 @@ export default function App() {
         <Route path="/repricing-sessions/:repricingSessionId/view" element={<RepricingSessionView />} />
         <Route path="/upload-overview" element={<UploadOverview />} />
         <Route path="/upload/webepos-products" element={<WebEposProductsPage />} />
+        <Route path="/upload/webepos-categories" element={<WebEposCategoriesPage />} />
         <Route path="/upload-sessions/:uploadSessionId/view" element={<UploadSessionView />} />
         {/* Route for viewing existing requests in a read-only negotiation interface */}
         <Route path="/requests/:requestId/view" element={<Negotiation mode="view" />} />

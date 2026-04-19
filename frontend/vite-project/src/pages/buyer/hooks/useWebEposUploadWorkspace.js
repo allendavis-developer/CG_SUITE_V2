@@ -167,6 +167,20 @@ export function useWebEposUploadWorkspace({
     !uploadWebEposReady ||
     uiBlocked;
 
+  const handleViewWebEposCategories = useCallback(() => {
+    if (!uploadWebEposReady || uiBlocked) return;
+    navigate('/upload/webepos-categories', {
+      state: {
+        rows: [],
+        pagingText: null,
+        pageUrl: null,
+        scrapedAt: null,
+      },
+    });
+  }, [navigate, uploadWebEposReady, uiBlocked]);
+
+  const viewWebEposCategoriesDisabled = !uploadWebEposReady || uiBlocked;
+
   const bumpWebEposScrape = useCallback(() => {
     setWebEposScrapeNonce((n) => n + 1);
   }, []);
@@ -178,6 +192,8 @@ export function useWebEposUploadWorkspace({
     webEposProductsScrapeError,
     handleViewWebEposProducts,
     viewWebEposProductsDisabled,
+    handleViewWebEposCategories,
+    viewWebEposCategoriesDisabled,
     bumpWebEposScrape,
   };
 }

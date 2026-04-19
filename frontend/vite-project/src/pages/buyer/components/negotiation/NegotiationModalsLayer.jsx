@@ -11,6 +11,7 @@ import ParkAgreementProgressModal from '../ParkAgreementProgressModal';
 import MissingNosposRequiredFieldsModal from '@/components/modals/MissingNosposRequiredFieldsModal';
 import MissingNosposCategoryModal from '@/components/modals/MissingNosposCategoryModal';
 import NosposCategoryPickerModal from '@/components/modals/NosposCategoryPickerModal';
+import CgCategoryPickerModal from '@/components/modals/CgCategoryPickerModal';
 import NosposRequiredFieldsEditorModal from '@/components/modals/NosposRequiredFieldsEditorModal';
 import { handlePriceSourceAsRrpOffersSource } from '../../utils/priceSourceAsRrpOffers';
 
@@ -86,6 +87,10 @@ export default function NegotiationModalsLayer({
   missingNosposCategoryModal,
   handleMissingNosposCategoryRecheckContinue,
   onOpenCategoryPickerForItem,
+  cgCategoryPickerModal = null,
+  onCloseCgCategoryPicker = null,
+  onCgCategorySelected = null,
+  cgPickerRows = null,
 }) {
   return (
     <>
@@ -290,6 +295,16 @@ export default function NegotiationModalsLayer({
           currentNosposId={nosposCategoryPickerModal.currentNosposId}
           onSelect={(cat) => onNosposCategorySelected(nosposCategoryPickerModal.item, cat)}
           onClose={onCloseCategoryPicker}
+        />
+      ) : null}
+
+      {cgCategoryPickerModal && onCloseCgCategoryPicker && onCgCategorySelected ? (
+        <CgCategoryPickerModal
+          open
+          rows={Array.isArray(cgPickerRows) ? cgPickerRows : []}
+          currentCgCategoryId={cgCategoryPickerModal.currentCgCategoryId}
+          onSelect={(row) => onCgCategorySelected(cgCategoryPickerModal.item, row)}
+          onClose={onCloseCgCategoryPicker}
         />
       ) : null}
 

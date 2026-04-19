@@ -36,6 +36,7 @@ from .models_v2 import (
     NosposCategory,
     NosposField,
     NosposCategoryField,
+    CGCategory,
 )
 
 
@@ -74,6 +75,15 @@ class NosposCategoryFieldAdmin(admin.ModelAdmin):
     list_filter = ("active", "editable", "sensitive", "required")
     search_fields = ("category__full_name", "category__nospos_id", "field__name", "field__nospos_field_id")
     raw_id_fields = ("category", "field")
+
+
+@admin.register(CGCategory)
+class CGCategoryAdmin(admin.ModelAdmin):
+    list_display = ("pk", "name", "parent_category", "collection_slug")
+    list_filter = ("parent_category",)
+    search_fields = ("name", "collection_slug")
+    ordering = ("collection_slug",)
+    raw_id_fields = ("parent_category",)
 
 
 @admin.register(ProductCategory)

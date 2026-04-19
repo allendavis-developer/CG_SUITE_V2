@@ -3,6 +3,7 @@
  * Globals: NOSPOS_HTML_FETCH_HEADERS, nosposHtmlFetchIndicatesNotLoggedIn,
  *          decodeNosposHtmlText, getStockNameFromEditHtml,
  *          parseNosposSearchResults, parseNosposStockEditResult,
+ *          normalizeNosposStockEditUrl, parseNosposStockEditPageDetails,
  *          handleFetchAddressSuggestions
  */
 
@@ -72,6 +73,53 @@ function parseNosposSearchResults(html) {
     }
   }
   return results;
+}
+
+/** Ensure `/stock/{id}/edit` URL for credentialed fetch of cost/retail + detail rows. */
+function normalizeNosposStockEditUrl(raw) {
+  var s = String(raw || '').trim();
+  if (!s) return '';
+  if (s.indexOf('//') === -1) {
+    s = 'https://nospos.com' + (s.charAt(0) === '/' ? s : '/' + s);
+  }
+  var path;
+  try {
+    path = new URL(s).pathname.replace(/\/+$/, '');
+  } catch (_) {
+    return '';
+  }
+  var m = path.match(/^\/stock\/(\d+)(\/edit)?$/i);
+  if (m) return 'https://nospos.com/stock/' + m[1] + '/edit';
+  m = path.match(/^\/stock\/(\d+)/i);
+  if (m) return 'https://nospos.com/stock/' + m[1] + '/edit';
+  return s;
+}
+
+/** From stock edit HTML: name input, detail rows, cost/retail inputs. */
+function parseNosposStockEditPageDetails(html) {
+  function detailForLabel(label) {
+    var esc = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    var re = new RegExp(
+      '<div[^>]*class="[^"]*\\bdetail\\b[^"]*"[^>]*>\\s*<strong>\\s*' + esc + '\\s*</strong>\\s*<span>([\\s\\S]*?)</span>\\s*</div>',
+      'i'
+    );
+    var m = html.match(re);
+    return decodeNosposHtmlText((m ? m[1] : '').replace(/<[^>]*>/g, ' '));
+  }
+  var boughtBy = detailForLabel('Bought By');
+  var createdAt = detailForLabel('Created');
+  var costM = html.match(/id="stock-cost_price"[^>]*\bvalue="([^"]*)"/i);
+  var retailM = html.match(/id="stock-retail_price"[^>]*\bvalue="([^"]*)"/i);
+  var costPrice = decodeNosposHtmlText(costM ? costM[1] : '');
+  var retailPrice = decodeNosposHtmlText(retailM ? retailM[1] : '');
+  var name = getStockNameFromEditHtml(html);
+  return {
+    name: name || '',
+    boughtBy: boughtBy || '',
+    createdAt: createdAt || '',
+    costPrice: costPrice || '',
+    retailPrice: retailPrice || '',
+  };
 }
 
 function parseNosposStockEditResult(html, finalUrl) {

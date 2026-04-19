@@ -548,6 +548,13 @@ export const syncNosposFields = (body) =>
 export const syncNosposCategories = (categories) =>
   apiFetch('/nospos-categories/sync/', { method: 'POST', body: { categories } });
 
+/** Cash Generator retail categories stored in cg_categories (GET). */
+export const fetchCashGeneratorRetailCategories = () => apiFetch('/cash-generator/retail-categories/');
+
+/** Scrape homepage, upsert cg_categories, return refreshed rows (POST). */
+export const syncCashGeneratorRetailCategories = () =>
+  apiFetch('/cash-generator/retail-categories/', { method: 'POST', body: {} });
+
 // ─── Categories ────────────────────────────────────────────────────────────────
 
 export const fetchAllCategoriesFlat = () => apiFetch('/all-categories/');

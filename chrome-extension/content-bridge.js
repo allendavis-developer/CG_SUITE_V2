@@ -10,8 +10,17 @@
  * For startWaitingForData we do NOT post a response immediately; the app waits until the listing-page tab sends scraped data (or error). So the app's getDataFromListingPage() promise only resolves when the user confirms on CeX/eBay/CC or the tab is closed.
  */
 (function () {
+  /** Set `true` only when debugging page ↔ extension message flow (very noisy otherwise). */
+  const CG_SUITE_CONTENT_BRIDGE_DEBUG = false;
+
   const JEWELLERY_SCRAP_TO_PAGE = 'JEWELLERY_SCRAP_PRICES_TO_CONTENT';
   const JEWELLERY_SCRAP_WINDOW = 'JEWELLERY_SCRAP_PRICES';
+
+  const bridgeLog = (...args) => {
+    if (CG_SUITE_CONTENT_BRIDGE_DEBUG && typeof console !== 'undefined') {
+      console.log('[CG Suite content-bridge]', ...args);
+    }
+  };
 
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg.type === 'EXTENSION_PROGRESS_TO_PAGE') {
@@ -26,9 +35,7 @@
       sendResponse({ ok: true });
     }
     if (msg.type === 'EXTENSION_RESPONSE_TO_PAGE') {
-      if (typeof console !== 'undefined') {
-        console.log('[CG Suite content-bridge] EXTENSION_RESPONSE_TO_PAGE received, requestId=', msg.requestId);
-      }
+      bridgeLog('EXTENSION_RESPONSE_TO_PAGE received, requestId=', msg.requestId);
       window.postMessage({
         type: 'EXTENSION_RESPONSE',
         requestId: msg.requestId,
@@ -73,9 +80,7 @@
   window.addEventListener('message', function (event) {
     if (event.source !== window || event.data?.type !== 'EXTENSION_MESSAGE') return;
     const { requestId, message } = event.data;
-    if (typeof console !== 'undefined') {
-      console.log('[CG Suite content-bridge] EXTENSION_MESSAGE from page → BRIDGE_FORWARD', message?.action, requestId);
-    }
+    bridgeLog('EXTENSION_MESSAGE from page → BRIDGE_FORWARD', message?.action, requestId);
     chrome.runtime.sendMessage({
       type: 'BRIDGE_FORWARD',
       requestId,
@@ -83,9 +88,7 @@
     }, (bridgeResponse) => {
       // For these actions we don't resolve here; the target page will send data/ready later and background will send EXTENSION_RESPONSE_TO_PAGE to this tab.
       if (message.action === 'startWaitingForData' || message.action === 'startRefine' || message.action === 'openNosposAndWait' || message.action === 'openWebEposUpload' || message.action === 'reopenWebEposUpload' || message.action === 'scrapeWebEposProducts' || message.action === 'openNosposForCustomerIntake' || message.action === 'openNosposSiteOnly' || message.action === 'openNosposSiteForFields' || message.action === 'openNosposSiteForCategoryFields' || message.action === 'openNosposSiteForCategoryFieldsBulk' || message.action === 'scrapeCexSuperCategories') {
-        if (typeof console !== 'undefined') {
-          console.log('[CG Suite content-bridge] deferred action – not posting response; waiting for target page', message.action);
-        }
+        bridgeLog('deferred action – not posting response; waiting for target page', message.action);
         return;
       }
       window.postMessage({

@@ -11,6 +11,7 @@ djangorestframework
 # HTTP requests
 requests
 aiohttp
+beautifulsoup4
 
 # Environment variables
 python-dotenv

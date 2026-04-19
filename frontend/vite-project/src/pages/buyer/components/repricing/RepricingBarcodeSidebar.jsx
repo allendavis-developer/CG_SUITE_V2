@@ -24,6 +24,8 @@ function RepricingActionsBlock({
   onNewRepricing,
   onViewWebEposProducts,
   viewWebEposProductsDisabled,
+  onViewWebEposCategories,
+  viewWebEposCategoriesDisabled,
   layout = 'vertical',
   labels = DEFAULT_WORKSPACE_LABELS,
 }) {
@@ -61,21 +63,61 @@ function RepricingActionsBlock({
             : 'flex flex-col gap-3 w-full'
         }
       >
-        {onViewWebEposProducts && (
-          <button
-            type="button"
-            className={`font-semibold rounded-xl transition-all flex items-center justify-center gap-2 border-2 active:scale-[0.98] ${
-              viewWebEposProductsDisabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-50 dark:hover:bg-slate-800'
-            } ${layout === 'vertical' ? 'w-full py-3' : 'px-4 py-2.5 whitespace-nowrap'}`}
-            style={{ borderColor: 'var(--brand-blue)', color: 'var(--brand-blue)' }}
-            onClick={onViewWebEposProducts}
-            disabled={viewWebEposProductsDisabled}
+        {(onViewWebEposProducts || onViewWebEposCategories) && (
+          <div
+            className={
+              onViewWebEposProducts && onViewWebEposCategories
+                ? layout === 'vertical'
+                  ? 'flex w-full flex-row gap-2'
+                  : 'flex flex-row flex-wrap items-center justify-end gap-2'
+                : 'flex w-full flex-col gap-2'
+            }
           >
-            <span className="material-symbols-outlined text-[18px]">table_rows</span>
-            <span className={layout === 'vertical' ? 'text-sm uppercase tracking-tight' : 'text-xs uppercase tracking-tight'}>
-              View products
-            </span>
-          </button>
+            {onViewWebEposProducts && (
+              <button
+                type="button"
+                className={`font-semibold rounded-xl transition-all flex items-center justify-center gap-2 border-2 active:scale-[0.98] ${
+                  viewWebEposProductsDisabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-50 dark:hover:bg-slate-800'
+                } ${
+                  layout === 'vertical'
+                    ? onViewWebEposCategories
+                      ? 'flex-1 min-w-0 py-3'
+                      : 'w-full py-3'
+                    : 'px-4 py-2.5 whitespace-nowrap'
+                }`}
+                style={{ borderColor: 'var(--brand-blue)', color: 'var(--brand-blue)' }}
+                onClick={onViewWebEposProducts}
+                disabled={viewWebEposProductsDisabled}
+              >
+                <span className="material-symbols-outlined text-[18px]">table_rows</span>
+                <span className={layout === 'vertical' ? 'text-sm uppercase tracking-tight' : 'text-xs uppercase tracking-tight'}>
+                  View products
+                </span>
+              </button>
+            )}
+            {onViewWebEposCategories && (
+              <button
+                type="button"
+                className={`font-semibold rounded-xl transition-all flex items-center justify-center gap-2 border-2 active:scale-[0.98] ${
+                  viewWebEposCategoriesDisabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-50 dark:hover:bg-slate-800'
+                } ${
+                  layout === 'vertical'
+                    ? onViewWebEposProducts
+                      ? 'flex-1 min-w-0 py-3'
+                      : 'w-full py-3'
+                    : 'px-4 py-2.5 whitespace-nowrap'
+                }`}
+                style={{ borderColor: 'var(--brand-blue)', color: 'var(--brand-blue)' }}
+                onClick={onViewWebEposCategories}
+                disabled={viewWebEposCategoriesDisabled}
+              >
+                <span className="material-symbols-outlined text-[18px]">category</span>
+                <span className={layout === 'vertical' ? 'text-sm uppercase tracking-tight' : 'text-xs uppercase tracking-tight'}>
+                  View categories
+                </span>
+              </button>
+            )}
+          </div>
         )}
         <button
           className={btnClassProceed}
@@ -133,6 +175,10 @@ export default function RepricingBarcodeSidebar({
   variant = 'sidebar',
   workspace = 'repricing',
   activeItems,
+  /** When set (upload barcode scan phase), show this count instead of active item rows. */
+  uploadScanSlotCount,
+  /** Upload: true while full-screen barcode intake is open. */
+  uploadBarcodeIntakeOpen = false,
   barcodes,
   isItemReadyForRepricing,
   allItemsReadyForRepricing,
@@ -148,6 +194,8 @@ export default function RepricingBarcodeSidebar({
   onNewRepricing,
   onViewWebEposProducts,
   viewWebEposProductsDisabled,
+  onViewWebEposCategories,
+  viewWebEposCategoriesDisabled,
 }) {
   const labels =
     workspace === 'upload'
@@ -160,7 +208,11 @@ export default function RepricingBarcodeSidebar({
           proceedRunning: 'Upload running in background',
           proceedDone: 'Upload finished',
           finishedNote: 'Upload finished',
-          verifyHint: 'Verify a NoSpos barcode for every item before proceeding',
+          verifyHint: uploadBarcodeIntakeOpen
+            ? 'Complete the barcode intake dialog first — nothing else is available until then.'
+            : uploadScanSlotCount != null && uploadScanSlotCount > 0
+              ? 'Add items from the header until every barcode in the queue is assigned to a line.'
+              : 'Verify a NoSpos barcode for every item before proceeding',
         }
       : {
           headerTitle: 'Reprice List',
@@ -188,6 +240,8 @@ export default function RepricingBarcodeSidebar({
           onNewRepricing={onNewRepricing}
           onViewWebEposProducts={onViewWebEposProducts}
           viewWebEposProductsDisabled={viewWebEposProductsDisabled}
+          onViewWebEposCategories={onViewWebEposCategories}
+          viewWebEposCategoriesDisabled={viewWebEposCategoriesDisabled}
           layout="horizontal"
           labels={labels}
         />
@@ -207,7 +261,11 @@ export default function RepricingBarcodeSidebar({
             <div>
               <p className="text-sm font-black uppercase tracking-wider text-white">{labels.headerTitle}</p>
               <p className="text-xs text-white/70">
-                {activeItems.length} item{activeItems.length !== 1 ? 's' : ''}
+                {uploadScanSlotCount != null
+                  ? uploadBarcodeIntakeOpen
+                    ? `${uploadScanSlotCount} line${uploadScanSlotCount !== 1 ? 's' : ''} in intake`
+                    : `${uploadScanSlotCount} barcode${uploadScanSlotCount !== 1 ? 's' : ''} left to assign`
+                  : `${activeItems.length} item${activeItems.length !== 1 ? 's' : ''}`}
               </p>
             </div>
           </div>
@@ -269,6 +327,8 @@ export default function RepricingBarcodeSidebar({
         onNewRepricing={onNewRepricing}
         onViewWebEposProducts={onViewWebEposProducts}
         viewWebEposProductsDisabled={viewWebEposProductsDisabled}
+        onViewWebEposCategories={onViewWebEposCategories}
+        viewWebEposCategoriesDisabled={viewWebEposCategoriesDisabled}
         layout="vertical"
         labels={labels}
       />

@@ -34,6 +34,7 @@ import {
 import {
   summariseNegotiationItemForAi,
   runNosposStockCategoryAiMatchBackground,
+  runCgStockCategoryAiMatchBackground,
   isProductCategoryRootReadyForBuilder,
   getInternalProductCategoryRootMeta,
 } from '@/services/aiCategoryPathCascade';
@@ -42,6 +43,7 @@ import {
   getAiSuggestedNosposStockFieldValuesFromItem,
   resolveNosposStockLeafIdForNegotiationLine,
 } from '@/utils/nosposCategoryMappings';
+import { getAiSuggestedCgStockCategoryFromItem, mergeCgAiOntoNegotiationRow } from '@/utils/cgCategoryMappings';
 import { buildNosposStockFieldAiPayload } from '../utils/nosposFieldAiAtAdd';
 import { makeSalePriceBlurHandler } from './useResearchOverlay';
 import { useRefreshCexRowData } from './useRefreshCexRowData';
@@ -736,6 +738,31 @@ export function useNegotiationItemHandlers({
           return prev.map((row) => (row.id === lineId ? nextRow : row));
         });
 
+        if (!getAiSuggestedCgStockCategoryFromItem(normalizedItem)) {
+          try {
+            const cgMatch = await runCgStockCategoryAiMatchBackground({
+              itemSummary,
+              logTag: `${pathLogTag}[cg]`,
+            });
+            if (cgMatch?.cgCategoryId) {
+              const aiSuggestedCgStockCategory = {
+                cgCategoryId: Number(cgMatch.cgCategoryId),
+                categoryPath: cgMatch.categoryPath,
+                pathSegments: cgMatch.pathSegments,
+                source: categorySource,
+                savedAt: new Date().toISOString(),
+              };
+              await updateRequestItemRawData(reqItemId, { raw_data: { aiSuggestedCgStockCategory } });
+              setItems((prev) =>
+                prev.map((row) =>
+                  row.id !== lineId ? row : mergeCgAiOntoNegotiationRow(row, aiSuggestedCgStockCategory)
+                )
+              );
+            }
+          } catch (cgE) {
+            console.warn('[CG Suite][CgPathMatch] persist', cgE);
+          }
+        }
       } catch (e) {
         console.warn('[CG Suite][NosposPathMatch] category', {
           context: pathLogTag,

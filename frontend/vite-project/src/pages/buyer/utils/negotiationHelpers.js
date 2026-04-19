@@ -98,6 +98,12 @@ export function logCategoryRuleDecision({
   notes = null,
 }) {
   if (typeof console === 'undefined') return;
+  if (
+    import.meta.env.DEV !== true ||
+    import.meta.env.VITE_CG_SUITE_VERBOSE_LOGS !== '1'
+  ) {
+    return;
+  }
   console.log('[CG Suite][CategoryRule]', {
     context,
     itemId: item?.id ?? null,

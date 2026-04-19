@@ -38,7 +38,11 @@ export function useMarketplaceSearchPrefetch(items, setItems) {
           const summary = summariseNegotiationItemForAi(item);
           const res = await suggestMarketplaceResearchSearchTerm({ item: summary });
           const term = res.searchTerm != null ? String(res.searchTerm).trim() : '';
-          if (typeof console !== 'undefined') {
+          if (
+            typeof console !== 'undefined' &&
+            import.meta.env.DEV === true &&
+            import.meta.env.VITE_CG_SUITE_VERBOSE_LOGS === '1'
+          ) {
             console.log('[CG Suite][MarketplaceSearchTerm]', {
               provider: res.provider,
               promptSystem: res.debug?.systemPrompt ?? null,

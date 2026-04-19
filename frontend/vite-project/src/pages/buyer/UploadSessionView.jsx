@@ -198,6 +198,12 @@ const UploadSessionView = () => {
                           sessionId: session.upload_session_id,
                           sessionBarcodes: session.session_data?.barcodes || null,
                           sessionNosposLookups: session.session_data?.nosposLookups || null,
+                          uploadBarcodeWorkspace: session.session_data?.uploadBarcodeWorkspace || null,
+                          uploadBarcodeIntakeOpen: session.session_data?.uploadBarcodeIntakeOpen,
+                          uploadStockDetailsBySlotId: session.session_data?.uploadStockDetailsBySlotId || null,
+                          uploadScanSlotIds: session.session_data?.uploadScanSlotIds,
+                          uploadPendingSlotIds: session.session_data?.uploadPendingSlotIds,
+                          uploadBarcodeIntakeDone: session.session_data?.uploadBarcodeIntakeDone,
                         },
                       });
                     }}

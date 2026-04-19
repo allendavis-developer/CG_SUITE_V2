@@ -37,10 +37,16 @@ export default function NegotiationTablesSection({
   hideNosposRequiredColumn = false,
   /** When true, hide the NosPos category column and inline field-AI trigger (upload workspace). */
   hideNosposCategoryColumn = false,
+  /** When true, show CG retail category in the same collapsible block as Category (and NosPos when visible). */
+  showCgCategoryColumn = false,
+  cgCategoriesResults = null,
+  onOpenCgCategoryPicker = null,
   /** When true, hide the Qty column (upload workspace). */
   hideQuantityColumn = false,
   /** When true, hide CeX Voucher and Cash columns; Sell remains (upload workspace). */
   hideCexVoucherCashColumns = false,
+  /** Upload workspace: show NosPos stock-edit fields from the barcode line (cost, buyer, date, retail). */
+  showUploadNosposStockColumns = false,
   hideOfferColumns = false,
   hideCustomerExpectation = false,
   salePriceLabel = 'Our RRP',
@@ -51,9 +57,12 @@ export default function NegotiationTablesSection({
   const visibleColumnCount = (() => {
     let count = 0;
     if (!hideQuantityColumn) count += 1; // Qty
-    count += categoryColumnsExpanded ? (hideNosposCategoryColumn ? 1 : 2) : 1; // category (+ optional NosPos) columns
+    count += categoryColumnsExpanded
+      ? 1 + (!hideNosposCategoryColumn ? 1 : 0) + (showCgCategoryColumn ? 1 : 0)
+      : 1;
     if (!hideNosposRequiredColumn) count += 1;
     count += 1; // Item Name
+    if (showUploadNosposStockColumns) count += 4; // NosPos cost / buyer / bought / retail
     count += hideCexVoucherCashColumns ? 1 : 3; // CeX Sell / optional Voucher+Cash
     if (!hideCustomerExpectation) count += 1;
     if (!hideOfferColumns) count += 6; // Offer source + 4 tiers + Manual
@@ -124,9 +133,13 @@ export default function NegotiationTablesSection({
                           className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-white/95 transition-colors hover:bg-white/15 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--brand-blue)]"
                           aria-expanded
                           title={
-                            hideNosposCategoryColumn
+                            hideNosposCategoryColumn && !showCgCategoryColumn
                               ? 'Hide Category column'
-                              : 'Hide Category and NosPos columns'
+                              : hideNosposCategoryColumn
+                                ? 'Hide Category and CG columns'
+                                : showCgCategoryColumn
+                                  ? 'Hide Category, NosPos, and CG columns'
+                                  : 'Hide Category and NosPos columns'
                           }
                         >
                           <span className="material-symbols-outlined text-[20px] leading-none">keyboard_double_arrow_left</span>
@@ -137,6 +150,9 @@ export default function NegotiationTablesSection({
                     {!hideNosposCategoryColumn ? (
                       <th className="min-w-[160px] max-w-[240px]">NosPos category</th>
                     ) : null}
+                    {showCgCategoryColumn ? (
+                      <th className="min-w-[160px] max-w-[240px]">CG category</th>
+                    ) : null}
                   </>
                 ) : (
                   <th className="w-10 px-0.5 text-center">
@@ -146,9 +162,13 @@ export default function NegotiationTablesSection({
                       className="inline-flex h-8 w-8 items-center justify-center rounded-md text-white transition-colors hover:bg-white/15 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--brand-blue)]"
                       aria-expanded={false}
                       title={
-                        hideNosposCategoryColumn
+                        hideNosposCategoryColumn && !showCgCategoryColumn
                           ? 'Show Category column'
-                          : 'Show Category and NosPos columns'
+                          : hideNosposCategoryColumn
+                            ? 'Show Category and CG columns'
+                            : showCgCategoryColumn
+                              ? 'Show Category, NosPos, and CG columns'
+                              : 'Show Category and NosPos columns'
                       }
                     >
                       <span className="material-symbols-outlined text-[20px] leading-none">keyboard_double_arrow_right</span>
@@ -159,6 +179,25 @@ export default function NegotiationTablesSection({
                   <th className="min-w-[130px] max-w-[160px] text-[10px]">NosPos required</th>
                 ) : null}
                 <th className="min-w-[220px]">Item Name &amp; Attributes</th>
+                {showUploadNosposStockColumns ? (
+                  <>
+                    <th className="w-24 min-w-[5.5rem] text-[10px] font-bold uppercase tracking-wide text-slate-600">
+                      Cost
+                    </th>
+                    <th className="min-w-[7rem] max-w-[10rem] text-[10px] font-bold uppercase tracking-wide text-slate-600">
+                      Bought by
+                    </th>
+                    <th className="w-28 text-[10px] font-bold uppercase tracking-wide text-slate-600">
+                      Bought date
+                    </th>
+                    <th
+                      className="w-24 min-w-[5.5rem] text-[10px] font-bold uppercase tracking-wide text-slate-600"
+                      title="NosPos retail price (stock-retail_price)"
+                    >
+                      Cost price
+                    </th>
+                  </>
+                ) : null}
                 <th className="w-24 spreadsheet-th-cex">Sell</th>
                 {!hideCexVoucherCashColumns ? (
                   <>
@@ -226,10 +265,14 @@ export default function NegotiationTablesSection({
                   actualRequestId={actualRequestId}
                   onOpenNosposRequiredFieldsEditor={onOpenNosposRequiredFieldsEditor}
                   onOpenNosposCategoryPicker={onOpenNosposCategoryPicker}
+                  showCgCategoryColumn={showCgCategoryColumn}
+                  cgCategoriesResults={cgCategoriesResults}
+                  onOpenCgCategoryPicker={onOpenCgCategoryPicker}
                   hideNosposRequiredColumn={hideNosposRequiredColumn}
                   hideNosposCategoryColumn={hideNosposCategoryColumn}
                   hideQuantityColumn={hideQuantityColumn}
                   hideCexVoucherCashColumns={hideCexVoucherCashColumns}
+                  showUploadNosposStockColumns={showUploadNosposStockColumns}
                   categoryColumnsExpanded={categoryColumnsExpanded}
                   hideOfferColumns={hideOfferColumns}
                   hideCustomerExpectation={hideCustomerExpectation}

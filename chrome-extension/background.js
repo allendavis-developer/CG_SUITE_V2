@@ -3205,6 +3205,40 @@ async function handleBridgeForward(message, sender) {
     }
   }
 
+  /** Upload workspace: open stock edit in a minimised NosPos window, fetch HTML, parse details, close tab. */
+  if (payload.action === 'scrapeNosposStockEditForUpload') {
+    const stockUrl = String(payload.stockUrl || '').trim();
+    if (!stockUrl) return { ok: false, error: 'No stock URL' };
+    const editUrl = normalizeNosposStockEditUrl(stockUrl);
+    if (!editUrl) return { ok: false, error: 'Invalid stock URL' };
+    let opened = null;
+    try {
+      if (appTabId != null) {
+        opened = await openBackgroundNosposTab(editUrl, appTabId);
+      }
+      const response = await fetch(editUrl, {
+        credentials: 'include',
+        headers: NOSPOS_HTML_FETCH_HEADERS,
+      });
+      const finalUrl = response.url || '';
+      const html = await response.text();
+      if (nosposHtmlFetchIndicatesNotLoggedIn(response, finalUrl)) {
+        return { ok: false, loginRequired: true };
+      }
+      const details = parseNosposStockEditPageDetails(html);
+      return { ok: true, details };
+    } catch (e) {
+      return { ok: false, error: e?.message || 'Scrape failed' };
+    } finally {
+      if (opened?.tabId != null) {
+        await chrome.tabs.remove(opened.tabId).catch(() => {});
+      }
+      if (appTabId != null) {
+        await focusAppTab(appTabId).catch(() => {});
+      }
+    }
+  }
+
   async function nosposCancelResponseBody(response) {
     try {
       await response.body?.cancel?.();

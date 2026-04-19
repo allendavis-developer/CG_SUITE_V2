@@ -2,6 +2,12 @@
 
 export const WEB_EPOS_PRODUCTS_URL = 'https://webepos.cashgenerator.co.uk/products';
 
+/** Reference URL for the categories table header (Upload module UI only; no scrape wired yet). */
+export const WEB_EPOS_CATEGORIES_URL = 'https://webepos.cashgenerator.co.uk/categories';
+
+/** Retail site: mega-menu scrape for category tree (extension opens a minimised window here). */
+export const CASH_GENERATOR_RETAIL_HOME = 'https://cashgenerator.co.uk/';
+
 /** Set before navigating back from the products page so the upload gate does not reopen Web EPOS. */
 export const WEB_EPOS_UPLOAD_SKIP_GATE_KEY = 'cgUploadSkipNextWebEposGate';
 
