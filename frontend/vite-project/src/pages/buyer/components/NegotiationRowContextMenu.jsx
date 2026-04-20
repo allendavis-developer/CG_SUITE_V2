@@ -26,6 +26,7 @@ export default function NegotiationRowContextMenu({
   onUseAsRrpOffersSource,
   removeLabel = DEFAULT_REMOVE_LABEL,
   getDataFromDatabase = null,
+  onChangeUploadCondition = null,
 }) {
   const menuRef = React.useRef(null);
   const [dbFlyoutOpen, setDbFlyoutOpen] = React.useState(false);
@@ -51,8 +52,9 @@ export default function NegotiationRowContextMenu({
 
   const showUseAsRrp = isNegotiationPriceSourceZone(zone) && onUseAsRrpOffersSource;
   const showGetDataDb = Boolean(getDataFromDatabase);
+  const showChangeCondition = Boolean(onChangeUploadCondition);
   const showDividerBeforeDb = showUseAsRrp && showGetDataDb;
-  const showDividerBeforeRemove = showUseAsRrp || showGetDataDb;
+  const showDividerBeforeRemove = showUseAsRrp || showGetDataDb || showChangeCondition;
 
   return (
     <div
@@ -124,6 +126,19 @@ export default function NegotiationRowContextMenu({
             </div>
           ) : null}
         </div>
+      )}
+      {showChangeCondition && (
+        <button
+          type="button"
+          className="w-full px-4 py-2.5 text-left text-sm font-semibold hover:bg-blue-50 transition-colors flex items-center gap-2 text-brand-blue"
+          onClick={() => {
+            onChangeUploadCondition();
+            onClose();
+          }}
+        >
+          <span className="material-symbols-outlined text-[16px]">edit</span>
+          Change upload condition
+        </button>
       )}
       {showDividerBeforeRemove && (
         <div className="border-t my-1" style={{ borderColor: 'var(--ui-border)' }} />

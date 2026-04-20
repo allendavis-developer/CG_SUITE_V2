@@ -1348,10 +1348,6 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
 
   // ── Proceed / retry / new repricing ─────────────────────────────────────────
   const handleProceed = async () => {
-    if (useUploadSessions && items.some((i) => !i.isRemoved && i.isUploadBarcodeQueuePlaceholder)) {
-      showNotification(copy.uploadPendingBarcodesRemain, 'warning');
-      return;
-    }
     const zeroSalePriceItems = [];
     for (const item of activeItems) {
       const rawSaleInput = String(item.ourSalePriceInput ?? '').replace(/[£,]/g, '').trim();
@@ -1711,7 +1707,6 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
     skipNosposLookup,
     handleProceed,
     handleRestartUploadInWorkspace,
-    uploadPostWebEposComplete,
     handleConfirmNewRepricing,
     handleRetryAmbiguousBarcodes,
     renderBarcodeCell,

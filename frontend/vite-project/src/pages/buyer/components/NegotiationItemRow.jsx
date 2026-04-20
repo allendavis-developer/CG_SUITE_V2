@@ -443,55 +443,6 @@ export default function NegotiationItemRow({
         </>
       ) : null}
 
-      {/* CeX Sell / Buy (Voucher) / Buy (Cash) — same order as CeX listings */}
-      {isViewMode ? (
-        <PriceCell
-          value={item.cexSellPrice}
-          quantity={quantity}
-          className={hlCexRrp ? 'font-medium text-white' : 'font-medium text-red-700'}
-          href={item.cexUrl}
-          sourceHighlight={hlCexRrp}
-        />
-      ) : (
-        <td
-          className={[
-            'font-medium align-top',
-            hlCexRrp ? `text-white ${RRP_SOURCE_CELL_CLASS}` : 'text-red-700',
-          ].join(' ')}
-          onContextMenu={mode === 'negotiate' && onRowContextMenu ? (e) => openRowContext(e, NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL) : undefined}
-        >
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              {item.cexSellPrice != null ? (
-                <div>
-                  {item.cexUrl ? (
-                    <a
-                      href={item.cexUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={hlCexRrp ? 'text-white underline decoration-dotted' : 'text-red-700 underline decoration-dotted'}
-                    >
-                      £{(item.cexSellPrice * quantity).toFixed(2)}
-                    </a>
-                  ) : (
-                    <div>£{(item.cexSellPrice * quantity).toFixed(2)}</div>
-                  )}
-                  {quantity > 1 && <div className="text-[9px] opacity-70">(£{item.cexSellPrice.toFixed(2)} × {quantity})</div>}
-                </div>
-              ) : '—'}
-            </div>
-            <button
-              className="flex items-center justify-center size-7 rounded transition-colors shrink-0"
-              style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
-              onClick={() => onRefreshCeXData(item)}
-              title="Refresh CeX prices"
-              type="button"
-            >
-              <span className="material-symbols-outlined text-[16px]">edit</span>
-            </button>
-          </div>
-        </td>
-      )}
       {!hideCexVoucherCashColumns ? (
         <>
           <PriceCell value={item.cexVoucherPrice} quantity={quantity} className="font-medium text-red-700" onContextMenu={ctxRemoveOnly} />
@@ -690,6 +641,56 @@ export default function NegotiationItemRow({
         titlePrefix="RRP source"
         onSelectZone={onApplyRrpPriceSource ? (zone) => onApplyRrpPriceSource(item, zone) : undefined}
       />
+
+      {/* CeX Sell */}
+      {isViewMode ? (
+        <PriceCell
+          value={item.cexSellPrice}
+          quantity={quantity}
+          className={hlCexRrp ? 'font-medium text-white' : 'font-medium text-red-700'}
+          href={item.cexUrl}
+          sourceHighlight={hlCexRrp}
+        />
+      ) : (
+        <td
+          className={[
+            'font-medium align-top',
+            hlCexRrp ? `text-white ${RRP_SOURCE_CELL_CLASS}` : 'text-red-700',
+          ].join(' ')}
+          onContextMenu={mode === 'negotiate' && onRowContextMenu ? (e) => openRowContext(e, NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL) : undefined}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              {item.cexSellPrice != null ? (
+                <div>
+                  {item.cexUrl ? (
+                    <a
+                      href={item.cexUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={hlCexRrp ? 'text-white underline decoration-dotted' : 'text-red-700 underline decoration-dotted'}
+                    >
+                      £{(item.cexSellPrice * quantity).toFixed(2)}
+                    </a>
+                  ) : (
+                    <div>£{(item.cexSellPrice * quantity).toFixed(2)}</div>
+                  )}
+                  {quantity > 1 && <div className="text-[9px] opacity-70">(£{item.cexSellPrice.toFixed(2)} × {quantity})</div>}
+                </div>
+              ) : '—'}
+            </div>
+            <button
+              className="flex items-center justify-center size-7 rounded transition-colors shrink-0"
+              style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
+              onClick={() => onRefreshCeXData(item)}
+              title="Refresh CeX prices"
+              type="button"
+            >
+              <span className="material-symbols-outlined text-[16px]">edit</span>
+            </button>
+          </div>
+        </td>
+      )}
 
       {/* eBay Research */}
       <td

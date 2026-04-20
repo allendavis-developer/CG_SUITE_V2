@@ -221,7 +221,6 @@ export default function NegotiationTablesSection({
                     </th>
                   </>
                 ) : null}
-                <th className="w-24 spreadsheet-th-cex">Sell</th>
                 {!hideCexVoucherCashColumns ? (
                   <>
                     <th className="w-24 spreadsheet-th-cex">Voucher</th>
@@ -251,6 +250,7 @@ export default function NegotiationTablesSection({
                   </th>
                 ) : null}
                 <th className="w-[5.5rem] min-w-[5rem] text-[9px] leading-tight">RRP source</th>
+                <th className="w-24 spreadsheet-th-cex">Sell</th>
                 <th className="w-24 px-1 text-left">eBay</th>
                 <th className="w-24 px-1 text-left">CC</th>
                 <th className="w-24 px-1 text-left">CG</th>

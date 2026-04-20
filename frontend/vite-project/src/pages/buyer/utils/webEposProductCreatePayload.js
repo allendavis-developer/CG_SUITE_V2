@@ -9,8 +9,8 @@ function parseMoney(raw) {
 }
 
 /**
- * Web EPOS product barcode suffix: date + time (local) then server line id.
- * Shape: `STOCK-DDMMYY-HHmmss-ID:123` (no colons in time — friendlier for scanners).
+ * Web EPOS product barcode suffix: date + time (local).
+ * Shape: `STOCK-DDMMYY-HHmmss` (no colons in time — friendlier for scanners).
  */
 export function formatWebEposUploadBarcodeTimestamp(d = new Date()) {
   const pad = (n, w = 2) => String(n).padStart(w, '0');
@@ -21,17 +21,6 @@ export function formatWebEposUploadBarcodeTimestamp(d = new Date()) {
   const Mi = pad(d.getMinutes());
   const SS = pad(d.getSeconds());
   return `${dd}${mm}${yy}-${HH}${Mi}${SS}`;
-}
-
-/** Integer `upload_session_item_id` when the row has been saved to the server; else null. */
-function uploadSessionItemPrimaryKeyForBarcode(item) {
-  const raw = item?.upload_session_item_id;
-  if (raw == null || raw === '') return null;
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return null;
-  const t = Math.trunc(n);
-  if (t < 1 || !Number.isSafeInteger(t)) return null;
-  return String(t);
 }
 
 /**
@@ -85,10 +74,8 @@ export function buildWebEposProductCreatePayloadFromUploadRow(item, verifiedBarc
   const stockBc = String(codes[0] || '').trim();
   if (!stockBc) return null;
 
-  const pk = uploadSessionItemPrimaryKeyForBarcode(item);
-  if (pk == null) return null;
   const ts = formatWebEposUploadBarcodeTimestamp();
-  const barcode = `${stockBc}-${ts}-ID:${pk}`;
+  const barcode = `${stockBc}-${ts}`;
 
   const rrp = resolveUploadPipelineSalePrice(item);
   const price =
@@ -102,17 +89,30 @@ export function buildWebEposProductCreatePayloadFromUploadRow(item, verifiedBarc
   const displayName = resolveUploadTableItemName(item);
   const title = displayName === '—' ? 'Product' : displayName.slice(0, 150);
 
-  return {
+  const condition = item.uploadCondition || 'refurbished';
+  const grade = item.uploadGrade || (condition === 'used' ? 'B' : undefined);
+  const conditionText = item.uploadConditionText || '';
+
+  const payload = {
     title,
     price,
     costPrice: costStr,
     wasPrice: '0',
     quantity: 1,
-    condition: 'refurbished',
-    grade: 'B',
+    condition,
     barcode,
     intro: displayName === '—' ? '' : displayName.slice(0, 10000),
     fulfilmentOption: 'anyfulfilment',
     categoryPathLabels: labels,
   };
+
+  if (grade) {
+    payload.grade = grade;
+  }
+
+  if (conditionText) {
+    payload.conditionText = conditionText;
+  }
+
+  return payload;
 }

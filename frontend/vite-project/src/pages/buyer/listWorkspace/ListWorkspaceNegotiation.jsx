@@ -8,6 +8,7 @@ import CgCategoryPickerModal from "@/components/modals/CgCategoryPickerModal";
 import TinyModal from "@/components/ui/TinyModal";
 import UploadBarcodeIntakeModal from "@/components/modals/UploadBarcodeIntakeModal.jsx";
 import UploadNosposChangesModal from "@/components/modals/UploadNosposChangesModal.jsx";
+import UploadConditionModal from "@/components/modals/UploadConditionModal.jsx";
 import NegotiationDocumentHead from "../components/negotiation/NegotiationDocumentHead";
 import NegotiationTablesSection from "../components/negotiation/NegotiationTablesSection";
 import NegotiationRowContextMenu from "../components/NegotiationRowContextMenu";
@@ -70,6 +71,7 @@ export default function ListWorkspaceNegotiation({ moduleKey = "repricing" }) {
   ]);
 
   const [uploadNosposChangesModalItem, setUploadNosposChangesModalItem] = React.useState(null);
+  const [uploadConditionModalItem, setUploadConditionModalItem] = React.useState(null);
 
   if (w.showWorkspaceLoader) {
     return (
@@ -451,6 +453,7 @@ export default function ListWorkspaceNegotiation({ moduleKey = "repricing" }) {
                 : undefined,
             })}
           getDataFromDatabase={uploadGetDataFromDatabaseMenu}
+          onChangeUploadCondition={useUploadSessions ? () => setUploadConditionModalItem(contextMenu.item) : null}
         />
       )}
 
@@ -579,6 +582,20 @@ export default function ListWorkspaceNegotiation({ moduleKey = "repricing" }) {
         onClose={() => setUploadNosposChangesModalItem(null)}
         rows={uploadNosposChangesModalItem?.uploadNosposStockFromBarcode?.changeLog}
         titleLine={uploadNosposChangesModalItem?.variantName || uploadNosposChangesModalItem?.title || ''}
+      />
+
+      <UploadConditionModal
+        open={Boolean(uploadConditionModalItem)}
+        item={uploadConditionModalItem}
+        onClose={() => setUploadConditionModalItem(null)}
+        onSave={(changes) => {
+          setItems((prev) =>
+            prev.map((item) =>
+              item.id === uploadConditionModalItem?.id ? { ...item, ...changes } : item
+            )
+          );
+          setUploadConditionModalItem(null);
+        }}
       />
     </div>
   );
