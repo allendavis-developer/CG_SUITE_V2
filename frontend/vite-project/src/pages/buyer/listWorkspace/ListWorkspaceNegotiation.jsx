@@ -99,6 +99,7 @@ export default function ListWorkspaceNegotiation({ moduleKey = "repricing" }) {
         scrapeError={w.webEposProductsScrapeError}
         onRetryScrape={() => w.bumpWebEposScrape()}
         onEnterUpload={w.enterUploadMainFlow}
+        onAuditBarcodes={w.enterUploadMainFlowWithAuditBarcodes}
       />
     );
   }
@@ -138,6 +139,7 @@ export default function ListWorkspaceNegotiation({ moduleKey = "repricing" }) {
     handleResearchItemCategoryResolved,
     isRepricingFinished,
     uploadPostWebEposComplete,
+    uploadCompletionStatus,
     completedItemsData,
     ambiguousBarcodeModal,
     setAmbiguousBarcodeModal,
@@ -449,7 +451,7 @@ export default function ListWorkspaceNegotiation({ moduleKey = "repricing" }) {
               repricingRrpOnly: true,
               successMessageRrpOnly: useUploadSessions ? copy.uploadRrpUpdatedFromSource : undefined,
               onAfterRrpOnlyApplied: useUploadSessions
-                ? (next) => queueMicrotask(() => runUploadCategoryAndCgAfterValidRrp(next))
+                ? (next) => setTimeout(() => runUploadCategoryAndCgAfterValidRrp(next), 0)
                 : undefined,
             })}
           getDataFromDatabase={uploadGetDataFromDatabaseMenu}
@@ -468,7 +470,7 @@ export default function ListWorkspaceNegotiation({ moduleKey = "repricing" }) {
         showNotification={showNotification}
         onRepricingPriceCommitted={
           useUploadSessions
-            ? (row) => queueMicrotask(() => runUploadCategoryAndCgAfterValidRrp(row))
+            ? (row) => setTimeout(() => runUploadCategoryAndCgAfterValidRrp(row), 0)
             : undefined
         }
       />
@@ -482,7 +484,7 @@ export default function ListWorkspaceNegotiation({ moduleKey = "repricing" }) {
         showNotification={showNotification}
         onAfterCexRrpCommit={
           useUploadSessions
-            ? (row) => queueMicrotask(() => runUploadCategoryAndCgAfterValidRrp(row))
+            ? (row) => setTimeout(() => runUploadCategoryAndCgAfterValidRrp(row), 0)
             : undefined
         }
       />
@@ -597,6 +599,23 @@ export default function ListWorkspaceNegotiation({ moduleKey = "repricing" }) {
           setUploadConditionModalItem(null);
         }}
       />
+
+      {uploadCompletionStatus && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40">
+          <div className="flex flex-col items-center gap-4 rounded-xl bg-white p-8 shadow-lg">
+            <span
+              className="material-symbols-outlined animate-spin text-4xl"
+              style={{ color: "var(--brand-blue)" }}
+              aria-hidden
+            >
+              progress_activity
+            </span>
+            <p className="text-sm font-semibold text-gray-700">
+              {uploadCompletionStatus === 'savingToDB' ? 'Saving to database...' : 'Completing...'}
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

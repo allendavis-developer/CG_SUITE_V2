@@ -44,7 +44,7 @@ export default function CexPencilRrpSourceModal({
     );
     if (notify) showNotification?.(notify.message, notify.type);
     if (notify?.type === "success" && committed) {
-      queueMicrotask(() => onAfterCexRrpCommit?.(committed));
+      setTimeout(() => onAfterCexRrpCommit?.(committed), 0);
     }
     onClose();
   };

@@ -29,6 +29,7 @@ export function useListWorkspaceRepricingCompletion({
   setCompletedItems,
 }) {
   const lastHandledCompletionRef = useRef("");
+  const rrpCompleteCallbackRef = useRef(null);
 
   const persistCompletedRepricing = useCallback(
     async (payload) => {
@@ -37,6 +38,22 @@ export function useListWorkspaceRepricingCompletion({
       const fingerprint = JSON.stringify(payload);
       if (lastHandledCompletionRef.current === fingerprint) return false;
       lastHandledCompletionRef.current = fingerprint;
+
+      // RRP-then-WEBEPOS mode: save prices and hand off to callback instead of normal completion
+      const rrpCallback = rrpCompleteCallbackRef.current;
+      if (rrpCallback) {
+        rrpCompleteCallbackRef.current = null;
+        const savePayload = buildSessionSavePayload(payload);
+        try {
+          if (dbSessionId && Array.isArray(savePayload.items_data) && savePayload.items_data.length > 0) {
+            await updateWorkspaceSession(dbSessionId, { items_data: savePayload.items_data });
+          }
+          await clearLastRepricingResult().catch(() => {});
+        } catch {}
+        clearRepricingProgress(activeCartKey);
+        rrpCallback();
+        return true;
+      }
 
       const savePayload = buildSessionSavePayload(payload);
       const ambiguousEntries = buildAmbiguousBarcodeEntries(payload);
@@ -130,11 +147,26 @@ export function useListWorkspaceRepricingCompletion({
   useEffect(() => {
     const handler = (e) => {
       if (e.data?.type === "REPRICING_PROGRESS" && e.data.payload) {
-        const { cartKey: msgCartKey, completedBarcodes: cb, completedItems: ci } = e.data.payload;
+        const payload = e.data.payload;
+        const { cartKey: msgCartKey, completedBarcodes: cb, completedItems: ci } = payload;
         if (msgCartKey && msgCartKey === activeCartKey) {
           setCompletedBarcodes(cb || {});
           setCompletedItems(ci || []);
-          setRepricingJob(e.data.payload);
+          setRepricingJob((prev) => {
+            // Always merge logs so the stack never gets cleared between phases.
+            const existingLogs = prev?.logs || [];
+            const incomingLogs = payload.logs || [];
+            const existingTs = new Set(existingLogs.map((l) => l.timestamp));
+            const newLogs = incomingLogs.filter((l) => !existingTs.has(l.timestamp));
+            const mergedLogs = newLogs.length ? [...existingLogs, ...newLogs] : existingLogs;
+            // During NosPos phase keep the product count stable (it's barcode-level progress,
+            // not product-level). The product count only advances during webEposUpload.
+            if (payload.step !== 'webEposUpload' && prev?.step === 'webEposUpload') return prev;
+            if (payload.step !== 'webEposUpload') {
+              return { ...payload, logs: mergedLogs, completedBarcodeCount: prev?.completedBarcodeCount ?? 0, totalBarcodes: prev?.totalBarcodes ?? payload.totalBarcodes };
+            }
+            return { ...payload, logs: mergedLogs };
+          });
         }
       }
     };
@@ -160,7 +192,18 @@ export function useListWorkspaceRepricingCompletion({
         const response = await getNosposRepricingStatus();
         const payload = response?.ok ? response.payload : null;
         if (cancelled || !payload || payload.cartKey !== activeCartKey) return;
-        setRepricingJob(payload);
+        setRepricingJob((prev) => {
+          const existingLogs = prev?.logs || [];
+          const incomingLogs = payload.logs || [];
+          const existingTs = new Set(existingLogs.map((l) => l.timestamp));
+          const newLogs = incomingLogs.filter((l) => !existingTs.has(l.timestamp));
+          const mergedLogs = newLogs.length ? [...existingLogs, ...newLogs] : existingLogs;
+          if (payload.step !== 'webEposUpload' && prev?.step === 'webEposUpload') return prev;
+          if (payload.step !== 'webEposUpload') {
+            return { ...payload, logs: mergedLogs, completedBarcodeCount: prev?.completedBarcodeCount ?? 0, totalBarcodes: prev?.totalBarcodes ?? payload.totalBarcodes };
+          }
+          return { ...payload, logs: mergedLogs };
+        });
         setCompletedBarcodes(payload.completedBarcodes || {});
         setCompletedItems(payload.completedItems || []);
       } catch {}
@@ -192,5 +235,5 @@ export function useListWorkspaceRepricingCompletion({
     lastHandledCompletionRef.current = "";
   }, [activeCartKey]);
 
-  return { lastHandledCompletionRef };
+  return { lastHandledCompletionRef, rrpCompleteCallbackRef };
 }

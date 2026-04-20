@@ -118,6 +118,13 @@ const UploadSessionView = () => {
     }
   };
 
+  const resolveCexUrl = (sessionData, lineItem) => {
+    const cartItem = (sessionData?.items || []).find(
+      (i) => String(i.id) === String(lineItem.item_identifier)
+    );
+    return cartItem?.cexUrl || null;
+  };
+
   const handlePrintNewBarcodes = () => {
     const items = session.items || [];
     const hasSelection = selectedItemIds && selectedItemIds.size > 0;
@@ -142,7 +149,31 @@ const UploadSessionView = () => {
     window.open(url, "_blank", "noopener");
   };
 
+  const isChangedItem = (item) => {
+    const oldP = parseFloat(item.old_retail_price);
+    const newP = parseFloat(item.new_retail_price ?? item.our_sale_price_at_repricing);
+    const rrpChanged = !isNaN(oldP) && !isNaN(newP) && Math.abs(oldP - newP) > 0.005;
+    const nosposName = resolveNosposListingName(session.session_data, item);
+    const nameChanged = Boolean(nosposName && item.title && nosposName !== item.title);
+    return rrpChanged || nameChanged;
+  };
+
+  const handlePrintChangedBarcodes = () => {
+    const changed = (session.items || []).filter(isChangedItem);
+    const ids = Array.from(
+      new Set(changed.map((item) => getNosposId(item.stock_url)).filter((id) => id && id.trim() !== ""))
+    );
+    if (!ids.length) return;
+    window.open(
+      `https://nospos.com/print/barcode?stock_ids=${encodeURIComponent(ids.join(','))}`,
+      '_blank',
+      'noopener'
+    );
+  };
+
   const uploadCategory = { name: "Upload", path: ["Upload"] };
+
+  const changedItemsCount = (session.items || []).filter(isChangedItem).length;
 
   return (
     <div className="bg-ui-bg text-text-main min-h-screen flex flex-col text-sm overflow-hidden">
@@ -175,6 +206,16 @@ const UploadSessionView = () => {
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
+                {session.status === 'COMPLETED' && changedItemsCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={handlePrintChangedBarcodes}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm shadow-sm transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-[17px] leading-none">print</span>
+                    Print Changed Barcodes ({changedItemsCount})
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={handlePrintNewBarcodes}
@@ -251,9 +292,8 @@ const UploadSessionView = () => {
                       }}
                     />
                   </th>
-                  <th className="min-w-[180px]">NoSpos listing</th>
-                  <th className="min-w-[180px]">Research / list</th>
-                  <th className="w-40">Typed Barcode</th>
+                  <th className="min-w-[180px]">NosPos item name</th>
+                  <th className="min-w-[180px]">Uploaded item name</th>
                   <th className="w-40">Stock Barcode</th>
                   <th className="w-28">NoSPos ID</th>
                   <th className="w-28">Old Retail</th>
@@ -291,10 +331,9 @@ const UploadSessionView = () => {
                     </td>
                     <td>
                       <div className="font-semibold text-[13px] leading-snug text-slate-800">
-                        {resolveResearchListName(item) || '—'}
+                        {item.title || '—'}
                       </div>
                     </td>
-                    <td className="font-mono font-semibold">{item.barcode}</td>
                     <td className="font-mono font-semibold">{item.stock_barcode || item.barcode || 'N/A'}</td>
                     <td className="font-mono font-semibold">
                       {item.stock_url ? (
@@ -315,7 +354,19 @@ const UploadSessionView = () => {
                     <td className="font-semibold text-emerald-700">
                       {formatMoney(item.new_retail_price ?? item.our_sale_price_at_repricing)}
                     </td>
-                    <td className="font-semibold text-red-700">{formatMoney(item.cex_sell_at_repricing)}</td>
+                    <td className="font-semibold text-red-700">
+                      {(() => {
+                        const cexUrl = resolveCexUrl(session.session_data, item);
+                        const val = formatMoney(item.cex_sell_at_repricing);
+                        return cexUrl ? (
+                          <a href={cexUrl} target="_blank" rel="noopener noreferrer" className="underline hover:opacity-80">
+                            {val}
+                          </a>
+                        ) : (
+                          val
+                        );
+                      })()}
+                    </td>
                     <td className="px-1 align-top">
                       <div className="flex items-center justify-end gap-1">
                         <span className="min-w-0 text-right font-semibold tabular-nums">{getResearchMedian(item.raw_data)}</span>

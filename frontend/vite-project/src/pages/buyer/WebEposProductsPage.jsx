@@ -12,6 +12,21 @@ export default function WebEposProductsPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const { rows = [], pagingText = null, pageUrl = null, scrapedAt = null } = location.state || {};
+  const [selectedBarcodes, setSelectedBarcodes] = React.useState([]);
+
+  const handleAudit = () => {
+    if (selectedBarcodes.length === 0) return;
+
+    try {
+      sessionStorage.setItem(WEB_EPOS_UPLOAD_SKIP_GATE_KEY, '1');
+    } catch (_) {}
+
+    navigate('/upload', {
+      state: {
+        auditBarcodes: selectedBarcodes,
+      },
+    });
+  };
 
   return (
     <div className="flex min-h-screen flex-col bg-ui-bg text-slate-900 dark:bg-slate-900 dark:text-slate-100">
@@ -22,18 +37,29 @@ export default function WebEposProductsPage() {
             <div>
               <h1 className="cg-section-title text-xl sm:text-2xl">Web EPOS products</h1>
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                try {
-                  sessionStorage.setItem(WEB_EPOS_UPLOAD_SKIP_GATE_KEY, '1');
-                } catch (_) {}
-                navigate(-1);
-              }}
-              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-brand-blue transition-colors hover:bg-brand-blue/5 dark:border-slate-600"
-            >
-              Back to upload
-            </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              {selectedBarcodes.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleAudit}
+                  className="rounded-lg bg-brand-orange hover:bg-brand-orange-hover text-brand-blue px-4 py-2 text-sm font-semibold transition-colors"
+                >
+                  Audit ({selectedBarcodes.length})
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  try {
+                    sessionStorage.setItem(WEB_EPOS_UPLOAD_SKIP_GATE_KEY, '1');
+                  } catch (_) {}
+                  navigate(-1);
+                }}
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-brand-blue transition-colors hover:bg-brand-blue/5 dark:border-slate-600"
+              >
+                Back to upload
+              </button>
+            </div>
           </div>
 
           <WebEposProductsTablePanel
@@ -42,6 +68,7 @@ export default function WebEposProductsPage() {
             pageUrl={pageUrl}
             scrapedAt={scrapedAt}
             showSourceBlurb
+            onSelectedBarcodes={setSelectedBarcodes}
           />
         </div>
       </main>

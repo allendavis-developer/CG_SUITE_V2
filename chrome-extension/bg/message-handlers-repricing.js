@@ -105,6 +105,35 @@ async function handleNosposStockSearchReady(message, sender) {
 
   const itemWithContext = repricingData[next.itemIndex];
   const dataWithItemHeader = addItemContextLog(data, itemWithContext);
+
+  const editUrl = getStockEditUrl(next.stockUrl);
+  if (editUrl) {
+    const updatedData = appendRepricingLog(
+      {
+        ...dataWithItemHeader,
+        queue,
+        nosposTabId: tabId,
+        awaitingStockSelection: false,
+        currentBarcode: next.barcode,
+        currentItemId: next.itemId || '',
+        currentItemIndex: next.itemIndex,
+        currentBarcodeIndex: next.barcodeIndex,
+        verifyRetries: 0
+      },
+      `Navigating directly to stock edit for "${next.itemTitle || repricingData[next.itemIndex]?.title || 'unknown'}" [${next.barcode}]`
+    );
+    await chrome.storage.session.set({ cgNosposRepricingData: updatedData });
+    await broadcastRepricingStatus(updatedData.appTabId, updatedData, {
+      step: 'search',
+      message: `Opening stock edit for ${next.barcode}`,
+      currentBarcode: next.barcode,
+      currentItemId: next.itemId || '',
+      currentItemTitle: next.itemTitle || repricingData[next.itemIndex]?.title || ''
+    });
+    await chrome.tabs.update(tabId, { url: editUrl });
+    return { ok: false };
+  }
+
   const updatedData = appendRepricingLog(
     {
       ...dataWithItemHeader,
@@ -117,7 +146,7 @@ async function handleNosposStockSearchReady(message, sender) {
       currentBarcodeIndex: next.barcodeIndex,
       verifyRetries: 0
     },
-    `Doing barcode ${next.barcode}.`
+    `Searching NosPos for barcode ${next.barcode} — "${next.itemTitle || repricingData[next.itemIndex]?.title || 'unknown'}"`
   );
   await chrome.storage.session.set({ cgNosposRepricingData: updatedData });
   await broadcastRepricingStatus(updatedData.appTabId, updatedData, {
@@ -151,9 +180,12 @@ async function handleNosposStockEditReady(message, sender) {
     ? raw.toFixed(2)
     : (raw != null ? String(raw) : '');
 
-  // Always set justSaved and wait for page reload + verification before proceeding.
-  // Do NOT focus app tab here - wait until after verify + navigate to search, then focus when done.
-  const updatedData = appendRepricingLog({
+  const newStockName = (item?.title || '').trim();
+  const currentStockName = (message.currentStockName || '').trim();
+  const currentExternallyListed = !!message.currentExternallyListed;
+  const oldPrice = (message.oldRetailPrice || '').trim();
+
+  const stateBase = {
     ...data,
     repricingData,
     appTabId,
@@ -175,21 +207,48 @@ async function handleNosposStockEditReady(message, sender) {
       itemId: item?.itemId,
       barcodeIndex: next.barcodeIndex,
       barcode: next.barcode,
-      oldRetailPrice: message.oldRetailPrice || '',
+      oldRetailPrice: oldPrice,
       stockBarcode: message.stockBarcode || '',
       stockUrl: sender.tab?.url || ''
     }
-  }, `Saving barcode ${next.barcode}.`);
+  };
+
+  // Step-by-step logs with before → after for each field
+  let d = appendRepricingLog(stateBase, `Saving "${item?.title || next.barcode}" [${next.barcode}]`);
+
+  if (newStockName) {
+    const nameMsg = !currentStockName
+      ? `Name: setting to "${newStockName}"`
+      : currentStockName === newStockName
+      ? `Name: "${newStockName}" (already correct)`
+      : `Name: "${currentStockName}" → "${newStockName}"`;
+    d = appendRepricingLog(d, nameMsg);
+  }
+
+  d = appendRepricingLog(d, currentExternallyListed
+    ? 'Externally Listed: already ticked'
+    : 'Externally Listed: ticking');
+
+  if (salePrice !== '') {
+    const rrpMsg = oldPrice
+      ? `RRP: £${oldPrice} → £${salePrice}`
+      : `RRP: setting to £${salePrice}`;
+    d = appendRepricingLog(d, rrpMsg);
+  } else if (oldPrice) {
+    d = appendRepricingLog(d, `RRP: £${oldPrice} (no change)`);
+  }
+
+  const updatedData = d;
   await chrome.storage.session.set({ cgNosposRepricingData: updatedData });
   await broadcastRepricingStatus(appTabId, updatedData, {
     step: 'saving',
-    message: `Saving retail price for ${next.barcode}…`,
+    message: `Saving "${item?.title || next.barcode}"…`,
     currentBarcode: next.barcode,
     currentItemId: item?.itemId || '',
     currentItemTitle: item?.title || ''
   });
 
-  return { ok: true, salePrice, done: false };
+  return { ok: true, salePrice, stockName: newStockName, externallyListed: true, done: false };
 }
 
 function normalizePriceForCompare(val) {
@@ -285,7 +344,10 @@ async function handleNosposPageLoaded(message, sender) {
             done
           }
         });
-        if (tabId) await chrome.tabs.update(tabId, { url: 'https://nospos.com/stock/search' });
+        if (tabId) {
+          const nextEditUrl = getStockEditUrl(nextQueue[0]?.stockUrl);
+          await chrome.tabs.update(tabId, { url: nextEditUrl || 'https://nospos.com/stock/search' });
+        }
       }
     } else {
       const retries = (data.verifyRetries || 0) + 1;
@@ -343,7 +405,10 @@ async function handleNosposPageLoaded(message, sender) {
             step: 'search',
             message: `Verification failed for "${pendingCompletion.barcode || 'barcode'}". Moving to next item…`
           });
-          if (tabId) await chrome.tabs.update(tabId, { url: 'https://nospos.com/stock/search' });
+          if (tabId) {
+            const nextEditUrl = getStockEditUrl(nextQueue[0]?.stockUrl);
+            await chrome.tabs.update(tabId, { url: nextEditUrl || 'https://nospos.com/stock/search' });
+          }
         }
       }
     }

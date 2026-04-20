@@ -10,17 +10,17 @@ function parseMoney(raw) {
 
 /**
  * Web EPOS product barcode suffix: date + time (local).
- * Shape: `STOCK-DDMMYY-HHmmss` (no colons in time — friendlier for scanners).
+ * Shape: `STOCK-YYMMDD-HHmmss` (no colons in time — friendlier for scanners).
  */
 export function formatWebEposUploadBarcodeTimestamp(d = new Date()) {
   const pad = (n, w = 2) => String(n).padStart(w, '0');
-  const dd = pad(d.getDate());
-  const mm = pad(d.getMonth() + 1);
   const yy = pad(d.getFullYear() % 100);
+  const mm = pad(d.getMonth() + 1);
+  const dd = pad(d.getDate());
   const HH = pad(d.getHours());
   const Mi = pad(d.getMinutes());
   const SS = pad(d.getSeconds());
-  return `${dd}${mm}${yy}-${HH}${Mi}${SS}`;
+  return `${yy}${mm}${dd}-${HH}${Mi}${SS}`;
 }
 
 /**

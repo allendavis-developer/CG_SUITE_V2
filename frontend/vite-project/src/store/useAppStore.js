@@ -803,6 +803,7 @@ const useAppStore = create(
       selectedCartItemId: null,
       isCustomerModalOpen: true,
       isQuickRepriceOpen: false,
+      auditBarcodes: [],
       resetKey: 0,
 
       selectCartItem: async (item) => {

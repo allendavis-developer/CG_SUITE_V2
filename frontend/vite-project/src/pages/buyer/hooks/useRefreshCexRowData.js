@@ -35,7 +35,7 @@ export function useRefreshCexRowData({
         const next = usePencilMerge
           ? mergeCeXPencilLookupIntoItem(live, cexData)
           : applyCeXProductDataToItem(live, cexData, useVoucherOffers);
-        queueMicrotask(() => onAfterCexRowUpdated?.(next));
+        setTimeout(() => onAfterCexRowUpdated?.(next), 0);
         return prev.map((row) => (row.id === item.id ? next : row));
       });
       if (openPencilModal) setCexPencilRrpSourceModal({ itemId: item.id });

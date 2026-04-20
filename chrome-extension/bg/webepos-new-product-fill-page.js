@@ -261,4 +261,5 @@
 
   window.__CG_WEB_EPOS_FILL_RUN = run;
   window.__CG_WEB_EPOS_FINISH_NEW_PRODUCT = finishNewProductAfterFill;
+  window.__CG_WEB_EPOS_ENSURE_ON_SALE_OFF = ensureOnSaleOff;
 })();

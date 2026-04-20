@@ -1384,15 +1384,40 @@
       return;
     }
 
+    var currentStockName = (function () {
+      var el = document.getElementById('stock-name');
+      return el ? (el.value || '').trim() : '';
+    })();
+    var currentExternallyListed = (function () {
+      var el = document.querySelector('#stock-externally_listed_at[type="checkbox"]');
+      return !!(el && el.checked);
+    })();
+
     chrome.runtime.sendMessage({
       type: 'NOSPOS_STOCK_EDIT_READY',
       oldRetailPrice: getRetailPriceFromPage(),
+      currentStockName: currentStockName,
+      currentExternallyListed: currentExternallyListed,
       stockBarcode
     }, function (response) {
-      if (response?.ok && response.salePrice !== undefined) {
-        fillRetailPriceInput(response.salePrice);
-        setTimeout(function () { clickSaveButton(); }, 150);
+      if (!response?.ok) return;
+      // Set item name unconditionally (mirrors Web EPOS approach)
+      if (response.stockName) {
+        var nameEl = document.getElementById('stock-name');
+        if (nameEl) {
+          nameEl.value = response.stockName;
+          nameEl.dispatchEvent(new Event('input', { bubbles: true }));
+          nameEl.dispatchEvent(new Event('change', { bubbles: true }));
+        }
       }
+      // Tick externally listed for every item
+      var extEl = document.querySelector('#stock-externally_listed_at[type="checkbox"]');
+      if (extEl && !extEl.checked) {
+        extEl.checked = true;
+        extEl.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      if (response.salePrice !== undefined) fillRetailPriceInput(response.salePrice);
+      setTimeout(function () { clickSaveButton(); }, 150);
     });
   }
 

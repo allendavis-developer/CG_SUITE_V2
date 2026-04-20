@@ -245,7 +245,7 @@ def _sync_upload_session_items_from_session_snapshot(session):
             'item_identifier': iid,
             'itemId': iid,
             'barcode': barcode,
-            'title': str(item.get('title') or '').strip(),
+            'title': str(item.get('uploadTableItemName') or item.get('variantName') or item.get('title') or '').strip(),
             'quantity': quantity,
             'stock_barcode': stock_barcode,
             'stock_url': stock_url,
@@ -957,6 +957,17 @@ def upload_session_detail(request, upload_session_id):
                             upload_session=session, item_identifier=iid
                         ).first()
                         if existing_line:
+                            old_rp = _decimal_or_none(item_data.get('old_retail_price'), 'old_retail_price')
+                            new_rp = _decimal_or_none(item_data.get('new_retail_price'), 'new_retail_price')
+                            price_update_fields = []
+                            if old_rp is not None:
+                                existing_line.old_retail_price = old_rp
+                                price_update_fields.append('old_retail_price')
+                            if new_rp is not None:
+                                existing_line.new_retail_price = new_rp
+                                price_update_fields.append('new_retail_price')
+                            if price_update_fields:
+                                existing_line.save(update_fields=price_update_fields)
                             research_storage.ingest_upload_line_post_create(
                                 existing_line,
                                 item_data.get('raw_data'),

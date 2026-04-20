@@ -1,12 +1,23 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { SPREADSHEET_TABLE_STYLES } from '@/styles/spreadsheetTableStyles';
 import { WEB_EPOS_PRODUCTS_URL } from '@/pages/buyer/webEposUploadConstants';
 import { navigateWebEposProductInWorkerTab } from '@/services/extensionClient';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 250];
 
+function extractBarcode(barcode) {
+  if (!barcode) return '';
+  const match = String(barcode).match(/^([^-]+)/);
+  return match ? match[1].trim() : String(barcode).trim();
+}
+
 /**
  * Paginated Web EPOS products grid (shared by full products page and upload hub).
+ *
+ * Selection follows the same pivot-range logic as the research form exclusion:
+ *  - Click unselected (no pivot) → set as pivot
+ *  - Click pivot → deselect and clear pivot
+ *  - Click any row when pivot is set → range-select from pivot to this row, clear pivot
  */
 export default function WebEposProductsTablePanel({
   rows = [],
@@ -15,6 +26,7 @@ export default function WebEposProductsTablePanel({
   scrapedAt = null,
   showSourceBlurb = true,
   emptyDetail = null,
+  onSelectedBarcodes = null,
 }) {
   const hasRows = Array.isArray(rows) && rows.length > 0;
   const totalRows = rows.length;
@@ -24,13 +36,17 @@ export default function WebEposProductsTablePanel({
   const [productNavError, setProductNavError] = useState(null);
   const [productNavBusyKey, setProductNavBusyKey] = useState(null);
 
-  useEffect(() => {
-    setPage(1);
-  }, [totalRows, pageSize]);
+  // Selection state — mirrors ResearchFormShell's rightClickPivotIdx pattern
+  const [selectedIndices, setSelectedIndices] = useState(new Set());
+  const [pivotIdx, setPivotIdx] = useState(null);
 
+  useEffect(() => { setPage(1); }, [totalRows, pageSize]);
+  useEffect(() => { setProductNavError(null); setProductNavBusyKey(null); }, [rows]);
+
+  // Clear selection when rows change (new scrape)
   useEffect(() => {
-    setProductNavError(null);
-    setProductNavBusyKey(null);
+    setSelectedIndices(new Set());
+    setPivotIdx(null);
   }, [rows]);
 
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
@@ -41,6 +57,55 @@ export default function WebEposProductsTablePanel({
     const start = (safePage - 1) * pageSize;
     return rows.slice(start, start + pageSize);
   }, [rows, hasRows, safePage, pageSize]);
+
+  // Notify parent of selected barcodes (deduplicated, barcode extracted)
+  useEffect(() => {
+    if (!onSelectedBarcodes) return;
+    const selected = Array.from(selectedIndices)
+      .sort((a, b) => a - b)
+      .map((idx) => rows[idx]?.barcode)
+      .filter(Boolean)
+      .map(extractBarcode);
+    onSelectedBarcodes(selected);
+  }, [selectedIndices, rows, onSelectedBarcodes]);
+
+  // Pivot-range selection — exact same logic as ResearchFormShell handleExcludeClick
+  const handleSelectionClick = useCallback((globalIndex) => {
+    const isSelected = selectedIndices.has(globalIndex);
+
+    if (isSelected && pivotIdx !== globalIndex) {
+      // Clicking an already-selected non-pivot row → deselect it
+      setSelectedIndices((prev) => { const s = new Set(prev); s.delete(globalIndex); return s; });
+      setPivotIdx(null);
+      return;
+    }
+
+    if (pivotIdx === globalIndex) {
+      // Clicking the pivot again → select ONLY this item (single select), clear pivot
+      setSelectedIndices(new Set([globalIndex]));
+      setPivotIdx(null);
+      return;
+    }
+
+    if (pivotIdx !== null) {
+      // Second click with pivot set → range-select from pivot to this row
+      const start = Math.min(pivotIdx, globalIndex);
+      const end = Math.max(pivotIdx, globalIndex);
+      setSelectedIndices((prev) => {
+        const s = new Set(prev);
+        for (let i = start; i <= end; i++) s.add(i);
+        return s;
+      });
+      setPivotIdx(null);
+      return;
+    }
+
+    // First click, row not selected → set as pivot
+    setPivotIdx(globalIndex);
+    setSelectedIndices((prev) => { const s = new Set(prev); s.add(globalIndex); return s; });
+  }, [selectedIndices, pivotIdx]);
+
+  const selectedCount = selectedIndices.size;
 
   return (
     <>
@@ -93,6 +158,11 @@ export default function WebEposProductsTablePanel({
               <p className="text-sm font-semibold tabular-nums text-slate-800 dark:text-slate-100">
                 {totalRows} result{totalRows !== 1 ? 's' : ''}
                 {totalPages > 1 ? ` · page ${safePage} of ${totalPages}` : null}
+                {selectedCount > 0 ? (
+                  <span className="ml-2 rounded-full bg-brand-blue/10 px-2 py-0.5 text-xs font-semibold text-brand-blue">
+                    {selectedCount} selected
+                  </span>
+                ) : null}
               </p>
               <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
                 <span>Rows per page</span>
@@ -102,9 +172,7 @@ export default function WebEposProductsTablePanel({
                   className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm font-medium text-slate-800 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
                 >
                   {PAGE_SIZE_OPTIONS.map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
+                    <option key={n} value={n}>{n}</option>
                   ))}
                 </select>
               </label>
@@ -114,18 +182,48 @@ export default function WebEposProductsTablePanel({
               <table className="spreadsheet-table spreadsheet-table--static-header w-full min-w-[720px] border-collapse text-left text-sm">
                 <thead>
                   <tr>
+                    <th scope="col" className="w-10 text-center">
+                      <span className="material-symbols-outlined text-[16px] leading-none text-slate-400" title="Click to set pivot, click another to range-select">check_circle</span>
+                    </th>
                     {['Barcode', 'Product Name', 'Price', 'Quantity', 'Status', 'Shop'].map((h) => (
-                      <th key={h} scope="col">
-                        {h}
-                      </th>
+                      <th key={h} scope="col">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {pageRows.map((row, ri) => {
                     const globalIndex = (safePage - 1) * pageSize + ri;
+                    const isSelected = selectedIndices.has(globalIndex);
+                    const isPivot = pivotIdx === globalIndex;
                     return (
-                      <tr key={`${row.barcode}-${globalIndex}`}>
+                      <tr
+                        key={`${row.barcode}-${globalIndex}`}
+                        className={isSelected ? (isPivot ? 'bg-brand-blue/20' : 'bg-brand-blue/10') : ''}
+                      >
+                        <td className="w-10 px-2 py-1 text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleSelectionClick(globalIndex)}
+                            className={`inline-flex items-center justify-center size-7 rounded-full transition-colors ${
+                              isPivot
+                                ? 'bg-brand-blue text-white shadow ring-2 ring-brand-blue/30'
+                                : isSelected
+                                  ? 'bg-brand-blue/80 text-white'
+                                  : 'border border-slate-300 bg-white text-slate-400 hover:border-brand-blue hover:text-brand-blue'
+                            }`}
+                            title={
+                              isPivot
+                                ? 'Pivot set — click another row to range-select, or click here to select only this one'
+                                : isSelected
+                                  ? 'Click to deselect'
+                                  : 'Click to set pivot, then click another to range-select'
+                            }
+                          >
+                            <span className="material-symbols-outlined text-[15px] leading-none">
+                              {isPivot ? 'swap_vert' : isSelected ? 'check' : 'add'}
+                            </span>
+                          </button>
+                        </td>
                         <td className="font-mono text-xs">
                           {row.productHref ? (
                             <button
@@ -142,9 +240,7 @@ export default function WebEposProductsTablePanel({
                                     barcode: row.barcode,
                                   });
                                   if (!r || r.ok !== true) {
-                                    setProductNavError(
-                                      (r && r.error) || 'Could not open this product in Web EPOS.'
-                                    );
+                                    setProductNavError((r && r.error) || 'Could not open this product in Web EPOS.');
                                   }
                                 } catch (e) {
                                   setProductNavError(
@@ -218,9 +314,7 @@ export default function WebEposProductsTablePanel({
                     }, [])
                     .map((p, idx) =>
                       p === '…' ? (
-                        <span key={`ellipsis-${idx}`} className="px-2 text-sm font-medium text-gray-500">
-                          …
-                        </span>
+                        <span key={`ellipsis-${idx}`} className="px-2 text-sm font-medium text-gray-500">…</span>
                       ) : (
                         <button
                           key={p}

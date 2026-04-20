@@ -47,6 +47,7 @@ export function useListWorkspaceNegotiationBootstrap({
     const navUploadPendingSlotIds = location.state?.uploadPendingSlotIds;
     const navUploadBarcodeIntakeDone = location.state?.uploadBarcodeIntakeDone;
     const navUploadBarcodeWorkspace = location.state?.uploadBarcodeWorkspace;
+    const auditBarcodes = useAppStore.getState().auditBarcodes || [];
 
     if (
       resumeSessionId &&
@@ -183,6 +184,24 @@ export function useListWorkspaceNegotiationBootstrap({
       if (resumingUploadSessionFromNav) {
         setBarcodeModal(null);
         setBarcodeInput("");
+      }
+      if (Array.isArray(auditBarcodes) && auditBarcodes.length > 0) {
+        const slotIds = auditBarcodes.map(
+          () =>
+            typeof crypto !== 'undefined' && crypto.randomUUID
+              ? crypto.randomUUID()
+              : `audit-slot-${Date.now()}-${Math.random().toString(36).slice(2)}`
+        );
+        setUploadScanSlotIds(slotIds);
+        setUploadBarcodeIntakeOpen(true);
+        setUploadBarcodeIntakeDone(false);
+        setBarcodeModal({ item: { id: slotIds[0], title: 'Audit barcode' } });
+        const barcodeMap = {};
+        slotIds.forEach((slotId, idx) => {
+          barcodeMap[slotId] = [auditBarcodes[idx]];
+        });
+        setBarcodes(barcodeMap);
+        useAppStore.setState({ auditBarcodes: [] });
       }
     }
     const cartKey = getCartKey(cartItems);
