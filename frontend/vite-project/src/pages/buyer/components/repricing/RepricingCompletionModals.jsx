@@ -230,6 +230,10 @@ function RepricingBarcodeModalBody({
   hideNosposSkip = false,
   /** Upload intake: input first, then NosPos row / matches (linear flow). */
   composerFirst = false,
+  /** Upload intake: slot ids already verified (not the active composer line), in order. */
+  uploadIntakePriorSlotIds = null,
+  /** Full `barcodes` map (needed to render {@link uploadIntakePriorSlotIds}). */
+  allBarcodes = {},
 }) {
   const barcodeRows = itemBarcodes.length > 0 && (
     <div className="space-y-2 mb-4 max-h-96 overflow-y-auto">
@@ -444,11 +448,54 @@ function RepricingBarcodeModalBody({
   );
 
   if (composerFirst) {
+    const priorIds = Array.isArray(uploadIntakePriorSlotIds) ? uploadIntakePriorSlotIds : [];
+    const priorSummaries = priorIds.map((slotId) => {
+      const codes = allBarcodes[slotId] || [];
+      const code = codes[0];
+      const lookup = nosposLookups[`${slotId}_0`];
+      return { slotId, code, lookup };
+    }).filter((row) => row.code);
+
     return (
       <>
         <p className="text-[11px] leading-snug text-slate-600 mb-3">
-          Search NosPos for the barcode you typed. If there is one match it links automatically; if there are several, pick the right row — then the queue below updates and you can type the next barcode.
+          Search NosPos for each barcode. Verified lines stay in the list below; use the field under it for the next one. Multiple matches: pick a row, then continue.
         </p>
+        {priorSummaries.length > 0 ? (
+          <div className="mb-4 space-y-2">
+            <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Verified barcodes</p>
+            <div className="max-h-52 space-y-2 overflow-y-auto pr-0.5">
+              {priorSummaries.map(({ slotId, code, lookup }) => (
+                <div
+                  key={slotId}
+                  className="flex flex-wrap items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/80 px-3 py-2"
+                >
+                  <span className="material-symbols-outlined shrink-0 text-emerald-700 text-[18px]">check_circle</span>
+                  <span className="font-mono text-xs font-semibold text-brand-blue">{code}</span>
+                  {lookup?.status === 'selected' && lookup.stockUrl ? (
+                    <>
+                      <span className="text-slate-300" aria-hidden>
+                        ·
+                      </span>
+                      <a
+                        href={lookup.stockUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="min-w-0 max-w-full truncate text-[11px] font-semibold text-brand-blue underline-offset-2 hover:underline"
+                        title={lookup.stockName || lookup.stockBarcode}
+                      >
+                        {lookup.stockBarcode}
+                        {lookup.stockName ? ` · ${lookup.stockName}` : ''}
+                      </a>
+                    </>
+                  ) : (
+                    <span className="text-[10px] text-slate-600">NosPos linked</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
         {inputRow}
         {itemBarcodes.length === 0 ? (
           <p className="text-[11px] text-slate-500 mb-3">Matches and verification status appear here after you search.</p>
@@ -512,6 +559,8 @@ export function RepricingBarcodeModal({
   hideNosposSkip = false,
   /** When false, upload list rows: no × remove — replace only. */
   allowRemoveBarcode = true,
+  /** Upload intake (with {@link composerFirst}): prior verified slot ids in order (not the active line). */
+  uploadIntakePriorSlotIds = null,
 }) {
   if (!barcodeModal) return null;
   const modalItem = barcodeModal.item;
@@ -538,6 +587,8 @@ export function RepricingBarcodeModal({
       allowRemoveBarcode={allowRemoveBarcode}
       hideNosposSkip={hideNosposSkip}
       composerFirst={composerFirst}
+      uploadIntakePriorSlotIds={uploadIntakePriorSlotIds}
+      allBarcodes={barcodes}
     />
   );
 

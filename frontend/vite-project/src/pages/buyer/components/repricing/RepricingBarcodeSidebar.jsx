@@ -11,6 +11,7 @@ const DEFAULT_WORKSPACE_LABELS = {
 };
 
 function RepricingActionsBlock({
+  workspace = 'repricing',
   headerWorkspaceOpen,
   researchItem,
   cashConvertersResearchItem,
@@ -22,6 +23,7 @@ function RepricingActionsBlock({
   onProceed,
   onOpenBarcodePrintTab,
   onNewRepricing,
+  onRestartInWorkspace,
   onViewWebEposProducts,
   viewWebEposProductsDisabled,
   onViewWebEposCategories,
@@ -29,6 +31,113 @@ function RepricingActionsBlock({
   layout = 'vertical',
   labels = DEFAULT_WORKSPACE_LABELS,
 }) {
+  const uploadWebEposRestart =
+    workspace === 'upload' && isRepricingFinished && typeof onRestartInWorkspace === 'function';
+
+  if (uploadWebEposRestart) {
+    const btnClassRestart = `font-bold rounded-xl transition-all flex items-center justify-center gap-2 group active:scale-[0.98] ${
+      layout === 'vertical' ? 'w-full py-4' : 'px-6 py-3 whitespace-nowrap'
+    }`;
+    return (
+      <div
+        className={layout === 'vertical' ? 'p-6 bg-white border-t space-y-4' : 'flex flex-wrap items-center justify-between gap-3 w-full'}
+        style={{ borderColor: 'var(--brand-blue-alpha-20)' }}
+      >
+        {layout === 'horizontal' && (
+          <button
+            type="button"
+            onClick={onNewRepricing}
+            title={labels.newButtonTitle}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold border transition-colors"
+            style={{ borderColor: 'var(--brand-blue-alpha-20)', color: 'var(--brand-blue)' }}
+          >
+            <span className="material-symbols-outlined text-[16px]">refresh</span>
+            {labels.newButton}
+          </button>
+        )}
+        <div
+          className={
+            layout === 'horizontal'
+              ? 'flex flex-wrap items-center justify-end gap-2 flex-1 min-w-0'
+              : 'flex flex-col gap-3 w-full'
+          }
+        >
+          {(onViewWebEposProducts || onViewWebEposCategories) && (
+            <div
+              className={
+                onViewWebEposProducts && onViewWebEposCategories
+                  ? layout === 'vertical'
+                    ? 'flex w-full flex-row gap-2'
+                    : 'flex flex-row flex-wrap items-center justify-end gap-2'
+                  : 'flex w-full flex-col gap-2'
+              }
+            >
+              {onViewWebEposProducts && (
+                <button
+                  type="button"
+                  className={`font-semibold rounded-xl transition-all flex items-center justify-center gap-2 border-2 active:scale-[0.98] ${
+                    viewWebEposProductsDisabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-50 dark:hover:bg-slate-800'
+                  } ${
+                    layout === 'vertical'
+                      ? onViewWebEposCategories
+                        ? 'flex-1 min-w-0 py-3'
+                        : 'w-full py-3'
+                      : 'px-4 py-2.5 whitespace-nowrap'
+                  }`}
+                  style={{ borderColor: 'var(--brand-blue)', color: 'var(--brand-blue)' }}
+                  onClick={onViewWebEposProducts}
+                  disabled={viewWebEposProductsDisabled}
+                >
+                  <span className="material-symbols-outlined text-[18px]">table_rows</span>
+                  <span className={layout === 'vertical' ? 'text-sm uppercase tracking-tight' : 'text-xs uppercase tracking-tight'}>
+                    View products
+                  </span>
+                </button>
+              )}
+              {onViewWebEposCategories && (
+                <button
+                  type="button"
+                  className={`font-semibold rounded-xl transition-all flex items-center justify-center gap-2 border-2 active:scale-[0.98] ${
+                    viewWebEposCategoriesDisabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-50 dark:hover:bg-slate-800'
+                  } ${
+                    layout === 'vertical'
+                      ? onViewWebEposProducts
+                        ? 'flex-1 min-w-0 py-3'
+                        : 'w-full py-3'
+                      : 'px-4 py-2.5 whitespace-nowrap'
+                  }`}
+                  style={{ borderColor: 'var(--brand-blue)', color: 'var(--brand-blue)' }}
+                  onClick={onViewWebEposCategories}
+                  disabled={viewWebEposCategoriesDisabled}
+                >
+                  <span className="material-symbols-outlined text-[18px]">category</span>
+                  <span className={layout === 'vertical' ? 'text-sm uppercase tracking-tight' : 'text-xs uppercase tracking-tight'}>
+                    View categories
+                  </span>
+                </button>
+              )}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={onRestartInWorkspace}
+            className={btnClassRestart}
+            style={{
+              background: 'var(--brand-orange)',
+              color: 'var(--brand-blue)',
+              boxShadow: layout === 'vertical' ? '0 10px 15px -3px rgba(247,185,24,0.3)' : undefined,
+            }}
+          >
+            <span className="material-symbols-outlined text-xl">replay</span>
+            <span className={`uppercase tracking-tight ${layout === 'vertical' ? 'text-base' : 'text-sm'}`}>
+              {labels.restartInWorkspace || 'Restart in workspace'}
+            </span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const proceedDisabled =
     headerWorkspaceOpen ||
     researchItem ||
@@ -196,6 +305,12 @@ export default function RepricingBarcodeSidebar({
   viewWebEposProductsDisabled,
   onViewWebEposCategories,
   viewWebEposCategoriesDisabled,
+  /** When set (e.g. upload list: barcodes ready but Upload RRP missing), overrides `verifyHint`. */
+  verifyHintOverride = null,
+  /** Upload + Web EPOS batch done: replaces finished chrome with a single restart action. */
+  onRestartInWorkspace = null,
+  /** Optional label override (e.g. from {@link negotiationWorkspaceCopy}). */
+  restartInWorkspaceLabel = null,
 }) {
   const labels =
     workspace === 'upload'
@@ -208,6 +323,7 @@ export default function RepricingBarcodeSidebar({
           proceedRunning: 'Upload running in background',
           proceedDone: 'Upload finished',
           finishedNote: 'Upload finished',
+          restartInWorkspace: restartInWorkspaceLabel || 'Restart in workspace',
           verifyHint: uploadBarcodeIntakeOpen
             ? 'Complete the barcode intake dialog first — nothing else is available until then.'
             : uploadScanSlotCount != null && uploadScanSlotCount > 0
@@ -220,13 +336,21 @@ export default function RepricingBarcodeSidebar({
           ...DEFAULT_WORKSPACE_LABELS,
         };
 
+  const labelsWithHint =
+    verifyHintOverride != null && String(verifyHintOverride).trim()
+      ? { ...labels, verifyHint: String(verifyHintOverride).trim() }
+      : labels;
+
   if (variant === 'actionsOnly') {
     return (
       <div
-        className="shrink-0 border-t flex flex-col gap-2 px-4 py-3 bg-white"
+        className={`shrink-0 border-t flex flex-col gap-2 py-3 bg-white ${
+          workspace === 'upload' ? 'pl-2 pr-2 sm:pl-3 sm:pr-3 md:pl-4 md:pr-4' : 'px-4'
+        }`}
         style={{ borderColor: 'var(--brand-blue-alpha-20)' }}
       >
         <RepricingActionsBlock
+          workspace={workspace}
           headerWorkspaceOpen={headerWorkspaceOpen}
           researchItem={researchItem}
           cashConvertersResearchItem={cashConvertersResearchItem}
@@ -238,12 +362,13 @@ export default function RepricingBarcodeSidebar({
           onProceed={onProceed}
           onOpenBarcodePrintTab={onOpenBarcodePrintTab}
           onNewRepricing={onNewRepricing}
+          onRestartInWorkspace={onRestartInWorkspace}
           onViewWebEposProducts={onViewWebEposProducts}
           viewWebEposProductsDisabled={viewWebEposProductsDisabled}
           onViewWebEposCategories={onViewWebEposCategories}
           viewWebEposCategoriesDisabled={viewWebEposCategoriesDisabled}
           layout="horizontal"
-          labels={labels}
+          labels={labelsWithHint}
         />
       </div>
     );
@@ -314,6 +439,7 @@ export default function RepricingBarcodeSidebar({
       </div>
 
       <RepricingActionsBlock
+        workspace={workspace}
         headerWorkspaceOpen={headerWorkspaceOpen}
         researchItem={researchItem}
         cashConvertersResearchItem={cashConvertersResearchItem}
@@ -325,12 +451,13 @@ export default function RepricingBarcodeSidebar({
         onProceed={onProceed}
         onOpenBarcodePrintTab={onOpenBarcodePrintTab}
         onNewRepricing={onNewRepricing}
+        onRestartInWorkspace={onRestartInWorkspace}
         onViewWebEposProducts={onViewWebEposProducts}
         viewWebEposProductsDisabled={viewWebEposProductsDisabled}
         onViewWebEposCategories={onViewWebEposCategories}
         viewWebEposCategoriesDisabled={viewWebEposCategoriesDisabled}
         layout="vertical"
-        labels={labels}
+        labels={labelsWithHint}
       />
     </aside>
   );

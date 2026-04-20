@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React from "react";
 import AppHeader from "@/components/AppHeader";
 import QuickRepriceModal from "@/components/modals/QuickRepriceModal";
 import SalePriceConfirmModal from "@/components/modals/SalePriceConfirmModal";
@@ -7,6 +7,7 @@ import ResearchOverlayPanel from "../components/ResearchOverlayPanel";
 import CgCategoryPickerModal from "@/components/modals/CgCategoryPickerModal";
 import TinyModal from "@/components/ui/TinyModal";
 import UploadBarcodeIntakeModal from "@/components/modals/UploadBarcodeIntakeModal.jsx";
+import UploadNosposChangesModal from "@/components/modals/UploadNosposChangesModal.jsx";
 import NegotiationDocumentHead from "../components/negotiation/NegotiationDocumentHead";
 import NegotiationTablesSection from "../components/negotiation/NegotiationTablesSection";
 import NegotiationRowContextMenu from "../components/NegotiationRowContextMenu";
@@ -19,8 +20,11 @@ import {
   RepricingBarcodeModal,
 } from "../components/repricing/RepricingCompletionModals";
 import { cancelNosposRepricing } from "@/services/extensionClient";
+import useAppStore from "@/store/useAppStore";
 import { handlePriceSourceAsRrpOffersSource } from "../utils/priceSourceAsRrpOffers";
+import { getAvailableRrpZonesForNegotiationItem } from "../utils/negotiationHelpers";
 import { useListWorkspaceNegotiation } from "./useListWorkspaceNegotiation";
+import UploadWebEposHubScreen from "./UploadWebEposHubScreen";
 
 /**
  * Repricing / upload list UI — rendered from {@link Negotiation} when `listWorkspaceModuleKey` is set.
@@ -29,15 +33,8 @@ import { useListWorkspaceNegotiation } from "./useListWorkspaceNegotiation";
 export default function ListWorkspaceNegotiation({ moduleKey = "repricing" }) {
   const w = useListWorkspaceNegotiation(moduleKey);
 
-  const uploadHeadNosposStockUrl = useMemo(() => {
-    const head = w.uploadPendingSlotIds?.[0];
-    if (!head) return "";
-    const url = w.nosposLookups?.[`${head}_0`]?.stockUrl;
-    return typeof url === "string" ? url.trim() : "";
-  }, [w.uploadPendingSlotIds, w.nosposLookups]);
-
   /** Must run before any conditional return (Rules of Hooks). Uses `w` only. */
-  const uploadListRowBarcodeModalLocked = useMemo(
+  const uploadListRowBarcodeModalLocked = React.useMemo(
     () =>
       Boolean(
         w.useUploadSessions &&
@@ -49,11 +46,58 @@ export default function ListWorkspaceNegotiation({ moduleKey = "repricing" }) {
     [w.useUploadSessions, w.barcodeModal, w.items]
   );
 
+  const uploadGetDataFromDatabaseMenu = React.useMemo(() => {
+    if (!w.useUploadSessions || !w.contextMenu?.item) return null;
+    if (getAvailableRrpZonesForNegotiationItem(w.contextMenu.item).length > 0) return null;
+    return {
+      menuLabel: w.copy.uploadContextGetDataFromDatabase,
+      flyoutTitle: w.copy.uploadContextDatabaseFlyoutTitle,
+      loadingLabel: w.copy.uploadContextDatabaseCategoriesLoading,
+      categories: w.uploadBuilderTopCategories,
+      onPickCategory: (categoryId) => {
+        useAppStore.getState().requestOpenBuilderTopCategory(categoryId);
+        w.setContextMenu(null);
+      },
+    };
+  }, [
+    w.useUploadSessions,
+    w.contextMenu,
+    w.copy.uploadContextGetDataFromDatabase,
+    w.copy.uploadContextDatabaseFlyoutTitle,
+    w.copy.uploadContextDatabaseCategoriesLoading,
+    w.uploadBuilderTopCategories,
+    w.setContextMenu,
+  ]);
+
+  const [uploadNosposChangesModalItem, setUploadNosposChangesModalItem] = React.useState(null);
+
   if (w.showWorkspaceLoader) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--ui-bg)" }}>
+      <div
+        className="flex min-h-screen flex-col items-center justify-center gap-4"
+        style={{ background: "var(--ui-bg)" }}
+      >
+        <span
+          className="material-symbols-outlined animate-spin text-4xl"
+          style={{ color: "var(--brand-blue)" }}
+          aria-hidden
+        >
+          progress_activity
+        </span>
         <p className="text-sm text-gray-500">{w.workspaceLoaderMessage}</p>
       </div>
+    );
+  }
+
+  if (w.uploadWebEposHubActive) {
+    return (
+      <UploadWebEposHubScreen
+        copy={w.copy}
+        snapshot={w.webEposProductsSnapshot}
+        scrapeError={w.webEposProductsScrapeError}
+        onRetryScrape={() => w.bumpWebEposScrape()}
+        onEnterUpload={w.enterUploadMainFlow}
+      />
     );
   }
 
@@ -91,6 +135,7 @@ export default function ListWorkspaceNegotiation({ moduleKey = "repricing" }) {
     handleCashGeneratorResearchComplete,
     handleResearchItemCategoryResolved,
     isRepricingFinished,
+    uploadPostWebEposComplete,
     completedItemsData,
     ambiguousBarcodeModal,
     setAmbiguousBarcodeModal,
@@ -114,13 +159,16 @@ export default function ListWorkspaceNegotiation({ moduleKey = "repricing" }) {
     handleOurSalePriceChange,
     handleOurSalePriceBlur,
     handleOurSalePriceFocus,
+    handleUploadTableItemNameChange,
     handleApplyRrpPriceSource,
+    runUploadCategoryAndCgAfterValidRrp,
     addBarcode,
     removeBarcode,
     runNosposLookup,
     selectNosposResult,
     skipNosposLookup,
     handleProceed,
+    handleRestartUploadInWorkspace,
     handleConfirmNewRepricing,
     handleRetryAmbiguousBarcodes,
     renderBarcodeCell,
@@ -134,10 +182,6 @@ export default function ListWorkspaceNegotiation({ moduleKey = "repricing" }) {
     isQuickRepriceOpen,
     setIsQuickRepriceOpen,
     handleQuickRepriceItems,
-    handleViewWebEposProducts,
-    viewWebEposProductsDisabled,
-    handleViewWebEposCategories,
-    viewWebEposCategoriesDisabled,
     openBarcodePrintTab,
     cgCategoryRows,
     cgCategoryPickerModal,
@@ -145,14 +189,16 @@ export default function ListWorkspaceNegotiation({ moduleKey = "repricing" }) {
     handleOpenCgCategoryPicker,
     handleCgCategorySelected,
     uploadBarcodeIntakeOpen,
-    uploadBarcodeIntakeDone,
     uploadScanSlotIds,
     uploadPendingSlotIds,
-    uploadCurrentBarcodeLabel,
-    uploadPendingStockDetails,
     beginUploadScanBarcodeLine,
     completeUploadBarcodeIntake,
+    openAddMoreUploadBarcodeIntake,
+    uploadListMissingRrp,
   } = w;
+
+  const uploadRestartInWorkspaceAction =
+    useUploadSessions && uploadPostWebEposComplete ? handleRestartUploadInWorkspace : undefined;
 
   const uploadIntakeEmbeddedBarcode =
     useUploadSessions &&
@@ -192,6 +238,7 @@ export default function ListWorkspaceNegotiation({ moduleKey = "repricing" }) {
           <UploadBarcodeIntakeModal
             open={uploadBarcodeIntakeOpen}
             slotIds={uploadScanSlotIds}
+            barcodes={barcodes}
             isItemReadyForRepricing={isItemReadyForRepricing}
             onDone={completeUploadBarcodeIntake}
             inlineBarcodeEditor={
@@ -211,6 +258,9 @@ export default function ListWorkspaceNegotiation({ moduleKey = "repricing" }) {
                   setNosposResultsPanel={setNosposResultsPanel}
                   completedBarcodes={completedBarcodes}
                   maxBarcodesPerItem={maxBarcodesPerItem}
+                  uploadIntakePriorSlotIds={uploadScanSlotIds.filter(
+                    (id) => String(id) !== String(barcodeModal.item.id)
+                  )}
                   onAddBarcode={addBarcode}
                   onRemoveBarcode={removeBarcode}
                   onRunNosposLookup={runNosposLookup}
@@ -223,140 +273,11 @@ export default function ListWorkspaceNegotiation({ moduleKey = "repricing" }) {
         ) : null}
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-            {useUploadSessions &&
-            !uploadBarcodeIntakeOpen &&
-            (uploadPendingSlotIds.length > 0 || (uploadBarcodeIntakeDone && uploadPendingSlotIds.length === 0)) ? (
-              <div
-                className="w-full shrink-0 border-b px-4 py-5 sm:px-8 sm:py-6"
-                style={{
-                  borderColor: 'var(--brand-blue-alpha-15)',
-                  background: 'linear-gradient(105deg, #f0f5fb 0%, #f8fafc 45%, #eef6ff 100%)',
-                }}
-              >
-                {uploadPendingSlotIds.length > 0 ? (
-                  <div className="flex w-full min-w-0 flex-col gap-5">
-                    <div className="w-full min-w-0">
-                      <div className="flex w-full flex-wrap items-start gap-4 sm:gap-5">
-                        <span
-                          className="material-symbols-outlined shrink-0 text-4xl sm:text-5xl md:text-6xl text-brand-blue opacity-90"
-                          aria-hidden
-                        >
-                          barcode_scanner
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-500 sm:text-sm">
-                            Current barcode — next in queue
-                          </p>
-                          {uploadHeadNosposStockUrl ? (
-                            <a
-                              href={uploadHeadNosposStockUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="mt-2 block w-full break-all font-mono text-3xl font-bold leading-none tracking-tight text-brand-blue underline-offset-4 transition-opacity hover:underline hover:opacity-90 sm:text-4xl md:text-5xl"
-                              title="Open this stock on NosPos"
-                            >
-                              {uploadCurrentBarcodeLabel || '—'}
-                            </a>
-                          ) : (
-                            <p className="mt-2 w-full break-all font-mono text-3xl font-bold leading-none tracking-tight text-brand-blue sm:text-4xl md:text-5xl">
-                              {uploadCurrentBarcodeLabel || '—'}
-                            </p>
-                          )}
-                          <p className="mt-4 w-full text-base leading-relaxed text-slate-700 sm:text-lg">
-                            <span className="font-semibold text-slate-900">
-                              The next product you add from the header will use this barcode.
-                            </span>
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                    <div
-                      className="w-full min-w-0 rounded-xl border border-white/80 bg-white/90 px-4 py-4 shadow-sm backdrop-blur-sm sm:px-6 sm:py-5"
-                      style={{ borderColor: 'var(--brand-blue-alpha-15)' }}
-                    >
-                      <p className="text-[11px] font-black uppercase tracking-wider text-slate-500 sm:text-xs">
-                        NosPos stock for this barcode
-                      </p>
-                      <div className="mt-2.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 text-sm sm:text-base">
-                        {uploadPendingStockDetails?.loading ? (
-                          <span className="text-slate-600">Loading from NosPos…</span>
-                        ) : null}
-                        {uploadPendingStockDetails?.error && !uploadPendingStockDetails?.loading ? (
-                          <span className="text-amber-900">{uploadPendingStockDetails.error}</span>
-                        ) : null}
-                        {!uploadPendingStockDetails?.loading && uploadPendingStockDetails?.name ? (
-                          <>
-                            <span
-                              className="max-w-full truncate font-semibold text-brand-blue sm:max-w-[min(100%,20rem)]"
-                              title={uploadPendingStockDetails.name}
-                            >
-                              {uploadPendingStockDetails.name}
-                            </span>
-                            <span className="text-slate-300" aria-hidden>
-                              ·
-                            </span>
-                            <span>
-                              <span className="text-slate-500">Created</span>{' '}
-                              <span className="font-medium text-slate-900">{uploadPendingStockDetails.createdAt || '—'}</span>
-                            </span>
-                            <span className="text-slate-300" aria-hidden>
-                              ·
-                            </span>
-                            <span>
-                              <span className="text-slate-500">Bought by</span>{' '}
-                              <span className="font-medium text-slate-900">{uploadPendingStockDetails.boughtBy || '—'}</span>
-                            </span>
-                            <span className="text-slate-300" aria-hidden>
-                              ·
-                            </span>
-                            <span>
-                              <span className="text-slate-500">Cost</span>{' '}
-                              <span className="font-mono font-semibold text-slate-900">
-                                {(() => {
-                                  const v = uploadPendingStockDetails.costPrice;
-                                  if (v == null || v === '') return '—';
-                                  const s = String(v).trim();
-                                  return s.startsWith('£') ? s : `£${s}`;
-                                })()}
-                              </span>
-                            </span>
-                            <span className="text-slate-300" aria-hidden>
-                              ·
-                            </span>
-                            <span>
-                              <span className="text-slate-500">Retail</span>{' '}
-                              <span className="font-mono font-semibold text-slate-900">
-                                {(() => {
-                                  const v = uploadPendingStockDetails.retailPrice;
-                                  if (v == null || v === '') return '—';
-                                  const s = String(v).trim();
-                                  return s.startsWith('£') ? s : `£${s}`;
-                                })()}
-                              </span>
-                            </span>
-                          </>
-                        ) : !uploadPendingStockDetails?.loading && !uploadPendingStockDetails?.error ? (
-                          <span className="text-slate-500">NosPos details will appear here after the line is verified.</span>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="w-full">
-                    <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-500 sm:text-sm">Barcode queue</p>
-                    <p className="mt-2 text-base font-semibold text-slate-900 sm:text-lg">Queue clear</p>
-                    <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-700 sm:text-base">
-                      Every verified barcode is already on the table. Use the header to add another capture line if you need
-                      more barcodes in the queue.
-                    </p>
-                  </div>
-                )}
-              </div>
-            ) : null}
             <NegotiationTablesSection
             mode="negotiate"
             actualRequestId={null}
             researchSandboxBookedView={false}
+            pageGutter={useUploadSessions ? 'wide' : 'default'}
             jewelleryNegotiationItems={[]}
             mainNegotiationItems={items}
             handleSelectOffer={() => {}}
@@ -397,6 +318,26 @@ export default function ListWorkspaceNegotiation({ moduleKey = "repricing" }) {
             salePriceLabel={features.salePriceLabel}
             showUploadNosposStockColumns={useUploadSessions}
             renderRowSuffix={renderBarcodeCell}
+            onUploadTableItemNameChange={useUploadSessions ? handleUploadTableItemNameChange : undefined}
+            onOpenUploadNosposChanges={
+              useUploadSessions ? (row) => setUploadNosposChangesModalItem(row) : undefined
+            }
+            itemsHeadingEndAction={
+              useUploadSessions && !uploadBarcodeIntakeOpen && activeItems.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={openAddMoreUploadBarcodeIntake}
+                  title={copy.uploadAddMoreBarcodesTitle}
+                  className="inline-flex items-center gap-1.5 rounded-lg border-2 px-3 py-1.5 text-xs font-semibold tracking-tight transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40"
+                  style={{ borderColor: "var(--brand-blue)", color: "var(--brand-blue)" }}
+                >
+                  <span className="material-symbols-outlined text-[16px]" aria-hidden>
+                    barcode_scanner
+                  </span>
+                  {copy.uploadAddMoreBarcodes}
+                </button>
+              ) : null
+            }
           />
           </div>
 
@@ -425,11 +366,10 @@ export default function ListWorkspaceNegotiation({ moduleKey = "repricing" }) {
               onProceed={handleProceed}
               onOpenBarcodePrintTab={openBarcodePrintTab}
               onNewRepricing={() => setShowNewRepricingConfirm(true)}
-              onViewWebEposProducts={useUploadSessions ? handleViewWebEposProducts : undefined}
-              viewWebEposProductsDisabled={useUploadSessions ? viewWebEposProductsDisabled : undefined}
-              onViewWebEposCategories={useUploadSessions ? handleViewWebEposCategories : undefined}
-              viewWebEposCategoriesDisabled={useUploadSessions ? viewWebEposCategoriesDisabled : undefined}
               uploadBarcodeIntakeOpen={useUploadSessions ? uploadBarcodeIntakeOpen : false}
+              verifyHintOverride={uploadListMissingRrp ? copy.uploadEveryRrpRequiredHint : null}
+              onRestartInWorkspace={uploadRestartInWorkspaceAction}
+              restartInWorkspaceLabel={useUploadSessions ? copy.uploadRestartInWorkspace : null}
             />
           ) : null}
 
@@ -444,6 +384,7 @@ export default function ListWorkspaceNegotiation({ moduleKey = "repricing" }) {
             hideOfferCards={features.hideOfferCards}
             onCategoryResolved={handleResearchItemCategoryResolved}
             reserveRightSidebar={features.hasRepriceListSidebar}
+            enableUploadRepricingCustomSalePrice
           />
         </div>
 
@@ -482,11 +423,10 @@ export default function ListWorkspaceNegotiation({ moduleKey = "repricing" }) {
             onProceed={handleProceed}
             onOpenBarcodePrintTab={openBarcodePrintTab}
             onNewRepricing={() => setShowNewRepricingConfirm(true)}
-            onViewWebEposProducts={useUploadSessions ? handleViewWebEposProducts : undefined}
-            viewWebEposProductsDisabled={useUploadSessions ? viewWebEposProductsDisabled : undefined}
-            onViewWebEposCategories={useUploadSessions ? handleViewWebEposCategories : undefined}
-            viewWebEposCategoriesDisabled={useUploadSessions ? viewWebEposCategoriesDisabled : undefined}
             uploadBarcodeIntakeOpen={useUploadSessions ? uploadBarcodeIntakeOpen : false}
+            verifyHintOverride={uploadListMissingRrp ? copy.uploadEveryRrpRequiredHint : null}
+            onRestartInWorkspace={uploadRestartInWorkspaceAction}
+            restartInWorkspaceLabel={useUploadSessions ? copy.uploadRestartInWorkspace : null}
           />
         ) : null}
       </main>
@@ -505,7 +445,12 @@ export default function ListWorkspaceNegotiation({ moduleKey = "repricing" }) {
               setItems,
               useVoucherOffers: false,
               repricingRrpOnly: true,
+              successMessageRrpOnly: useUploadSessions ? copy.uploadRrpUpdatedFromSource : undefined,
+              onAfterRrpOnlyApplied: useUploadSessions
+                ? (next) => queueMicrotask(() => runUploadCategoryAndCgAfterValidRrp(next))
+                : undefined,
             })}
+          getDataFromDatabase={uploadGetDataFromDatabaseMenu}
         />
       )}
 
@@ -518,6 +463,11 @@ export default function ListWorkspaceNegotiation({ moduleKey = "repricing" }) {
         priceLabel={features.salePriceLabel}
         repricingMode
         showNotification={showNotification}
+        onRepricingPriceCommitted={
+          useUploadSessions
+            ? (row) => queueMicrotask(() => runUploadCategoryAndCgAfterValidRrp(row))
+            : undefined
+        }
       />
 
       <CexPencilRrpSourceModal
@@ -527,6 +477,11 @@ export default function ListWorkspaceNegotiation({ moduleKey = "repricing" }) {
         onClose={() => setCexPencilRrpSourceModal(null)}
         useVoucherOffers={false}
         showNotification={showNotification}
+        onAfterCexRrpCommit={
+          useUploadSessions
+            ? (row) => queueMicrotask(() => runUploadCategoryAndCgAfterValidRrp(row))
+            : undefined
+        }
       />
 
       {showNewRepricingConfirm && (
@@ -558,14 +513,18 @@ export default function ListWorkspaceNegotiation({ moduleKey = "repricing" }) {
           workspace={copy.workspace}
           repricingJob={repricingJob}
           activeCartKey={activeCartKey}
-          onCancel={async (cartKey) => {
-            try {
-              await cancelNosposRepricing(cartKey);
-              showNotification(copy.cancelOk, "info");
-            } catch {
-              showNotification(copy.cancelErr, "error");
-            }
-          }}
+          onCancel={
+            copy.workspace === "upload"
+              ? undefined
+              : async (cartKey) => {
+                  try {
+                    await cancelNosposRepricing(cartKey);
+                    showNotification(copy.cancelOk, "info");
+                  } catch {
+                    showNotification(copy.cancelErr, "error");
+                  }
+                }
+          }
         />
       )}
 
@@ -614,6 +573,13 @@ export default function ListWorkspaceNegotiation({ moduleKey = "repricing" }) {
       {features.hasQuickReprice && isQuickRepriceOpen ? (
         <QuickRepriceModal onClose={() => setIsQuickRepriceOpen(false)} onAddItems={handleQuickRepriceItems} />
       ) : null}
+
+      <UploadNosposChangesModal
+        open={Boolean(uploadNosposChangesModalItem)}
+        onClose={() => setUploadNosposChangesModalItem(null)}
+        rows={uploadNosposChangesModalItem?.uploadNosposStockFromBarcode?.changeLog}
+        titleLine={uploadNosposChangesModalItem?.variantName || uploadNosposChangesModalItem?.title || ''}
+      />
     </div>
   );
 }

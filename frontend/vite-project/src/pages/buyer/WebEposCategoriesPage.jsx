@@ -138,7 +138,7 @@ export default function WebEposCategoriesPage() {
                   try {
                     sessionStorage.setItem(WEB_EPOS_UPLOAD_SKIP_GATE_KEY, '1');
                   } catch (_) {}
-                  navigate('/upload');
+                  navigate(-1);
                 }}
                 className="px-4 py-2 rounded-lg text-sm font-semibold border border-slate-200 dark:border-slate-600 text-brand-blue hover:bg-brand-blue/5 transition-colors"
               >

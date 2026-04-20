@@ -3,6 +3,7 @@ import useAppStore from "@/store/useAppStore";
 import {
   buildNegotiationSessionDataSnapshot,
   listWorkspaceCartKeyFromState,
+  uploadWorkspaceHasRecordedBarcode,
 } from "./listWorkspaceUtils";
 
 /**
@@ -15,7 +16,6 @@ export function useListWorkspaceNegotiationPersistence({
   barcodes,
   nosposLookups,
   uploadScanSlotIds,
-  uploadPendingSlotIds,
   uploadBarcodeIntakeOpen,
   uploadBarcodeIntakeDone,
   uploadStockDetailsBySlotId,
@@ -38,7 +38,6 @@ export function useListWorkspaceNegotiationPersistence({
     barcodes,
     nosposLookups,
     uploadScanSlotIds,
-    uploadPendingSlotIds,
     uploadBarcodeIntakeOpen,
     uploadBarcodeIntakeDone,
     uploadStockDetailsBySlotId,
@@ -48,7 +47,6 @@ export function useListWorkspaceNegotiationPersistence({
     barcodes,
     nosposLookups,
     uploadScanSlotIds,
-    uploadPendingSlotIds,
     uploadBarcodeIntakeOpen,
     uploadBarcodeIntakeDone,
     uploadStockDetailsBySlotId,
@@ -56,15 +54,16 @@ export function useListWorkspaceNegotiationPersistence({
 
   const flushNegotiationSave = useCallback(
     (opts = {}) => {
-      if (!dbSessionId || isRepricingFinished) return;
+      if (!dbSessionId || isRepricingFinished) return Promise.resolve();
       const state = latestStateRef.current;
+      if (useUploadSessions && !uploadWorkspaceHasRecordedBarcode(state)) return Promise.resolve();
       const activeCount = state.items.filter((i) => !i.isRemoved).length;
       if (autoSaveTimer.current) {
         clearTimeout(autoSaveTimer.current);
         autoSaveTimer.current = null;
       }
       hasPendingSave.current = false;
-      updateWorkspaceSession(
+      return updateWorkspaceSession(
         dbSessionId,
         {
           session_data: buildNegotiationSessionDataSnapshot(state, useUploadSessions),
@@ -72,31 +71,35 @@ export function useListWorkspaceNegotiationPersistence({
           item_count: activeCount,
         },
         opts
-      ).catch((err) => console.warn(copy.saveFailLog, err));
+      ).catch((err) => {
+        console.warn(copy.saveFailLog, err);
+      });
     },
     [dbSessionId, isRepricingFinished, updateWorkspaceSession, copy.saveFailLog, useUploadSessions]
   );
 
   useEffect(() => {
     if (!dbSessionId || isLoading || isRepricingFinished) return;
+    const snapState = {
+      items,
+      barcodes,
+      nosposLookups,
+      uploadScanSlotIds,
+      uploadBarcodeIntakeOpen,
+      uploadBarcodeIntakeDone,
+      uploadStockDetailsBySlotId,
+    };
+    if (useUploadSessions && !uploadWorkspaceHasRecordedBarcode(snapState)) return;
     hasPendingSave.current = true;
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
     autoSaveTimer.current = setTimeout(() => {
       hasPendingSave.current = false;
-      const activeCount = items.filter((i) => !i.isRemoved).length;
-      const snapState = {
-        items,
-        barcodes,
-        nosposLookups,
-        uploadScanSlotIds,
-        uploadPendingSlotIds,
-        uploadBarcodeIntakeOpen,
-        uploadBarcodeIntakeDone,
-        uploadStockDetailsBySlotId,
-      };
+      const latest = latestStateRef.current;
+      if (useUploadSessions && !uploadWorkspaceHasRecordedBarcode(latest)) return;
+      const activeCount = latest.items.filter((i) => !i.isRemoved).length;
       updateWorkspaceSession(dbSessionId, {
-        session_data: buildNegotiationSessionDataSnapshot(snapState, useUploadSessions),
-        cart_key: listWorkspaceCartKeyFromState(snapState, useUploadSessions),
+        session_data: buildNegotiationSessionDataSnapshot(latest, useUploadSessions),
+        cart_key: listWorkspaceCartKeyFromState(latest, useUploadSessions),
         item_count: activeCount,
       }).catch((err) => console.warn("[CG Suite] Auto-save failed:", err));
     }, 1500);
@@ -108,7 +111,6 @@ export function useListWorkspaceNegotiationPersistence({
     barcodes,
     nosposLookups,
     uploadScanSlotIds,
-    uploadPendingSlotIds,
     uploadBarcodeIntakeOpen,
     uploadBarcodeIntakeDone,
     uploadStockDetailsBySlotId,
@@ -135,10 +137,9 @@ export function useListWorkspaceNegotiationPersistence({
     if (!isCartInitiallyEmptyRef.current) return;
     if (dbSessionId || isCreatingSession.current || uploadSessionDraftStartedRef.current) return;
     const snap = latestStateRef.current;
-    const hasWork =
-      snap.items.length > 0 ||
-      (useUploadSessions &&
-        (snap.uploadScanSlotIds.length > 0 || snap.uploadPendingSlotIds.length > 0));
+    const hasWork = useUploadSessions
+      ? uploadWorkspaceHasRecordedBarcode(snap)
+      : snap.items.length > 0;
     if (!hasWork) return;
     uploadSessionDraftStartedRef.current = true;
     isCreatingSession.current = true;
@@ -163,7 +164,6 @@ export function useListWorkspaceNegotiationPersistence({
   }, [
     items.length,
     uploadScanSlotIds.length,
-    uploadPendingSlotIds.length,
     dbSessionId,
     useUploadSessions,
     saveWorkspaceSession,

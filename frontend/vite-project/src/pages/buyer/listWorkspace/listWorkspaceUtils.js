@@ -48,6 +48,17 @@ const NEGOTIATION_SESSION_ITEM_KEYS = [
   "offersSource",
   /** Upload workspace: NosPos stock-edit scrape snapshot for the barcode line. */
   "uploadNosposStockFromBarcode",
+  /** AI / manual CG retail category hint (persisted with draft session). */
+  "aiSuggestedCgStockCategory",
+  /** AI NosPos stock category + field hints (same as negotiation raw_data mirrors). */
+  "aiSuggestedNosposStockCategory",
+  "aiSuggestedNosposStockFieldValues",
+  /** Upload: row is waiting for a CeX/header product (table order, not a separate FIFO list). */
+  "isUploadBarcodeQueuePlaceholder",
+  /** Set when the server has created a `pricing_upload_session_item` row (Web EPOS barcode suffix). */
+  "upload_session_item_id",
+  /** Upload list: optional override for the “Item name & attributes” column / Web EPOS title. */
+  "uploadTableItemName",
 ];
 
 export function pickNegotiationItemForSession(item) {
@@ -91,13 +102,41 @@ export function buildNosposMapsFromNegotiationItems(items, maxBarcodesPerItem) {
   return { barcodes, nosposLookups };
 }
 
+/** Slot ids for upload rows still waiting for a catalog line (same order as `items` in the UI). */
+export function uploadPendingSlotIdsFromItems(items) {
+  if (!Array.isArray(items)) return [];
+  return items.filter((i) => i && !i.isRemoved && i.isUploadBarcodeQueuePlaceholder).map((i) => String(i.id));
+}
+
 export function listWorkspaceCartKeyFromState(state, useUploadSessions) {
   const active = (state.items || []).filter((i) => !i.isRemoved);
   if (!useUploadSessions || active.length > 0) return getCartKey(active);
   const scanSlots = Array.isArray(state.uploadScanSlotIds) ? state.uploadScanSlotIds : [];
-  const pending = Array.isArray(state.uploadPendingSlotIds) ? state.uploadPendingSlotIds : [];
+  const pending = uploadPendingSlotIdsFromItems(state.items || []);
   const idle = [...scanSlots, ...pending].join("|");
   return idle ? `upload-scan:${idle}` : "";
+}
+
+/**
+ * True if upload workspace state should be persisted: at least one typed barcode in `barcodes`,
+ * or a non-removed item with a NosPos barserial (e.g. queue row after intake).
+ */
+export function uploadWorkspaceHasRecordedBarcode(state) {
+  if (!state || typeof state !== "object") return false;
+  const map = state.barcodes || {};
+  for (const codes of Object.values(map)) {
+    if (Array.isArray(codes) && codes.some((c) => String(c ?? "").trim() !== "")) {
+      return true;
+    }
+  }
+  for (const item of state.items || []) {
+    if (item?.isRemoved) continue;
+    const raw = item?.nosposBarcodes || [];
+    if (raw.some((b) => String(b?.barserial ?? "").trim() !== "")) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function buildNegotiationSessionDataSnapshot(state, useUploadSessions) {
@@ -111,12 +150,18 @@ export function buildNegotiationSessionDataSnapshot(state, useUploadSessions) {
     uploadBarcodeIntakeDone: snapshotIntakeDone,
     uploadStockDetailsBySlotId: snapshotStockDetails,
   } = state;
+  const derivedUploadPending =
+    useUploadSessions && Array.isArray(snapshotItems)
+      ? uploadPendingSlotIdsFromItems(snapshotItems)
+      : Array.isArray(snapshotPendingSlots)
+        ? snapshotPendingSlots
+        : [];
   const snapshot = {
     items: (snapshotItems || []).map(pickNegotiationItemForSession),
     barcodes: snapshotBarcodes,
     nosposLookups: snapshotLookups,
     uploadScanSlotIds: Array.isArray(snapshotUploadSlots) ? snapshotUploadSlots : [],
-    uploadPendingSlotIds: Array.isArray(snapshotPendingSlots) ? snapshotPendingSlots : [],
+    uploadPendingSlotIds: derivedUploadPending,
     uploadBarcodeIntakeOpen: Boolean(snapshotIntakeOpen),
     uploadBarcodeIntakeDone: Boolean(snapshotIntakeDone),
   };
@@ -214,7 +259,6 @@ export function buildUploadBarcodeWorkspaceSnapshot(state) {
     intakeDone: Boolean(state.uploadBarcodeIntakeDone),
     scanOrder,
     pendingOrder,
-    currentHeadSlotId: pendingOrder[0] ? String(pendingOrder[0]) : null,
     lines,
   };
 }
@@ -274,7 +318,7 @@ export function sanitizeUploadStockDetailsMap(map) {
   if (!map || typeof map !== "object") return out;
   for (const [k, v] of Object.entries(map)) {
     if (!v || v.loading) continue;
-    out[k] = {
+    const entry = {
       stockUrl: v.stockUrl,
       error: v.error,
       name: v.name,
@@ -283,6 +327,8 @@ export function sanitizeUploadStockDetailsMap(map) {
       costPrice: v.costPrice,
       retailPrice: v.retailPrice,
     };
+    if (Array.isArray(v.changeLog)) entry.changeLog = v.changeLog;
+    out[k] = entry;
   }
   return out;
 }
@@ -329,7 +375,13 @@ export function negotiationWorkspaceCopy(isUpload) {
         "This will clear your current upload list and start fresh from the upload workspace.",
       newConfirmYes: "Yes, start new upload",
       contextRemoveLabel: "Remove from upload list",
+      uploadContextGetDataFromDatabase: "Get data using database",
+      uploadContextDatabaseFlyoutTitle: "Builder category headers (from database)",
+      uploadContextDatabaseCategoriesLoading: "Loading categories…",
       jobCompletedMessage: "Upload completed.",
+      uploadRestartInWorkspace: "Restart in workspace",
+      uploadRestartedInWorkspaceToast: "Session reopened — you can edit the list or run upload again.",
+      uploadRestartSessionError: "Could not reopen the upload session.",
       persistSavedWithIssues: (uv) =>
         uv > 0
           ? `Saved upload items. ${uv} barcode(s) couldn't be verified — check below.`
@@ -341,6 +393,19 @@ export function negotiationWorkspaceCopy(isUpload) {
       persistNoItems: "No items were updated.",
       persistSaveError: "Upload finished but could not be saved.",
       startBackground: "Opening Web EPOS…",
+      uploadOpeningWebEposNewProduct: "Opening Web EPOS new product page…",
+      uploadWebEposNeedServerLineIds:
+        "Each upload row needs a saved server line id before Web EPOS can build the barcode. Wait for autosave to finish, or refresh after saving the draft, then try again.",
+      uploadWebEposNewProductOpened: "Web EPOS finished creating your products in the minimised window.",
+      webEposProductsSyncing: "Loading Web EPOS products…",
+      uploadHubTitle: "Web EPOS products",
+      uploadHubSubtitle:
+        "Review the live product list from Web EPOS. When you are ready to add lines and barcodes, continue to the upload workspace.",
+      uploadHubEnterButton: "Upload new",
+      uploadHubScrapeFailed: "Could not sync the product list",
+      uploadHubRetrySync: "Retry sync",
+      uploadHubEmptyNoRows: "No rows were returned for this page. You can still start an upload below.",
+      uploadHubEmptyAfterError: "Fix the issue above or retry, then start an upload when you are ready.",
       jobLogStart: "Opening Web EPOS…",
       webEposOpened: "Web EPOS opened successfully.",
       webEposOpenFailed: "Could not open Web EPOS.",
@@ -348,6 +413,9 @@ export function negotiationWorkspaceCopy(isUpload) {
         `Add exactly one verified barcode for: ${title || "Unknown Item"}`,
       uploadScanAllVerified: "Every barcode must be verified on NosPos before continuing.",
       uploadScanNeedOneLine: "Add at least one barcode line first.",
+      uploadAddMoreBarcodes: "Add more barcodes",
+      uploadAddMoreBarcodesTitle: "Open the barcode step again to scan more lines. Existing barcodes stay in the list.",
+      uploadIntakeMergedExistingOnly: "Barcode step closed — your list is up to date.",
       uploadPickLineForCeX:
         "Click “Find CeX product” on the barcode row you are filling, then add from the CeX header.",
       uploadMergeReady: "CeX header is set to fill this row — add the product from CeX.",
@@ -363,6 +431,9 @@ export function negotiationWorkspaceCopy(isUpload) {
       uploadPendingBarcodesRemain: "Assign every barcode to a line (add items) before proceeding.",
       uploadBarcodeReplaceOnly:
         "This line already has a barcode from step 1. Type a new barcode and use Replace — you can’t clear it with remove.",
+      uploadRrpMustBePositive: "Upload RRP must be greater than £0.",
+      uploadEveryRrpRequiredHint: "Set Upload RRP for every item before proceeding.",
+      uploadRrpUpdatedFromSource: "Upload RRP updated from selected source.",
       cancelOk: "Upload cancelled",
       cancelErr: "Could not cancel upload",
     };

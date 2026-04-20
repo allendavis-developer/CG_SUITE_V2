@@ -1,22 +1,33 @@
 import React from 'react';
 
+function slotHasTypedBarcode(barcodes, id) {
+  const codes = barcodes?.[id];
+  if (!Array.isArray(codes) || codes.length === 0) return false;
+  return codes.some((c) => String(c ?? '').trim() !== '');
+}
+
 /**
- * Upload workspace gate: NosPos barcode composer until all lines verify, then Continue.
+ * Upload workspace gate: NosPos barcode composer until every *used* line verifies, then Continue.
+ * Empty trailing draft slots (no barcode yet) do not block Continue.
  */
 export default function UploadBarcodeIntakeModal({
   open,
   slotIds,
+  barcodes = {},
   isItemReadyForRepricing,
   onDone,
   inlineBarcodeEditor = null,
 }) {
-  const allReady = slotIds.length > 0 && slotIds.every((id) => isItemReadyForRepricing(id));
+  const usedSlotIds = slotIds.filter((id) => slotHasTypedBarcode(barcodes, id));
+  const allReady =
+    usedSlotIds.length > 0 && usedSlotIds.every((id) => isItemReadyForRepricing(id));
 
   if (!open) return null;
 
   return (
     <div className="fixed inset-0 z-[320] flex items-center justify-center p-4 sm:p-6">
-      <div className="cg-animate-modal-backdrop absolute inset-0 bg-black/60 backdrop-blur-sm" aria-hidden />
+      {/* No backdrop-filter: blur is very expensive over the full negotiation table (jank on open). */}
+      <div className="cg-animate-modal-backdrop absolute inset-0 bg-black/65" aria-hidden />
 
       <div className="cg-animate-modal-panel relative z-10 flex max-h-[min(94vh,56rem)] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
         <header className="shrink-0 bg-brand-blue px-6 py-5 text-white sm:px-8 sm:py-6">
@@ -27,7 +38,7 @@ export default function UploadBarcodeIntakeModal({
                 Upload — scan barcodes
               </h2>
               <p className="mt-1 text-sm text-white/80">
-                Verify each barcode on NosPos. When every line is ready, continue to add products.
+                Verify each barcode on NosPos. When your scanned lines are ready, continue to the product table — you do not need to fill the empty draft line.
               </p>
             </div>
           </div>

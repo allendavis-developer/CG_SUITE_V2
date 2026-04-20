@@ -61,7 +61,7 @@ export const MODULE_FEATURES = {
     hasRepriceListSidebar: false,
     maxBarcodesPerItem: 1,
     useVoucherOffers: false,
-    salePriceLabel: 'New Sale Price',
+    salePriceLabel: 'Upload RRP',
     hideOfferCards: true,
   },
 };

@@ -216,6 +216,9 @@ const AppHeader = ({
   const setHeaderWorkspaceModeGlobal = useAppStore((s) => s.setHeaderWorkspaceMode);
   const requestJewelleryPickerOpen = useAppStore((s) => s.requestJewelleryPickerOpen);
   const closeHeaderWorkspaceTick = useAppStore((s) => s.closeHeaderWorkspaceTick);
+  const pendingBuilderTopCategoryNonce = useAppStore((s) => s.pendingBuilderTopCategoryNonce);
+  const pendingBuilderTopCategoryId = useAppStore((s) => s.pendingBuilderTopCategoryId);
+  const clearPendingBuilderTopCategory = useAppStore((s) => s.clearPendingBuilderTopCategory);
   const prevCloseHeaderTickRef = useRef(0);
 
   useEffect(() => {
@@ -271,6 +274,32 @@ const AppHeader = ({
       isMounted = false;
     };
   }, [showBuyerControls]);
+
+  /** Upload list row menu: open builder with the same top-level category as the header tabs. */
+  useEffect(() => {
+    if (!pendingBuilderTopCategoryId || !showNegotiationItemBuilder) return;
+    if (!categories.length) return;
+    const cat = categories.find((c) => String(c.category_id) === String(pendingBuilderTopCategoryId));
+    if (!cat) {
+      clearPendingBuilderTopCategory();
+      return;
+    }
+    clearHeaderBuilderState();
+    setOtherExpandedIds([]);
+    setOtherCategorySearch('');
+    setOtherSelectedNosposId('');
+    setWorkspaceMode('builder');
+    setActiveTopLevelId(cat.category_id);
+    setExpandedIds((prev) => (prev.includes(cat.category_id) ? prev : [...prev, cat.category_id]));
+    clearPendingBuilderTopCategory();
+  }, [
+    pendingBuilderTopCategoryNonce,
+    pendingBuilderTopCategoryId,
+    categories,
+    showNegotiationItemBuilder,
+    clearHeaderBuilderState,
+    clearPendingBuilderTopCategory,
+  ]);
 
   const selectedCategoryId = buyerControls?.selectedCategory?.id != null
     ? String(buyerControls.selectedCategory.id)
@@ -984,10 +1013,14 @@ const AppHeader = ({
     </Link>
   );
 
+  const headerHorizontalPad = isUploadListWorkspace
+    ? 'px-2 sm:px-3 md:px-4'
+    : 'px-6 md:px-10';
+
   return (
     <header
       ref={headerRef}
-      className={`bg-brand-blue px-6 md:px-10 py-3 sticky top-0 z-50 text-white ${
+      className={`bg-brand-blue ${headerHorizontalPad} py-3 sticky top-0 z-50 text-white ${
         showBuyerControls ? '' : 'border-b border-solid border-brand-blue'
       }`}
     >
@@ -995,114 +1028,118 @@ const AppHeader = ({
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
           <div className="relative min-w-0 flex-1" ref={popupRef}>
             <div className="flex flex-wrap items-center gap-2">
-              {builderTopLevelCategories.map((category) => {
-                const isActive = String(activeTopLevelId) === String(category.category_id);
-                const isSelectedTop = selectedTopLevelName === category.name;
-                const isHighlighted = activeTopLevelId
-                  ? isActive
-                  : isSelectedTop;
-                return (
-                  <button
-                    key={category.category_id}
-                    type="button"
-                    onClick={() => {
-                      clearHeaderBuilderState();
-                      setOtherExpandedIds([]);
-                      setOtherCategorySearch('');
-                      setOtherSelectedNosposId('');
-                      setWorkspaceMode('builder');
-                      setActiveTopLevelId((prev) =>
-                        String(prev) === String(category.category_id) ? null : category.category_id
-                      );
-                      setExpandedIds((prev) =>
-                        prev.includes(category.category_id) ? prev : [...prev, category.category_id]
-                      );
-                    }}
-                    className={`min-h-11 inline-flex items-center gap-2 px-2.5 py-2 text-left text-sm font-bold no-underline transition-colors ${
-                      isHighlighted ? 'text-brand-orange/90' : 'text-white/90 hover:text-white'
-                    }`}
-                  >
-                    <span className="inline-flex flex-col items-center gap-1 leading-none">
-                      <span className="material-symbols-outlined text-[18px] opacity-85">folder</span>
-                      {isHighlighted ? (
-                        <span className="h-0.5 w-[1.125rem] shrink-0 rounded-full bg-brand-orange/85" />
-                      ) : null}
-                    </span>
-                    <span className="truncate no-underline">{category.name}</span>
-                  </button>
-                );
-              })}
-              {showNegotiationItemBuilder && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    buyerControlsRef.current?.onCloseTransientPanels?.();
-                    clearHeaderBuilderState();
-                    setActiveTopLevelId(null);
-                    setOtherExpandedIds([]);
-                    setOtherCategorySearch('');
-                    setOtherSelectedNosposId('');
-                    setWorkspaceMode('other');
-                  }}
-                  className={`min-h-11 inline-flex items-center gap-2 px-2.5 py-2 text-left text-sm font-bold no-underline transition-colors ${
-                    workspaceMode === 'other' ? 'text-brand-orange/90' : 'text-white/90 hover:text-white'
-                  }`}
-                >
-                  <span className="inline-flex flex-col items-center gap-1 leading-none">
-                    <span className="material-symbols-outlined text-[18px] opacity-85">category_search</span>
-                    {workspaceMode === 'other' ? (
-                      <span className="h-0.5 w-[1.125rem] shrink-0 rounded-full bg-brand-orange/85" />
-                    ) : null}
-                  </span>
-                  <span className="truncate no-underline">Other</span>
-                </button>
-              )}
-              <div className="flex h-11 min-w-0 w-full max-w-[19.375rem] md:max-w-[23.5rem] lg:max-w-[26.625rem] xl:max-w-[29.75rem] shrink-0 items-stretch overflow-hidden rounded-lg border-2 border-slate-200/95 bg-white shadow-[0_4px_20px_rgba(0,0,0,0.18)] ring-2 ring-white/70">
-                <input
-                  type="text"
-                  value={headerSearch}
-                  onChange={(e) => setHeaderSearch(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key !== 'Enter') return;
-                    const q = headerSearch.trim();
-                    if (!q) return;
-                    e.preventDefault();
-                    e.currentTarget.blur();
-                    setMarketplaceSearchDialog(q);
-                  }}
-                  placeholder="Type in a search term"
-                  className="h-full min-w-0 flex-1 bg-white px-4 text-sm font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-blue/25"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    void openHeaderEbayResearch(headerSearch);
-                  }}
-                  className={`h-full min-w-[3rem] shrink-0 border-l-2 border-slate-200 px-3.5 text-sm font-extrabold uppercase tracking-wide transition-colors ${
-                    workspaceMode === 'ebay'
-                      ? 'bg-emerald-700 text-white shadow-inner ring-2 ring-inset ring-emerald-400/90'
-                      : 'bg-emerald-600 text-white hover:bg-emerald-700'
-                  }`}
-                  title="eBay"
-                >
-                  e
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    void openHeaderCexWorkspace(headerSearch);
-                  }}
-                  disabled={buyerControls?.isCeXLoading}
-                  className={`h-full min-w-[3rem] shrink-0 border-l-2 border-slate-200 px-3.5 text-sm font-extrabold uppercase tracking-wide transition-colors ${
-                    workspaceMode === 'cex'
-                      ? 'bg-red-700 text-white shadow-inner ring-2 ring-inset ring-red-300/90'
-                      : 'bg-red-600 text-white hover:bg-red-700'
-                  } disabled:cursor-not-allowed disabled:opacity-60`}
-                  title="Add from CeX"
-                >
-                  c
-                </button>
-              </div>
+              {!isUploadListWorkspace ? (
+                <>
+                  {builderTopLevelCategories.map((category) => {
+                    const isActive = String(activeTopLevelId) === String(category.category_id);
+                    const isSelectedTop = selectedTopLevelName === category.name;
+                    const isHighlighted = activeTopLevelId
+                      ? isActive
+                      : isSelectedTop;
+                    return (
+                      <button
+                        key={category.category_id}
+                        type="button"
+                        onClick={() => {
+                          clearHeaderBuilderState();
+                          setOtherExpandedIds([]);
+                          setOtherCategorySearch('');
+                          setOtherSelectedNosposId('');
+                          setWorkspaceMode('builder');
+                          setActiveTopLevelId((prev) =>
+                            String(prev) === String(category.category_id) ? null : category.category_id
+                          );
+                          setExpandedIds((prev) =>
+                            prev.includes(category.category_id) ? prev : [...prev, category.category_id]
+                          );
+                        }}
+                        className={`min-h-11 inline-flex items-center gap-2 px-2.5 py-2 text-left text-sm font-bold no-underline transition-colors ${
+                          isHighlighted ? 'text-brand-orange/90' : 'text-white/90 hover:text-white'
+                        }`}
+                      >
+                        <span className="inline-flex flex-col items-center gap-1 leading-none">
+                          <span className="material-symbols-outlined text-[18px] opacity-85">folder</span>
+                          {isHighlighted ? (
+                            <span className="h-0.5 w-[1.125rem] shrink-0 rounded-full bg-brand-orange/85" />
+                          ) : null}
+                        </span>
+                        <span className="truncate no-underline">{category.name}</span>
+                      </button>
+                    );
+                  })}
+                  {showNegotiationItemBuilder && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        buyerControlsRef.current?.onCloseTransientPanels?.();
+                        clearHeaderBuilderState();
+                        setActiveTopLevelId(null);
+                        setOtherExpandedIds([]);
+                        setOtherCategorySearch('');
+                        setOtherSelectedNosposId('');
+                        setWorkspaceMode('other');
+                      }}
+                      className={`min-h-11 inline-flex items-center gap-2 px-2.5 py-2 text-left text-sm font-bold no-underline transition-colors ${
+                        workspaceMode === 'other' ? 'text-brand-orange/90' : 'text-white/90 hover:text-white'
+                      }`}
+                    >
+                      <span className="inline-flex flex-col items-center gap-1 leading-none">
+                        <span className="material-symbols-outlined text-[18px] opacity-85">category_search</span>
+                        {workspaceMode === 'other' ? (
+                          <span className="h-0.5 w-[1.125rem] shrink-0 rounded-full bg-brand-orange/85" />
+                        ) : null}
+                      </span>
+                      <span className="truncate no-underline">Other</span>
+                    </button>
+                  )}
+                  <div className="flex h-11 min-w-0 w-full max-w-[19.375rem] md:max-w-[23.5rem] lg:max-w-[26.625rem] xl:max-w-[29.75rem] shrink-0 items-stretch overflow-hidden rounded-lg border-2 border-slate-200/95 bg-white shadow-[0_4px_20px_rgba(0,0,0,0.18)] ring-2 ring-white/70">
+                    <input
+                      type="text"
+                      value={headerSearch}
+                      onChange={(e) => setHeaderSearch(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key !== 'Enter') return;
+                        const q = headerSearch.trim();
+                        if (!q) return;
+                        e.preventDefault();
+                        e.currentTarget.blur();
+                        setMarketplaceSearchDialog(q);
+                      }}
+                      placeholder="Type in a search term"
+                      className="h-full min-w-0 flex-1 bg-white px-4 text-sm font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-blue/25"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void openHeaderEbayResearch(headerSearch);
+                      }}
+                      className={`h-full min-w-[3rem] shrink-0 border-l-2 border-slate-200 px-3.5 text-sm font-extrabold uppercase tracking-wide transition-colors ${
+                        workspaceMode === 'ebay'
+                          ? 'bg-emerald-700 text-white shadow-inner ring-2 ring-inset ring-emerald-400/90'
+                          : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                      }`}
+                      title="eBay"
+                    >
+                      e
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void openHeaderCexWorkspace(headerSearch);
+                      }}
+                      disabled={buyerControls?.isCeXLoading}
+                      className={`h-full min-w-[3rem] shrink-0 border-l-2 border-slate-200 px-3.5 text-sm font-extrabold uppercase tracking-wide transition-colors ${
+                        workspaceMode === 'cex'
+                          ? 'bg-red-700 text-white shadow-inner ring-2 ring-inset ring-red-300/90'
+                          : 'bg-red-600 text-white hover:bg-red-700'
+                      } disabled:cursor-not-allowed disabled:opacity-60`}
+                      title="Add from CeX"
+                    >
+                      c
+                    </button>
+                  </div>
+                </>
+              ) : null}
               {showNegotiationItemBuilder && !isRepricingWorkspace && (
                 <button
                   type="button"

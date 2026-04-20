@@ -181,6 +181,221 @@ export function withDefaultRrpOffersSource(item) {
   return next;
 }
 
+// ─── Upload workspace: NosPos stock snapshot + fill-empty merge from catalog ───
+
+/** True when a catalog merge should treat the value as missing and allow an overlay. */
+export function isEmptyForUploadMerge(value) {
+  if (value == null) return true;
+  if (typeof value === 'string') return value.trim() === '';
+  if (Array.isArray(value)) return value.length === 0;
+  if (typeof value === 'object') return Object.keys(value).length === 0;
+  return false;
+}
+
+/** True when merged NosPos stock snapshot has any column or change-log rows to show. */
+export function uploadNosposStockSnapshotIsNonEmpty(stock) {
+  if (!stock) return false;
+  for (const k of ['costPrice', 'retailPrice', 'boughtBy', 'createdAt']) {
+    if (stock[k] != null && String(stock[k]).trim() !== '') return true;
+  }
+  return Array.isArray(stock.changeLog) && stock.changeLog.length > 0;
+}
+
+/** Normalise NosPos stock-edit scrape payload for upload table columns (cost, retail, buyer, date, change log). */
+export function uploadNosposStockSnapshotFromScrape(scraped) {
+  if (!scraped || scraped.loading || scraped.error) return null;
+  const changeLog = Array.isArray(scraped.changeLog) ? scraped.changeLog : [];
+  const out = {
+    costPrice:
+      scraped.costPrice != null && scraped.costPrice !== ''
+        ? String(scraped.costPrice).trim()
+        : '',
+    retailPrice:
+      scraped.retailPrice != null && scraped.retailPrice !== ''
+        ? String(scraped.retailPrice).trim()
+        : '',
+    boughtBy: scraped.boughtBy != null ? String(scraped.boughtBy).trim() : '',
+    createdAt: scraped.createdAt != null ? String(scraped.createdAt).trim() : '',
+    changeLog,
+  };
+  return uploadNosposStockSnapshotIsNonEmpty(out) ? out : null;
+}
+
+/** Fill only blank stock-edit fields from a newer scrape patch. */
+export function mergeUploadNosposStockFieldLevel(existing, patch) {
+  if (!patch) return existing || null;
+  const base = {
+    costPrice: '',
+    retailPrice: '',
+    boughtBy: '',
+    createdAt: '',
+    changeLog: [],
+    ...(existing || {}),
+  };
+  const out = { ...base };
+  if (!Array.isArray(out.changeLog)) out.changeLog = [];
+  for (const k of ['costPrice', 'retailPrice', 'boughtBy', 'createdAt']) {
+    const cur = out[k];
+    const curEmpty = cur == null || String(cur).trim() === '';
+    const pv = patch[k];
+    const patchVal = pv != null ? String(pv).trim() : '';
+    if (curEmpty && patchVal !== '') out[k] = patchVal;
+  }
+  if (Array.isArray(patch.changeLog) && patch.changeLog.length > 0) {
+    out.changeLog = patch.changeLog.slice();
+  }
+  return out;
+}
+
+/**
+ * Upload workspace “Item name & attributes” column: same text as the table (`variantName` || `title`),
+ * unless the user set {@link uploadTableItemName} on the row (then that value wins for Web EPOS too).
+ */
+export function resolveUploadTableItemName(item) {
+  const custom = item?.uploadTableItemName;
+  if (custom != null) {
+    const t = String(custom).trim();
+    if (t !== "") return t.slice(0, 500);
+  }
+  const base = String(item?.variantName || item?.title || "").trim();
+  return base.slice(0, 500) || "—";
+}
+
+const UPLOAD_QUEUE_MERGE_SKIP_KEYS = new Set([
+  'id',
+  'nosposBarcodes',
+  'isRemoved',
+  'uploadNosposStockFromBarcode',
+  'isUploadBarcodeQueuePlaceholder',
+  'uploadTableItemName',
+]);
+
+/**
+ * One upload table row right after barcode intake: id matches the pending slot id, NosPos barcodes embedded,
+ * optional stock-edit snapshot from the extension scrape.
+ */
+export function buildUploadBarcodeQueuePlaceholderItem(slotId, { barcodes, nosposLookups, uploadStockDetailsBySlotId }) {
+  const lk = nosposLookups[`${slotId}_0`];
+  const typedCodes = barcodes[slotId] || [];
+  const stockBarcode = String(lk?.stockBarcode || typedCodes[0] || '').trim();
+  let nosposBarcodes = [];
+  if (lk?.status === 'selected' && stockBarcode) {
+    nosposBarcodes = [
+      {
+        barserial: stockBarcode,
+        href: (lk.stockUrl || '').replace(/^https:\/\/nospos\.com/i, '') || '',
+        name: lk?.stockName || '',
+      },
+    ];
+  } else if (typedCodes[0]) {
+    nosposBarcodes = [{ barserial: String(typedCodes[0]).trim(), href: '', name: '' }];
+  }
+  const scraped = uploadStockDetailsBySlotId[slotId];
+  const snap = uploadNosposStockSnapshotFromScrape(scraped);
+  const titleFromNos = (lk?.stockName || '').trim();
+  const title =
+    titleFromNos || (stockBarcode ? `Add product (${stockBarcode})` : 'Add product from header');
+
+  return withUploadListRrpSourceDefaults({
+    id: slotId,
+    isUploadBarcodeQueuePlaceholder: true,
+    title,
+    subtitle: '',
+    quantity: 1,
+    category: '',
+    categoryObject: null,
+    offers: [],
+    cashOffers: [],
+    voucherOffers: [],
+    selectedOfferId: null,
+    ebayResearchData: null,
+    cashConvertersResearchData: null,
+    cgResearchData: null,
+    referenceData: null,
+    variantId: null,
+    cexSku: null,
+    cexSellPrice: null,
+    cexBuyPrice: null,
+    cexVoucherPrice: null,
+    cexUrl: null,
+    cexOutOfStock: false,
+    attributeValues: {},
+    condition: null,
+    image: null,
+    ourSalePrice: null,
+    nosposBarcodes,
+    isRemoved: false,
+    isCustomCeXItem: false,
+    ...(snap ? { uploadNosposStockFromBarcode: snap } : {}),
+  });
+}
+
+/**
+ * Re-apply barcode intake snapshots onto an existing upload row (add-more flow) without clobbering a filled CeX/catalog title.
+ */
+export function applyUploadBarcodeIntakeSnapshotToRow(row, slotId, ctx) {
+  if (!row) return row;
+  const fresh = buildUploadBarcodeQueuePlaceholderItem(slotId, ctx);
+  const t = row.title != null ? String(row.title).trim() : '';
+  const preserveCatalogTitle =
+    Boolean(row.cexSku != null && String(row.cexSku).trim() !== '') ||
+    row.isCustomCeXItem === true ||
+    (row.isUploadBarcodeQueuePlaceholder === false && t !== '' && !/^Add product\b/i.test(t));
+  const nextTitle = preserveCatalogTitle ? row.title : fresh.title;
+  return {
+    ...row,
+    title: nextTitle,
+    nosposBarcodes: fresh.nosposBarcodes,
+    ...(fresh.uploadNosposStockFromBarcode != null
+      ? { uploadNosposStockFromBarcode: fresh.uploadNosposStockFromBarcode }
+      : {}),
+  };
+}
+
+/**
+ * Merge a builder / CeX cart line onto the barcode-queue row: only fills fields that are still empty,
+ * keeps NosPos stock-edit values unless a field was still blank and the scrape supplies it.
+ */
+export function mergeCatalogIntoUploadQueueRow(queueRow, cartItem, { nosposBarcodes, scraped }) {
+  if (!queueRow || !cartItem) return queueRow;
+  const newId =
+    cartItem.id ||
+    (typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `upload-item-${Date.now()}`);
+  const patch = uploadNosposStockSnapshotFromScrape(scraped);
+  const mergedStock = mergeUploadNosposStockFieldLevel(queueRow.uploadNosposStockFromBarcode, patch);
+  const hasAnyStock = uploadNosposStockSnapshotIsNonEmpty(mergedStock);
+
+  let next = {
+    ...queueRow,
+    id: newId,
+    nosposBarcodes,
+    isRemoved: false,
+    isUploadBarcodeQueuePlaceholder: false,
+    ...(hasAnyStock ? { uploadNosposStockFromBarcode: mergedStock } : {}),
+  };
+  if (!hasAnyStock && queueRow.uploadNosposStockFromBarcode) {
+    next = { ...next, uploadNosposStockFromBarcode: queueRow.uploadNosposStockFromBarcode };
+  }
+
+  for (const key of Object.keys(cartItem)) {
+    if (UPLOAD_QUEUE_MERGE_SKIP_KEYS.has(key)) continue;
+    const incoming = cartItem[key];
+    if (incoming === undefined) continue;
+    if (isEmptyForUploadMerge(next[key]) && !isEmptyForUploadMerge(incoming)) {
+      next[key] = incoming;
+    }
+  }
+  const qFromCart = Number(cartItem.quantity);
+  if (Number.isFinite(qFromCart) && qFromCart > 0) {
+    next.quantity = qFromCart;
+  } else if (next.quantity == null || Number(next.quantity) < 1) {
+    next.quantity = 1;
+  }
+  return withUploadListRrpSourceDefaults(next);
+}
+
 /** Which price-source zone drives the 1st–4th offer columns (falls back to legacy `rrpOffersSource`). */
 export function resolveOffersSource(item) {
   if (!item) return null;
@@ -203,6 +418,17 @@ export function priceSourceZoneShortLabel(zone) {
     default:
       return '—';
   }
+}
+
+/** Top-level product category headers shown in the header builder (excludes eBay + Jewellery). */
+export function filterProductCategoriesForBuilderTopHeaders(categories) {
+  if (!Array.isArray(categories)) return [];
+  return categories.filter((cat) => {
+    const n = String(cat?.name || '').toLowerCase();
+    if (n === 'ebay') return false;
+    if (n === 'jewellery' || n === 'jewelry') return false;
+    return true;
+  });
 }
 
 /** Zones that have a usable RRP for this row (CeX reference, eBay stats, or CC stats). */
@@ -228,6 +454,45 @@ export function getAvailableRrpZonesForNegotiationItem(item) {
     out.push({ zone: NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_GENERATOR, label: 'CG' });
   }
   return out;
+}
+
+/**
+ * Upload list workspace: when exactly one RRP column has data, commit the same values as
+ * “Use as RRP source” — `rrpOffersSource`, mirror `offersSource` when blank, and **Upload RRP**
+ * (`ourSalePrice`) from that column. Same row reference if nothing would change.
+ * @returns {object} Same row reference if unchanged.
+ */
+export function applySoleRrpSourceToUploadRow(row) {
+  if (!row || row.isRemoved) return row;
+  /** User is typing in Upload RRP — never clobber in-progress input (see upload list `items` effect). */
+  if (row.ourSalePriceInput !== undefined) return row;
+  const zones = getAvailableRrpZonesForNegotiationItem(row);
+  if (zones.length !== 1) return row;
+  const z = zones[0].zone;
+  /** Already committed to the only available source — keep manual RRP edits (buying-style). */
+  if (row.rrpOffersSource === z) return row;
+  const { item: applied, errorMessage } = applyRrpOnlyFromPriceSource(row, z);
+  if (errorMessage || !applied) return row;
+  const offersSource =
+    row.offersSource != null && row.offersSource !== '' ? row.offersSource : z;
+  const next = { ...applied, offersSource };
+  const researchFlagEqual =
+    (row.useResearchSuggestedPrice ?? false) === (next.useResearchSuggestedPrice ?? false);
+  if (
+    row.rrpOffersSource === next.rrpOffersSource &&
+    row.offersSource === next.offersSource &&
+    String(row.ourSalePrice ?? '').trim() === String(next.ourSalePrice ?? '').trim() &&
+    researchFlagEqual
+  ) {
+    return row;
+  }
+  return next;
+}
+
+/** Upload: {@link withDefaultRrpOffersSource} then {@link applySoleRrpSourceToUploadRow}. */
+export function withUploadListRrpSourceDefaults(item) {
+  if (!item) return item;
+  return applySoleRrpSourceToUploadRow(withDefaultRrpOffersSource(item));
 }
 
 /** Zones that have a usable tier-offer set for this row. */
@@ -268,9 +533,16 @@ export function getAvailableOfferZonesForNegotiationItem(item, useVoucherOffers)
 /**
  * After CeX pencil lookup on a row that still treats eBay (or another source) as primary for RRP,
  * prompt before switching highlight + committed tiers to CeX.
+ *
+ * When the row is already committed to CeX as RRP source, repeat pencil runs must refresh merged
+ * CeX data + re-apply tiers without this prompt — even if eBay stats still exist or
+ * `useResearchSuggestedPrice` was left inconsistent.
  */
 export function shouldPromptCeXPencilRrpSource(item) {
   if (!item) return false;
+  if (item.rrpOffersSource === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL) {
+    return false;
+  }
   const ebayDrivesDisplayedRrp =
     item.useResearchSuggestedPrice !== false &&
     item.ebayResearchData?.stats?.suggestedPrice != null &&
@@ -361,7 +633,8 @@ function resolvePersistedCexOfferRows(item) {
   return { cashOffers, voucherOffers };
 }
 
-function resolvePersistedCexRrp(item) {
+/** CeX sell / reference-based RRP used when committing tiers or list-workspace pipelines. */
+export function resolvePersistedCexRrp(item) {
   const ref = item?.referenceData || {};
   const rawLayers = [item?.rawData, item?.cexProductData].filter(
     (layer) => layer && typeof layer === 'object'

@@ -43,6 +43,24 @@ export function getCgCategoryHierarchyLabelFromItem(item) {
  * @param {object} row
  * @param {object} aiSuggestedCgStockCategory
  */
+/** Remove CG AI hint so a fresh {@link runCgStockCategoryAiMatchBackground} can run (e.g. after upload RRP changes). */
+export function clearCgAiSuggestionFromNegotiationRow(row) {
+  if (!row || typeof row !== 'object') return row;
+  const next = { ...row };
+  delete next.aiSuggestedCgStockCategory;
+  if (next.rawData != null && typeof next.rawData === 'object') {
+    const nr = { ...next.rawData };
+    delete nr.aiSuggestedCgStockCategory;
+    next.rawData = nr;
+  }
+  if (next.ebayResearchData != null && typeof next.ebayResearchData === 'object') {
+    const eb = { ...next.ebayResearchData };
+    delete eb.aiSuggestedCgStockCategory;
+    next.ebayResearchData = eb;
+  }
+  return next;
+}
+
 export function mergeCgAiOntoNegotiationRow(row, aiSuggestedCgStockCategory) {
   const nextRaw =
     row.rawData != null && typeof row.rawData === 'object'

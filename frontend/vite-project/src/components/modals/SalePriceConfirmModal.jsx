@@ -30,7 +30,8 @@ function researchChannelLabelFromSource(source) {
  * @param {string} [priceLabel='Our Sale Price'] - Label used in the modal copy
  * @param {boolean} [useVoucherOffers=false] - Negotiation: store credit vs cash; repricing uses false
  * @param {Function} [showNotification] - (message, type) for apply errors / success
- * @param {boolean} [repricingMode=false] - Repricing: update New Sale Price + set `rrpOffersSource` for column highlight; offers unchanged
+ * @param {boolean} [repricingMode=false] - List workspace: update sale price column + set `rrpOffersSource`; offers unchanged
+ * @param {function} [onRepricingPriceCommitted] - Repricing/upload: called with the updated row after a successful repricing-mode apply
  */
 export default function SalePriceConfirmModal({
   modalState,
@@ -42,10 +43,12 @@ export default function SalePriceConfirmModal({
   useVoucherOffers = false,
   showNotification,
   repricingMode = false,
+  onRepricingPriceCommitted,
 }) {
   if (!modalState) return null;
 
-  const { itemId, oldPricePerUnit, newPricePerUnit, source } = modalState;
+  const { itemId, oldPricePerUnit, newPricePerUnit, source, priorRrpOffersSource, priorOffersSource } =
+    modalState;
   const item = items.find((i) => i.id === itemId);
   if (!item) return null;
   const isZeroSuggestedPrice =
@@ -72,15 +75,18 @@ export default function SalePriceConfirmModal({
 
     if (repricingMode) {
       const rrpZone = rrpZoneFromResearchModalSource(source);
+      let committed = null;
       setItems((prev) =>
         prev.map((i) => {
           if (i.id !== itemId) return i;
           const next = { ...i, ourSalePrice: nextOurSale, rrpOffersSource: rrpZone };
           delete next.ourSalePriceInput;
+          committed = next;
           return next;
         })
       );
-      showNotification?.("New Sale Price updated from research.", "success");
+      showNotification?.(`${priceLabel} updated from research.`, "success");
+      if (committed) onRepricingPriceCommitted?.(committed);
       onClose();
       return;
     }
@@ -116,6 +122,25 @@ export default function SalePriceConfirmModal({
 
   const keepOldPrice = () => {
     if (repricingMode) {
+      setItems((prev) =>
+        prev.map((i) => {
+          if (i.id !== itemId) return i;
+          const next = { ...i };
+          delete next.ourSalePriceInput;
+          if (hasOld) {
+            next.ourSalePrice = String(roundSalePrice(oldPricePerUnit));
+          } else {
+            next.ourSalePrice = '';
+          }
+          if (Object.prototype.hasOwnProperty.call(modalState, 'priorRrpOffersSource')) {
+            next.rrpOffersSource = priorRrpOffersSource ?? null;
+          }
+          if (Object.prototype.hasOwnProperty.call(modalState, 'priorOffersSource')) {
+            next.offersSource = priorOffersSource ?? null;
+          }
+          return next;
+        })
+      );
       onClose();
       return;
     }
@@ -145,8 +170,8 @@ export default function SalePriceConfirmModal({
         </p>
         <p className="text-[11px] text-slate-600 mb-4">
           {source === "ebay"
-            ? `Based on the latest eBay research, the suggested ${repricingMode ? "New Sale Price" : "sale price"} is £0.00.`
-            : `Based on the latest ${researchChannelLabelFromSource(source)} research, the suggested ${repricingMode ? "New Sale Price" : "sale price"} is £0.00.`}
+            ? `Based on the latest eBay research, the suggested ${repricingMode ? priceLabel : "sale price"} is £0.00.`
+            : `Based on the latest ${researchChannelLabelFromSource(source)} research, the suggested ${repricingMode ? priceLabel : "sale price"} is £0.00.`}
         </p>
         <p className="text-[11px] text-slate-600 mb-4">
           {repricingMode ? (
@@ -182,8 +207,8 @@ export default function SalePriceConfirmModal({
       <p className="text-[11px] text-slate-600 mb-4">
         {repricingMode
           ? source === "ebay"
-            ? "Based on the latest eBay research, a new RRP is available for the New Sale Price column."
-            : `Based on the latest ${researchChannelLabelFromSource(source)} research, a new RRP is available for the New Sale Price column.`
+            ? `Based on the latest eBay research, a new RRP is available for the ${priceLabel} column.`
+            : `Based on the latest ${researchChannelLabelFromSource(source)} research, a new RRP is available for the ${priceLabel} column.`
           : source === "ebay"
             ? "Based on the latest eBay research, a new suggested sale price is available."
             : `Based on the latest ${researchChannelLabelFromSource(source)} research, a new suggested sale price is available.`}
@@ -230,9 +255,9 @@ export default function SalePriceConfirmModal({
       <p className="text-[11px] text-slate-600 mb-4">
         {repricingMode ? (
           <>
-            If you confirm, the <span className="font-semibold">New Sale Price</span> updates to this value (your RRP
-            for repricing), and the column for this research ({researchChannelLabelFromSource(source)}) will be
-            highlighted as the source.
+            If you confirm, <span className="font-semibold">{priceLabel}</span> updates to this value (your RRP for this
+            workspace), and the column for this research ({researchChannelLabelFromSource(source)}) will be highlighted
+            as the source.
           </>
         ) : (
           <>

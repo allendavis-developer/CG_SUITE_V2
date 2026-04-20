@@ -7,6 +7,7 @@ import {
   buildUploadBarcodeWorkspaceSnapshot,
   buildNosposMapsFromNegotiationItems,
   pickNegotiationItemForSession,
+  uploadWorkspaceHasRecordedBarcode,
 } from "./listWorkspaceUtils";
 
 /**
@@ -25,7 +26,6 @@ export function useListWorkspaceNegotiationBootstrap({
   setBarcodes,
   setNosposLookups,
   setUploadScanSlotIds,
-  setUploadPendingSlotIds,
   setUploadBarcodeIntakeOpen,
   setUploadBarcodeIntakeDone,
   setUploadStockDetailsBySlotId,
@@ -67,7 +67,6 @@ export function useListWorkspaceNegotiationBootstrap({
         if (ex) {
           if (resumeSessionId) setDbSessionId(resumeSessionId);
           setUploadScanSlotIds(ex.uploadScanSlotIds);
-          setUploadPendingSlotIds(ex.uploadPendingSlotIds);
           setUploadBarcodeIntakeOpen(
             resumingUploadSessionFromNav ? false : ex.uploadBarcodeIntakeOpen
           );
@@ -90,7 +89,6 @@ export function useListWorkspaceNegotiationBootstrap({
         }
       }
       if (Array.isArray(navUploadPendingSlotIds) && navUploadPendingSlotIds.length > 0) {
-        setUploadPendingSlotIds(navUploadPendingSlotIds);
         setUploadBarcodeIntakeDone(navUploadBarcodeIntakeDone !== false);
         setUploadBarcodeIntakeOpen(false);
         if (sessionBarcodes && Object.keys(sessionBarcodes).length > 0) {
@@ -140,14 +138,28 @@ export function useListWorkspaceNegotiationBootstrap({
       return;
     }
 
-    setItems(cartItems.map((item) => ({ ...item })));
+    const pendingTag = new Set((navUploadPendingSlotIds || []).map(String));
+    setItems(
+      cartItems.map((item) => {
+        const next = { ...item };
+        if (moduleKey !== "upload") return next;
+        const hasVerifiedNosposRow =
+          Array.isArray(item.nosposBarcodes) &&
+          item.nosposBarcodes.some((b) => String(b?.barserial || "").trim());
+        if (hasVerifiedNosposRow) {
+          next.isUploadBarcodeQueuePlaceholder = false;
+        } else if (pendingTag.has(String(item.id))) {
+          next.isUploadBarcodeQueuePlaceholder = true;
+        }
+        return next;
+      })
+    );
     if (moduleKey === "upload") {
       const uw = location.state?.uploadBarcodeWorkspace;
       if (uw?.version === UPLOAD_BARCODE_WORKSPACE_VERSION) {
         const ex = expandUploadBarcodeWorkspace(uw);
         if (ex) {
           setUploadScanSlotIds(ex.uploadScanSlotIds);
-          setUploadPendingSlotIds(ex.uploadPendingSlotIds);
           setUploadBarcodeIntakeOpen(
             resumingUploadSessionFromNav ? false : ex.uploadBarcodeIntakeOpen
           );
@@ -159,16 +171,10 @@ export function useListWorkspaceNegotiationBootstrap({
         } else {
           setUploadBarcodeIntakeOpen(false);
           setUploadBarcodeIntakeDone(true);
-          if (Array.isArray(navUploadPendingSlotIds) && navUploadPendingSlotIds.length > 0) {
-            setUploadPendingSlotIds(navUploadPendingSlotIds);
-          }
         }
       } else {
         setUploadBarcodeIntakeOpen(false);
         setUploadBarcodeIntakeDone(true);
-        if (Array.isArray(navUploadPendingSlotIds) && navUploadPendingSlotIds.length > 0) {
-          setUploadPendingSlotIds(navUploadPendingSlotIds);
-        }
       }
       const persistedStock = location.state?.uploadStockDetailsBySlotId;
       if (persistedStock && typeof persistedStock === "object") {
@@ -226,29 +232,44 @@ export function useListWorkspaceNegotiationBootstrap({
         uploadBarcodeIntakeDone: true,
       };
       if (moduleKey === "upload") {
+        const uwNav = location.state?.uploadBarcodeWorkspace;
+        if (uwNav?.version === UPLOAD_BARCODE_WORKSPACE_VERSION) {
+          const exNav = expandUploadBarcodeWorkspace(uwNav);
+          if (exNav?.barcodes) {
+            baseSessionData.barcodes = { ...(baseSessionData.barcodes || {}), ...exNav.barcodes };
+            baseSessionData.nosposLookups = {
+              ...(baseSessionData.nosposLookups || {}),
+              ...exNav.nosposLookups,
+            };
+          }
+        }
         baseSessionData.uploadBarcodeWorkspace = buildUploadBarcodeWorkspaceSnapshot({
           ...baseSessionData,
         });
         baseSessionData.uploadStockDetailsBySlotId = {};
       }
-      saveWorkspaceSession({
-        cart_key: cartKey,
-        item_count: cartItems.length,
-        session_data: baseSessionData,
-      })
-        .then((resp) => {
-          const sid = readSessionIdFromResponse(resp);
-          if (sid) {
-            setDbSessionId(sid);
-            useAppStore.getState().setRepricingSessionId(sid);
-          }
+      if (moduleKey === "upload" && !uploadWorkspaceHasRecordedBarcode(baseSessionData)) {
+        isCreatingSession.current = false;
+      } else {
+        saveWorkspaceSession({
+          cart_key: cartKey,
+          item_count: cartItems.length,
+          session_data: baseSessionData,
         })
-        .catch((err) => {
-          console.warn("[CG Suite] Failed to create draft session:", err);
-        })
-        .finally(() => {
-          isCreatingSession.current = false;
-        });
+          .then((resp) => {
+            const sid = readSessionIdFromResponse(resp);
+            if (sid) {
+              setDbSessionId(sid);
+              useAppStore.getState().setRepricingSessionId(sid);
+            }
+          })
+          .catch((err) => {
+            console.warn("[CG Suite] Failed to create draft session:", err);
+          })
+          .finally(() => {
+            isCreatingSession.current = false;
+          });
+      }
     }
 
     setIsLoading(false);

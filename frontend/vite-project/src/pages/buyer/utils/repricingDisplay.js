@@ -1,4 +1,5 @@
 import { normalizeExplicitSalePrice, roundSalePrice } from '@/utils/helpers';
+import { resolvePersistedCexRrp } from './negotiationHelpers';
 
 export const formatMoney = (value) => {
   const num = value == null ? null : Number(value);
@@ -30,6 +31,18 @@ export const resolveRepricingSalePrice = (item) => {
   return null;
 };
 
+/**
+ * List/upload workspace: effective per-unit retail for pipelines (Upload RRP column, then CeX
+ * reference layers after pencil merge — same layers as {@link resolvePersistedCexRrp}).
+ */
+export function resolveUploadPipelineSalePrice(item) {
+  const fromFields = resolveRepricingSalePrice(item);
+  if (fromFields != null) return fromFields;
+  const fromCex = resolvePersistedCexRrp(item);
+  if (fromCex != null && Number.isFinite(Number(fromCex)) && Number(fromCex) > 0) return Number(fromCex);
+  return null;
+}
+
 export const getEditableSalePriceState = (item, quantity = 1) => {
   const perUnitSalePrice = resolveRepricingSalePrice(item);
   const totalSalePrice =
@@ -48,3 +61,18 @@ export const getEditableSalePriceState = (item, quantity = 1) => {
     displayValue,
   };
 };
+
+/**
+ * Gross margin % for upload rows: (Upload RRP − NosPos unit cost) ÷ Upload RRP.
+ * Uses {@link resolveUploadPipelineSalePrice} for RRP and `uploadNosposStockFromBarcode.costPrice` for cost.
+ * @returns {number | null}
+ */
+export function resolveUploadMarginPct(item) {
+  const rrp = resolveUploadPipelineSalePrice(item);
+  const raw = item?.uploadNosposStockFromBarcode?.costPrice;
+  if (raw == null || String(raw).trim() === '') return null;
+  const cost = Number.parseFloat(String(raw).replace(/[£,\s]/g, ''));
+  if (rrp == null || !Number.isFinite(rrp) || rrp <= 0) return null;
+  if (!Number.isFinite(cost) || cost < 0) return null;
+  return ((rrp - cost) / rrp) * 100;
+}

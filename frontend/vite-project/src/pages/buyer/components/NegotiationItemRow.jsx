@@ -9,7 +9,9 @@ import {
   resolveOffersSource,
   getAvailableRrpZonesForNegotiationItem,
   getAvailableOfferZonesForNegotiationItem,
+  resolveUploadTableItemName,
 } from '../utils/negotiationHelpers';
+import { resolveUploadMarginPct } from '../utils/repricingDisplay';
 import { NEGOTIATION_ROW_CONTEXT, RRP_SOURCE_CELL_CLASS } from '../rowContextZones';
 import NegotiationPriceSourcePickerCell from './NegotiationPriceSourcePickerCell';
 import { isBlockedForItem, offerIdToSlot, manualSlotCommitRequiresAuthorisation } from '@/utils/customerOfferRules';
@@ -147,7 +149,7 @@ export default function NegotiationItemRow({
   hideNosposCategoryColumn = false,
   hideQuantityColumn = false,
   hideCexVoucherCashColumns = false,
-  /** Upload workspace: four NosPos stock-edit columns after item name (cost, buyer, date, retail). */
+  /** Upload workspace: NosPos stock columns after item name + Upload margin column after sale price. */
   showUploadNosposStockColumns = false,
   /** When false, Category + NosPos cells collapse to one narrow placeholder (default expanded for single-callers). */
   categoryColumnsExpanded = true,
@@ -156,6 +158,8 @@ export default function NegotiationItemRow({
   hideOfferColumns = false,
   hideCustomerExpectation = false,
   renderSuffix = null,
+  onOpenUploadNosposChanges = null,
+  onUploadTableItemNameChange = null,
 }) {
   const quantity = item.quantity || 1;
   const displayOffers = getDisplayOffers(item, useVoucherOffers);
@@ -171,6 +175,12 @@ export default function NegotiationItemRow({
   const ourSalePrice = resolveOurSalePrice(item);
   const cexOutOfStock = item.cexOutOfStock || item.cexProductData?.isOutOfStock || false;
   const primaryItemName = item.variantName || item.title || 'N/A';
+  const uploadTableNameEditable =
+    showUploadNosposStockColumns && !isViewMode && typeof onUploadTableItemNameChange === 'function';
+  const uploadTableNameInputValue =
+    item.uploadTableItemName != null
+      ? String(item.uploadTableItemName)
+      : String(item.variantName || item.title || '');
 
   const manualValue = item.manualOffer ? parseFloat(item.manualOffer.replace(/[£,]/g, '')) : null;
   const manualMargin = manualValue && ourSalePrice ? ((ourSalePrice - manualValue) / ourSalePrice) * 100 : null;
@@ -236,6 +246,8 @@ export default function NegotiationItemRow({
     if (v == null || String(v).trim() === '') return '—';
     return String(v).trim();
   };
+
+  const uploadMarginPct = showUploadNosposStockColumns ? resolveUploadMarginPct(item) : null;
 
   return (
     <tr
@@ -365,14 +377,32 @@ export default function NegotiationItemRow({
       ) : null}
 
       {/* Item Name & Attributes */}
-      <td className="align-top" onContextMenu={ctxRemoveOnly}>
-        <div className="flex items-start gap-2">
-          <span
-            className="min-w-0 flex-1 break-words font-bold text-[13px] leading-snug"
-            style={{ color: 'var(--brand-blue)' }}
-          >
-            {primaryItemName}
-          </span>
+      <td className={uploadTableNameEditable ? 'align-middle' : 'align-top'} onContextMenu={ctxRemoveOnly}>
+        <div className={`flex gap-2 min-w-0 ${uploadTableNameEditable ? 'items-center' : 'items-start'}`}>
+          {uploadTableNameEditable ? (
+            <input
+              type="text"
+              className="w-full h-full min-w-0 flex-1 max-w-full border-0 text-xs font-semibold text-left px-3 py-2 focus:outline-none focus:ring-0 bg-white rounded truncate"
+              style={{ color: 'var(--brand-blue)' }}
+              maxLength={500}
+              value={uploadTableNameInputValue}
+              onChange={(e) => onUploadTableItemNameChange(item.id, e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  e.currentTarget.blur();
+                }
+              }}
+              aria-label="Item name"
+            />
+          ) : (
+            <span
+              className="min-w-0 flex-1 break-words font-bold text-[13px] leading-snug"
+              style={{ color: 'var(--brand-blue)' }}
+            >
+              {showUploadNosposStockColumns ? resolveUploadTableItemName(item) : primaryItemName}
+            </span>
+          )}
           <div className="flex shrink-0 items-center gap-2">
             {item.isRemoved && (
               <span className="text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-red-100 text-red-700">
@@ -390,19 +420,24 @@ export default function NegotiationItemRow({
 
       {showUploadNosposStockColumns ? (
         <>
-          <td className="align-top font-mono text-[11px] text-slate-800" onContextMenu={ctxRemoveOnly}>
-            {fmtUploadMoney(uploadStock?.costPrice)}
-          </td>
           <td
-            className="align-top text-[11px] text-slate-800 leading-snug break-words max-w-[10rem]"
+            className="align-top w-[5.25rem] max-w-[5.5rem] shrink-0 text-[11px] text-slate-800 leading-snug"
             onContextMenu={ctxRemoveOnly}
+            title={
+              uploadStock?.boughtBy != null && String(uploadStock.boughtBy).trim()
+                ? String(uploadStock.boughtBy).trim()
+                : undefined
+            }
           >
-            {fmtUploadText(uploadStock?.boughtBy)}
+            <div className="truncate">{fmtUploadText(uploadStock?.boughtBy)}</div>
           </td>
-          <td className="align-top text-[11px] text-slate-700 font-mono" onContextMenu={ctxRemoveOnly}>
+          <td className="align-top text-[11px] text-slate-800" onContextMenu={ctxRemoveOnly}>
             {fmtUploadText(uploadStock?.createdAt)}
           </td>
-          <td className="align-top font-mono text-[11px] text-slate-800" onContextMenu={ctxRemoveOnly}>
+          <td className="align-top text-[11px] text-slate-800" onContextMenu={ctxRemoveOnly}>
+            {fmtUploadMoney(uploadStock?.costPrice)}
+          </td>
+          <td className="align-top text-[11px] text-slate-800" onContextMenu={ctxRemoveOnly}>
             {fmtUploadMoney(uploadStock?.retailPrice)}
           </td>
         </>
@@ -589,7 +624,7 @@ export default function NegotiationItemRow({
         </>
       ) : null}
 
-      {/* Our RRP / New Sale Price (explicit per-unit retail; was fed by research or CeX reference) */}
+      {/* Per-module sale price column (Our RRP / New Sale Price / Upload RRP); per-unit retail */}
       <td className="font-medium text-red-700" onContextMenu={ctxRemoveOnly}>
         {isViewMode ? (
           perUnitOurPrice != null ? (
@@ -630,6 +665,23 @@ export default function NegotiationItemRow({
           </div>
         )}
       </td>
+
+      {showUploadNosposStockColumns ? (
+        <td
+          className="align-top text-center text-[11px] font-semibold tabular-nums text-slate-800"
+          onContextMenu={ctxRemoveOnly}
+          title="(Upload RRP − NosPos cost) ÷ Upload RRP"
+        >
+          {uploadMarginPct != null && Number.isFinite(uploadMarginPct) ? (
+            <span style={{ color: uploadMarginPct >= 0 ? 'var(--brand-blue)' : '#dc2626' }}>
+              {uploadMarginPct >= 0 ? '+' : ''}
+              {uploadMarginPct.toFixed(1)}%
+            </span>
+          ) : (
+            '—'
+          )}
+        </td>
+      ) : null}
 
       <NegotiationPriceSourcePickerCell
         mode={mode}
@@ -850,6 +902,23 @@ export default function NegotiationItemRow({
       ) : null}
 
       {renderSuffix ? renderSuffix() : null}
+      {showUploadNosposStockColumns && renderSuffix && onOpenUploadNosposChanges ? (
+        <td className="align-top px-1 text-center" onContextMenu={ctxRemoveOnly}>
+          {uploadStock?.changeLog?.length ? (
+            <button
+              type="button"
+              onClick={() => onOpenUploadNosposChanges(item)}
+              className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-1.5 text-[9px] font-black uppercase tracking-wide text-slate-800 transition-colors hover:bg-slate-100 focus-visible:outline focus-visible:ring-2 focus-visible:ring-slate-300"
+              title="NosPos audit trail from the stock edit page"
+            >
+              <span className="material-symbols-outlined text-[16px] leading-none text-slate-700">table_view</span>
+              View
+            </button>
+          ) : (
+            <span className="text-[11px] font-bold uppercase tracking-wide text-slate-700">NONE</span>
+          )}
+        </td>
+      ) : null}
     </tr>
   );
 }

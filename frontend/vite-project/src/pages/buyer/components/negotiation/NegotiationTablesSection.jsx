@@ -45,14 +45,28 @@ export default function NegotiationTablesSection({
   hideQuantityColumn = false,
   /** When true, hide CeX Voucher and Cash columns; Sell remains (upload workspace). */
   hideCexVoucherCashColumns = false,
-  /** Upload workspace: show NosPos stock-edit fields from the barcode line (cost, buyer, date, retail). */
+  /** Upload workspace: show NosPos stock-edit fields from the barcode line (buyer, date, cost, RRP). */
   showUploadNosposStockColumns = false,
+  /** Upload list: after the barcode column, open a modal with the scraped NosPos “Changes” grid. */
+  onOpenUploadNosposChanges = null,
+  /** Upload list: `(itemId, value)` while editing the “Item name & attributes” cell. */
+  onUploadTableItemNameChange = null,
+  /** `'default'` — negotiation padding. `'wide'` — upload / near full-bleed with small side gutters. */
+  pageGutter = 'default',
+  /** Optional control(s) aligned to the right of the main “Items” heading row. */
+  itemsHeadingEndAction = null,
   hideOfferColumns = false,
   hideCustomerExpectation = false,
   salePriceLabel = 'Our RRP',
   renderRowSuffix = null,
 }) {
   const [categoryColumnsExpanded, setCategoryColumnsExpanded] = useState(false);
+
+  const gutterMain =
+    pageGutter === 'wide'
+      ? 'pl-2 pr-2 sm:pl-3 sm:pr-3 md:pl-4 md:pr-4 pt-3 pb-5'
+      : 'px-6 pt-4 pb-6';
+  const gutterSticky = pageGutter === 'wide' ? 'pl-2 pr-2 sm:pl-3 sm:pr-3 md:pl-4 md:pr-4 py-3' : 'px-6 py-3';
 
   const visibleColumnCount = (() => {
     let count = 0;
@@ -62,7 +76,8 @@ export default function NegotiationTablesSection({
       : 1;
     if (!hideNosposRequiredColumn) count += 1;
     count += 1; // Item Name
-    if (showUploadNosposStockColumns) count += 4; // NosPos cost / buyer / bought / retail
+    if (showUploadNosposStockColumns) count += 4 + 1; // NosPos bought by / date / cost / RRP + Upload margin (after sale price)
+    if (showUploadNosposStockColumns && renderRowSuffix && onOpenUploadNosposChanges) count += 1; // NosPos changes (after barcode)
     count += hideCexVoucherCashColumns ? 1 : 3; // CeX Sell / optional Voucher+Cash
     if (!hideCustomerExpectation) count += 1;
     if (!hideOfferColumns) count += 6; // Offer source + 4 tiers + Manual
@@ -79,7 +94,7 @@ export default function NegotiationTablesSection({
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-auto buyer-panel-scroll">
         {jewelleryNegotiationItems.length > 0 ? (
           <div className="bg-white">
-            <div className="sticky top-0 z-[5] bg-white px-6 py-3">
+            <div className={`sticky top-0 z-[5] bg-white ${gutterSticky}`}>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="text-sm font-black uppercase tracking-wider text-brand-blue">Jewellery</h3>
               </div>
@@ -114,10 +129,15 @@ export default function NegotiationTablesSection({
             />
           </div>
         ) : null}
-        <div className="px-6 pt-4 pb-6">
-          <div className="pb-2">
-            <h3 className="text-sm font-black uppercase tracking-wider text-brand-blue">Items</h3>
-            <p className="text-[11px] text-gray-600">Phones, CeX, eBay, and other catalogue lines.</p>
+        <div className={gutterMain}>
+          <div className="flex flex-wrap items-start justify-between gap-3 pb-2">
+            <div className="min-w-0">
+              <h3 className="text-sm font-black uppercase tracking-wider text-brand-blue">Items</h3>
+              <p className="text-[11px] text-gray-600">Phones, CeX, eBay, and other catalogue lines.</p>
+            </div>
+            {itemsHeadingEndAction ? (
+              <div className="flex shrink-0 items-center gap-2 self-start pt-0.5">{itemsHeadingEndAction}</div>
+            ) : null}
           </div>
           <table className="w-full spreadsheet-table border-collapse text-left">
             <thead>
@@ -181,10 +201,7 @@ export default function NegotiationTablesSection({
                 <th className="min-w-[220px]">Item Name &amp; Attributes</th>
                 {showUploadNosposStockColumns ? (
                   <>
-                    <th className="w-24 min-w-[5.5rem] text-[10px] font-bold uppercase tracking-wide text-slate-600">
-                      Cost
-                    </th>
-                    <th className="min-w-[7rem] max-w-[10rem] text-[10px] font-bold uppercase tracking-wide text-slate-600">
+                    <th className="w-[5.25rem] max-w-[5.5rem] shrink-0 text-[10px] font-bold uppercase tracking-wide text-slate-600">
                       Bought by
                     </th>
                     <th className="w-28 text-[10px] font-bold uppercase tracking-wide text-slate-600">
@@ -192,9 +209,15 @@ export default function NegotiationTablesSection({
                     </th>
                     <th
                       className="w-24 min-w-[5.5rem] text-[10px] font-bold uppercase tracking-wide text-slate-600"
-                      title="NosPos retail price (stock-retail_price)"
+                      title="Unit cost from the NosPos stock line (cost_price)"
                     >
-                      Cost price
+                      Cost
+                    </th>
+                    <th
+                      className="w-24 min-w-[5.5rem] text-[10px] font-bold uppercase tracking-wide text-slate-600"
+                      title="NosPos retail / RRP from the stock line (retail_price)"
+                    >
+                      NosPos RRP
                     </th>
                   </>
                 ) : null}
@@ -219,6 +242,14 @@ export default function NegotiationTablesSection({
                   </>
                 ) : null}
                 <th className="w-24">{salePriceLabel}</th>
+                {showUploadNosposStockColumns ? (
+                  <th
+                    className="w-[5.25rem] min-w-[4.75rem] text-[10px] font-bold uppercase tracking-wide text-slate-600 text-center"
+                    title="Gross margin: (Upload RRP − NosPos cost) ÷ Upload RRP"
+                  >
+                    Upload margin
+                  </th>
+                ) : null}
                 <th className="w-[5.5rem] min-w-[5rem] text-[9px] leading-tight">RRP source</th>
                 <th className="w-24 px-1 text-left">eBay</th>
                 <th className="w-24 px-1 text-left">CC</th>
@@ -228,7 +259,12 @@ export default function NegotiationTablesSection({
                     Skip NosPos
                   </th>
                 ) : null}
-                {renderRowSuffix ? <th className="w-44">Barcodes</th> : null}
+                {renderRowSuffix ? <th className="w-44">Barcode</th> : null}
+                {showUploadNosposStockColumns && renderRowSuffix && onOpenUploadNosposChanges ? (
+                  <th className="w-[7.5rem] min-w-[6.5rem] text-[10px] font-bold uppercase leading-tight tracking-wide text-slate-600 text-center">
+                    NosPos changes
+                  </th>
+                ) : null}
               </tr>
             </thead>
             <tbody className="text-xs">
@@ -277,6 +313,8 @@ export default function NegotiationTablesSection({
                   hideOfferColumns={hideOfferColumns}
                   hideCustomerExpectation={hideCustomerExpectation}
                   renderSuffix={renderRowSuffix ? () => renderRowSuffix(item) : null}
+                  onOpenUploadNosposChanges={onOpenUploadNosposChanges}
+                  onUploadTableItemNameChange={onUploadTableItemNameChange}
                 />
               ))}
               <tr className="h-10 opacity-50">

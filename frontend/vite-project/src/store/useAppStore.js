@@ -107,6 +107,9 @@ const useAppStore = create(
       headerWorkspaceMode: 'builder',
       /** Increment to ask AppHeader to run full workspace reset (e.g. after jewellery Complete). */
       closeHeaderWorkspaceTick: 0,
+      /** Upload list: pick a top-level builder category from the row context menu — AppHeader applies local tree state. */
+      pendingBuilderTopCategoryId: null,
+      pendingBuilderTopCategoryNonce: 0,
       /**
        * Incremented when the user activates Jewellery from the header (diamond).
        * JewelleryLineItems opens the type/material picker when idle and data is ready.
@@ -144,6 +147,7 @@ const useAppStore = create(
           resetKey: get().resetKey + 1,
           headerWorkspaceOpen: false,
           headerWorkspaceMode: 'builder',
+          pendingBuilderTopCategoryId: null,
         });
       },
       resetBuyerWorkspace: ({ openCustomerModal = false } = {}) =>
@@ -164,6 +168,7 @@ const useAppStore = create(
           resetKey: s.resetKey + 1,
           headerWorkspaceOpen: false,
           headerWorkspaceMode: 'builder',
+          pendingBuilderTopCategoryId: null,
         })),
       resetRepricingWorkspace: ({ homePath, negotiationPath } = {}) => {
         const hp = homePath ?? '/repricing';
@@ -185,6 +190,7 @@ const useAppStore = create(
           repricingWorkspaceNonce: s.repricingWorkspaceNonce + 1,
           headerWorkspaceOpen: false,
           headerWorkspaceMode: 'builder',
+          pendingBuilderTopCategoryId: null,
         }));
       },
       setHeaderWorkspaceOpen: (open) => set({ headerWorkspaceOpen: Boolean(open) }),
@@ -192,6 +198,12 @@ const useAppStore = create(
         set({ headerWorkspaceMode: typeof mode === 'string' && mode ? mode : 'builder' }),
       requestCloseHeaderWorkspace: () =>
         set((s) => ({ closeHeaderWorkspaceTick: s.closeHeaderWorkspaceTick + 1 })),
+      requestOpenBuilderTopCategory: (categoryId) =>
+        set((s) => ({
+          pendingBuilderTopCategoryId: categoryId != null ? String(categoryId) : null,
+          pendingBuilderTopCategoryNonce: s.pendingBuilderTopCategoryNonce + 1,
+        })),
+      clearPendingBuilderTopCategory: () => set({ pendingBuilderTopCategoryId: null }),
       requestJewelleryPickerOpen: () =>
         set((s) => ({ jewelleryPickerOpenNonce: s.jewelleryPickerOpenNonce + 1 })),
       setRepricingSessionId: (id) => set({ repricingSessionId: id }),

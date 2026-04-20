@@ -4,7 +4,7 @@ export default function RepricingJobOverlay({
   workspace = 'repricing',
   repricingJob,
   activeCartKey,
-  onCancel,
+  onCancel = null,
 }) {
   const isUpload = workspace === 'upload';
   const eyebrow = isUpload ? 'Background upload in progress' : 'Background Repricing In Progress';
@@ -12,12 +12,13 @@ export default function RepricingJobOverlay({
     ? 'Please wait while CG Suite completes your upload'
     : 'Please wait while CG Suite updates NoSpos';
   const subline = isUpload
-    ? 'The rest of this screen is locked while the hidden NoSpos worker finishes your upload.'
+    ? 'The rest of this screen is locked while a minimised Web EPOS tab fills each product, saves it, and moves to the next line.'
     : 'The rest of this screen is locked while the hidden NoSpos worker is running so the process stays consistent.';
 
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
-      <div className="cg-animate-modal-backdrop absolute inset-0 bg-slate-950/55 backdrop-blur-sm" />
+      {/* No backdrop-filter: full-viewport blur is very expensive over the negotiation table (jank). */}
+      <div className="cg-animate-modal-backdrop absolute inset-0 bg-slate-950/60" aria-hidden />
       <div className="cg-animate-modal-panel relative z-10 w-full max-w-3xl max-h-[85vh] overflow-hidden rounded-3xl bg-white shadow-2xl border" style={{ borderColor: 'var(--brand-blue-alpha-15)' }}>
         <div className="px-6 py-5 border-b bg-brand-blue" style={{ borderColor: 'var(--brand-blue-alpha-15)' }}>
           <div className="flex items-start gap-4">
@@ -29,14 +30,16 @@ export default function RepricingJobOverlay({
                 {subline}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => onCancel(activeCartKey)}
-              className="shrink-0 px-4 py-2 rounded-lg font-bold text-sm bg-red-600 hover:bg-red-700 text-white transition-colors flex items-center gap-2"
-            >
-              <span className="material-symbols-outlined text-[18px]">close</span>
-              Cancel
-            </button>
+            {typeof onCancel === 'function' && (
+              <button
+                type="button"
+                onClick={() => onCancel(activeCartKey)}
+                className="shrink-0 px-4 py-2 rounded-lg font-bold text-sm bg-red-600 hover:bg-red-700 text-white transition-colors flex items-center gap-2"
+              >
+                <span className="material-symbols-outlined text-[18px]">close</span>
+                Cancel
+              </button>
+            )}
           </div>
         </div>
 
@@ -54,7 +57,8 @@ export default function RepricingJobOverlay({
             <div className="flex items-center justify-between gap-3 mb-2">
               <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Progress</p>
               <p className="text-xs font-bold text-slate-600">
-                {repricingJob?.completedBarcodeCount || 0} / {repricingJob?.totalBarcodes || 0} barcodes completed
+                {repricingJob?.completedBarcodeCount || 0} / {repricingJob?.totalBarcodes || 0}{' '}
+                {isUpload ? 'products completed' : 'barcodes completed'}
               </p>
             </div>
             <div className="h-3 rounded-full bg-slate-200 overflow-hidden">

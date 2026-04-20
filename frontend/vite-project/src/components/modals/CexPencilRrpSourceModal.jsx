@@ -15,6 +15,8 @@ export default function CexPencilRrpSourceModal({
   onClose,
   useVoucherOffers = false,
   showNotification,
+  /** Optional: called with the row after CeX RRP/offers apply succeeds (e.g. upload CG pipeline). */
+  onAfterCexRrpCommit = null,
 }) {
   if (!modalState?.itemId) return null;
   const item = items.find((i) => i.id === modalState.itemId);
@@ -22,6 +24,7 @@ export default function CexPencilRrpSourceModal({
 
   const applyYes = () => {
     let notify = null;
+    let committed = null;
     setItems((prev) =>
       prev.map((i) => {
         if (i.id !== modalState.itemId) return i;
@@ -35,10 +38,14 @@ export default function CexPencilRrpSourceModal({
           return i;
         }
         notify = { type: "success", message: "RRP and offers now use CeX sell." };
+        committed = applied;
         return applied;
       })
     );
     if (notify) showNotification?.(notify.message, notify.type);
+    if (notify?.type === "success" && committed) {
+      queueMicrotask(() => onAfterCexRrpCommit?.(committed));
+    }
     onClose();
   };
 

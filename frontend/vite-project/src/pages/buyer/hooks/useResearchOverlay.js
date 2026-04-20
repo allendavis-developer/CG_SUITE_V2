@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import {
   getResearchCompleteSalePriceFollowUp,
   openSalePriceConfirmModalFromFollowUp,
+  finalizeResearchRowAfterApply,
 } from '../utils/researchCompletionHelpers';
 import { buildItemSpecs, buildInitialSearchQuery, logCategoryRuleDecision } from '../utils/negotiationHelpers';
 
@@ -19,7 +20,7 @@ import { buildItemSpecs, buildInitialSearchQuery, logCategoryRuleDecision } from
  * @param {boolean} [opts.readOnly=false] - Reserved for read-only overlay behaviour.
  * @param {boolean} [opts.persistResearchOnComplete=true] - When false, OK/complete does not apply research back to `items` (sandbox / preview).
  * @param {Function} [opts.onResearchPersisted=null] - Optional: `(mergedItem) => void` after `setItems` merges research (e.g. Negotiation manual-offer modals).
- * @param {Function} [opts.onAfterEbayResearchMerge=null] - Optional: `(mergedItem) => void` after eBay research is merged (e.g. NosPos stock AI).
+ * @param {Function} [opts.onAfterResearchMerge=null] - Optional: `(mergedItem, source) => void` after research is merged and finalized (`source`: `ebay` | `cashConverters` | `cashGenerator`).
  */
 export function useResearchOverlay({
   items,
@@ -31,7 +32,7 @@ export function useResearchOverlay({
   readOnly = false,
   persistResearchOnComplete = true,
   onResearchPersisted = null,
-  onAfterEbayResearchMerge = null,
+  onAfterResearchMerge = null,
 }) {
   void readOnly;
   const [researchItem, setResearchItem] = useState(null);
@@ -65,61 +66,118 @@ export function useResearchOverlay({
     if (updatedState && researchItem && persistResearchOnComplete) {
       const currentItem = items.find(i => i.id === researchItem.id);
       const followUp = getResearchCompleteSalePriceFollowUp(updatedState, currentItem, resolveSalePrice);
-      const mergedItem = currentItem ? applyEbayResearch(currentItem, updatedState) : null;
-      setItems(prev => prev.map(i => {
-        if (i.id !== researchItem.id) return i;
-        return applyEbayResearch(i, updatedState);
-      }));
+      setItems((prev) =>
+        prev.map((i) => {
+          if (i.id !== researchItem.id) return i;
+          const afterApply = applyEbayResearch(i, updatedState);
+          return finalizeResearchRowAfterApply(
+            afterApply,
+            updatedState,
+            currentItem,
+            resolveSalePrice,
+            'ebay'
+          );
+        })
+      );
       openSalePriceConfirmModalFromFollowUp(followUp, researchItem, 'ebay', setSalePriceConfirmModal);
+      const mergedItem = currentItem
+        ? finalizeResearchRowAfterApply(
+            applyEbayResearch(currentItem, updatedState),
+            updatedState,
+            currentItem,
+            resolveSalePrice,
+            'ebay'
+          )
+        : null;
       if (mergedItem) {
         onResearchPersisted?.(mergedItem);
-        onAfterEbayResearchMerge?.(mergedItem);
+        onAfterResearchMerge?.(mergedItem, 'ebay');
       }
     }
     setResearchItem(null);
-  }, [researchItem, items, persistResearchOnComplete, setItems, applyEbayResearch, resolveSalePrice, onResearchPersisted, onAfterEbayResearchMerge]);
+  }, [researchItem, items, persistResearchOnComplete, setItems, applyEbayResearch, resolveSalePrice, onResearchPersisted, onAfterResearchMerge]);
 
   const handleCashConvertersResearchComplete = useCallback((updatedState) => {
     if (updatedState?.cancel) { setCashConvertersResearchItem(null); return; }
     if (updatedState && cashConvertersResearchItem && persistResearchOnComplete) {
       const currentItem = items.find(i => i.id === cashConvertersResearchItem.id);
       const followUp = getResearchCompleteSalePriceFollowUp(updatedState, currentItem, resolveSalePrice);
-      const mergedItem = currentItem ? applyCCResearch(currentItem, updatedState) : null;
-      setItems(prev => prev.map(i => {
-        if (i.id !== cashConvertersResearchItem.id) return i;
-        return applyCCResearch(i, updatedState);
-      }));
+      setItems((prev) =>
+        prev.map((i) => {
+          if (i.id !== cashConvertersResearchItem.id) return i;
+          const afterApply = applyCCResearch(i, updatedState);
+          return finalizeResearchRowAfterApply(
+            afterApply,
+            updatedState,
+            currentItem,
+            resolveSalePrice,
+            'cashConverters'
+          );
+        })
+      );
       openSalePriceConfirmModalFromFollowUp(
         followUp,
         cashConvertersResearchItem,
         'cashConverters',
         setSalePriceConfirmModal
       );
-      if (mergedItem) onResearchPersisted?.(mergedItem);
+      const mergedItem = currentItem
+        ? finalizeResearchRowAfterApply(
+            applyCCResearch(currentItem, updatedState),
+            updatedState,
+            currentItem,
+            resolveSalePrice,
+            'cashConverters'
+          )
+        : null;
+      if (mergedItem) {
+        onResearchPersisted?.(mergedItem);
+        onAfterResearchMerge?.(mergedItem, 'cashConverters');
+      }
     }
     setCashConvertersResearchItem(null);
-  }, [cashConvertersResearchItem, items, persistResearchOnComplete, setItems, applyCCResearch, resolveSalePrice, onResearchPersisted]);
+  }, [cashConvertersResearchItem, items, persistResearchOnComplete, setItems, applyCCResearch, resolveSalePrice, onResearchPersisted, onAfterResearchMerge]);
 
   const handleCashGeneratorResearchComplete = useCallback((updatedState) => {
     if (updatedState?.cancel) { setCgResearchItem(null); return; }
     if (updatedState && cgResearchItem && persistResearchOnComplete && typeof applyCGResearch === 'function') {
       const currentItem = items.find(i => i.id === cgResearchItem.id);
       const followUp = getResearchCompleteSalePriceFollowUp(updatedState, currentItem, resolveSalePrice);
-      const mergedItem = currentItem ? applyCGResearch(currentItem, updatedState) : null;
-      setItems(prev => prev.map(i => {
-        if (i.id !== cgResearchItem.id) return i;
-        return applyCGResearch(i, updatedState);
-      }));
+      setItems((prev) =>
+        prev.map((i) => {
+          if (i.id !== cgResearchItem.id) return i;
+          const afterApply = applyCGResearch(i, updatedState);
+          return finalizeResearchRowAfterApply(
+            afterApply,
+            updatedState,
+            currentItem,
+            resolveSalePrice,
+            'cashGenerator'
+          );
+        })
+      );
       openSalePriceConfirmModalFromFollowUp(
         followUp,
         cgResearchItem,
         'cashGenerator',
         setSalePriceConfirmModal
       );
-      if (mergedItem) onResearchPersisted?.(mergedItem);
+      const mergedItem = currentItem
+        ? finalizeResearchRowAfterApply(
+            applyCGResearch(currentItem, updatedState),
+            updatedState,
+            currentItem,
+            resolveSalePrice,
+            'cashGenerator'
+          )
+        : null;
+      if (mergedItem) {
+        onResearchPersisted?.(mergedItem);
+        onAfterResearchMerge?.(mergedItem, 'cashGenerator');
+      }
     }
     setCgResearchItem(null);
-  }, [cgResearchItem, items, persistResearchOnComplete, setItems, applyCGResearch, resolveSalePrice, onResearchPersisted]);
+  }, [cgResearchItem, items, persistResearchOnComplete, setItems, applyCGResearch, resolveSalePrice, onResearchPersisted, onAfterResearchMerge]);
 
   return {
     researchItem,

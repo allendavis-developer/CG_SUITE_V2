@@ -112,6 +112,67 @@ export function getAiSuggestedNosposStockFieldValuesFromItem(item) {
 }
 
 /**
+ * Merge NosPos stock category / field-value AI hints onto a negotiation row (same shape as add-from-CeX).
+ *
+ * @param {object} row
+ * @param {object|null} aiSuggestedNosposStockCategory
+ * @param {object|null} aiSuggestedNosposStockFieldValues
+ */
+export function mergeNosposAiOntoNegotiationRow(row, aiSuggestedNosposStockCategory, aiSuggestedNosposStockFieldValues) {
+  const prevFv = getAiSuggestedNosposStockFieldValuesFromItem(row);
+  let fieldBlob = aiSuggestedNosposStockFieldValues;
+
+  if (fieldBlob?.byNosposFieldId && typeof fieldBlob.byNosposFieldId === 'object') {
+    const newHasValue = Object.keys(fieldBlob.byNosposFieldId).some(
+      (k) => String(fieldBlob.byNosposFieldId[k] ?? '').trim() !== '',
+    );
+    const prevById = prevFv?.byNosposFieldId;
+    if (!newHasValue) {
+      fieldBlob = null;
+    } else if (prevById && typeof prevById === 'object') {
+      fieldBlob = {
+        ...prevFv,
+        ...fieldBlob,
+        byNosposFieldId: { ...prevById, ...fieldBlob.byNosposFieldId },
+      };
+    }
+  } else if (fieldBlob && (!fieldBlob.byNosposFieldId || typeof fieldBlob.byNosposFieldId !== 'object')) {
+    fieldBlob = null;
+  }
+
+  const nextRaw =
+    row.rawData != null && typeof row.rawData === 'object'
+      ? {
+          ...row.rawData,
+          aiSuggestedNosposStockCategory,
+          ...(fieldBlob ? { aiSuggestedNosposStockFieldValues: fieldBlob } : {}),
+        }
+      : {
+          aiSuggestedNosposStockCategory,
+          ...(fieldBlob ? { aiSuggestedNosposStockFieldValues: fieldBlob } : {}),
+        };
+  if (row.ebayResearchData != null && typeof row.ebayResearchData === 'object') {
+    return {
+      ...row,
+      aiSuggestedNosposStockCategory,
+      ...(fieldBlob ? { aiSuggestedNosposStockFieldValues: fieldBlob } : {}),
+      rawData: nextRaw,
+      ebayResearchData: {
+        ...row.ebayResearchData,
+        aiSuggestedNosposStockCategory,
+        ...(fieldBlob ? { aiSuggestedNosposStockFieldValues: fieldBlob } : {}),
+      },
+    };
+  }
+  return {
+    ...row,
+    aiSuggestedNosposStockCategory,
+    ...(fieldBlob ? { aiSuggestedNosposStockFieldValues: fieldBlob } : {}),
+    rawData: nextRaw,
+  };
+}
+
+/**
  * Match a configured mapping path (`nosposPath` from API) to a row in `GET /nospos-categories/` results.
  *
  * @param {string|null|undefined} nosposPath

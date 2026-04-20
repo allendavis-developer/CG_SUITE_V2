@@ -12,11 +12,20 @@ import {
  * @param {Function} [ctx.showNotification]
  * @param {Function} ctx.setItems — React setState for items array
  * @param {boolean} ctx.useVoucherOffers — transaction type store credit vs cash
- * @param {boolean} [ctx.repricingRrpOnly] — repricing table: only update New Sale Price + RRP source (no tier offers)
+ * @param {boolean} [ctx.repricingRrpOnly] — repricing/upload table: only update sale price + RRP source (no tier offers)
+ * @param {string} [ctx.successMessageRrpOnly] — override success toast when repricingRrpOnly (e.g. upload wording)
+ * @param {function} [ctx.onAfterRrpOnlyApplied] — called with the updated row after repricingRrpOnly apply succeeds
  * @returns {boolean} true if applied
  */
 export function handlePriceSourceAsRrpOffersSource(item, zone, ctx) {
-  const { showNotification, setItems, useVoucherOffers, repricingRrpOnly } = ctx || {};
+  const {
+    showNotification,
+    setItems,
+    useVoucherOffers,
+    repricingRrpOnly,
+    successMessageRrpOnly,
+    onAfterRrpOnlyApplied,
+  } = ctx || {};
   if (!item || !setItems) return false;
 
   if (repricingRrpOnly) {
@@ -26,7 +35,11 @@ export function handlePriceSourceAsRrpOffersSource(item, zone, ctx) {
       return false;
     }
     setItems((prev) => prev.map((i) => (i.id === item.id ? next : i)));
-    showNotification?.('New Sale Price updated from selected source.', 'success');
+    showNotification?.(
+      successMessageRrpOnly ?? 'New Sale Price updated from selected source.',
+      'success'
+    );
+    onAfterRrpOnlyApplied?.(next);
     return true;
   }
 

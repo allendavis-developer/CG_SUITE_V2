@@ -169,6 +169,9 @@ export function useWebEposUploadWorkspace({
 
   const handleViewWebEposCategories = useCallback(() => {
     if (!uploadWebEposReady || uiBlocked) return;
+    try {
+      sessionStorage.setItem(WEB_EPOS_UPLOAD_SKIP_GATE_KEY, '1');
+    } catch (_) {}
     navigate('/upload/webepos-categories', {
       state: {
         rows: [],

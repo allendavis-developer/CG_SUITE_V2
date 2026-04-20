@@ -38,6 +38,8 @@ export default function ResearchOverlayPanel({
   readOnly = false,
   /** Shown at top of research UI when edits are intentionally not persisted (e.g. booked-for-testing preview). */
   ephemeralSessionNotice = null,
+  /** Upload / repricing list workspace: typed Upload RRP override in research header. */
+  enableUploadRepricingCustomSalePrice = false,
   showManualOffer = false,
   useVoucherOffers = false,
   hideOfferCards = false,
@@ -91,6 +93,7 @@ export default function ResearchOverlayPanel({
             initialHistogramState={true}
             readOnly={readOnly}
             ephemeralSessionNotice={ephemeralSessionNotice}
+            enableUploadRepricingCustomSalePrice={enableUploadRepricingCustomSalePrice}
             showManualOffer={showManualOffer}
             hideAddAction={true}
             hideOfferCards={hideOfferCards}
@@ -114,6 +117,7 @@ export default function ResearchOverlayPanel({
             initialHistogramState={true}
             readOnly={readOnly}
             ephemeralSessionNotice={ephemeralSessionNotice}
+            enableUploadRepricingCustomSalePrice={enableUploadRepricingCustomSalePrice}
             showManualOffer={showManualOffer}
             hideAddAction={true}
             hideOfferCards={hideOfferCards}
@@ -137,6 +141,7 @@ export default function ResearchOverlayPanel({
             initialHistogramState={true}
             readOnly={readOnly}
             ephemeralSessionNotice={ephemeralSessionNotice}
+            enableUploadRepricingCustomSalePrice={enableUploadRepricingCustomSalePrice}
             showManualOffer={showManualOffer}
             hideAddAction={true}
             hideOfferCards={hideOfferCards}

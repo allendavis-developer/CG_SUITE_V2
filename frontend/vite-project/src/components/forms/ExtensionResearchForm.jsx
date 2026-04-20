@@ -24,6 +24,8 @@ import {
   getMarketplaceSearchSessionTerm,
   clearMarketplaceSearchSessionTerm,
 } from '@/utils/marketplaceSearchConfirmSession';
+import { useNotification } from '@/contexts/NotificationContext.jsx';
+import { normalizeExplicitSalePrice } from '@/utils/helpers';
 
 import HierarchicalCategoryPickerPanel from '@/components/pickers/HierarchicalCategoryPickerPanel';
 import {
@@ -323,7 +325,10 @@ function ExtensionResearchForm({
   /** Called immediately when a category is selected (before search). Use to persist the
    *  category onto the item so other research forms for the same item skip the picker. */
   onCategoryResolved = null,
+  /** Upload / repricing list workspace only: optional typed Upload RRP override on OK (see ResearchFormShell). */
+  enableUploadRepricingCustomSalePrice = false,
 }) {
+  const { showNotification } = useNotification();
   const config = SOURCE_CONFIG[source] ?? SOURCE_CONFIG.eBay;
   const isEbay = source === 'eBay';
   const isCashGenerator = source === 'CashGenerator';
@@ -536,6 +541,7 @@ function ExtensionResearchForm({
     savedState?.showHistogram ?? (initialHistogramState !== null ? initialHistogramState : mode === 'modal')
   );
   const [manualOffer, setManualOffer] = useState(savedState?.manualOffer ?? '');
+  const [customUploadSalePrice, setCustomUploadSalePrice] = useState('');
 
   useEffect(() => {
     if (initialHistogramState !== null) setShowHistogram(initialHistogramState);
@@ -914,6 +920,15 @@ function ExtensionResearchForm({
   }, []);
 
   // ─── Completion helpers ─────────────────────────────────────────────────
+  const uploadRrpOverrideForPayload = useMemo(() => {
+    if (!enableUploadRepricingCustomSalePrice) return undefined;
+    const raw = String(customUploadSalePrice ?? '').replace(/[£,]/g, '').trim();
+    if (raw === '') return undefined;
+    const p = parseFloat(raw);
+    if (!Number.isFinite(p) || p <= 0) return undefined;
+    return normalizeExplicitSalePrice(p);
+  }, [enableUploadRepricingCustomSalePrice, customUploadSalePrice]);
+
   const buildPayload = useCallback((extras = {}) => {
     const prevAdv = advancedFilterStateRef.current;
     const advBase = prevAdv && typeof prevAdv === 'object' ? prevAdv : {};
@@ -961,14 +976,32 @@ function ExtensionResearchForm({
       // Pass along any category that was resolved during this research session
       resolvedCategory: resolvedCategory || null,
       ...(aiSuggestedNosposStockCategory ? { aiSuggestedNosposStockCategory } : {}),
+      ...(uploadRrpOverrideForPayload != null ? { uploadRrpOverridePerUnit: uploadRrpOverrideForPayload } : {}),
       ...extras,
     };
-  }, [listings, showHistogram, drillHistory, displayedStats, buyOffers, searchTerm, listingPageUrl, manualOffer, isEbay, includeEbayBroadMatchListings, resolvedCategory]);
+  }, [listings, showHistogram, drillHistory, displayedStats, buyOffers, searchTerm, listingPageUrl, manualOffer, isEbay, includeEbayBroadMatchListings, resolvedCategory, uploadRrpOverrideForPayload]);
 
   const handleComplete = useCallback(async () => {
     await awaitPendingNosposBackgroundMatch();
+    if (enableUploadRepricingCustomSalePrice) {
+      const raw = String(customUploadSalePrice ?? '').replace(/[£,]/g, '').trim();
+      if (raw !== '') {
+        const parsed = parseFloat(raw);
+        if (!Number.isFinite(parsed) || parsed <= 0) {
+          showNotification('Upload RRP must be a number greater than £0', 'error');
+          return;
+        }
+      }
+    }
     onComplete?.(buildPayload());
-  }, [onComplete, buildPayload, awaitPendingNosposBackgroundMatch]);
+  }, [
+    onComplete,
+    buildPayload,
+    awaitPendingNosposBackgroundMatch,
+    enableUploadRepricingCustomSalePrice,
+    customUploadSalePrice,
+    showNotification,
+  ]);
 
   /** Shell footer OK: view-only overlays close with cancel (no save). */
   const handleShellOnComplete = useCallback(async () => {
@@ -1113,6 +1146,7 @@ function ExtensionResearchForm({
     const showSuggestionBlock =
       suggestedSearchLoading || suggestedSearchError || suggestedSearchTerm;
 
+    // Dim overlay only (no backdrop-filter): blurring the table + research stack is very expensive.
     const searchConfirmDialog = (
       <div
         className={
@@ -1123,7 +1157,7 @@ function ExtensionResearchForm({
       >
         <button
           type="button"
-          className="absolute inset-0 bg-slate-900/45 backdrop-blur-[2px] transition-opacity"
+          className="absolute inset-0 bg-slate-900/55 transition-opacity"
           aria-label="Dismiss"
           disabled={loading}
           onClick={() => {
@@ -1417,6 +1451,11 @@ function ExtensionResearchForm({
       blockedOfferSlots={blockedOfferSlots}
       onBlockedOfferClick={onBlockedOfferClick}
       lineItemContext={lineItemContext}
+      showCustomUploadSalePrice={enableUploadRepricingCustomSalePrice}
+      customUploadSalePrice={customUploadSalePrice}
+      onCustomUploadSalePriceChange={
+        !readOnly && enableUploadRepricingCustomSalePrice ? setCustomUploadSalePrice : null
+      }
     />
   );
 }

@@ -275,7 +275,8 @@ function NegotiationBuyer({ mode }) {
   }, [parseManualOfferValue, setItems, setSeniorMgmtModal, setMarginResultModal, showNotification]);
   /** Populated after useNegotiationItemHandlers — avoids TDZ passing notify into useResearchOverlay. */
   const notifyEbayResearchMergedForNosposAiRef = useRef(null);
-  const bridgeNotifyEbayResearchMergedForNosposAi = useCallback((merged) => {
+  const bridgeNotifyEbayResearchMergedForNosposAi = useCallback((merged, source) => {
+    if (source !== 'ebay') return;
     notifyEbayResearchMergedForNosposAiRef.current?.(merged);
   }, []);
   const {
@@ -297,7 +298,7 @@ function NegotiationBuyer({ mode }) {
     readOnly: researchFormReadOnly,
     persistResearchOnComplete: mode === 'negotiate',
     onResearchPersisted,
-    onAfterEbayResearchMerge: mode === 'negotiate' ? bridgeNotifyEbayResearchMergedForNosposAi : null,
+    onAfterResearchMerge: mode === 'negotiate' ? bridgeNotifyEbayResearchMergedForNosposAi : null,
   });
 
   useEffect(() => {

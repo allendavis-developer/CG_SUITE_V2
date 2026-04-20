@@ -408,11 +408,12 @@ const UploadOverview = () => {
                                 {hasSessionItems && (
                                   <button
                                     type="button"
+                                    title="Mark session in progress again and open the upload workspace with this list"
                                     onClick={(e) => handleRedoUpload(e, session)}
                                     className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10.5px] font-bold bg-brand-blue/6 text-brand-blue border border-brand-blue/15 hover:bg-brand-blue/10 transition-colors"
                                   >
-                                    <span className="material-symbols-outlined text-[14px] leading-none">refresh</span>
-                                    Redo
+                                    <span className="material-symbols-outlined text-[14px] leading-none">edit_note</span>
+                                    Resume
                                   </button>
                                 )}
                               </>

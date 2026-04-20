@@ -41,6 +41,7 @@ import {
 import {
   getAiSuggestedNosposStockCategoryFromItem,
   getAiSuggestedNosposStockFieldValuesFromItem,
+  mergeNosposAiOntoNegotiationRow,
   resolveNosposStockLeafIdForNegotiationLine,
 } from '@/utils/nosposCategoryMappings';
 import { getAiSuggestedCgStockCategoryFromItem, mergeCgAiOntoNegotiationRow } from '@/utils/cgCategoryMappings';
@@ -54,60 +55,6 @@ import {
   applyNosposStockFieldBlobToNegotiationItems,
 } from '@/pages/buyer/utils/negotiationMissingNosposRequired';
 import { getJewelleryNosposWeightSyncPlan } from '@/pages/buyer/utils/nosposAgreementFirstItemFill';
-
-function mergeNosposAiOntoNegotiationRow(row, aiSuggestedNosposStockCategory, aiSuggestedNosposStockFieldValues) {
-  const prevFv = getAiSuggestedNosposStockFieldValuesFromItem(row);
-  let fieldBlob = aiSuggestedNosposStockFieldValues;
-
-  if (fieldBlob?.byNosposFieldId && typeof fieldBlob.byNosposFieldId === 'object') {
-    const newHasValue = Object.keys(fieldBlob.byNosposFieldId).some(
-      (k) => String(fieldBlob.byNosposFieldId[k] ?? '').trim() !== ''
-    );
-    const prevById = prevFv?.byNosposFieldId;
-    if (!newHasValue) {
-      fieldBlob = null;
-    } else if (prevById && typeof prevById === 'object') {
-      fieldBlob = {
-        ...prevFv,
-        ...fieldBlob,
-        byNosposFieldId: { ...prevById, ...fieldBlob.byNosposFieldId },
-      };
-    }
-  } else if (fieldBlob && (!fieldBlob.byNosposFieldId || typeof fieldBlob.byNosposFieldId !== 'object')) {
-    fieldBlob = null;
-  }
-
-  const nextRaw =
-    row.rawData != null && typeof row.rawData === 'object'
-      ? {
-          ...row.rawData,
-          aiSuggestedNosposStockCategory,
-          ...(fieldBlob ? { aiSuggestedNosposStockFieldValues: fieldBlob } : {}),
-        }
-      : {
-          aiSuggestedNosposStockCategory,
-          ...(fieldBlob ? { aiSuggestedNosposStockFieldValues: fieldBlob } : {}),
-        };
-  if (row.ebayResearchData != null && typeof row.ebayResearchData === 'object') {
-    return {
-      ...row,
-      aiSuggestedNosposStockCategory,
-      ...(fieldBlob ? { aiSuggestedNosposStockFieldValues: fieldBlob } : {}),
-      rawData: nextRaw,
-      ebayResearchData: {
-        ...row.ebayResearchData,
-        aiSuggestedNosposStockCategory,
-        ...(fieldBlob ? { aiSuggestedNosposStockFieldValues: fieldBlob } : {}),
-      },
-    };
-  }
-  return {
-    ...row,
-    aiSuggestedNosposStockCategory,
-    ...(fieldBlob ? { aiSuggestedNosposStockFieldValues: fieldBlob } : {}),
-    rawData: nextRaw,
-  };
-}
 
 function negotiationOffersJsonForApi(offers) {
   if (!Array.isArray(offers)) return [];

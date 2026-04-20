@@ -185,6 +185,10 @@ export default function ResearchFormShell({
   onBlockedOfferClick = null,
   /** Negotiation / reprice line item — used to decide if manual offer commits need senior auth. */
   lineItemContext = null,
+  /** Upload / repricing list workspace: optional typed Upload RRP (suggested stays on stat card). */
+  showCustomUploadSalePrice = false,
+  customUploadSalePrice = '',
+  onCustomUploadSalePriceChange = null,
 }) {
   const sanitizeManualOfferInput = useCallback((rawValue) => {
     const value = String(rawValue ?? '');
@@ -772,7 +776,7 @@ export default function ResearchFormShell({
   const handleExcludeAllBefore = useCallback(() => {
     if (!excludeContextMenu || !onToggleExclude || !sortedListings) return;
     const targetIdx = excludeContextMenu.sortedIdx;
-    for (let i = 0; i < targetIdx; i++) {
+    for (let i = 0; i <= targetIdx; i++) {
       const entry = sortedListings[i];
       if (!entry) continue;
       const { item, origIdx } = entry;
@@ -789,7 +793,7 @@ export default function ResearchFormShell({
   const handleExcludeAllAfter = useCallback(() => {
     if (!excludeContextMenu || !onToggleExclude || !sortedListings) return;
     const targetIdx = excludeContextMenu.sortedIdx;
-    for (let i = targetIdx + 1; i < sortedListings.length; i++) {
+    for (let i = targetIdx; i < sortedListings.length; i++) {
       const entry = sortedListings[i];
       if (!entry) continue;
       const { item, origIdx } = entry;
@@ -1117,7 +1121,7 @@ export default function ResearchFormShell({
               {addActionLabel}
             </Button>
           )}
-          {(showManualOffer || hidePrimaryAddAction) && (
+          {(showManualOffer || hidePrimaryAddAction || showCustomUploadSalePrice) && (
             <>
               {othersButtonBlock}
               <Button
@@ -1175,6 +1179,35 @@ export default function ResearchFormShell({
           <>
             <div className="w-px h-8 bg-gray-200 shrink-0" />
             <StatsDisplay />
+            {showCustomUploadSalePrice && !readOnly && (
+              <>
+                <div className="w-px h-8 bg-gray-200 shrink-0" />
+                <div className="flex flex-col gap-0.5 shrink-0 items-end">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                    Custom sale price
+                  </span>
+                  <div className="flex items-baseline gap-0.5">
+                    <span className="text-lg font-extrabold text-gray-400">£</span>
+                    <input
+                      type="text"
+                      className="text-lg font-extrabold text-brand-blue bg-transparent outline-none w-24 border-b-2 border-brand-blue/20 focus:border-brand-blue/40 leading-tight"
+                      placeholder=""
+                      aria-label="Custom upload sale price"
+                      value={customUploadSalePrice}
+                      onChange={(e) => {
+                        const cleaned = sanitizeManualOfferInput(e.target.value);
+                        onCustomUploadSalePriceChange?.(cleaned);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key !== 'Enter') return;
+                        e.preventDefault();
+                        handleComplete();
+                      }}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
           </>
         )}
 
@@ -1835,7 +1868,7 @@ export default function ResearchFormShell({
           role="menuitem"
         >
           <span className="material-symbols-outlined text-[16px]">vertical_align_top</span>
-          Exclude all before this
+          Exclude all before and including this
         </button>
         <button
           type="button"
@@ -1844,7 +1877,7 @@ export default function ResearchFormShell({
           role="menuitem"
         >
           <span className="material-symbols-outlined text-[16px]">vertical_align_bottom</span>
-          Exclude all after this
+          Exclude all after and including this
         </button>
       </div>
     </div>

@@ -4,6 +4,7 @@
  *          decodeNosposHtmlText, getStockNameFromEditHtml,
  *          parseNosposSearchResults, parseNosposStockEditResult,
  *          normalizeNosposStockEditUrl, parseNosposStockEditPageDetails,
+ *          parseNosposStockEditPageChangeLog,
  *          handleFetchAddressSuggestions
  */
 
@@ -95,6 +96,52 @@ function normalizeNosposStockEditUrl(raw) {
   return s;
 }
 
+/**
+ * Stock edit page "Changes" card: table rows ID, Name, Old Value, New Value, Changed, Changed By.
+ * @returns {Array<{ changeEntryId: string, columnName: string, oldValue: string, newValue: string, changedAt: string, changedBy: string }>}
+ */
+function parseNosposStockEditPageChangeLog(html) {
+  var out = [];
+  var titleIdx = html.search(/<h4[^>]*class="[^"]*card-title[^"]*"[^>]*>\s*Changes\s*<\/h4>/i);
+  if (titleIdx === -1) {
+    titleIdx = html.search(/class="[^"]*card-title[^"]*"[^>]*>\s*Changes\s*<\/h4>/i);
+  }
+  if (titleIdx === -1) {
+    titleIdx = html.search(/>\s*Changes\s*<\//i);
+  }
+  if (titleIdx === -1) return out;
+  var slice = html.slice(titleIdx, titleIdx + 250000);
+  var tableIdx = slice.indexOf('<table');
+  if (tableIdx === -1) return out;
+  var fromTable = slice.slice(tableIdx);
+  var tbodyMatch = fromTable.match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/i);
+  if (!tbodyMatch) return out;
+  var tbody = tbodyMatch[1];
+  var trRe = /<tr[^>]*data-key="(\d+)"[^>]*>([\s\S]*?)<\/tr>/gi;
+  var m;
+  while ((m = trRe.exec(tbody)) !== null) {
+    var rowHtml = m[2];
+    var tdRe = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+    var cells = [];
+    var tm;
+    while ((tm = tdRe.exec(rowHtml)) !== null) {
+      cells.push(decodeNosposHtmlText(tm[1].replace(/<[^>]*>/g, ' ')));
+    }
+    if (cells.length < 6) continue;
+    out.push({
+      changeEntryId: String(cells[0] || '')
+        .replace(/^#\s*/, '')
+        .trim() || String(m[1]),
+      columnName: cells[1] || '',
+      oldValue: cells[2] || '',
+      newValue: cells[3] || '',
+      changedAt: cells[4] || '',
+      changedBy: cells[5] || '',
+    });
+  }
+  return out;
+}
+
 /** From stock edit HTML: name input, detail rows, cost/retail inputs. */
 function parseNosposStockEditPageDetails(html) {
   function detailForLabel(label) {
@@ -113,12 +160,14 @@ function parseNosposStockEditPageDetails(html) {
   var costPrice = decodeNosposHtmlText(costM ? costM[1] : '');
   var retailPrice = decodeNosposHtmlText(retailM ? retailM[1] : '');
   var name = getStockNameFromEditHtml(html);
+  var changeLog = parseNosposStockEditPageChangeLog(html);
   return {
     name: name || '',
     boughtBy: boughtBy || '',
     createdAt: createdAt || '',
     costPrice: costPrice || '',
     retailPrice: retailPrice || '',
+    changeLog: changeLog,
   };
 }
 

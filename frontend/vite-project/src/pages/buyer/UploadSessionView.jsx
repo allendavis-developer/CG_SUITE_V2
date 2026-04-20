@@ -209,8 +209,8 @@ const UploadSessionView = () => {
                     }}
                     className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-brand-blue/20 text-brand-blue bg-white hover:bg-brand-blue/5 font-semibold text-sm transition-colors"
                   >
-                    <span className="material-symbols-outlined text-[17px] leading-none">refresh</span>
-                    Redo upload
+                    <span className="material-symbols-outlined text-[17px] leading-none">edit_note</span>
+                    {session.status === 'COMPLETED' ? 'Resume in workspace' : 'Continue upload'}
                   </button>
                 )}
                 <div className="pl-2 border-l border-slate-200 ml-1">

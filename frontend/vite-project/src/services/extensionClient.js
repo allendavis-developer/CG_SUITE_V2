@@ -190,6 +190,52 @@ export async function scrapeWebEposProducts() {
   return sendMessage({ action: 'scrapeWebEposProducts' }, { timeoutMs: 120_000 });
 }
 
+/**
+ * Upload list: open Web EPOS `/products/new` in a minimised window, fill each product in sequence,
+ * set On Sale off, save, then the next row. When `uploadProgressCartKey` is set, progress is sent like repricing.
+ *
+ * @param {{ webEposProductCreateList?: object[], uploadProgressCartKey?: string }} [options]
+ */
+export async function openWebEposProductCreateForUpload(options = {}) {
+  const list = Array.isArray(options.webEposProductCreateList) ? options.webEposProductCreateList : [];
+  const uploadProgressCartKey = String(options.uploadProgressCartKey || '').trim();
+  return sendMessage({
+    action: 'openWebEposProductCreateForUpload',
+    webEposProductCreateList: list,
+    ...(uploadProgressCartKey ? { uploadProgressCartKey } : {}),
+  });
+}
+
+export function openWebEposProductCreateForUploadWithTimeout(options = {}) {
+  const n = Array.isArray(options?.webEposProductCreateList) ? options.webEposProductCreateList.length : 0;
+  /** Per item: load + fill + save + redirect can exceed 40s */
+  const extra = Math.max(0, n || 1) * 130000;
+  const ms = Math.min(WEB_EPOS_UPLOAD_CLIENT_TIMEOUT_MS + extra, 900000);
+  return withExtensionCallTimeout(
+    openWebEposProductCreateForUpload(options),
+    ms,
+    WEB_EPOS_UPLOAD_TIMEOUT_MESSAGE
+  );
+}
+
+/**
+ * Opens Web EPOS `/products` in a new tab (same window as CG Suite, unfocused), finds the row,
+ * and clicks the real list link so routing stays in-session. Focuses that tab only after success.
+ *
+ * @param {{ productHref: string, barcode?: string }} params
+ * @returns {Promise<{ ok: true } | { ok: false, error?: string }>}
+ */
+export async function navigateWebEposProductInWorkerTab({ productHref, barcode } = {}) {
+  return sendMessage(
+    {
+      action: 'navigateWebEposProductInWorker',
+      productHref: productHref || '',
+      barcode: barcode || '',
+    },
+    { timeoutMs: 180_000 }
+  );
+}
+
 /** Close the minimised Web EPOS worker and clear session (call when leaving the upload workspace). */
 export async function closeWebEposUploadFromApp() {
   return sendMessage({ action: 'closeWebEposUploadSession' });
@@ -213,7 +259,8 @@ export async function searchNosposBarcode(barcode) {
 /**
  * Upload workspace: open stock edit in a minimised NosPos window (when invoked from app tab),
  * fetch the edit page with session cookies, return { ok, details } where details is
- * { name, boughtBy, createdAt, costPrice, retailPrice }.
+ * { name, boughtBy, createdAt, costPrice, retailPrice, changeLog? } where changeLog is
+ * `{ changeEntryId, columnName, oldValue, newValue, changedAt, changedBy }[]` from the stock edit Changes grid.
  */
 export async function scrapeNosposStockEditForUpload(stockUrl) {
   return sendMessage(

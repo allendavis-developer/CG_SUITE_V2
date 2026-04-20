@@ -7,6 +7,71 @@
  * the modal and merge path cannot drift.
  */
 
+import { roundSalePrice, normalizeExplicitSalePrice } from '@/utils/helpers';
+import { NEGOTIATION_ROW_CONTEXT } from '../rowContextZones';
+
+/** One-shot per completion: typed upload/repricing RRP from research shell (not persisted in research blob). */
+function parsedUploadRrpOverridePerUnit(updatedState) {
+  const v = updatedState?.uploadRrpOverridePerUnit;
+  if (v == null) return null;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+}
+
+function rrpZoneFromResearchCompleteSource(source) {
+  if (source === 'ebay') return NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY;
+  if (source === 'cashGenerator') return NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_GENERATOR;
+  return NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS;
+}
+
+/**
+ * After merging research `stats` onto the row: if there is no confirm modal (including when the
+ * row had no committed sale price yet), stamp suggested RRP + RRP source from this channel.
+ *
+ * @param {Object} itemRow - Row after `apply*Research`
+ * @param {Object} updatedState - Research result with `stats.suggestedPrice`
+ * @param {Object|null} priorItemBeforeApply - Row before this merge (for prior committed price)
+ * @param {Function} resolveSalePrice - (item) => number|null
+ * @param {'ebay'|'cashConverters'|'cashGenerator'} source
+ */
+export function finalizeResearchRowAfterApply(
+  itemRow,
+  updatedState,
+  priorItemBeforeApply,
+  resolveSalePrice,
+  source
+) {
+  const followUp = getResearchCompleteSalePriceFollowUp(updatedState, priorItemBeforeApply, resolveSalePrice);
+  if (followUp.modalSpec != null) return itemRow;
+
+  const override = parsedUploadRrpOverridePerUnit(updatedState);
+  if (override != null) {
+    const next = {
+      ...itemRow,
+      ourSalePrice: String(normalizeExplicitSalePrice(override)),
+      rrpOffersSource: rrpZoneFromResearchCompleteSource(source),
+    };
+    delete next.ourSalePriceInput;
+    return next;
+  }
+
+  const sp = updatedState?.stats?.suggestedPrice;
+  if (sp == null) return itemRow;
+  const n = Number(sp);
+  if (!Number.isFinite(n) || n <= 0) return itemRow;
+  const hadPriorCommitted =
+    priorItemBeforeApply != null && resolveSalePrice(priorItemBeforeApply) != null;
+  if (hadPriorCommitted) return itemRow;
+  const next = {
+    ...itemRow,
+    ourSalePrice: String(roundSalePrice(n)),
+    rrpOffersSource: rrpZoneFromResearchCompleteSource(source),
+  };
+  delete next.ourSalePriceInput;
+  return next;
+}
+
 /**
  * @param {Object} updatedState - Research form result (e.g. { stats: { suggestedPrice } })
  * @param {Object|null} currentItem - The row before this merge
@@ -19,6 +84,10 @@ export function getResearchCompleteSalePriceFollowUp(
   currentItem,
   resolveOurSalePrice
 ) {
+  if (parsedUploadRrpOverridePerUnit(updatedState) != null) {
+    return { deferCommittedPricing: false, modalSpec: null };
+  }
+
   const oldSalePricePerUnit = currentItem ? resolveOurSalePrice(currentItem) : null;
   const newSalePricePerUnit =
     updatedState?.stats?.suggestedPrice != null
@@ -35,17 +104,24 @@ export function getResearchCompleteSalePriceFollowUp(
         zeroSuggestedPrice: true,
         oldPricePerUnit: oldSalePricePerUnit,
         newPricePerUnit: newSalePricePerUnit,
+        priorRrpOffersSource: currentItem?.rrpOffersSource,
+        priorOffersSource: currentItem?.offersSource,
       },
     };
   }
-  const hasMeaningfulChange =
-    oldSalePricePerUnit == null || Math.abs(newSalePricePerUnit - oldSalePricePerUnit) > 0.0005;
+  /** No committed sale price: apply suggested research RRP in-row without confirmation modal. */
+  if (oldSalePricePerUnit == null) {
+    return { deferCommittedPricing: false, modalSpec: null };
+  }
+  const hasMeaningfulChange = Math.abs(newSalePricePerUnit - oldSalePricePerUnit) > 0.0005;
   if (hasMeaningfulChange) {
     return {
       deferCommittedPricing: true,
       modalSpec: {
         oldPricePerUnit: oldSalePricePerUnit,
         newPricePerUnit: newSalePricePerUnit,
+        priorRrpOffersSource: currentItem?.rrpOffersSource,
+        priorOffersSource: currentItem?.offersSource,
       },
     };
   }

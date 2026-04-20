@@ -12,9 +12,14 @@ function deduplicateBarcodes(barcodes) {
 export function attachBarcodesFromSessionItems(cartItems, sessionItems, { mergeExisting = true } = {}) {
   if (!Array.isArray(sessionItems) || sessionItems.length === 0) return cartItems;
   const byItemId = {};
+  const uploadSessionItemPkByLineId = {};
   for (const si of sessionItems) {
     const id = si.item_identifier;
-    if (!id || !si.stock_barcode) continue;
+    if (!id) continue;
+    if (si.upload_session_item_id != null) {
+      uploadSessionItemPkByLineId[String(id)] = si.upload_session_item_id;
+    }
+    if (!si.stock_barcode) continue;
     if (!byItemId[id]) byItemId[id] = [];
     byItemId[id].push({
       barserial: si.stock_barcode,
@@ -24,11 +29,14 @@ export function attachBarcodesFromSessionItems(cartItems, sessionItems, { mergeE
   }
   return (cartItems || []).map((item) => {
     const mapped = byItemId[item.id] || [];
+    const uploadPk = uploadSessionItemPkByLineId[String(item.id)];
+    const withPk =
+      uploadPk != null ? { ...item, upload_session_item_id: uploadPk } : { ...item };
     if (mergeExisting) {
-      const existing = item.nosposBarcodes || [];
-      return { ...item, nosposBarcodes: deduplicateBarcodes([...existing, ...mapped]) };
+      const existing = withPk.nosposBarcodes || [];
+      return { ...withPk, nosposBarcodes: deduplicateBarcodes([...existing, ...mapped]) };
     }
-    return mapped.length ? { ...item, nosposBarcodes: mapped } : item;
+    return mapped.length ? { ...withPk, nosposBarcodes: mapped } : withPk;
   });
 }
 

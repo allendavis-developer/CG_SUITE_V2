@@ -2,6 +2,9 @@
 
 export const WEB_EPOS_PRODUCTS_URL = 'https://webepos.cashgenerator.co.uk/products';
 
+/** Web EPOS “new product” form (opened from upload proceed; extension uses the same URL). */
+export const WEB_EPOS_PRODUCT_NEW_URL = 'https://webepos.cashgenerator.co.uk/products/new';
+
 /** Reference URL for the categories table header (Upload module UI only; no scrape wired yet). */
 export const WEB_EPOS_CATEGORIES_URL = 'https://webepos.cashgenerator.co.uk/categories';
 
