@@ -194,7 +194,8 @@ export default function CustomerIntakeModal({ open = true, onClose }) {
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-      <div className="cg-animate-modal-backdrop absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      {/* No backdrop-filter: full-viewport blur is GPU-heavy and often janks over the negotiation shell. */}
+      <div className="cg-animate-modal-backdrop absolute inset-0 bg-black/60" aria-hidden />
 
       <div className="cg-animate-modal-panel relative z-10 flex max-h-[min(92vh,52rem)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
         {/* Header */}

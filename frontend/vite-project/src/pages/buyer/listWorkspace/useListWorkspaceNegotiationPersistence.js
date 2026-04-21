@@ -19,6 +19,10 @@ export function useListWorkspaceNegotiationPersistence({
   uploadBarcodeIntakeOpen,
   uploadBarcodeIntakeDone,
   uploadStockDetailsBySlotId,
+  uploadAuditMode,
+  webeposAuditDetailsBySlotId,
+  auditRowsByBarcodeRef,
+  auditQueueRef,
   dbSessionId,
   setDbSessionId,
   isRepricingFinished,
@@ -33,7 +37,7 @@ export function useListWorkspaceNegotiationPersistence({
   const hasPendingSave = useRef(false);
   const uploadSessionDraftStartedRef = useRef(false);
 
-  const latestStateRef = useRef({
+  const buildLatestState = () => ({
     items,
     barcodes,
     nosposLookups,
@@ -41,16 +45,14 @@ export function useListWorkspaceNegotiationPersistence({
     uploadBarcodeIntakeOpen,
     uploadBarcodeIntakeDone,
     uploadStockDetailsBySlotId,
+    uploadAuditMode: Boolean(uploadAuditMode),
+    webeposAuditDetailsBySlotId: webeposAuditDetailsBySlotId || {},
+    auditRowsByBarcode: auditRowsByBarcodeRef?.current || {},
+    auditQueue: Array.isArray(auditQueueRef?.current) ? auditQueueRef.current : [],
   });
-  latestStateRef.current = {
-    items,
-    barcodes,
-    nosposLookups,
-    uploadScanSlotIds,
-    uploadBarcodeIntakeOpen,
-    uploadBarcodeIntakeDone,
-    uploadStockDetailsBySlotId,
-  };
+
+  const latestStateRef = useRef(buildLatestState());
+  latestStateRef.current = buildLatestState();
 
   const flushNegotiationSave = useCallback(
     (opts = {}) => {
@@ -69,6 +71,7 @@ export function useListWorkspaceNegotiationPersistence({
           session_data: buildNegotiationSessionDataSnapshot(state, useUploadSessions),
           cart_key: listWorkspaceCartKeyFromState(state, useUploadSessions),
           item_count: activeCount,
+          ...(useUploadSessions && state.uploadAuditMode ? { mode: 'AUDIT' } : {}),
         },
         opts
       ).catch((err) => {
@@ -80,15 +83,7 @@ export function useListWorkspaceNegotiationPersistence({
 
   useEffect(() => {
     if (!dbSessionId || isLoading || isRepricingFinished) return;
-    const snapState = {
-      items,
-      barcodes,
-      nosposLookups,
-      uploadScanSlotIds,
-      uploadBarcodeIntakeOpen,
-      uploadBarcodeIntakeDone,
-      uploadStockDetailsBySlotId,
-    };
+    const snapState = buildLatestState();
     if (useUploadSessions && !uploadWorkspaceHasRecordedBarcode(snapState)) return;
     hasPendingSave.current = true;
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
@@ -101,6 +96,7 @@ export function useListWorkspaceNegotiationPersistence({
         session_data: buildNegotiationSessionDataSnapshot(latest, useUploadSessions),
         cart_key: listWorkspaceCartKeyFromState(latest, useUploadSessions),
         item_count: activeCount,
+        ...(useUploadSessions && latest.uploadAuditMode ? { mode: 'AUDIT' } : {}),
       }).catch((err) => console.warn("[CG Suite] Auto-save failed:", err));
     }, 1500);
     return () => {
@@ -114,6 +110,8 @@ export function useListWorkspaceNegotiationPersistence({
     uploadBarcodeIntakeOpen,
     uploadBarcodeIntakeDone,
     uploadStockDetailsBySlotId,
+    uploadAuditMode,
+    webeposAuditDetailsBySlotId,
     dbSessionId,
     isLoading,
     isRepricingFinished,
@@ -147,6 +145,7 @@ export function useListWorkspaceNegotiationPersistence({
       cart_key: listWorkspaceCartKeyFromState(snap, useUploadSessions),
       item_count: snap.items.length,
       session_data: buildNegotiationSessionDataSnapshot(snap, useUploadSessions),
+      ...(useUploadSessions && snap.uploadAuditMode ? { mode: 'AUDIT' } : {}),
     })
       .then((resp) => {
         const sid = readSessionIdFromResponse(resp);

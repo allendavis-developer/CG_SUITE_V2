@@ -13,6 +13,7 @@ export default function WebEposProductsPage() {
   const navigate = useNavigate();
   const { rows = [], pagingText = null, pageUrl = null, scrapedAt = null } = location.state || {};
   const [selectedBarcodes, setSelectedBarcodes] = React.useState([]);
+  const [selectedRows, setSelectedRows] = React.useState([]);
 
   const handleAudit = () => {
     if (selectedBarcodes.length === 0) return;
@@ -24,6 +25,7 @@ export default function WebEposProductsPage() {
     navigate('/upload', {
       state: {
         auditBarcodes: selectedBarcodes,
+        auditRows: selectedRows,
       },
     });
   };
@@ -69,6 +71,7 @@ export default function WebEposProductsPage() {
             scrapedAt={scrapedAt}
             showSourceBlurb
             onSelectedBarcodes={setSelectedBarcodes}
+            onSelectedRows={setSelectedRows}
           />
         </div>
       </main>

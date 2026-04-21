@@ -8,6 +8,20 @@ import { titleForEbayCcOfferIndex } from '@/components/forms/researchStats';
 import { NEGOTIATION_ROW_CONTEXT } from '@/pages/buyer/rowContextZones';
 import { resolvePersistedResearchCategory } from '@/utils/researchPersistence';
 
+/** Inline mirror of {@link negotiationHelpers.withDefaultRrpOffersSource} for CC/CG-only mapped rows (module load order). */
+function hasUsableResearchRrpFromStats(stats) {
+  if (!stats || typeof stats !== 'object') return false;
+  if (stats.suggestedPrice != null && stats.suggestedPrice !== '') {
+    const n = Number(stats.suggestedPrice);
+    if (Number.isFinite(n) && n > 0) return true;
+  }
+  if (stats.median != null && stats.median !== '') {
+    const m = Number(stats.median);
+    if (Number.isFinite(m) && m > 0) return true;
+  }
+  return false;
+}
+
 function normalizedRequestItemQuantity(item) {
   const q = Math.floor(Number(item?.quantity));
   return Number.isFinite(q) && q >= 1 ? q : 1;
@@ -44,6 +58,22 @@ function applyDefaultRrpSourceToMappedCartItem(cartItem) {
     (next.ebayResearchData && !next.isCustomCashConvertersItem)
   ) {
     const z = NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY;
+    return { ...next, rrpOffersSource: z, offersSource: next.offersSource != null && next.offersSource !== '' ? next.offersSource : z };
+  }
+  if (
+    next.isCustomCashGeneratorItem === true &&
+    next.cgResearchData &&
+    hasUsableResearchRrpFromStats(next.cgResearchData.stats)
+  ) {
+    const z = NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_GENERATOR;
+    return { ...next, rrpOffersSource: z, offersSource: next.offersSource != null && next.offersSource !== '' ? next.offersSource : z };
+  }
+  if (
+    next.isCustomCashConvertersItem === true &&
+    next.cashConvertersResearchData &&
+    hasUsableResearchRrpFromStats(next.cashConvertersResearchData.stats)
+  ) {
+    const z = NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS;
     return { ...next, rrpOffersSource: z, offersSource: next.offersSource != null && next.offersSource !== '' ? next.offersSource : z };
   }
   return next;
@@ -423,6 +453,7 @@ export function mapRequestItemsToCartItems(items, transactionType) {
       cartItem.isCustomCeXItem = true;
       cartItem.isCustomEbayItem = false;
       cartItem.isCustomCashConvertersItem = false;
+      cartItem.isCustomCashGeneratorItem = false;
       cartItem.category = rawData?.category || 'CeX';
       cartItem.categoryObject = rawData?.category
         ? { name: rawData.category, path: [rawData.category] }
@@ -457,6 +488,7 @@ export function mapRequestItemsToCartItems(items, transactionType) {
       cartItem.isCustomCeXItem = false;
       cartItem.isCustomEbayItem = false;
       cartItem.isCustomCashConvertersItem = false;
+      cartItem.isCustomCashGeneratorItem = false;
       cartItem.referenceData = {
           cex_sale_price: cexSellPrice,
           cex_tradein_cash: cexBuyPrice,
@@ -478,6 +510,7 @@ export function mapRequestItemsToCartItems(items, transactionType) {
       cartItem.isCustomEbayItem = true;
       cartItem.isCustomCeXItem = false;
       cartItem.isCustomCashConvertersItem = false;
+      cartItem.isCustomCashGeneratorItem = false;
       cartItem.category = persistedCategoryName;
       cartItem.categoryObject = persistedCategoryObject || { name: persistedCategoryName, path: [persistedCategoryName] };
     } else if (cashConvertersResearchData) {
@@ -485,12 +518,14 @@ export function mapRequestItemsToCartItems(items, transactionType) {
       cartItem.isCustomEbayItem = false;
       cartItem.isCustomCeXItem = false;
       cartItem.isCustomCashConvertersItem = true;
+      cartItem.isCustomCashGeneratorItem = false;
       cartItem.category = cashConvertersResearchData?.category || 'Other';
     } else if (cgResearchData) {
       cartItem.variantId = null;
       cartItem.isCustomEbayItem = false;
       cartItem.isCustomCeXItem = false;
       cartItem.isCustomCashConvertersItem = false;
+      cartItem.isCustomCashGeneratorItem = rawData?.isCustomCashGeneratorItem === true;
       cartItem.category = cgResearchData?.category || 'Other';
     } else {
       cartItem.variantId = variantId;
@@ -506,6 +541,7 @@ export function mapRequestItemsToCartItems(items, transactionType) {
       cartItem.isCustomEbayItem = false;
       cartItem.isCustomCeXItem = !!isCexItem;
       cartItem.isCustomCashConvertersItem = false;
+      cartItem.isCustomCashGeneratorItem = false;
       if (cexSellPrice != null || cexBuyPrice != null) {
         cartItem.referenceData = {
           cex_sale_price: cexSellPrice,

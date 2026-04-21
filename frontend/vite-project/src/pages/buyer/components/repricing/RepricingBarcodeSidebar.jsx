@@ -311,18 +311,22 @@ export default function RepricingBarcodeSidebar({
   onRestartInWorkspace = null,
   /** Optional label override (e.g. from {@link negotiationWorkspaceCopy}). */
   restartInWorkspaceLabel = null,
+  /** Upload workspace, audit branch: buyer is editing existing Web EPOS products — swap button copy. */
+  uploadAuditMode = false,
 }) {
   const labels =
     workspace === 'upload'
       ? {
-          headerTitle: 'Upload list',
-          headerIcon: 'upload',
-          newButton: 'New upload',
-          newButtonTitle: 'Clear upload list and start a new upload session',
-          proceedIdle: 'Proceed with upload',
-          proceedRunning: 'Upload running in background',
-          proceedDone: 'Upload finished',
-          finishedNote: 'Upload finished',
+          headerTitle: uploadAuditMode ? 'Audit list' : 'Upload list',
+          headerIcon: uploadAuditMode ? 'fact_check' : 'upload',
+          newButton: uploadAuditMode ? 'New audit' : 'New upload',
+          newButtonTitle: uploadAuditMode
+            ? 'Clear audit list and start a new audit session'
+            : 'Clear upload list and start a new upload session',
+          proceedIdle: uploadAuditMode ? 'Update' : 'Proceed with upload',
+          proceedRunning: uploadAuditMode ? 'Update running in background' : 'Upload running in background',
+          proceedDone: uploadAuditMode ? 'Update finished' : 'Upload finished',
+          finishedNote: uploadAuditMode ? 'Audit finished' : 'Upload finished',
           restartInWorkspace: restartInWorkspaceLabel || 'Restart in workspace',
           verifyHint: uploadBarcodeIntakeOpen
             ? 'Complete the barcode intake dialog first — nothing else is available until then.'

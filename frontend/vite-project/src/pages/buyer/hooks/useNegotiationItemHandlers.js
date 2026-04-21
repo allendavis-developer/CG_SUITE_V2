@@ -48,7 +48,11 @@ import { getAiSuggestedCgStockCategoryFromItem, mergeCgAiOntoNegotiationRow } fr
 import { buildNosposStockFieldAiPayload } from '../utils/nosposFieldAiAtAdd';
 import { makeSalePriceBlurHandler } from './useResearchOverlay';
 import { useRefreshCexRowData } from './useRefreshCexRowData';
-import { EBAY_TOP_LEVEL_CATEGORY } from '../constants';
+import {
+  EBAY_TOP_LEVEL_CATEGORY,
+  CASH_CONVERTERS_TOP_LEVEL_CATEGORY,
+  CASH_GENERATOR_TOP_LEVEL_CATEGORY,
+} from '../constants';
 import { ENABLE_NOSPOS_STOCK_FIELD_AI } from '@/config/cgSuiteFeatureFlags';
 import {
   buildMergedNosposStockFieldValuesBlob,
@@ -1362,6 +1366,118 @@ export function useNegotiationItemHandlers({
     [handleAddNegotiationItem, useVoucherOffers]
   );
 
+  const handleCashConvertersResearchCompleteFromHeader = useCallback(
+    async (data) => {
+      if (!data) return;
+      const cashOffers = (data.buyOffers || []).map((o, idx) => ({
+        id: `cc-cash_${idx + 1}`,
+        title: titleForEbayCcOfferIndex(idx),
+        price: Number(formatOfferPrice(o.price)),
+      }));
+      const voucherOffers = cashOffers.map((o) => ({
+        id: `cc-voucher-${o.id}`,
+        title: o.title,
+        price: Number(formatOfferPrice(o.price * 1.1)),
+      }));
+      const displayOffers = useVoucherOffers ? voucherOffers : cashOffers;
+      let selectedOfferId = displayOffers[0]?.id ?? null;
+      let manualOffer = null;
+      if (data.selectedOfferIndex === null) {
+        selectedOfferId = null;
+      } else if (data.selectedOfferIndex === 'manual') {
+        selectedOfferId = 'manual';
+        manualOffer = data.manualOffer ?? null;
+      } else if (typeof data.selectedOfferIndex === 'number' && displayOffers[data.selectedOfferIndex]) {
+        selectedOfferId = displayOffers[data.selectedOfferIndex].id;
+      }
+      const searchTitle =
+        data.searchTerm != null && String(data.searchTerm).trim() !== ''
+          ? String(data.searchTerm).trim().slice(0, 200)
+          : 'Cash Converters Research Item';
+      const resolved = data.resolvedCategory?.id != null ? data.resolvedCategory : null;
+      const categoryObject = resolved ?? CASH_CONVERTERS_TOP_LEVEL_CATEGORY;
+      const categoryName = categoryObject?.name ?? CASH_CONVERTERS_TOP_LEVEL_CATEGORY.name;
+      const customItem = {
+        id: crypto.randomUUID?.() ?? `neg-cc-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        title: searchTitle,
+        subtitle: 'Cash Converters Research',
+        quantity: 1,
+        category: categoryName,
+        categoryObject,
+        offers: displayOffers,
+        cashOffers,
+        voucherOffers,
+        cashConvertersResearchData: data,
+        isCustomCashConvertersItem: true,
+        selectedOfferId,
+        manualOffer,
+        ourSalePrice: data.stats?.suggestedPrice != null ? Number(formatOfferPrice(data.stats.suggestedPrice)) : null,
+        request_item_id: null,
+        variantId: null,
+      };
+      await handleAddNegotiationItem(customItem, {
+        runNosposCategoryAiForInternalLeaf: Boolean(categoryObject?.id),
+      });
+    },
+    [handleAddNegotiationItem, useVoucherOffers]
+  );
+
+  const handleCashGeneratorResearchCompleteFromHeader = useCallback(
+    async (data) => {
+      if (!data) return;
+      const cashOffers = (data.buyOffers || []).map((o, idx) => ({
+        id: `cg-cash_${idx + 1}`,
+        title: titleForEbayCcOfferIndex(idx),
+        price: Number(formatOfferPrice(o.price)),
+      }));
+      const voucherOffers = cashOffers.map((o) => ({
+        id: `cg-voucher-${o.id}`,
+        title: o.title,
+        price: Number(formatOfferPrice(o.price * 1.1)),
+      }));
+      const displayOffers = useVoucherOffers ? voucherOffers : cashOffers;
+      let selectedOfferId = displayOffers[0]?.id ?? null;
+      let manualOffer = null;
+      if (data.selectedOfferIndex === null) {
+        selectedOfferId = null;
+      } else if (data.selectedOfferIndex === 'manual') {
+        selectedOfferId = 'manual';
+        manualOffer = data.manualOffer ?? null;
+      } else if (typeof data.selectedOfferIndex === 'number' && displayOffers[data.selectedOfferIndex]) {
+        selectedOfferId = displayOffers[data.selectedOfferIndex].id;
+      }
+      const searchTitle =
+        data.searchTerm != null && String(data.searchTerm).trim() !== ''
+          ? String(data.searchTerm).trim().slice(0, 200)
+          : 'Cash Generator Research Item';
+      const resolved = data.resolvedCategory?.id != null ? data.resolvedCategory : null;
+      const categoryObject = resolved ?? CASH_GENERATOR_TOP_LEVEL_CATEGORY;
+      const categoryName = categoryObject?.name ?? CASH_GENERATOR_TOP_LEVEL_CATEGORY.name;
+      const customItem = {
+        id: crypto.randomUUID?.() ?? `neg-cg-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        title: searchTitle,
+        subtitle: 'Cash Generator Research',
+        quantity: 1,
+        category: categoryName,
+        categoryObject,
+        offers: displayOffers,
+        cashOffers,
+        voucherOffers,
+        cgResearchData: data,
+        isCustomCashGeneratorItem: true,
+        selectedOfferId,
+        manualOffer,
+        ourSalePrice: data.stats?.suggestedPrice != null ? Number(formatOfferPrice(data.stats.suggestedPrice)) : null,
+        request_item_id: null,
+        variantId: null,
+      };
+      await handleAddNegotiationItem(customItem, {
+        runNosposCategoryAiForInternalLeaf: Boolean(categoryObject?.id),
+      });
+    },
+    [handleAddNegotiationItem, useVoucherOffers]
+  );
+
   const handleRefreshCeXData = useRefreshCexRowData({
     handleAddFromCeX,
     clearCexProduct,
@@ -1416,6 +1532,8 @@ export function useNegotiationItemHandlers({
     handleAddJewelleryItemsFromWorkspace,
     handleRemoveJewelleryWorkspaceRow,
     handleEbayResearchCompleteFromHeader,
+    handleCashConvertersResearchCompleteFromHeader,
+    handleCashGeneratorResearchCompleteFromHeader,
     handleRefreshCeXData,
     handleApplyRrpPriceSource,
     handleApplyOffersPriceSource,

@@ -28,6 +28,7 @@ const NEGOTIATION_SESSION_ITEM_KEYS = [
   "isCustomCeXItem",
   "isCustomEbayItem",
   "isCustomCashConvertersItem",
+  "isCustomCashGeneratorItem",
   "condition",
   "categoryObject",
   "nosposBarcodes",
@@ -59,6 +60,16 @@ const NEGOTIATION_SESSION_ITEM_KEYS = [
   "upload_session_item_id",
   /** Upload list: optional override for the “Item name & attributes” column / Web EPOS title. */
   "uploadTableItemName",
+  /** Audit mode: direct link to the Web EPOS product's edit page (used on finish to push price/category). */
+  "webeposProductHref",
+  /** Audit mode: Web EPOS product's title when the edit page was first scraped. */
+  "webeposOriginalName",
+  /** Audit mode: Web EPOS product's price when the edit page was first scraped (raw string, may include £). */
+  "webeposOriginalPrice",
+  /** Audit mode: levels `[{uuid,label},…]` read off `#catLevel{N}` on the edit page. */
+  "webeposCategoryLevels",
+  /** Audit mode: CG categoryObject derived from the scraped Web EPOS labels (read-only baseline). */
+  "webeposDerivedCategoryObject",
 ];
 
 export function pickNegotiationItemForSession(item) {
@@ -149,6 +160,10 @@ export function buildNegotiationSessionDataSnapshot(state, useUploadSessions) {
     uploadBarcodeIntakeOpen: snapshotIntakeOpen,
     uploadBarcodeIntakeDone: snapshotIntakeDone,
     uploadStockDetailsBySlotId: snapshotStockDetails,
+    uploadAuditMode: snapshotAuditMode,
+    webeposAuditDetailsBySlotId: snapshotWebeposAudit,
+    auditRowsByBarcode: snapshotAuditRowsByBarcode,
+    auditQueue: snapshotAuditQueue,
   } = state;
   const derivedUploadPending =
     useUploadSessions && Array.isArray(snapshotItems)
@@ -175,6 +190,17 @@ export function buildNegotiationSessionDataSnapshot(state, useUploadSessions) {
       nosposLookups: snapshot.nosposLookups,
     });
     snapshot.uploadStockDetailsBySlotId = sanitizeUploadStockDetailsMap(snapshotStockDetails || {});
+    if (snapshotAuditMode) {
+      snapshot.uploadAuditMode = true;
+      snapshot.webeposAuditDetailsBySlotId =
+        snapshotWebeposAudit && typeof snapshotWebeposAudit === 'object' ? snapshotWebeposAudit : {};
+      if (snapshotAuditRowsByBarcode && typeof snapshotAuditRowsByBarcode === 'object') {
+        snapshot.auditRowsByBarcode = snapshotAuditRowsByBarcode;
+      }
+      if (Array.isArray(snapshotAuditQueue)) {
+        snapshot.auditQueue = snapshotAuditQueue.slice();
+      }
+    }
   }
   return snapshot;
 }

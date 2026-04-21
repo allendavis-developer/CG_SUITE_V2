@@ -35,8 +35,10 @@ export default function CexMarketPricingStrip({
   cexProductUrl = null,
   ebayData = null,
   cashConvertersData = null,
+  cgData = null,
   onOpenEbayResearch,
   onOpenCashConvertersResearch,
+  onOpenCashGeneratorResearch = null,
   showEbayCcResearchActions = true,
   /** When true, only eBay / Cash Converters row (pricing is shown elsewhere, e.g. workspace header stat cards). */
   omitCorePricing = false,
@@ -64,6 +66,7 @@ export default function CexMarketPricingStrip({
   const hasCcResearch = Boolean(
     cashConvertersData?.searchTerm || cashConvertersData?.lastSearchedTerm
   );
+  const hasCgResearch = Boolean(cgData?.searchTerm || cgData?.lastSearchedTerm);
 
   const showEbayBlock =
     showEbayCcResearchActions &&
@@ -71,6 +74,9 @@ export default function CexMarketPricingStrip({
   const showCcBlock =
     showEbayCcResearchActions &&
     (typeof onOpenCashConvertersResearch === 'function' || hasCcResearch);
+  const showCgBlock =
+    showEbayCcResearchActions &&
+    (typeof onOpenCashGeneratorResearch === 'function' || hasCgResearch);
 
   const kv = (label, node) => (
     <span className="inline-flex items-baseline gap-2">
@@ -194,7 +200,31 @@ export default function CexMarketPricingStrip({
     </span>
   ) : null;
 
-  const hasAncillary = Boolean(showEbayBlock || showCcBlock);
+  const cgRow = showCgBlock ? (
+    <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-2">
+      {kv(
+        'Cash Gen.',
+        hasCgResearch && cgData?.stats?.median != null ? (
+          formatGBP(parseFloat(cgData.stats.median))
+        ) : (
+          <span className="text-base font-semibold text-gray-500 sm:text-lg">No data</span>
+        )
+      )}
+      {typeof onOpenCashGeneratorResearch === 'function' && (
+        <Button
+          variant={hasCgResearch ? 'outline' : 'primary'}
+          size="sm"
+          icon={hasCgResearch ? 'refresh' : 'search_insights'}
+          onClick={() => onOpenCashGeneratorResearch()}
+          className="!h-10 !min-h-0 !px-4 text-sm font-bold sm:!h-11 sm:!px-5 sm:text-base"
+        >
+          {hasCgResearch ? 'Refine' : 'Research'}
+        </Button>
+      )}
+    </span>
+  ) : null;
+
+  const hasAncillary = Boolean(showEbayBlock || showCcBlock || showCgBlock);
   /** Pipe after CeX pricing when eBay and/or CC blocks follow (including CC-only after core). */
   const sepAfterCore = Boolean(corePricing && hasAncillary);
 
@@ -212,8 +242,10 @@ export default function CexMarketPricingStrip({
         {corePricing}
         {sepAfterCore ? <Sep /> : null}
         {ebayRow}
-        {showEbayBlock && showCcBlock ? <Sep /> : null}
+        {showEbayBlock && (showCcBlock || showCgBlock) ? <Sep /> : null}
         {ccRow}
+        {showCcBlock && showCgBlock ? <Sep /> : null}
+        {cgRow}
       </div>
     </div>
   );

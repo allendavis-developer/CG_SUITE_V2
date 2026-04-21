@@ -178,6 +178,16 @@ export function withDefaultRrpOffersSource(item) {
       offersSource: next.offersSource != null && next.offersSource !== '' ? next.offersSource : z,
     };
   }
+  const soleRrpZones = getAvailableRrpZonesForNegotiationItem(next);
+  if (soleRrpZones.length === 1) {
+    const z = soleRrpZones[0].zone;
+    const { item: applied, errorMessage } = applyRrpOnlyFromPriceSource(next, z);
+    if (!errorMessage && applied) {
+      const offersSource =
+        next.offersSource != null && next.offersSource !== '' ? next.offersSource : z;
+      return { ...applied, offersSource };
+    }
+  }
   return next;
 }
 
@@ -274,7 +284,12 @@ const UPLOAD_QUEUE_MERGE_SKIP_KEYS = new Set([
  * One upload table row right after barcode intake: id matches the pending slot id, NosPos barcodes embedded,
  * optional stock-edit snapshot from the extension scrape.
  */
-export function buildUploadBarcodeQueuePlaceholderItem(slotId, { barcodes, nosposLookups, uploadStockDetailsBySlotId }) {
+export function buildUploadBarcodeQueuePlaceholderItem(slotId, {
+  barcodes,
+  nosposLookups,
+  uploadStockDetailsBySlotId,
+  webeposAuditDetailsBySlotId,
+}) {
   const lk = nosposLookups[`${slotId}_0`];
   const typedCodes = barcodes[slotId] || [];
   const stockBarcode = String(lk?.stockBarcode || typedCodes[0] || '').trim();
@@ -293,8 +308,19 @@ export function buildUploadBarcodeQueuePlaceholderItem(slotId, { barcodes, nospo
   const scraped = uploadStockDetailsBySlotId[slotId];
   const snap = uploadNosposStockSnapshotFromScrape(scraped);
   const titleFromNos = (lk?.stockName || '').trim();
+  const webepos = webeposAuditDetailsBySlotId?.[slotId] || null;
   const title =
-    titleFromNos || (stockBarcode ? `Add product (${stockBarcode})` : 'Add product from header');
+    titleFromNos ||
+    (webepos?.originalTitle || '').trim() ||
+    (stockBarcode ? `Add product (${stockBarcode})` : 'Add product from header');
+
+  // Audit mode: prefill ourSalePrice with the current Web EPOS price so the user sees the
+  // baseline and can edit from there. A numeric parse of "£12.99" or "12.99".
+  let ourSalePriceInitial = null;
+  if (webepos?.originalPrice) {
+    const parsed = Number.parseFloat(String(webepos.originalPrice).replace(/[£,\s]/g, ''));
+    if (Number.isFinite(parsed) && parsed > 0) ourSalePriceInitial = parsed;
+  }
 
   return withUploadListRrpSourceDefaults({
     id: slotId,
@@ -303,7 +329,7 @@ export function buildUploadBarcodeQueuePlaceholderItem(slotId, { barcodes, nospo
     subtitle: '',
     quantity: 1,
     category: '',
-    categoryObject: null,
+    categoryObject: webepos?.derivedCategoryObject || null,
     offers: [],
     cashOffers: [],
     voucherOffers: [],
@@ -322,11 +348,20 @@ export function buildUploadBarcodeQueuePlaceholderItem(slotId, { barcodes, nospo
     attributeValues: {},
     condition: null,
     image: null,
-    ourSalePrice: null,
+    ourSalePrice: ourSalePriceInitial,
     nosposBarcodes,
     isRemoved: false,
     isCustomCeXItem: false,
     ...(snap ? { uploadNosposStockFromBarcode: snap } : {}),
+    ...(webepos
+      ? {
+          webeposProductHref: webepos.productHref || null,
+          webeposOriginalPrice: webepos.originalPrice || null,
+          webeposOriginalName: webepos.originalTitle || null,
+          webeposCategoryLevels: Array.isArray(webepos.categoryLevels) ? webepos.categoryLevels : [],
+          webeposDerivedCategoryObject: webepos.derivedCategoryObject || null,
+        }
+      : {}),
   });
 }
 
@@ -1292,6 +1327,26 @@ export function isNegotiationEbayWorkspaceLine(item) {
   return Boolean(st && filters);
 }
 
+/** Cash Converters–primary rows (custom CC lines or merged CC research with stats + filters). */
+export function isNegotiationCashConvertersWorkspaceLine(item) {
+  if (!item || item.isRemoved || item.isJewelleryItem === true) return false;
+  if (item.isCustomCeXItem === true) return false;
+  if (item.isCustomCashConvertersItem === true) return true;
+  const st = item.cashConvertersResearchData?.stats;
+  const filters = item.cashConvertersResearchData?.selectedFilters;
+  return Boolean(st && filters);
+}
+
+/** Cash Generator–primary rows (custom CG lines or merged CG research with stats + filters). */
+export function isNegotiationCashGeneratorWorkspaceLine(item) {
+  if (!item || item.isRemoved || item.isJewelleryItem === true) return false;
+  if (item.isCustomCeXItem === true) return false;
+  if (item.isCustomCashGeneratorItem === true) return true;
+  const st = item.cgResearchData?.stats;
+  const filters = item.cgResearchData?.selectedFilters;
+  return Boolean(st && filters);
+}
+
 function getItemOfferTotal(item, useVoucherOffers) {
   if (item.isRemoved) return 0;
   const qty = item.quantity || 1;
@@ -1334,6 +1389,10 @@ export function calculateNonJewelleryOfferTotal(items, useVoucherOffers) {
 /** Header eBay workspace: pending customer expectation before the line exists in cart. */
 export const HEADER_EBAY_CUSTOMER_EXPECTATION_KEY = '__header_ebay__';
 
+/** Header Cash Converters / Cash Generator marketplace workspace (same pattern as eBay). */
+export const HEADER_CC_CUSTOMER_EXPECTATION_KEY = '__header_cc__';
+export const HEADER_CG_CUSTOMER_EXPECTATION_KEY = '__header_cg__';
+
 /** Header Other (NosPos manual) workspace: pending expectation before the line is added. */
 export const HEADER_OTHER_CUSTOMER_EXPECTATION_KEY = '__header_other__';
 
@@ -1363,6 +1422,8 @@ export function resolveCustomerExpectationDraftForAdd(cartItem, pendingByTarget)
   if (cartItem.id != null) tryKeys.push(cartItem.id);
   tryKeys.push(HEADER_OTHER_CUSTOMER_EXPECTATION_KEY);
   tryKeys.push(HEADER_EBAY_CUSTOMER_EXPECTATION_KEY);
+  tryKeys.push(HEADER_CC_CUSTOMER_EXPECTATION_KEY);
+  tryKeys.push(HEADER_CG_CUSTOMER_EXPECTATION_KEY);
   const seen = new Set();
   for (const k of tryKeys) {
     if (k == null || seen.has(k)) continue;
@@ -1448,6 +1509,17 @@ export function buildFinishPayload(
         for (const key of Object.keys(ebay)) {
           if (ebay[key] !== undefined) rawData[key] = ebay[key];
         }
+      } else if (item.isCustomCashConvertersItem && item.cashConvertersResearchData) {
+        const cc = item.cashConvertersResearchData;
+        for (const key of Object.keys(cc)) {
+          if (cc[key] !== undefined) rawData[key] = cc[key];
+        }
+      } else if (item.isCustomCashGeneratorItem && item.cgResearchData) {
+        const cg = item.cgResearchData;
+        for (const key of Object.keys(cg)) {
+          if (cg[key] !== undefined) rawData[key] = cg[key];
+        }
+        rawData.isCustomCashGeneratorItem = true;
       }
       // Always embed referenceData (with percentage_used etc.) so it survives round-trips
       if (item.referenceData && !rawData.referenceData && !rawData.reference_data) {
@@ -1734,8 +1806,10 @@ export function normalizeCartItemForNegotiation(item, useVoucherOffers = false) 
     !item.variantName &&
     item.subtitle != null &&
     String(item.subtitle).trim() !== '' &&
-    // eBay-primary rows use title as the search term; subtitle is often "eBay Research" or filters — must not replace the displayed name.
-    !(hasMergedEbayResearch && !isCexItem)
+    // eBay / CC / CG custom research rows: title is the marketplace search term; subtitle is a fixed channel label — must not become variantName.
+    !(hasMergedEbayResearch && !isCexItem) &&
+    item.isCustomCashConvertersItem !== true &&
+    item.isCustomCashGeneratorItem !== true
   ) {
     // Internal DB / header builder: variant line is often only in subtitle; copy for research queries.
     next = { ...item, variantName: String(item.subtitle).trim() };

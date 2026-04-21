@@ -10,6 +10,8 @@ import {
   openWebEposUploadWithTimeout,
   searchNosposBarcode,
   scrapeNosposStockEditForUpload,
+  scrapeWebEposEditPageForAudit,
+  editWebEposProductsForAuditWithTimeout,
 } from "@/services/extensionClient";
 import {
   saveRepricingSession,
@@ -19,7 +21,12 @@ import {
   fetchUploadSessionDetail,
   fetchCashGeneratorRetailCategories,
   fetchProductCategories,
+  fetchAllCategoriesFlat,
 } from "@/services/api";
+import {
+  reverseLookupWebEposCategory,
+  cgCategoryObjectToWebEposLabels,
+} from "@/utils/webeposCategoryReverseLookup";
 import {
   summariseNegotiationItemForAi,
   runCgStockCategoryAiMatchBackground,
@@ -54,7 +61,11 @@ import {
   filterProductCategoriesForBuilderTopHeaders,
   resolveUploadTableItemName,
 } from '../utils/negotiationHelpers';
-import { EBAY_TOP_LEVEL_CATEGORY } from '../constants';
+import {
+  EBAY_TOP_LEVEL_CATEGORY,
+  CASH_CONVERTERS_TOP_LEVEL_CATEGORY,
+  CASH_GENERATOR_TOP_LEVEL_CATEGORY,
+} from '../constants';
 import { useResearchOverlay } from '../hooks/useResearchOverlay';
 import { useMarketplaceSearchPrefetch } from '../hooks/useMarketplaceSearchPrefetch';
 import { useRefreshCexRowData } from '../hooks/useRefreshCexRowData';
@@ -135,6 +146,18 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
   /** Upload workspace: NosPos stock edit scrape result keyed by scan/pending slot id (scraped when user selects or single-match). */
   const [uploadStockDetailsBySlotId, setUploadStockDetailsBySlotId] = useState({});
   const uploadStockScrapeGenBySlotRef = useRef({});
+
+  /** Upload audit mode: buyer is editing existing Web EPOS products, not creating new ones. */
+  const [uploadAuditMode, setUploadAuditMode] = useState(false);
+  /** Per-slot Web EPOS edit-page scrape: { productHref, loading, originalPrice, originalName, categoryLevels, derivedCategoryObject, error }. */
+  const [webeposAuditDetailsBySlotId, setWebeposAuditDetailsBySlotId] = useState({});
+  /** Map<extractedBarcode, { productHref, productName, price, ... }> — seeded from audit entry hub. */
+  const auditRowsByBarcodeRef = useRef({});
+  /** Queue of remaining audit barcodes to process sequentially (shared with beginUploadScanBarcodeLine). */
+  const auditQueueRef = useRef([]);
+  /** Cached /all-categories/ flat rows, used for Web EPOS → CG reverse mapping. */
+  const allCategoriesFlatRef = useRef(null);
+  const webeposAuditScrapeGenBySlotRef = useRef({});
   /** Wired after {@link useListWorkspaceNegotiationPersistence} so CG/NosPos AI can flush draft to DB immediately. */
   const flushNegotiationSaveRef = useRef(null);
 
@@ -427,6 +450,10 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
     uploadBarcodeIntakeOpen,
     uploadBarcodeIntakeDone,
     uploadStockDetailsBySlotId,
+    uploadAuditMode,
+    webeposAuditDetailsBySlotId,
+    auditRowsByBarcodeRef,
+    auditQueueRef,
     dbSessionId,
     setDbSessionId,
     isRepricingFinished,
@@ -438,6 +465,9 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
     isCreatingSession,
   });
   flushNegotiationSaveRef.current = flushNegotiationSave;
+
+  /** Stable pointer to `enterUploadMainFlowWithAuditBarcodes` so the bootstrap can delegate (declared below). */
+  const enterUploadMainFlowWithAuditBarcodesRef = useRef(null);
 
   useListWorkspaceNegotiationBootstrap({
     moduleKey,
@@ -459,6 +489,11 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
     setBarcodeInput,
     setIsLoading,
     isCreatingSession,
+    enterUploadMainFlowWithAuditBarcodesRef,
+    setUploadAuditMode,
+    setWebeposAuditDetailsBySlotId,
+    auditRowsByBarcodeRef,
+    auditQueueRef,
   });
 
   useEffect(() => {
@@ -822,6 +857,108 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
     showNotification(copy.addedOne(customItem.title), 'success');
   }, [addItemsWithBarcodePrepopulation, showNotification, copy, useUploadSessions, uploadBarcodeIntakeOpen]);
 
+  const handleCashConvertersResearchCompleteFromHeader = useCallback(
+    (data) => {
+      if (!data) return;
+      if (useUploadSessions) {
+        if (uploadBarcodeIntakeOpen) {
+          showNotification(copy.uploadFinishBarcodeIntakeFirst, 'error');
+          return;
+        }
+        showNotification(copy.uploadNoEbayLines, 'warning');
+        return;
+      }
+      const searchTitle = data.searchTerm?.trim()?.slice(0, 200) || 'Cash Converters Research Item';
+      const resolved = data.resolvedCategory?.id != null ? data.resolvedCategory : null;
+      const categoryObject = resolved ?? CASH_CONVERTERS_TOP_LEVEL_CATEGORY;
+      const categoryName = categoryObject?.name ?? CASH_CONVERTERS_TOP_LEVEL_CATEGORY.name;
+      const customItem = {
+        id: crypto.randomUUID?.() ?? `reprice-cc-${Date.now()}`,
+        title: searchTitle,
+        subtitle: 'Cash Converters Research',
+        quantity: 1,
+        category: categoryName,
+        categoryObject,
+        offers: [],
+        cashOffers: [],
+        voucherOffers: [],
+        cashConvertersResearchData: data,
+        isCustomCashConvertersItem: true,
+        selectedOfferId: null,
+        ourSalePrice: data.stats?.suggestedPrice != null ? Number(formatOfferPrice(data.stats.suggestedPrice)) : null,
+        nosposBarcodes: [],
+        ebayResearchData: null,
+        cgResearchData: null,
+        referenceData: null,
+        variantId: null,
+        cexSku: null,
+        cexSellPrice: null,
+        cexBuyPrice: null,
+        cexVoucherPrice: null,
+        cexUrl: null,
+        cexOutOfStock: false,
+        attributeValues: {},
+        condition: null,
+        image: null,
+        isRemoved: false,
+      };
+      addItemsWithBarcodePrepopulation([customItem]);
+      showNotification(copy.addedOne(customItem.title), 'success');
+    },
+    [addItemsWithBarcodePrepopulation, showNotification, copy, useUploadSessions, uploadBarcodeIntakeOpen]
+  );
+
+  const handleCashGeneratorResearchCompleteFromHeader = useCallback(
+    (data) => {
+      if (!data) return;
+      if (useUploadSessions) {
+        if (uploadBarcodeIntakeOpen) {
+          showNotification(copy.uploadFinishBarcodeIntakeFirst, 'error');
+          return;
+        }
+        showNotification(copy.uploadNoEbayLines, 'warning');
+        return;
+      }
+      const searchTitle = data.searchTerm?.trim()?.slice(0, 200) || 'Cash Generator Research Item';
+      const resolved = data.resolvedCategory?.id != null ? data.resolvedCategory : null;
+      const categoryObject = resolved ?? CASH_GENERATOR_TOP_LEVEL_CATEGORY;
+      const categoryName = categoryObject?.name ?? CASH_GENERATOR_TOP_LEVEL_CATEGORY.name;
+      const customItem = {
+        id: crypto.randomUUID?.() ?? `reprice-cg-${Date.now()}`,
+        title: searchTitle,
+        subtitle: 'Cash Generator Research',
+        quantity: 1,
+        category: categoryName,
+        categoryObject,
+        offers: [],
+        cashOffers: [],
+        voucherOffers: [],
+        cgResearchData: data,
+        isCustomCashGeneratorItem: true,
+        selectedOfferId: null,
+        ourSalePrice: data.stats?.suggestedPrice != null ? Number(formatOfferPrice(data.stats.suggestedPrice)) : null,
+        nosposBarcodes: [],
+        ebayResearchData: null,
+        cashConvertersResearchData: null,
+        referenceData: null,
+        variantId: null,
+        cexSku: null,
+        cexSellPrice: null,
+        cexBuyPrice: null,
+        cexVoucherPrice: null,
+        cexUrl: null,
+        cexOutOfStock: false,
+        attributeValues: {},
+        condition: null,
+        image: null,
+        isRemoved: false,
+      };
+      addItemsWithBarcodePrepopulation([customItem]);
+      showNotification(copy.addedOne(customItem.title), 'success');
+    },
+    [addItemsWithBarcodePrepopulation, showNotification, copy, useUploadSessions, uploadBarcodeIntakeOpen]
+  );
+
   const handleQuickRepriceItems = useCallback((foundItems) => {
     if (useUploadSessions) return;
     if (!foundItems?.length) return;
@@ -888,6 +1025,7 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
     const snapshotBarcodes = barcodes;
     const snapshotLookups = nosposLookups;
     const snapshotStock = uploadStockDetailsBySlotId;
+    const snapshotWebeposAudit = webeposAuditDetailsBySlotId;
 
     const existingRowIdSet = new Set(items.filter((i) => !i.isRemoved).map((i) => String(i.id)));
     const newSlotIdsOnly = slotsSnapshot.filter((id) => !existingRowIdSet.has(String(id)));
@@ -895,6 +1033,7 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
       barcodes: snapshotBarcodes,
       nosposLookups: snapshotLookups,
       uploadStockDetailsBySlotId: snapshotStock,
+      webeposAuditDetailsBySlotId: snapshotWebeposAudit,
     };
 
     const placeholders = newSlotIdsOnly.map((slotId) =>
@@ -1094,8 +1233,6 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
   }, [showNotification, useUploadSessions, copy, runUploadCategoryAndCgAfterValidRrp]);
 
   const uploadBeginLineSyncLockRef = useRef(false);
-  /** Queue of remaining audit barcodes to process sequentially, populated by enterUploadMainFlowWithAuditBarcodes. */
-  const auditQueueRef = useRef([]);
   /** Stable ref to triggerUploadStockScrapeForSlot — avoids temporal dead zone in beginUploadScanBarcodeLine. */
   const triggerUploadStockScrapeForSlotRef = useRef(null);
 
@@ -1110,6 +1247,13 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
     setBarcodeInput('');
     if (nextBarcode) {
       setBarcodes((prev) => ({ ...prev, [id]: [nextBarcode] }));
+      // Audit mode only: if this barcode has a known Web EPOS productHref, scrape the edit page in
+      // parallel with the NosPos search so the row has both sides of the diff by the time the user
+      // sees it. Misses (no productHref) fall through as a regular NosPos-only barcode.
+      const auditRow = auditRowsByBarcodeRef.current?.[String(nextBarcode).trim()] || null;
+      if (auditRow?.productHref) {
+        triggerWebEposAuditScrapeForSlotRef.current?.(id, auditRow.productHref);
+      }
       // Fire NosPos lookup for this audit barcode immediately
       setNosposLookups((prev) => ({ ...prev, [`${id}_0`]: { status: 'searching' } }));
       searchNosposBarcode(nextBarcode).then((result) => {
@@ -1252,6 +1396,70 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
     })();
   }, [useUploadSessions]);
   triggerUploadStockScrapeForSlotRef.current = triggerUploadStockScrapeForSlot;
+
+  /**
+   * Audit mode only: open the Web EPOS edit page for this barcode's product (via the existing
+   * upload worker tab), read the current title, price, and category levels, then reverse-map to
+   * a CG categoryObject.
+   */
+  const triggerWebEposAuditScrapeForSlot = useCallback((slotId, productHref) => {
+    if (!useUploadSessions || !slotId || !productHref) return;
+    const gen = (webeposAuditScrapeGenBySlotRef.current[slotId] ?? 0) + 1;
+    webeposAuditScrapeGenBySlotRef.current[slotId] = gen;
+    setWebeposAuditDetailsBySlotId((prev) => ({
+      ...prev,
+      [slotId]: { loading: true, productHref },
+    }));
+    void (async () => {
+      try {
+        if (!Array.isArray(allCategoriesFlatRef.current)) {
+          try {
+            allCategoriesFlatRef.current = (await fetchAllCategoriesFlat()) || [];
+          } catch {
+            allCategoriesFlatRef.current = [];
+          }
+        }
+        const r = await scrapeWebEposEditPageForAudit({ productHref });
+        if (webeposAuditScrapeGenBySlotRef.current[slotId] !== gen) return;
+        if (r?.ok && r.details) {
+          const details = r.details;
+          const derivedCategoryObject = reverseLookupWebEposCategory(
+            details.categoryLevels,
+            allCategoriesFlatRef.current
+          );
+          setWebeposAuditDetailsBySlotId((prev) => ({
+            ...prev,
+            [slotId]: {
+              loading: false,
+              productHref,
+              originalTitle: details.title || '',
+              originalPrice: details.price || '',
+              categoryLevels: Array.isArray(details.categoryLevels) ? details.categoryLevels : [],
+              derivedCategoryObject: derivedCategoryObject || null,
+            },
+          }));
+        } else {
+          setWebeposAuditDetailsBySlotId((prev) => ({
+            ...prev,
+            [slotId]: {
+              loading: false,
+              productHref,
+              error: r?.error || 'Could not read Web EPOS product.',
+            },
+          }));
+        }
+      } catch (e) {
+        if (webeposAuditScrapeGenBySlotRef.current[slotId] !== gen) return;
+        setWebeposAuditDetailsBySlotId((prev) => ({
+          ...prev,
+          [slotId]: { loading: false, productHref, error: e?.message || 'Extension unavailable.' },
+        }));
+      }
+    })();
+  }, [useUploadSessions]);
+  /** Stable ref so beginUploadScanBarcodeLine (declared earlier) can call this without a TDZ. */
+  const triggerWebEposAuditScrapeForSlotRef = useRef(null);
+  triggerWebEposAuditScrapeForSlotRef.current = triggerWebEposAuditScrapeForSlot;
 
   // ── Barcode modal handlers ──────────────────────────────────────────────────
   const runNosposLookup = useCallback((code, barcodeIndex, ownerIdOverride) => {
@@ -1430,7 +1638,10 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
 
     if (useUploadSessions) {
       setUploadPostWebEposComplete(false);
-      showNotification(copy.uploadOpeningWebEposNewProduct, 'info');
+      showNotification(
+        uploadAuditMode ? 'Updating existing Web EPOS products…' : copy.uploadOpeningWebEposNewProduct,
+        'info'
+      );
       try {
         await flushNegotiationSaveRef.current?.();
         let rowsForWebEpos = activeItems;
@@ -1445,8 +1656,11 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
           } catch (_) { /* keep rowsForWebEpos = activeItems */ }
         }
 
-        // Build repricingData for ALL items with NosPos barcodes
-        const allRepricingData = rowsForWebEpos
+        const activeAuditMode = uploadAuditMode;
+
+        // Build repricingData for ALL items with NosPos barcodes.
+        // In audit mode, this is filtered down to items needing a NosPos update (name or RRP diff).
+        const allRepricingDataUnfiltered = rowsForWebEpos
           .filter((item) => !item.isRemoved && getVerifiedBarcodesForItem(item.id).length > 0)
           .map((item) => {
             const uploadRrp = resolveUploadPipelineSalePrice(item);
@@ -1467,9 +1681,26 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
                 ? [{ barcode: lk.stockBarcode, stockUrl: lk.stockUrl || '' }]
                 : [];
             });
+            const nameForUpload = (() => {
+              const n = resolveUploadTableItemName(item);
+              return n === '—' ? '' : n;
+            })();
+            const nosposName = String(item?.uploadNosposStockFromBarcode?.stockName || '').trim();
+            const priceChangedOnNospos =
+              Number.isFinite(Number(salePrice)) &&
+              Number.isFinite(nosposRrp) &&
+              Math.abs(Number(salePrice) - Number(nosposRrp)) > 0.005;
+            const priceChangedForceInsert =
+              !Number.isFinite(nosposRrp) && Number.isFinite(Number(salePrice));
+            const nameChangedOnNospos =
+              nameForUpload && nosposName && nameForUpload !== nosposName;
             return {
+              __item: item,
+              __nosposName: nosposName,
+              __priceChangedOnNospos: priceChangedOnNospos || priceChangedForceInsert,
+              __nameChangedOnNospos: Boolean(nameChangedOnNospos),
               itemId: item.id,
-              title: (() => { const n = resolveUploadTableItemName(item); return n === '—' ? '' : n; })(),
+              title: nameForUpload,
               salePrice,
               ourSalePriceAtRepricing: uploadRrp,
               cexSellAtRepricing: item.cexSellPrice ?? null,
@@ -1481,33 +1712,105 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
             };
           });
 
-        if (allRepricingData.length === 0) {
+        // Audit-mode NosPos filter: only push items where price or name actually changed.
+        const allRepricingData = activeAuditMode
+          ? allRepricingDataUnfiltered.filter(
+              (r) => r.__priceChangedOnNospos || r.__nameChangedOnNospos
+            )
+          : allRepricingDataUnfiltered;
+        // Strip audit-only metadata before handing to the bridge.
+        const cleanedRepricingData = allRepricingData.map(
+          ({ __item, __nosposName, __priceChangedOnNospos, __nameChangedOnNospos, ...rest }) => rest
+        );
+
+        if (!activeAuditMode && cleanedRepricingData.length === 0) {
           showNotification(copy.uploadWebEposNeedServerLineIds, 'error');
           return;
         }
 
-        const webEposProductCreateList = rowsForWebEpos
-          .map((item) => buildWebEposProductCreatePayloadFromUploadRow(item, getVerifiedBarcodesForItem(item.id)))
-          .filter(Boolean);
+        // Audit-mode Web EPOS edit list (price always, category only if changed vs scraped levels).
+        const webEposEditList = activeAuditMode
+          ? rowsForWebEpos
+              .filter((item) => !item.isRemoved && item.webeposProductHref)
+              .map((item) => {
+                const uploadRrp = resolveUploadPipelineSalePrice(item);
+                const priceStr = Number.isFinite(Number(uploadRrp))
+                  ? String(Number(uploadRrp).toFixed(2))
+                  : null;
+                const currentLabels = cgCategoryObjectToWebEposLabels(item.categoryObject);
+                const scrapedLabels = Array.isArray(item.webeposCategoryLevels)
+                  ? item.webeposCategoryLevels.map((lvl) => String(lvl?.label || '').trim()).filter(Boolean)
+                  : [];
+                const categoryChanged =
+                  currentLabels.length > 0 &&
+                  (currentLabels.length !== scrapedLabels.length ||
+                    currentLabels.some((l, i) => l.toLowerCase() !== String(scrapedLabels[i] || '').toLowerCase()));
+                const webeposOriginalNum = Number.parseFloat(
+                  String(item.webeposOriginalPrice || '').replace(/[£,\s]/g, '')
+                );
+                const priceChangedOnWebepos =
+                  Number.isFinite(Number(uploadRrp)) &&
+                  (!Number.isFinite(webeposOriginalNum) ||
+                    Math.abs(Number(uploadRrp) - webeposOriginalNum) > 0.005);
+                if (!priceChangedOnWebepos && !categoryChanged) return null;
+                const entry = {
+                  productHref: item.webeposProductHref,
+                  barcode: (barcodes[item.id] || [])[0] || '',
+                };
+                if (priceChangedOnWebepos && priceStr) entry.price = priceStr;
+                if (categoryChanged && currentLabels.length > 0) {
+                  entry.categoryLevelLabels = currentLabels;
+                }
+                return entry;
+              })
+              .filter(Boolean)
+          : [];
 
-        // Callback fires after NosPos pass completes → WEBEPOS upload
+        const webEposProductCreateList = activeAuditMode
+          ? []
+          : rowsForWebEpos
+              .map((item) => buildWebEposProductCreatePayloadFromUploadRow(item, getVerifiedBarcodesForItem(item.id)))
+              .filter(Boolean);
+
+        if (activeAuditMode && webEposEditList.length === 0 && cleanedRepricingData.length === 0) {
+          showNotification('Nothing to sync — neither Web EPOS nor NosPos has changes.', 'info');
+          try {
+            if (dbSessionId) {
+              await updateUploadSession(dbSessionId, { status: 'COMPLETED', mode: 'AUDIT' });
+            }
+          } catch (_) {}
+          if (dbSessionId) {
+            setTimeout(() => navigate(`/upload-sessions/${dbSessionId}/view`), 300);
+          }
+          return;
+        }
+
+        // Callback fires after NosPos pass completes → WEBEPOS edit (audit) or new-product (upload)
         rrpCompleteCallbackRef.current = async () => {
           try {
-            const res = await openWebEposProductCreateForUploadWithTimeout({
-              webEposProductCreateList,
-              uploadProgressCartKey: activeCartKey,
-            });
+            const res = activeAuditMode
+              ? await editWebEposProductsForAuditWithTimeout({
+                  webEposEditList,
+                  uploadProgressCartKey: activeCartKey,
+                })
+              : await openWebEposProductCreateForUploadWithTimeout({
+                  webEposProductCreateList,
+                  uploadProgressCartKey: activeCartKey,
+                });
             const n = Number(res?.tabsFilled);
-            showNotification(
-              Number.isFinite(n) && n > 1
+            const successMsg = activeAuditMode
+              ? `Web EPOS updated in place${Number.isFinite(n) && n > 1 ? ` (${n} products)` : ''}.`
+              : Number.isFinite(n) && n > 1
                 ? `${copy.uploadWebEposNewProductOpened} (${n} products)`
-                : copy.uploadWebEposNewProductOpened,
-              'success'
-            );
+                : copy.uploadWebEposNewProductOpened;
+            showNotification(successMsg, 'success');
             try {
               await flushNegotiationSaveRef.current?.();
               if (dbSessionId) {
-                await updateUploadSession(dbSessionId, { status: 'COMPLETED' });
+                await updateUploadSession(dbSessionId, {
+                  status: 'COMPLETED',
+                  ...(activeAuditMode ? { mode: 'AUDIT' } : {}),
+                });
               }
             } catch (persistErr) {
               console.warn(copy.saveFailLog, persistErr);
@@ -1542,7 +1845,31 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
           }
         };
 
-        const totalItems = allRepricingData.length;
+        const totalItems = cleanedRepricingData.length;
+        if (activeAuditMode && cleanedRepricingData.length === 0) {
+          // Audit mode with only Web EPOS changes: skip NosPos, run the callback immediately.
+          showNotification('Updating Web EPOS (NosPos is already in sync)…', 'info');
+          setRepricingJob({
+            cartKey: activeCartKey,
+            running: true,
+            done: false,
+            step: 'webEposEdit',
+            message: 'Updating Web EPOS…',
+            currentBarcode: '',
+            currentItemId: '',
+            currentItemTitle: webEposEditList[0]?.barcode || '',
+            totalBarcodes: webEposEditList.length,
+            completedBarcodeCount: 0,
+            completedBarcodes: {},
+            completedItems: [],
+            logs: [{ timestamp: new Date().toISOString(), level: 'info', message: copy.jobLogStart }],
+          });
+          const cb = rrpCompleteCallbackRef.current;
+          rrpCompleteCallbackRef.current = null;
+          if (typeof cb === 'function') await cb();
+          return;
+        }
+
         showNotification(`Syncing ${totalItems} item${totalItems !== 1 ? 's' : ''} on NosPos…`, 'info');
         setRepricingJob({
           cartKey: activeCartKey,
@@ -1552,15 +1879,15 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
           message: `Syncing ${totalItems} item${totalItems !== 1 ? 's' : ''} on NosPos…`,
           currentBarcode: '',
           currentItemId: '',
-          currentItemTitle: allRepricingData[0]?.title || '',
-          totalBarcodes: webEposProductCreateList.length,
+          currentItemTitle: cleanedRepricingData[0]?.title || '',
+          totalBarcodes: activeAuditMode ? webEposEditList.length : webEposProductCreateList.length,
           completedBarcodeCount: 0,
           completedBarcodes: {},
           completedItems: [],
           logs: [{ timestamp: new Date().toISOString(), level: 'info', message: copy.jobLogStart }],
         });
 
-        await openNospos(allRepricingData, {
+        await openNospos(cleanedRepricingData, {
           completedBarcodes: {},
           completedItems: [],
           cartKey: activeCartKey,
@@ -1724,61 +2051,33 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
     setUploadMainFlowStarted(true);
   }, []);
 
-  const enterUploadMainFlowWithAuditBarcodes = useCallback((auditBarcodeList) => {
+  const enterUploadMainFlowWithAuditBarcodes = useCallback((auditBarcodeList, auditRowList = null) => {
     if (!Array.isArray(auditBarcodeList) || auditBarcodeList.length === 0) {
       setUploadMainFlowStarted(true);
       return;
     }
-    // Seed the queue with barcodes 2..N; barcode 1 is handled by beginUploadScanBarcodeLine below
-    auditQueueRef.current = auditBarcodeList.slice(1);
+    auditQueueRef.current = [...auditBarcodeList];
+    const rowsByBarcode = {};
+    if (Array.isArray(auditRowList)) {
+      for (const row of auditRowList) {
+        const key = String(row?.barcode || '').trim();
+        if (key) rowsByBarcode[key] = row;
+      }
+    }
+    auditRowsByBarcodeRef.current = rowsByBarcode;
+    setUploadAuditMode(true);
     setUploadScanSlotIds([]);
     setBarcodes({});
     setNosposLookups({});
+    setWebeposAuditDetailsBySlotId({});
     setUploadBarcodeIntakeOpen(true);
     setBarcodeModal(null);
     setBarcodeInput('');
     setUploadMainFlowStarted(true);
-    // Push the first audit barcode as if the user typed it — beginUploadScanBarcodeLine
-    // will pop from auditQueueRef for each subsequent slot
-    setTimeout(() => {
-      const firstBarcode = auditBarcodeList[0];
-      const id = crypto.randomUUID?.() ?? `audit-${Date.now()}`;
-      auditQueueRef.current; // already set above
-      setUploadScanSlotIds([id]);
-      setBarcodes({ [id]: [firstBarcode] });
-      setBarcodeModal({ item: { id, title: 'Audit barcode' } });
-      setNosposLookups({ [`${id}_0`]: { status: 'searching' } });
-      searchNosposBarcode(firstBarcode).then((result) => {
-        if (result?.loginRequired) {
-          showNotification('NosPos lookup needs you to be logged in first.', 'error');
-          setNosposLookups((prev) => ({ ...prev, [`${id}_0`]: { status: 'error', error: 'Log in to NosPos first' } }));
-        } else if (result?.ok) {
-          const results = result.results || [];
-          if (results.length === 0) {
-            setNosposLookups((prev) => ({ ...prev, [`${id}_0`]: { status: 'not_found', results: [] } }));
-          } else if (results.length === 1) {
-            setNosposLookups((prev) => ({
-              ...prev,
-              [`${id}_0`]: {
-                status: 'selected', results,
-                stockBarcode: results[0].barserial,
-                stockName: results[0].name || '',
-                stockUrl: `https://nospos.com${results[0].href}`,
-              },
-            }));
-            triggerUploadStockScrapeForSlotRef.current?.(id, `https://nospos.com${results[0].href}`);
-          } else {
-            setNosposLookups((prev) => ({ ...prev, [`${id}_0`]: { status: 'found', results } }));
-            setNosposResultsPanel({ itemId: id, barcodeIndex: 0 });
-          }
-        } else {
-          setNosposLookups((prev) => ({ ...prev, [`${id}_0`]: { status: 'error', error: result?.error || 'Search failed' } }));
-        }
-      }).catch((err) => {
-        setNosposLookups((prev) => ({ ...prev, [`${id}_0`]: { status: 'error', error: err?.message || 'Extension unavailable' } }));
-      });
-    }, 0);
-  }, [showNotification]);
+    // The effect watching uploadBarcodeIntakeOpen + empty slots fires beginUploadScanBarcodeLine automatically
+  }, []);
+
+  enterUploadMainFlowWithAuditBarcodesRef.current = enterUploadMainFlowWithAuditBarcodes;
 
   return {
     showWorkspaceLoader,
@@ -1786,6 +2085,8 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
     uploadWebEposHubActive,
     enterUploadMainFlow,
     enterUploadMainFlowWithAuditBarcodes,
+    uploadAuditMode,
+    webeposAuditDetailsBySlotId,
     uploadListMissingRrp,
     webEposProductsSnapshot,
     webEposProductsScrapeError,
@@ -1853,6 +2154,8 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
     handleRemoveItem,
     handleAddRepricingItem,
     handleEbayResearchCompleteFromHeader,
+    handleCashConvertersResearchCompleteFromHeader,
+    handleCashGeneratorResearchCompleteFromHeader,
     handleRefreshCeXData,
     handleOurSalePriceChange,
     handleOurSalePriceBlur,

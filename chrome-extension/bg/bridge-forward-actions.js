@@ -109,17 +109,13 @@ async function handleBridgeForward(message, sender) {
     }
   }
 
-  /** Upload workspace: open stock edit in a minimised NosPos window, fetch HTML, parse details, close tab. */
+  /** Upload workspace: fetch the stock edit page with session cookies and parse details. */
   if (payload.action === 'scrapeNosposStockEditForUpload') {
     const stockUrl = String(payload.stockUrl || '').trim();
     if (!stockUrl) return { ok: false, error: 'No stock URL' };
     const editUrl = normalizeNosposStockEditUrl(stockUrl);
     if (!editUrl) return { ok: false, error: 'Invalid stock URL' };
-    let opened = null;
     try {
-      if (appTabId != null) {
-        opened = await openBackgroundNosposTab(editUrl, appTabId);
-      }
       const response = await fetch(editUrl, {
         credentials: 'include',
         headers: NOSPOS_HTML_FETCH_HEADERS,
@@ -129,17 +125,9 @@ async function handleBridgeForward(message, sender) {
       if (nosposHtmlFetchIndicatesNotLoggedIn(response, finalUrl)) {
         return { ok: false, loginRequired: true };
       }
-      const details = parseNosposStockEditPageDetails(html);
-      return { ok: true, details };
+      return { ok: true, details: parseNosposStockEditPageDetails(html) };
     } catch (e) {
       return { ok: false, error: e?.message || 'Scrape failed' };
-    } finally {
-      if (opened?.tabId != null) {
-        await chrome.tabs.remove(opened.tabId).catch(() => {});
-      }
-      if (appTabId != null) {
-        await focusAppTab(appTabId).catch(() => {});
-      }
     }
   }
 
@@ -338,6 +326,25 @@ async function handleBridgeForward(message, sender) {
 
   if (payload.action === 'scrapeWebEposProducts' && appTabId != null) {
     void scrapeWebEposProductsAndRespond(requestId, appTabId);
+    return { ok: true };
+  }
+
+  if (payload.action === 'scrapeWebEposEditPage' && appTabId != null) {
+    void scrapeWebEposEditPageAndRespond(
+      requestId,
+      appTabId,
+      String(payload.productHref || '').trim()
+    );
+    return { ok: true };
+  }
+
+  if (payload.action === 'editWebEposProductsForAudit' && appTabId != null) {
+    void openWebEposProductEditMinimizedAndRespond(
+      requestId,
+      appTabId,
+      payload.webEposEditList,
+      payload.uploadProgressCartKey
+    );
     return { ok: true };
   }
 

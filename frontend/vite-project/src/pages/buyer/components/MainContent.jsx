@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Icon, Button, Tab, Breadcrumb, SearchableDropdown } from '@/components/ui/components';
 import EbayResearchForm from '@/components/forms/EbayResearchForm.jsx';
 import CashConvertersResearchForm from '@/components/forms/CashConvertersResearchForm.jsx';
+import CashGeneratorResearchForm from '@/components/forms/CashGeneratorResearchForm.jsx';
 import EmptyState from './EmptyState';
 import ProductSelection from './ProductSelection';
 import AttributeConfiguration from './AttributeConfiguration';
@@ -10,6 +11,7 @@ import OfferSelection from './OfferSelection';
 import CexProductView from './CexProductView';
 import EbayCartItemView from './EbayCartItemView';
 import CashConvertersCartItemView from './CashConvertersCartItemView';
+import CashGeneratorCartItemView from './CashGeneratorCartItemView';
 
 import { useProductAttributes } from '@/pages/buyer/hooks/useProductAttributes';
 import { fetchVariantPrices, updateRequestItemRawData } from '@/services/api';
@@ -56,6 +58,7 @@ const MainContent = ({ mode = 'buyer' }) => {
   const [variants, setVariants] = useState([]);
   const [isEbayModalOpen, setEbayModalOpen] = useState(false);
   const [isCashConvertersModalOpen, setCashConvertersModalOpen] = useState(false);
+  const [isCashGeneratorModalOpen, setCashGeneratorModalOpen] = useState(false);
   const [offers, setOffers] = useState([]);
   const [isLoadingOffers, setIsLoadingOffers] = useState(false);
   const [referenceData, setReferenceData] = useState(null);
@@ -64,6 +67,8 @@ const MainContent = ({ mode = 'buyer' }) => {
   const [savedEbayState, setSavedEbayState] = useState(null);
   const [cashConvertersData, setCashConvertersData] = useState(null);
   const [savedCashConvertersState, setSavedCashConvertersState] = useState(null);
+  const [cgData, setCgData] = useState(null);
+  const [savedCgState, setSavedCgState] = useState(null);
   const [isCeXEbayModalOpen, setCeXEbayModalOpen] = useState(false);
   const [isCeXCashConvertersModalOpen, setCeXCashConvertersModalOpen] = useState(false);
   const [pendingDuplicateItem, setPendingDuplicateItem] = useState(null);
@@ -99,6 +104,10 @@ const MainContent = ({ mode = 'buyer' }) => {
       if (isEbayCategory) { setSavedEbayState(null); setEbayData(null); }
       const isCC = selectedCategory?.path?.some((p) => p.toLowerCase() === 'cash converters') || selectedCategory?.name?.toLowerCase() === 'cash converters';
       if (isCC) { setSavedCashConvertersState(null); setCashConvertersData(null); }
+      const isCgPath =
+        selectedCategory?.path?.some((p) => String(p).toLowerCase().includes('cash generator')) ||
+        selectedCategory?.name?.toLowerCase().includes('cash generator');
+      if (isCgPath) { setSavedCgState(null); setCgData(null); }
     }
   }, [selectedCartItem, isEbayCategory, selectedCategory]);
 
@@ -118,7 +127,7 @@ const MainContent = ({ mode = 'buyer' }) => {
 
   // Load offers when variant changes
   useEffect(() => {
-    if (!variant) { setOffers([]); setReferenceData(null); setOurSalePrice(''); setEbayData(null); setSavedEbayState(null); setCashConvertersData(null); setSavedCashConvertersState(null); return; }
+    if (!variant) { setOffers([]); setReferenceData(null); setOurSalePrice(''); setEbayData(null); setSavedEbayState(null); setCashConvertersData(null); setSavedCashConvertersState(null); setCgData(null); setSavedCgState(null); return; }
     if (skipVariantFetchRef.current) {
       skipVariantFetchRef.current = false;
       setIsLoadingOffers(false);
@@ -149,6 +158,14 @@ const MainContent = ({ mode = 'buyer' }) => {
       if (selectedCartItem.cashConvertersResearchData) { setSavedCashConvertersState(selectedCartItem.cashConvertersResearchData); setCashConvertersData(selectedCartItem.cashConvertersResearchData); setActiveTab('research'); }
       return;
     }
+    if (selectedCartItem.isCustomCashGeneratorItem) {
+      if (selectedCartItem.cgResearchData) {
+        setSavedCgState(selectedCartItem.cgResearchData);
+        setCgData(selectedCartItem.cgResearchData);
+        setActiveTab('research');
+      }
+      return;
+    }
     const modelToSet = availableModels.find((m) => m.name === selectedCartItem.model);
     const needsModelResolution = Boolean(selectedCartItem.model) && selectedModel?.name !== selectedCartItem.model;
     if (needsModelResolution) {
@@ -172,6 +189,7 @@ const MainContent = ({ mode = 'buyer' }) => {
     }
     if (selectedCartItem.ebayResearchData) { setSavedEbayState(selectedCartItem.ebayResearchData); setEbayData(selectedCartItem.ebayResearchData); }
     if (selectedCartItem.cashConvertersResearchData) { setSavedCashConvertersState(selectedCartItem.cashConvertersResearchData); setCashConvertersData(selectedCartItem.cashConvertersResearchData); }
+    if (selectedCartItem.cgResearchData) { setSavedCgState(selectedCartItem.cgResearchData); setCgData(selectedCartItem.cgResearchData); }
     if (selectedCartItem.referenceData) {
       setReferenceData(selectedCartItem.referenceData);
       const display = useVoucherOffers ? (selectedCartItem.voucherOffers || selectedCartItem.offers) : (selectedCartItem.cashOffers || selectedCartItem.offers);
@@ -186,7 +204,7 @@ const MainContent = ({ mode = 'buyer' }) => {
 
   // Variant + attribute restore from cart item (when variants load)
   useEffect(() => {
-    if (!selectedCartItem || variants.length === 0 || selectedCartItem.isCustomEbayItem || selectedCartItem.isCustomCashConvertersItem) return;
+    if (!selectedCartItem || variants.length === 0 || selectedCartItem.isCustomEbayItem || selectedCartItem.isCustomCashConvertersItem || selectedCartItem.isCustomCashGeneratorItem) return;
     if (selectedCartItem.model && selectedModel?.name !== selectedCartItem.model) return;
     const v = resolveVariantFromCartItem(selectedCartItem);
     if (v) {
@@ -199,6 +217,7 @@ const MainContent = ({ mode = 'buyer' }) => {
     }
     if (selectedCartItem.ebayResearchData) { setSavedEbayState(selectedCartItem.ebayResearchData); setEbayData(selectedCartItem.ebayResearchData); }
     if (selectedCartItem.cashConvertersResearchData) { setSavedCashConvertersState(selectedCartItem.cashConvertersResearchData); setCashConvertersData(selectedCartItem.cashConvertersResearchData); }
+    if (selectedCartItem.cgResearchData) { setSavedCgState(selectedCartItem.cgResearchData); setCgData(selectedCartItem.cgResearchData); }
     if (selectedCartItem.referenceData) {
       setReferenceData(selectedCartItem.referenceData);
       const display = useVoucherOffers ? (selectedCartItem.voucherOffers || selectedCartItem.offers) : (selectedCartItem.cashOffers || selectedCartItem.offers);
@@ -236,6 +255,7 @@ const MainContent = ({ mode = 'buyer' }) => {
       cexUrl: selectedVariant?.cex_sku ? `https://uk.webuy.com/product-detail?id=${selectedVariant.cex_sku}` : null,
       ebayResearchData: savedEbayState || null,
       cashConvertersResearchData: savedCashConvertersState || null,
+      cgResearchData: savedCgState || null,
       referenceData, request_item_id: null,
       offerType: useVoucherOffers ? 'voucher' : 'cash',
       selectedOfferId: selectedOfferIdForItem,
@@ -273,7 +293,13 @@ const MainContent = ({ mode = 'buyer' }) => {
         return;
       }
     }
-    const isDuplicate = cartItems.some((ci) => !ci.isCustomEbayItem && !ci.isCustomCashConvertersItem && ci.variantId === cartItem.variantId);
+    const isDuplicate = cartItems.some(
+      (ci) =>
+        !ci.isCustomEbayItem &&
+        !ci.isCustomCashConvertersItem &&
+        !ci.isCustomCashGeneratorItem &&
+        ci.variantId === cartItem.variantId
+    );
 
     try {
       if (isRepricing) {
@@ -288,6 +314,7 @@ const MainContent = ({ mode = 'buyer' }) => {
           : cartItem.referenceData ? { referenceData: cartItem.referenceData } : null;
         const reqItemId = await createOrAppendRequestItem({
           variantId: cartItem.variantId, rawData: embeddedRawData, cashConvertersData: cartItem.cashConvertersResearchData,
+          cgData: cartItem.cgResearchData ?? null,
           cashOffers: cartItem.cashOffers, voucherOffers: cartItem.voucherOffers,
           selectedOfferId: cartItem.selectedOfferId, manualOffer: cartItem.manualOffer, ourSalePrice: cartItem.ourSalePrice,
         });
@@ -325,6 +352,7 @@ const MainContent = ({ mode = 'buyer' }) => {
         : cartItem.referenceData ? { referenceData: cartItem.referenceData } : null;
       const reqItemId = await createOrAppendRequestItem({
         variantId: cartItem.variantId, rawData: embeddedRawData, cashConvertersData: cartItem.cashConvertersResearchData,
+        cgData: cartItem.cgResearchData ?? null,
         cashOffers: cartItem.cashOffers, voucherOffers: cartItem.voucherOffers,
         selectedOfferId: cartItem.selectedOfferId, manualOffer: cartItem.manualOffer, ourSalePrice: cartItem.ourSalePrice,
       });
@@ -397,7 +425,9 @@ const MainContent = ({ mode = 'buyer' }) => {
               cashOffers,
               voucherOffers,
             }),
-            cashConvertersData: null, cashOffers, voucherOffers,
+            cashConvertersData: null,
+            cgData: null,
+            cashOffers, voucherOffers,
             selectedOfferId: customCartItem.selectedOfferId, manualOffer: customCartItem.manualOffer, ourSalePrice: customCartItem.ourSalePrice,
           });
           customCartItem.request_item_id = reqItemId;
@@ -452,6 +482,7 @@ const MainContent = ({ mode = 'buyer' }) => {
         else {
           const reqItemId = await createOrAppendRequestItem({
             variantId: null, rawData: null, cashConvertersData: data,
+            cgData: null,
             cashOffers: customCartItem.cashOffers, voucherOffers: customCartItem.voucherOffers,
             selectedOfferId: customCartItem.selectedOfferId, manualOffer: customCartItem.manualOffer, ourSalePrice: customCartItem.ourSalePrice,
           });
@@ -463,6 +494,86 @@ const MainContent = ({ mode = 'buyer' }) => {
       const selectedVariant = variants.find((v) => v.cex_sku === variant);
       const targetId = selectedVariant?.variant_id;
       if (targetId) updateCartItemResearchData(targetId, 'cashConverters', data);
+    }
+  };
+
+  const handleCashGeneratorResearchComplete = async (data) => {
+    setCgData(data);
+    setSavedCgState(data);
+    const isCgCategory =
+      selectedCategory?.path?.some((p) => String(p).toLowerCase().includes('cash generator')) ||
+      selectedCategory?.name?.toLowerCase().includes('cash generator');
+
+    if (isCgCategory) {
+      const apiFilterValues = Object.values(data.selectedFilters?.apiFilters || {}).flat();
+      const basicFilterValues = data.selectedFilters?.basic || [];
+      const allFilters = [...basicFilterValues, ...apiFilterValues].filter(Boolean);
+      const filterSubtitle = allFilters.length > 0 ? allFilters.join(' / ') : (data.searchTerm || 'No filters applied');
+      const cashOffers = (data.buyOffers || []).map((o, idx) => ({
+        id: `cg-cash_${idx + 1}`,
+        title: titleForEbayCcOfferIndex(idx),
+        price: Number(o.price),
+      }));
+      const voucherOffers = cashOffers.map((o) => ({
+        id: `cg-voucher-${o.id}`,
+        title: o.title,
+        price: Number((o.price * 1.10).toFixed(2)),
+      }));
+
+      const customCartItem = {
+        id: crypto.randomUUID?.() ?? `cart-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        title: data.searchTerm || 'Cash Generator Research Item',
+        subtitle: filterSubtitle,
+        quantity: 1,
+        category: selectedCategory?.name,
+        categoryObject: selectedCategory,
+        offers: useVoucherOffers ? voucherOffers : cashOffers,
+        cashOffers,
+        voucherOffers,
+        cgResearchData: data,
+        isCustomCashGeneratorItem: true,
+        variantId: null,
+        request_item_id: null,
+        ourSalePrice: data.stats?.suggestedPrice != null ? roundSalePrice(Number(data.stats.suggestedPrice)) : null,
+      };
+
+      if (!isRepricing) {
+        const cgOfferErr = validateBuyerCartItemOffers(customCartItem, useVoucherOffers);
+        if (cgOfferErr) {
+          showNotification(cgOfferErr, 'error');
+          return;
+        }
+      }
+
+      const isDuplicate = cartItems.some(
+        (ci) => ci.isCustomCashGeneratorItem && ci.title === customCartItem.title && ci.category === customCartItem.category
+      );
+      try {
+        if (isRepricing || isDuplicate) {
+          addToCart(customCartItem, { showNotification });
+        } else {
+          const reqItemId = await createOrAppendRequestItem({
+            variantId: null,
+            rawData: null,
+            cashConvertersData: null,
+            cgData: data,
+            cashOffers: customCartItem.cashOffers,
+            voucherOffers: customCartItem.voucherOffers,
+            selectedOfferId: customCartItem.selectedOfferId,
+            manualOffer: customCartItem.manualOffer,
+            ourSalePrice: customCartItem.ourSalePrice,
+          });
+          customCartItem.request_item_id = reqItemId;
+          addToCart(customCartItem, { showNotification });
+        }
+      } catch (err) {
+        console.error('Failed to add CG item:', err);
+        alert('Failed to add item.');
+      }
+    } else {
+      const selectedVariant = variants.find((v) => v.cex_sku === variant);
+      const targetId = selectedVariant?.variant_id;
+      if (targetId) updateCartItemResearchData(targetId, 'cashGenerator', data);
     }
   };
 
@@ -526,7 +637,11 @@ const MainContent = ({ mode = 'buyer' }) => {
     });
   }, [selectedCartItem, updateCartItemOffers]);
 
-  const isViewingCartItem = Boolean(selectedCartItem) && !selectedCartItem?.isCustomEbayItem && !selectedCartItem?.isCustomCashConvertersItem && !selectedCartItem?.isCustomCeXItem;
+  const isViewingCartItem = Boolean(selectedCartItem) &&
+    !selectedCartItem?.isCustomEbayItem &&
+    !selectedCartItem?.isCustomCashConvertersItem &&
+    !selectedCartItem?.isCustomCashGeneratorItem &&
+    !selectedCartItem?.isCustomCeXItem;
 
   const isAlreadyInCart = React.useMemo(() => {
     if (!isRepricing) return false;
@@ -547,16 +662,18 @@ const MainContent = ({ mode = 'buyer' }) => {
   }, [isViewingCartItem, deselectCartItem, setVariant]);
 
   // Build market comparison context for research modals
-  const buildMarketContext = useCallback((item) => {
+  const buildMarketContext = useCallback(() => {
     const base = {
       cexSalePrice: referenceData?.cex_sale_price ?? null,
       ourSalePrice: ourSalePrice ? roundSalePrice(Number(ourSalePrice)) : null,
       ebaySalePrice: ebayData?.stats?.median ?? null,
       cashConvertersSalePrice: cashConvertersData?.stats?.median ?? null,
+      cashGeneratorSalePrice: cgData?.stats?.median ?? null,
       itemTitle: selectedModel?.name || selectedCategory?.name || null,
       itemCondition: attributeValues?.condition || null,
       ebaySearchTerm: ebayData?.searchTerm || null,
       cashConvertersSearchTerm: cashConvertersData?.searchTerm || null,
+      cashGeneratorSearchTerm: cgData?.searchTerm || null,
     };
     if (Object.values(attributeValues || {}).some((v) => v)) {
       base.itemSpecs = Object.fromEntries(
@@ -564,7 +681,7 @@ const MainContent = ({ mode = 'buyer' }) => {
       );
     }
     return base;
-  }, [referenceData, ourSalePrice, ebayData, cashConvertersData, selectedModel, selectedCategory, attributeValues]);
+  }, [referenceData, ourSalePrice, ebayData, cashConvertersData, cgData, selectedModel, selectedCategory, attributeValues]);
 
   // ── Routing: which view to show ──
 
@@ -579,19 +696,27 @@ const MainContent = ({ mode = 'buyer' }) => {
         customerData={customerData}
         onSelectOfferForCartItem={handleSelectOfferForSelectedItem}
         onUpdateCartItemResearch={(itemId, type, data) => {
-          const field = type === 'ebay' ? 'ebayResearchData' : 'cashConvertersResearchData';
+          const field =
+            type === 'ebay'
+              ? 'ebayResearchData'
+              : type === 'cg' || type === 'cashGenerator'
+                ? 'cgResearchData'
+                : 'cashConvertersResearchData';
           useAppStore.getState().updateCartItem(itemId, { [field]: data });
           const cartItem = useAppStore.getState()[useAppStore.getState().mode === 'repricing' ? 'repricingCartItems' : 'cartItems']
             .find((i) => i.id === itemId);
           if (cartItem?.request_item_id) {
-            const payload = type === 'ebay'
-              ? {
-                  raw_data: buildPersistedEbayRawData(data, {
-                    categoryObject: cartItem.categoryObject,
-                    referenceData: cartItem.referenceData,
-                  }),
-                }
-              : { cash_converters_data: data };
+            const payload =
+              type === 'ebay'
+                ? {
+                    raw_data: buildPersistedEbayRawData(data, {
+                      categoryObject: cartItem.categoryObject,
+                      referenceData: cartItem.referenceData,
+                    }),
+                  }
+                : type === 'cg' || type === 'cashGenerator'
+                  ? { cg_data: data }
+                  : { cash_converters_data: data };
             updateRequestItemRawData(cartItem.request_item_id, payload).catch(() => {});
           }
         }}
@@ -641,6 +766,17 @@ const MainContent = ({ mode = 'buyer' }) => {
       <CashConvertersCartItemView
         item={selectedCartItem}
               savedState={savedCashConvertersState}
+        onDeselectCartItem={deselectCartItem}
+        useVoucherOffers={useVoucherOffers}
+      />
+    );
+  }
+
+  if (selectedCartItem?.isCustomCashGeneratorItem) {
+    return (
+      <CashGeneratorCartItemView
+        item={selectedCartItem}
+        savedState={savedCgState}
         onDeselectCartItem={deselectCartItem}
         useVoucherOffers={useVoucherOffers}
       />
@@ -793,8 +929,10 @@ const MainContent = ({ mode = 'buyer' }) => {
                 referenceData={referenceData}
                 ebayData={ebayData}
                 cashConvertersData={cashConvertersData}
+                cgData={cgData}
                 onOpenEbayResearch={() => setEbayModalOpen(true)}
                 onOpenCashConvertersResearch={() => setCashConvertersModalOpen(true)}
+                onOpenCashGeneratorResearch={() => setCashGeneratorModalOpen(true)}
                 cexSku={variant}
                 hideBuyInPrice={isRepricing}
               />
@@ -830,6 +968,29 @@ const MainContent = ({ mode = 'buyer' }) => {
               initialSearchQuery={ebayData?.searchTerm || variants.find(v => v.cex_sku === variant)?.title || selectedModel?.name || undefined}
               marketComparisonContext={buildMarketContext()}
               onComplete={(data) => { if (data?.cancel) { setCashConvertersModalOpen(false); return; } handleCashConvertersResearchComplete(data); setCashConvertersModalOpen(false); }}
+              hideOfferCards={isRepricing}
+              hideAddAction={Boolean(selectedCartItem)}
+              useVoucherOffers={useVoucherOffers}
+            />
+          )}
+
+          {isCashGeneratorModalOpen && (
+            <CashGeneratorResearchForm
+              mode="modal" category={selectedCategory} savedState={savedCgState}
+              initialHistogramState={false} referenceData={referenceData} ourSalePrice={ourSalePrice}
+              initialSearchQuery={
+                cashConvertersData?.searchTerm ||
+                ebayData?.searchTerm ||
+                variants.find((v) => v.cex_sku === variant)?.title ||
+                selectedModel?.name ||
+                undefined
+              }
+              marketComparisonContext={buildMarketContext()}
+              onComplete={(data) => {
+                if (data?.cancel) { setCashGeneratorModalOpen(false); return; }
+                handleCashGeneratorResearchComplete(data);
+                setCashGeneratorModalOpen(false);
+              }}
               hideOfferCards={isRepricing}
               hideAddAction={Boolean(selectedCartItem)}
               useVoucherOffers={useVoucherOffers}

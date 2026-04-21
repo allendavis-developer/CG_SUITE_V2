@@ -1523,6 +1523,11 @@ class RepricingSessionItem(AbstractStockSessionLine):
         ordering = ["repricing_session_item_id"]
 
 
+class UploadSessionMode(models.TextChoices):
+    NEW = "NEW", "New products"
+    AUDIT = "AUDIT", "Audit existing products"
+
+
 class UploadSession(models.Model):
     """Upload module: same session shape as repricing, separate persistence."""
 
@@ -1534,6 +1539,12 @@ class UploadSession(models.Model):
         max_length=20,
         choices=RepricingSessionStatus.choices,
         default=RepricingSessionStatus.IN_PROGRESS,
+        db_index=True,
+    )
+    mode = models.CharField(
+        max_length=10,
+        choices=UploadSessionMode.choices,
+        default=UploadSessionMode.NEW,
         db_index=True,
     )
     session_data = models.JSONField(

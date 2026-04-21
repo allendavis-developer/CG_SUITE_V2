@@ -328,6 +328,7 @@ const UploadOverview = () => {
                 <tbody>
                   {filteredSessions.map((session) => {
                     const isInProgress = session.status === 'IN_PROGRESS';
+                    const isAudit = String(session.mode || '').toUpperCase() === 'AUDIT';
                     const itemSummary = getItemSummary(session);
                     const hasSessionItems =
                       Array.isArray(session.session_data?.items) &&
@@ -343,17 +344,28 @@ const UploadOverview = () => {
                           </span>
                         </td>
                         <td>
-                          {isInProgress ? (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                              <span className="size-1.5 rounded-full bg-amber-500" />
-                              In Progress
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                              <span className="size-1.5 rounded-full bg-emerald-500" />
-                              Completed
-                            </span>
-                          )}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {isInProgress ? (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                                <span className="size-1.5 rounded-full bg-amber-500" />
+                                In Progress
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                <span className="size-1.5 rounded-full bg-emerald-500" />
+                                Completed
+                              </span>
+                            )}
+                            {isAudit && (
+                              <span
+                                title="Audit session: editing existing Web EPOS products in place"
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-bold bg-violet-50 text-violet-700 border border-violet-200"
+                              >
+                                <span className="material-symbols-outlined text-[12px] leading-none">fact_check</span>
+                                Audit
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td>
                           {itemSummary ? (

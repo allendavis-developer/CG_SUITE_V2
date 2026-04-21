@@ -528,6 +528,7 @@ class UploadSessionSerializer(serializers.ModelSerializer):
             'item_count',
             'barcode_count',
             'status',
+            'mode',
             'session_data',
             'created_at',
             'updated_at',

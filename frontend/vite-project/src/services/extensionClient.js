@@ -219,6 +219,46 @@ export function openWebEposProductCreateForUploadWithTimeout(options = {}) {
 }
 
 /**
+ * Audit mode intake: open a single Web EPOS product edit page in the upload worker tab and read
+ * its current title, price, and category levels. The category levels let the app reverse-map the
+ * CG category from Web EPOS labels.
+ *
+ * @returns {{ ok: true, details: { title: string, price: string, categoryLevels: {uuid:string,label:string}[] } } | { ok: false, error: string }}
+ */
+export async function scrapeWebEposEditPageForAudit({ productHref } = {}) {
+  return sendMessage(
+    { action: 'scrapeWebEposEditPage', productHref: productHref || '' },
+    { timeoutMs: 180_000 }
+  );
+}
+
+/**
+ * Audit mode finish: edit each existing Web EPOS product in place. Each entry must include
+ * `productHref`; optional fields are `price`, `categoryLevelUuids`, `categoryLevelLabels`. Entries
+ * with no changed fields are dropped by the extension side.
+ */
+export async function editWebEposProductsForAudit(options = {}) {
+  const list = Array.isArray(options.webEposEditList) ? options.webEposEditList : [];
+  const uploadProgressCartKey = String(options.uploadProgressCartKey || '').trim();
+  return sendMessage({
+    action: 'editWebEposProductsForAudit',
+    webEposEditList: list,
+    ...(uploadProgressCartKey ? { uploadProgressCartKey } : {}),
+  });
+}
+
+export function editWebEposProductsForAuditWithTimeout(options = {}) {
+  const n = Array.isArray(options?.webEposEditList) ? options.webEposEditList.length : 0;
+  const extra = Math.max(0, n || 1) * 130000;
+  const ms = Math.min(WEB_EPOS_UPLOAD_CLIENT_TIMEOUT_MS + extra, 900000);
+  return withExtensionCallTimeout(
+    editWebEposProductsForAudit(options),
+    ms,
+    WEB_EPOS_UPLOAD_TIMEOUT_MESSAGE
+  );
+}
+
+/**
  * Opens Web EPOS `/products` in a new tab (same window as CG Suite, unfocused), finds the row,
  * and clicks the real list link so routing stays in-session. Focuses that tab only after success.
  *

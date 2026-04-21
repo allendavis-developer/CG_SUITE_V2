@@ -17,10 +17,11 @@ export default function UploadWebEposHubScreen({
   const rows = snapshot?.rows ?? [];
   const hasRows = Array.isArray(rows) && rows.length > 0;
   const [selectedBarcodes, setSelectedBarcodes] = useState([]);
+  const [selectedRows, setSelectedRows] = useState([]);
 
   const handleAudit = () => {
     if (selectedBarcodes.length === 0 || !onAuditBarcodes) return;
-    onAuditBarcodes(selectedBarcodes);
+    onAuditBarcodes(selectedBarcodes, selectedRows);
   };
 
   return (
@@ -103,6 +104,7 @@ export default function UploadWebEposHubScreen({
           scrapedAt={snapshot?.scrapedAt ?? null}
           showSourceBlurb
           onSelectedBarcodes={setSelectedBarcodes}
+          onSelectedRows={setSelectedRows}
           emptyDetail={
             scrapeError && !hasRows ? (
               <p>{copy.uploadHubEmptyAfterError}</p>

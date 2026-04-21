@@ -108,6 +108,7 @@ export default function ListWorkspaceNegotiation({ moduleKey = "repricing" }) {
     features,
     copy,
     useUploadSessions,
+    uploadAuditMode,
     items,
     setItems,
     selectedCategory,
@@ -159,6 +160,8 @@ export default function ListWorkspaceNegotiation({ moduleKey = "repricing" }) {
     handleRemoveItem,
     handleAddRepricingItem,
     handleEbayResearchCompleteFromHeader,
+    handleCashConvertersResearchCompleteFromHeader,
+    handleCashGeneratorResearchCompleteFromHeader,
     handleRefreshCeXData,
     handleOurSalePriceChange,
     handleOurSalePriceBlur,
@@ -228,6 +231,8 @@ export default function ListWorkspaceNegotiation({ moduleKey = "repricing" }) {
           useVoucherOffers: false,
           onAddNegotiationItem: handleAddRepricingItem,
           onEbayResearchComplete: handleEbayResearchCompleteFromHeader,
+          onCashConvertersResearchComplete: handleCashConvertersResearchCompleteFromHeader,
+          onCashGeneratorResearchComplete: handleCashGeneratorResearchCompleteFromHeader,
           cexProductData,
           setCexProductData,
           clearCexProduct,
@@ -321,6 +326,7 @@ export default function ListWorkspaceNegotiation({ moduleKey = "repricing" }) {
             hideCustomerExpectation={!features.hasCustomer}
             salePriceLabel={features.salePriceLabel}
             showUploadNosposStockColumns={useUploadSessions}
+            showUploadAuditColumns={useUploadSessions && uploadAuditMode}
             renderRowSuffix={renderBarcodeCell}
             onUploadTableItemNameChange={useUploadSessions ? handleUploadTableItemNameChange : undefined}
             onOpenUploadNosposChanges={
@@ -374,6 +380,7 @@ export default function ListWorkspaceNegotiation({ moduleKey = "repricing" }) {
               verifyHintOverride={uploadListMissingRrp ? copy.uploadEveryRrpRequiredHint : null}
               onRestartInWorkspace={uploadRestartInWorkspaceAction}
               restartInWorkspaceLabel={useUploadSessions ? copy.uploadRestartInWorkspace : null}
+              uploadAuditMode={Boolean(useUploadSessions && uploadAuditMode)}
             />
           ) : null}
 

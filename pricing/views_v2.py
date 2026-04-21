@@ -854,6 +854,8 @@ def upload_sessions_view(request):
     items_data = request.data.get('items_data') or []
     session_data = request.data.get('session_data')
     cart_key = (request.data.get('cart_key') or '').strip()
+    requested_mode = (request.data.get('mode') or '').strip().upper()
+    session_mode = requested_mode if requested_mode in {'NEW', 'AUDIT'} else 'NEW'
 
     if session_data is not None and not items_data:
         if not _upload_session_data_has_barcode(session_data):
@@ -871,6 +873,7 @@ def upload_sessions_view(request):
             item_count=item_count,
             barcode_count=0,
             status=RepricingSessionStatus.IN_PROGRESS,
+            mode=session_mode,
             session_data=session_data,
         )
         serializer = UploadSessionSerializer(session)
@@ -894,6 +897,7 @@ def upload_sessions_view(request):
             item_count=len(unique_item_ids),
             barcode_count=len(items_data),
             status=RepricingSessionStatus.COMPLETED,
+            mode=session_mode,
         )
 
         for idx, item_data in enumerate(items_data):
@@ -946,6 +950,12 @@ def upload_session_detail(request, upload_session_id):
     if 'barcode_count' in request.data:
         session.barcode_count = int(request.data['barcode_count'] or 0)
         update_fields.append('barcode_count')
+
+    if 'mode' in request.data:
+        new_mode = (request.data['mode'] or '').strip().upper()
+        if new_mode in {'NEW', 'AUDIT'}:
+            session.mode = new_mode
+            update_fields.append('mode')
 
     if isinstance(items_data, list) and len(items_data) > 0:
         with transaction.atomic():

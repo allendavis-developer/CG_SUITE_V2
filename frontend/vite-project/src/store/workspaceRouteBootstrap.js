@@ -38,6 +38,7 @@ export function isRepricingNavigationHandoff(st) {
   if (st.sessionBarcodes && Object.keys(st.sessionBarcodes).length > 0) return true;
   if (st.sessionNosposLookups && Object.keys(st.sessionNosposLookups).length > 0) return true;
   if (Array.isArray(st.auditBarcodes) && st.auditBarcodes.length > 0) return true;
+  if (Array.isArray(st.auditRows) && st.auditRows.length > 0) return true;
   return false;
 }
 
@@ -104,6 +105,7 @@ export function bootstrapRepricingWorkspaceFromRoute(locationState, setState, wo
       isQuickRepriceOpen: false,
       isCustomerModalOpen: false,
       auditBarcodes: Array.isArray(locationState?.auditBarcodes) ? locationState.auditBarcodes : [],
+      auditRows: Array.isArray(locationState?.auditRows) ? locationState.auditRows : [],
       resetKey: s.resetKey + 1,
     }));
     return;

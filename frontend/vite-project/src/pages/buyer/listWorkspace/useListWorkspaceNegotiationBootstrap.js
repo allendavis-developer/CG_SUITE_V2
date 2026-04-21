@@ -33,6 +33,11 @@ export function useListWorkspaceNegotiationBootstrap({
   setBarcodeInput,
   setIsLoading,
   isCreatingSession,
+  enterUploadMainFlowWithAuditBarcodesRef,
+  setUploadAuditMode,
+  setWebeposAuditDetailsBySlotId,
+  auditRowsByBarcodeRef,
+  auditQueueRef,
 }) {
   const hasInitialized = useRef(false);
 
@@ -48,6 +53,25 @@ export function useListWorkspaceNegotiationBootstrap({
     const navUploadBarcodeIntakeDone = location.state?.uploadBarcodeIntakeDone;
     const navUploadBarcodeWorkspace = location.state?.uploadBarcodeWorkspace;
     const auditBarcodes = useAppStore.getState().auditBarcodes || [];
+    const auditRows = useAppStore.getState().auditRows || [];
+
+    // Resume audit mode from a saved session (Continue button → route state passes these).
+    const resumeAuditMode = location.state?.uploadAuditMode === true;
+    const resumeWebeposAudit = location.state?.webeposAuditDetailsBySlotId || null;
+    const resumeAuditRowsByBarcode = location.state?.auditRowsByBarcode || null;
+    const resumeAuditQueue = location.state?.auditQueue || null;
+    if (resumeAuditMode) {
+      if (typeof setUploadAuditMode === 'function') setUploadAuditMode(true);
+      if (typeof setWebeposAuditDetailsBySlotId === 'function' && resumeWebeposAudit && typeof resumeWebeposAudit === 'object') {
+        setWebeposAuditDetailsBySlotId(resumeWebeposAudit);
+      }
+      if (auditRowsByBarcodeRef && resumeAuditRowsByBarcode && typeof resumeAuditRowsByBarcode === 'object') {
+        auditRowsByBarcodeRef.current = resumeAuditRowsByBarcode;
+      }
+      if (auditQueueRef && Array.isArray(resumeAuditQueue)) {
+        auditQueueRef.current = [...resumeAuditQueue];
+      }
+    }
 
     if (
       resumeSessionId &&
@@ -186,22 +210,31 @@ export function useListWorkspaceNegotiationBootstrap({
         setBarcodeInput("");
       }
       if (Array.isArray(auditBarcodes) && auditBarcodes.length > 0) {
-        const slotIds = auditBarcodes.map(
-          () =>
-            typeof crypto !== 'undefined' && crypto.randomUUID
-              ? crypto.randomUUID()
-              : `audit-slot-${Date.now()}-${Math.random().toString(36).slice(2)}`
-        );
-        setUploadScanSlotIds(slotIds);
-        setUploadBarcodeIntakeOpen(true);
-        setUploadBarcodeIntakeDone(false);
-        setBarcodeModal({ item: { id: slotIds[0], title: 'Audit barcode' } });
-        const barcodeMap = {};
-        slotIds.forEach((slotId, idx) => {
-          barcodeMap[slotId] = [auditBarcodes[idx]];
-        });
-        setBarcodes(barcodeMap);
-        useAppStore.setState({ auditBarcodes: [] });
+        // Delegate to the hook's audit entry so both intake paths go through the same queue +
+        // Web EPOS scrape wiring. `enterUploadMainFlowWithAuditBarcodesRef` is optional (legacy
+        // callers don't pass it) — fall back to the old direct-seed pattern.
+        const entry = enterUploadMainFlowWithAuditBarcodesRef?.current;
+        if (typeof entry === 'function') {
+          entry(auditBarcodes, Array.isArray(auditRows) ? auditRows : []);
+        } else {
+          const slotIds = auditBarcodes.map(
+            () =>
+              typeof crypto !== 'undefined' && crypto.randomUUID
+                ? crypto.randomUUID()
+                : `audit-slot-${Date.now()}-${Math.random().toString(36).slice(2)}`
+          );
+          setUploadScanSlotIds(slotIds);
+          setUploadBarcodeIntakeOpen(true);
+          setUploadBarcodeIntakeDone(false);
+          setBarcodeModal({ item: { id: slotIds[0], title: 'Audit barcode' } });
+          const barcodeMap = {};
+          slotIds.forEach((slotId, idx) => {
+            barcodeMap[slotId] = [auditBarcodes[idx]];
+          });
+          setBarcodes(barcodeMap);
+          if (typeof setUploadAuditMode === 'function') setUploadAuditMode(true);
+        }
+        useAppStore.setState({ auditBarcodes: [], auditRows: [] });
       }
     }
     const cartKey = getCartKey(cartItems);

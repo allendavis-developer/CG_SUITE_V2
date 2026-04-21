@@ -39,7 +39,12 @@ function generateId() {
 
 function findDuplicateIndex(items, newItem) {
   return items.findIndex((ci) => {
-    if (!newItem.isCustomEbayItem && !newItem.isCustomCashConvertersItem && newItem.variantId != null) {
+    if (
+      !newItem.isCustomEbayItem &&
+      !newItem.isCustomCashConvertersItem &&
+      !newItem.isCustomCashGeneratorItem &&
+      newItem.variantId != null
+    ) {
       return ci.variantId === newItem.variantId;
     }
     if (newItem.isCustomEbayItem) {
@@ -47,6 +52,9 @@ function findDuplicateIndex(items, newItem) {
     }
     if (newItem.isCustomCashConvertersItem) {
       return ci.isCustomCashConvertersItem && ci.title === newItem.title && ci.category === newItem.category;
+    }
+    if (newItem.isCustomCashGeneratorItem) {
+      return ci.isCustomCashGeneratorItem && ci.title === newItem.title && ci.category === newItem.category;
     }
     if (newItem.isCustomCeXItem) {
       return ci.isCustomCeXItem && ci.title === newItem.title && ci.subtitle === newItem.subtitle;
@@ -103,7 +111,7 @@ const useAppStore = create(
       repricingWorkspaceNonce: 0,
       /** True when the AppHeader workspace panel (builder/eBay/CeX) is mounted. */
       headerWorkspaceOpen: false,
-      /** Synced from AppHeader: `builder` | `ebay` | `cex` | `jewellery` */
+      /** Synced from AppHeader: `builder` | `ebay` | `cashConverters` | `cashGenerator` | `cex` | `jewellery` */
       headerWorkspaceMode: 'builder',
       /** Increment to ask AppHeader to run full workspace reset (e.g. after jewellery Complete). */
       closeHeaderWorkspaceTick: 0,
@@ -804,6 +812,7 @@ const useAppStore = create(
       isCustomerModalOpen: true,
       isQuickRepriceOpen: false,
       auditBarcodes: [],
+      auditRows: [],
       resetKey: 0,
 
       selectCartItem: async (item) => {
@@ -824,7 +833,10 @@ const useAppStore = create(
         }
 
         const isCustomResearchOnlyItem =
-          item.isCustomEbayItem || item.isCustomCeXItem || item.isCustomCashConvertersItem;
+          item.isCustomEbayItem ||
+          item.isCustomCeXItem ||
+          item.isCustomCashConvertersItem ||
+          item.isCustomCashGeneratorItem;
         const immediateUpdates = {
           cexProductData: null,
           selectedCartItemId: item.id,
@@ -887,6 +899,7 @@ const useAppStore = create(
           !activeItem.isCustomEbayItem &&
           !activeItem.isCustomCeXItem &&
           !activeItem.isCustomCashConvertersItem &&
+          !activeItem.isCustomCashGeneratorItem &&
           activeItem.variantId &&
           activeItem.cexSku &&
           (!activeItem.cashOffers?.length || !activeItem.voucherOffers?.length)

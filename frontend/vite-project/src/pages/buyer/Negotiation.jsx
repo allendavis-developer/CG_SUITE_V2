@@ -43,7 +43,11 @@ import {
   isNegotiationCexWorkspaceLine,
   isNegotiationBuilderWorkspaceLine,
   isNegotiationEbayWorkspaceLine,
+  isNegotiationCashConvertersWorkspaceLine,
+  isNegotiationCashGeneratorWorkspaceLine,
   HEADER_EBAY_CUSTOMER_EXPECTATION_KEY,
+  HEADER_CC_CUSTOMER_EXPECTATION_KEY,
+  HEADER_CG_CUSTOMER_EXPECTATION_KEY,
   HEADER_OTHER_CUSTOMER_EXPECTATION_KEY,
   formatSumLineCustomerExpectations,
 } from './utils/negotiationHelpers';
@@ -176,6 +180,8 @@ function NegotiationBuyer({ mode }) {
   const [overlayCcLiveBuyOffers, setOverlayCcLiveBuyOffers] = useState(null);
   const [overlayCgLiveBuyOffers, setOverlayCgLiveBuyOffers] = useState(null);
   const [headerEbayLiveBuyOffers, setHeaderEbayLiveBuyOffers] = useState(null);
+  const [headerCcLiveBuyOffers, setHeaderCcLiveBuyOffers] = useState(null);
+  const [headerCgLiveBuyOffers, setHeaderCgLiveBuyOffers] = useState(null);
   /** Live CeX tier rows from header builder while variant/offers are shown — drives Offer min/max (scoped like eBay header). */
   const [headerBuilderLiveOffers, setHeaderBuilderLiveOffers] = useState(null);
   /** Live offer draft (cash, per-unit) from header Other workspace. */
@@ -320,6 +326,18 @@ function NegotiationBuyer({ mode }) {
   }, [headerWorkspaceOpen, headerWorkspaceMode]);
 
   useEffect(() => {
+    if (!headerWorkspaceOpen || headerWorkspaceMode !== 'cashConverters') {
+      setHeaderCcLiveBuyOffers(null);
+    }
+  }, [headerWorkspaceOpen, headerWorkspaceMode]);
+
+  useEffect(() => {
+    if (!headerWorkspaceOpen || headerWorkspaceMode !== 'cashGenerator') {
+      setHeaderCgLiveBuyOffers(null);
+    }
+  }, [headerWorkspaceOpen, headerWorkspaceMode]);
+
+  useEffect(() => {
     if (!headerWorkspaceOpen || headerWorkspaceMode !== 'builder') {
       setHeaderBuilderLiveOffers(null);
     }
@@ -403,6 +421,14 @@ function NegotiationBuyer({ mode }) {
     setHeaderEbayLiveBuyOffers(payload?.buyOffers ?? null);
   }, []);
 
+  const handleHeaderCcResearchOffersLive = useCallback((payload) => {
+    setHeaderCcLiveBuyOffers(payload?.buyOffers ?? null);
+  }, []);
+
+  const handleHeaderCgResearchOffersLive = useCallback((payload) => {
+    setHeaderCgLiveBuyOffers(payload?.buyOffers ?? null);
+  }, []);
+
   const handleHeaderBuilderOffersLive = useCallback((rows) => {
     setHeaderBuilderLiveOffers(Array.isArray(rows) && rows.length > 0 ? rows : null);
   }, []);
@@ -445,6 +471,26 @@ function NegotiationBuyer({ mode }) {
       if (!(HEADER_EBAY_CUSTOMER_EXPECTATION_KEY in prev)) return prev;
       const next = { ...prev };
       delete next[HEADER_EBAY_CUSTOMER_EXPECTATION_KEY];
+      return next;
+    });
+  }, [headerWorkspaceOpen, headerWorkspaceMode]);
+
+  useEffect(() => {
+    if (headerWorkspaceOpen && headerWorkspaceMode === 'cashConverters') return;
+    setPendingCustomerExpectationByTarget((prev) => {
+      if (!(HEADER_CC_CUSTOMER_EXPECTATION_KEY in prev)) return prev;
+      const next = { ...prev };
+      delete next[HEADER_CC_CUSTOMER_EXPECTATION_KEY];
+      return next;
+    });
+  }, [headerWorkspaceOpen, headerWorkspaceMode]);
+
+  useEffect(() => {
+    if (headerWorkspaceOpen && headerWorkspaceMode === 'cashGenerator') return;
+    setPendingCustomerExpectationByTarget((prev) => {
+      if (!(HEADER_CG_CUSTOMER_EXPECTATION_KEY in prev)) return prev;
+      const next = { ...prev };
+      delete next[HEADER_CG_CUSTOMER_EXPECTATION_KEY];
       return next;
     });
   }, [headerWorkspaceOpen, headerWorkspaceMode]);
@@ -981,6 +1027,24 @@ function NegotiationBuyer({ mode }) {
       return sumOfferMinMaxForNegotiationItems(scoped, useVoucherOffers);
     }
 
+    if (mode === 'negotiate' && headerWorkspaceOpen && headerWorkspaceMode === 'cashConverters') {
+      if (Array.isArray(headerCcLiveBuyOffers) && headerCcLiveBuyOffers.length > 0) {
+        return offerMinMaxFromResearchBuyOffers(headerCcLiveBuyOffers, useVoucherOffers);
+      }
+      if (activeItems.length === 0) return { offerMin: null, offerMax: null };
+      const scoped = activeItems.filter(isNegotiationCashConvertersWorkspaceLine);
+      return sumOfferMinMaxForNegotiationItems(scoped, useVoucherOffers);
+    }
+
+    if (mode === 'negotiate' && headerWorkspaceOpen && headerWorkspaceMode === 'cashGenerator') {
+      if (Array.isArray(headerCgLiveBuyOffers) && headerCgLiveBuyOffers.length > 0) {
+        return offerMinMaxFromResearchBuyOffers(headerCgLiveBuyOffers, useVoucherOffers);
+      }
+      if (activeItems.length === 0) return { offerMin: null, offerMax: null };
+      const scoped = activeItems.filter(isNegotiationCashGeneratorWorkspaceLine);
+      return sumOfferMinMaxForNegotiationItems(scoped, useVoucherOffers);
+    }
+
     if (mode === 'negotiate' && headerWorkspaceOpen && headerWorkspaceMode === 'builder') {
       if (Array.isArray(headerBuilderLiveOffers) && headerBuilderLiveOffers.length > 0) {
         return offerMinMaxFromWorkspaceOfferRows(headerBuilderLiveOffers, useVoucherOffers);
@@ -1040,6 +1104,8 @@ function NegotiationBuyer({ mode }) {
     overlayCcLiveBuyOffers,
     overlayCgLiveBuyOffers,
     headerEbayLiveBuyOffers,
+    headerCcLiveBuyOffers,
+    headerCgLiveBuyOffers,
     headerBuilderLiveOffers,
     builderWorkspaceLineId,
     headerOtherLiveCashOffer,
@@ -1097,6 +1163,8 @@ function NegotiationBuyer({ mode }) {
     handleAddJewelleryItemsFromWorkspace,
     handleRemoveJewelleryWorkspaceRow,
     handleEbayResearchCompleteFromHeader,
+    handleCashConvertersResearchCompleteFromHeader,
+    handleCashGeneratorResearchCompleteFromHeader,
     handleRefreshCeXData,
     handleApplyRrpPriceSource,
     handleApplyOffersPriceSource,
@@ -1153,8 +1221,15 @@ function NegotiationBuyer({ mode }) {
     if (mode !== 'negotiate') return null;
     if (researchItem?.id) return researchItem.id;
     if (cashConvertersResearchItem?.id) return cashConvertersResearchItem.id;
+    if (cgResearchItem?.id) return cgResearchItem.id;
     if (headerWorkspaceOpen && headerWorkspaceMode === 'ebay') {
       return HEADER_EBAY_CUSTOMER_EXPECTATION_KEY;
+    }
+    if (headerWorkspaceOpen && headerWorkspaceMode === 'cashConverters') {
+      return HEADER_CC_CUSTOMER_EXPECTATION_KEY;
+    }
+    if (headerWorkspaceOpen && headerWorkspaceMode === 'cashGenerator') {
+      return HEADER_CG_CUSTOMER_EXPECTATION_KEY;
     }
     if (headerWorkspaceOpen && headerWorkspaceMode === 'cex' && cexProductData?.id != null) {
       const line = items.find(
@@ -1184,6 +1259,7 @@ function NegotiationBuyer({ mode }) {
     mode,
     researchItem?.id,
     cashConvertersResearchItem?.id,
+    cgResearchItem?.id,
     headerWorkspaceOpen,
     headerWorkspaceMode,
     cexProductData?.id,
@@ -1204,6 +1280,10 @@ function NegotiationBuyer({ mode }) {
         items.find((i) => i.id === cashConvertersResearchItem.id) ?? cashConvertersResearchItem;
       return row.customerExpectation ?? '';
     }
+    if (cgResearchItem?.id) {
+      const row = items.find((i) => i.id === cgResearchItem.id) ?? cgResearchItem;
+      return row.customerExpectation ?? '';
+    }
     const key = stripCustomerExpectationTargetKey;
     if (key) {
       const pend = pendingCustomerExpectationByTarget[key];
@@ -1220,6 +1300,7 @@ function NegotiationBuyer({ mode }) {
     items,
     researchItem,
     cashConvertersResearchItem,
+    cgResearchItem,
     stripCustomerExpectationTargetKey,
     pendingCustomerExpectationByTarget,
   ]);
@@ -1233,6 +1314,10 @@ function NegotiationBuyer({ mode }) {
       }
       if (cashConvertersResearchItem?.id) {
         handleCustomerExpectationChange(cashConvertersResearchItem.id, value);
+        return;
+      }
+      if (cgResearchItem?.id) {
+        handleCustomerExpectationChange(cgResearchItem.id, value);
         return;
       }
       const key = stripCustomerExpectationTargetKey;
@@ -1252,6 +1337,7 @@ function NegotiationBuyer({ mode }) {
       mode,
       researchItem?.id,
       cashConvertersResearchItem?.id,
+      cgResearchItem?.id,
       stripCustomerExpectationTargetKey,
       handleCustomerExpectationChange,
       items,
@@ -1347,6 +1433,8 @@ function NegotiationBuyer({ mode }) {
           onAddNegotiationItem: handleAddNegotiationItem,
           onAddJewelleryToNegotiation: handleAddJewelleryItemsFromWorkspace,
           onEbayResearchComplete: handleEbayResearchCompleteFromHeader,
+          onCashConvertersResearchComplete: handleCashConvertersResearchCompleteFromHeader,
+          onCashGeneratorResearchComplete: handleCashGeneratorResearchCompleteFromHeader,
           cexProductData,
           setCexProductData,
           clearCexProduct,
@@ -1373,6 +1461,8 @@ function NegotiationBuyer({ mode }) {
           onJewelleryReferenceScrapeResult: handleJewelleryReferenceScrapeResult,
           workspaceOverlayBottomRef: negotiationWorkspaceOverlayBottomRef,
           onHeaderEbayResearchOffersLiveChange: handleHeaderEbayResearchOffersLive,
+          onHeaderCcResearchOffersLiveChange: handleHeaderCcResearchOffersLive,
+          onHeaderCgResearchOffersLiveChange: handleHeaderCgResearchOffersLive,
           onNegotiationBuilderOffersLiveChange: handleHeaderBuilderOffersLive,
           onOtherWorkspaceOfferPreviewChange: setHeaderOtherLiveCashOffer,
           onCloseTransientPanels: handleCloseTransientPanels,

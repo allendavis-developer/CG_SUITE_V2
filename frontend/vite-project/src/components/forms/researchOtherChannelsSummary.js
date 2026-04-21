@@ -18,7 +18,13 @@ import { resolveCexPricingInputs, zipPersistedCexOfferRows } from './cexOfferCom
  */
 function itemTopLevelOffersAreEbayOrCashConvertersTiers(item) {
   if (!item || typeof item !== 'object') return false;
-  if (item.isCustomEbayItem === true || item.isCustomCashConvertersItem === true) return true;
+  if (
+    item.isCustomEbayItem === true ||
+    item.isCustomCashConvertersItem === true ||
+    item.isCustomCashGeneratorItem === true
+  ) {
+    return true;
+  }
   const sample = item.cashOffers?.[0] ?? item.voucherOffers?.[0];
   const id = sample?.id != null ? String(sample.id) : '';
   return /^ebay-(cash|voucher)[_-]|^cc-(cash|voucher)[_-]|^cg-(cash|voucher)[_-]/.test(id);

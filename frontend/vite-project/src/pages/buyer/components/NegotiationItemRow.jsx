@@ -151,6 +151,8 @@ export default function NegotiationItemRow({
   hideCexVoucherCashColumns = false,
   /** Upload workspace: NosPos stock columns after item name + Upload margin column after sale price. */
   showUploadNosposStockColumns = false,
+  /** Audit mode: render the Old Web EPOS RRP cell next to the NosPos RRP cell. */
+  showUploadAuditColumns = false,
   /** When false, Category + NosPos cells collapse to one narrow placeholder (default expanded for single-callers). */
   categoryColumnsExpanded = true,
   onApplyRrpPriceSource = null,
@@ -440,8 +442,75 @@ export default function NegotiationItemRow({
           <td className="align-top text-[11px] text-slate-800" onContextMenu={ctxRemoveOnly}>
             {fmtUploadMoney(uploadStock?.retailPrice)}
           </td>
+          {showUploadAuditColumns ? (
+            <td
+              className="align-top text-[11px] text-violet-800 font-semibold"
+              onContextMenu={ctxRemoveOnly}
+              title={
+                item.webeposOriginalPrice
+                  ? `Old Web EPOS RRP: ${item.webeposOriginalPrice}`
+                  : 'Web EPOS RRP not read yet for this row'
+              }
+            >
+              {item.webeposOriginalPrice
+                ? fmtUploadMoney(item.webeposOriginalPrice)
+                : <span className="text-slate-400">—</span>}
+            </td>
+          ) : null}
         </>
       ) : null}
+
+      {/* CeX Sell — before Voucher/Cash to match header order */}
+      {isViewMode ? (
+        <PriceCell
+          value={item.cexSellPrice}
+          quantity={quantity}
+          className={hlCexRrp ? 'font-medium text-white' : 'font-medium text-red-700'}
+          href={item.cexUrl}
+          sourceHighlight={hlCexRrp}
+        />
+      ) : (
+        <td
+          className={[
+            'font-medium align-top',
+            hlCexRrp ? `text-white ${RRP_SOURCE_CELL_CLASS}` : 'text-red-700',
+          ].join(' ')}
+          onContextMenu={mode === 'negotiate' && onRowContextMenu ? (e) => openRowContext(e, NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL) : undefined}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              {item.cexSellPrice != null ? (
+                <div>
+                  {item.cexUrl ? (
+                    <a
+                      href={item.cexUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={hlCexRrp ? 'text-white underline decoration-dotted' : 'text-red-700 underline decoration-dotted'}
+                    >
+                      £{(item.cexSellPrice * quantity).toFixed(2)}
+                    </a>
+                  ) : (
+                    <div>£{(item.cexSellPrice * quantity).toFixed(2)}</div>
+                  )}
+                  {quantity > 1 && <div className="text-[9px] opacity-70">(£{item.cexSellPrice.toFixed(2)} × {quantity})</div>}
+                </div>
+              ) : (
+                '—'
+              )}
+            </div>
+            <button
+              className="flex items-center justify-center size-7 rounded transition-colors shrink-0"
+              style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
+              onClick={() => onRefreshCeXData(item)}
+              title="Refresh CeX prices"
+              type="button"
+            >
+              <span className="material-symbols-outlined text-[16px]">edit</span>
+            </button>
+          </div>
+        </td>
+      )}
 
       {!hideCexVoucherCashColumns ? (
         <>
@@ -642,56 +711,6 @@ export default function NegotiationItemRow({
         onSelectZone={onApplyRrpPriceSource ? (zone) => onApplyRrpPriceSource(item, zone) : undefined}
       />
 
-      {/* CeX Sell */}
-      {isViewMode ? (
-        <PriceCell
-          value={item.cexSellPrice}
-          quantity={quantity}
-          className={hlCexRrp ? 'font-medium text-white' : 'font-medium text-red-700'}
-          href={item.cexUrl}
-          sourceHighlight={hlCexRrp}
-        />
-      ) : (
-        <td
-          className={[
-            'font-medium align-top',
-            hlCexRrp ? `text-white ${RRP_SOURCE_CELL_CLASS}` : 'text-red-700',
-          ].join(' ')}
-          onContextMenu={mode === 'negotiate' && onRowContextMenu ? (e) => openRowContext(e, NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CEX_SELL) : undefined}
-        >
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              {item.cexSellPrice != null ? (
-                <div>
-                  {item.cexUrl ? (
-                    <a
-                      href={item.cexUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={hlCexRrp ? 'text-white underline decoration-dotted' : 'text-red-700 underline decoration-dotted'}
-                    >
-                      £{(item.cexSellPrice * quantity).toFixed(2)}
-                    </a>
-                  ) : (
-                    <div>£{(item.cexSellPrice * quantity).toFixed(2)}</div>
-                  )}
-                  {quantity > 1 && <div className="text-[9px] opacity-70">(£{item.cexSellPrice.toFixed(2)} × {quantity})</div>}
-                </div>
-              ) : '—'}
-            </div>
-            <button
-              className="flex items-center justify-center size-7 rounded transition-colors shrink-0"
-              style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
-              onClick={() => onRefreshCeXData(item)}
-              title="Refresh CeX prices"
-              type="button"
-            >
-              <span className="material-symbols-outlined text-[16px]">edit</span>
-            </button>
-          </div>
-        </td>
-      )}
-
       {/* eBay Research */}
       <td
         className={[hlEbayRrp ? RRP_SOURCE_CELL_CLASS : '', 'align-top px-1'].filter(Boolean).join(' ')}
@@ -768,8 +787,7 @@ export default function NegotiationItemRow({
               )}
             </div>
             <button
-              className="flex items-center justify-center size-7 rounded transition-colors shrink-0"
-              style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
+              className="flex size-7 shrink-0 items-center justify-center rounded bg-brand-orange text-red-700 transition-colors hover:bg-brand-orange-hover"
               onClick={researchButtonsDisabled ? undefined : () => onReopenCashConvertersResearch(item)}
               title={researchButtonsDisabled ? 'View-only: research locked' : 'View/Refine Research'}
               disabled={researchButtonsDisabled}
@@ -786,8 +804,7 @@ export default function NegotiationItemRow({
               —
             </span>
             <button
-              className={`flex items-center justify-center size-7 rounded transition-colors shrink-0 ${researchButtonsDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-              style={{ background: 'var(--brand-orange)', color: 'var(--brand-blue)' }}
+              className={`flex size-7 shrink-0 items-center justify-center rounded bg-brand-orange text-red-700 transition-colors hover:bg-brand-orange-hover ${researchButtonsDisabled ? 'cursor-not-allowed opacity-50' : ''}`}
               onClick={researchButtonsDisabled ? undefined : () => onReopenCashConvertersResearch(item)}
               title={researchButtonsDisabled ? 'View-only: research locked' : (!cashConvertersData ? 'Research' : 'View/Refine Research')}
               disabled={researchButtonsDisabled}

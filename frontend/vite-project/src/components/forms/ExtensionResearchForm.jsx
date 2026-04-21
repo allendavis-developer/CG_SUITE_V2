@@ -961,13 +961,24 @@ function ExtensionResearchForm({
         savedAt: new Date().toISOString(),
       };
     }
+    const trimmedSearch = searchTerm != null && String(searchTerm).trim() !== '' ? String(searchTerm).trim() : '';
+    const trimmedPending =
+      pendingExtensionSearchQuery != null && String(pendingExtensionSearchQuery).trim() !== ''
+        ? String(pendingExtensionSearchQuery).trim()
+        : '';
+    const trimmedInitial =
+      initialSearchQuery != null && String(initialSearchQuery).trim() !== ''
+        ? String(initialSearchQuery).trim()
+        : '';
+    const resolvedSearchTerm = trimmedSearch || trimmedPending || trimmedInitial;
+
     return {
       listings,
       showHistogram,
       drillHistory,
       stats: displayedStats,
       buyOffers,
-      searchTerm,
+      searchTerm: resolvedSearchTerm,
       listingPageUrl,
       selectedFilters: { basic: [], apiFilters: {} },
       filterOptions: [],
@@ -979,7 +990,22 @@ function ExtensionResearchForm({
       ...(uploadRrpOverrideForPayload != null ? { uploadRrpOverridePerUnit: uploadRrpOverrideForPayload } : {}),
       ...extras,
     };
-  }, [listings, showHistogram, drillHistory, displayedStats, buyOffers, searchTerm, listingPageUrl, manualOffer, isEbay, includeEbayBroadMatchListings, resolvedCategory, uploadRrpOverrideForPayload]);
+  }, [
+    listings,
+    showHistogram,
+    drillHistory,
+    displayedStats,
+    buyOffers,
+    searchTerm,
+    pendingExtensionSearchQuery,
+    initialSearchQuery,
+    listingPageUrl,
+    manualOffer,
+    isEbay,
+    includeEbayBroadMatchListings,
+    resolvedCategory,
+    uploadRrpOverrideForPayload,
+  ]);
 
   const handleComplete = useCallback(async () => {
     await awaitPendingNosposBackgroundMatch();

@@ -17,6 +17,8 @@ export function useMarketplaceSearchPrefetch(items, setItems) {
     for (const item of items) {
       if (!item?.id || item.isRemoved) continue;
       if (item.isCustomEbayItem === true) continue;
+      if (item.isCustomCashConvertersItem === true) continue;
+      if (item.isCustomCashGeneratorItem === true) continue;
 
       const p = item.marketplaceSuggestedSearchPrefetch;
       if (p?.state === 'ready' || p?.state === 'error' || p?.state === 'pending') continue;

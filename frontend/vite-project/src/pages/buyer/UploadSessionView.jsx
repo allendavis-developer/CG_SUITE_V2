@@ -174,6 +174,7 @@ const UploadSessionView = () => {
   const uploadCategory = { name: "Upload", path: ["Upload"] };
 
   const changedItemsCount = (session.items || []).filter(isChangedItem).length;
+  const isAuditMode = String(session.mode || '').toUpperCase() === 'AUDIT';
 
   return (
     <div className="bg-ui-bg text-text-main min-h-screen flex flex-col text-sm overflow-hidden">
@@ -195,9 +196,13 @@ const UploadSessionView = () => {
                   Back
                 </button>
                 <div className="flex items-center gap-2.5 px-4 py-2 rounded-lg border border-brand-blue/15 bg-brand-blue/5">
-                  <span className="material-symbols-outlined text-[18px] text-brand-blue">upload</span>
+                  <span className="material-symbols-outlined text-[18px] text-brand-blue">
+                    {isAuditMode ? 'fact_check' : 'upload'}
+                  </span>
                   <div>
-                    <p className="text-[9.5px] font-bold uppercase tracking-wider text-brand-blue/60">Upload session</p>
+                    <p className="text-[9.5px] font-bold uppercase tracking-wider text-brand-blue/60">
+                      {isAuditMode ? 'Audit session' : 'Upload session'}
+                    </p>
                     <p className="text-xs font-semibold text-brand-blue">
                       {session.item_count} item{session.item_count !== 1 ? 's' : ''} · {session.barcode_count} barcode{session.barcode_count !== 1 ? 's' : ''}
                     </p>
@@ -216,14 +221,16 @@ const UploadSessionView = () => {
                     Print Changed Barcodes ({changedItemsCount})
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={handlePrintNewBarcodes}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-brand-blue hover:bg-brand-blue-hover text-white font-semibold text-sm shadow-sm transition-colors"
-                >
-                  <span className="material-symbols-outlined text-[17px] leading-none">print</span>
-                  {selectedItemIds.size > 0 ? 'Print selected' : 'Print all barcodes'}
-                </button>
+                {!isAuditMode && (
+                  <button
+                    type="button"
+                    onClick={handlePrintNewBarcodes}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-brand-blue hover:bg-brand-blue-hover text-white font-semibold text-sm shadow-sm transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-[17px] leading-none">print</span>
+                    {selectedItemIds.size > 0 ? 'Print selected' : 'Print all barcodes'}
+                  </button>
+                )}
                 {session.session_data?.items?.length > 0 && (
                   <button
                     type="button"
@@ -245,13 +252,24 @@ const UploadSessionView = () => {
                           uploadScanSlotIds: session.session_data?.uploadScanSlotIds,
                           uploadPendingSlotIds: session.session_data?.uploadPendingSlotIds,
                           uploadBarcodeIntakeDone: session.session_data?.uploadBarcodeIntakeDone,
+                          ...(isAuditMode
+                            ? {
+                                uploadAuditMode: true,
+                                webeposAuditDetailsBySlotId:
+                                  session.session_data?.webeposAuditDetailsBySlotId || null,
+                                auditRowsByBarcode: session.session_data?.auditRowsByBarcode || null,
+                                auditQueue: session.session_data?.auditQueue || null,
+                              }
+                            : {}),
                         },
                       });
                     }}
                     className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-brand-blue/20 text-brand-blue bg-white hover:bg-brand-blue/5 font-semibold text-sm transition-colors"
                   >
                     <span className="material-symbols-outlined text-[17px] leading-none">edit_note</span>
-                    {session.status === 'COMPLETED' ? 'Resume in workspace' : 'Continue upload'}
+                    {isAuditMode
+                      ? (session.status === 'COMPLETED' ? 'Resume audit' : 'Continue audit')
+                      : (session.status === 'COMPLETED' ? 'Resume in workspace' : 'Continue upload')}
                   </button>
                 )}
                 <div className="pl-2 border-l border-slate-200 ml-1">

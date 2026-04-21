@@ -47,6 +47,8 @@ export default function NegotiationTablesSection({
   hideCexVoucherCashColumns = false,
   /** Upload workspace: show NosPos stock-edit fields from the barcode line (buyer, date, cost, RRP). */
   showUploadNosposStockColumns = false,
+  /** Audit mode: show the Web EPOS original RRP scraped from the edit page, alongside NosPos RRP. */
+  showUploadAuditColumns = false,
   /** Upload list: after the barcode column, open a modal with the scraped NosPos “Changes” grid. */
   onOpenUploadNosposChanges = null,
   /** Upload list: `(itemId, value)` while editing the “Item name & attributes” cell. */
@@ -77,8 +79,9 @@ export default function NegotiationTablesSection({
     if (!hideNosposRequiredColumn) count += 1;
     count += 1; // Item Name
     if (showUploadNosposStockColumns) count += 4 + 1; // NosPos bought by / date / cost / RRP + Upload margin (after sale price)
+    if (showUploadAuditColumns) count += 1; // Old Web EPOS RRP (audit mode only)
     if (showUploadNosposStockColumns && renderRowSuffix && onOpenUploadNosposChanges) count += 1; // NosPos changes (after barcode)
-    count += hideCexVoucherCashColumns ? 1 : 3; // CeX Sell / optional Voucher+Cash
+    count += hideCexVoucherCashColumns ? 1 : 3; // CeX Sell (+ optional Voucher + Cash after Sell)
     if (!hideCustomerExpectation) count += 1;
     if (!hideOfferColumns) count += 6; // Offer source + 4 tiers + Manual
     count += 1; // Our RRP / Sale Price
@@ -219,8 +222,17 @@ export default function NegotiationTablesSection({
                     >
                       NosPos RRP
                     </th>
+                    {showUploadAuditColumns ? (
+                      <th
+                        className="w-24 min-w-[5.5rem] text-[10px] font-bold uppercase tracking-wide text-violet-700"
+                        title="Old Web EPOS RRP: price scraped from the product's Web EPOS edit page when audit started"
+                      >
+                        Old WebEPOS RRP
+                      </th>
+                    ) : null}
                   </>
                 ) : null}
+                <th className="w-24 spreadsheet-th-cex">Sell</th>
                 {!hideCexVoucherCashColumns ? (
                   <>
                     <th className="w-24 spreadsheet-th-cex">Voucher</th>
@@ -250,7 +262,6 @@ export default function NegotiationTablesSection({
                   </th>
                 ) : null}
                 <th className="w-[5.5rem] min-w-[5rem] text-[9px] leading-tight">RRP source</th>
-                <th className="w-24 spreadsheet-th-cex">Sell</th>
                 <th className="w-24 px-1 text-left">eBay</th>
                 <th className="w-24 px-1 text-left">CC</th>
                 <th className="w-24 px-1 text-left">CG</th>
@@ -309,6 +320,7 @@ export default function NegotiationTablesSection({
                   hideQuantityColumn={hideQuantityColumn}
                   hideCexVoucherCashColumns={hideCexVoucherCashColumns}
                   showUploadNosposStockColumns={showUploadNosposStockColumns}
+                  showUploadAuditColumns={showUploadAuditColumns}
                   categoryColumnsExpanded={categoryColumnsExpanded}
                   hideOfferColumns={hideOfferColumns}
                   hideCustomerExpectation={hideCustomerExpectation}

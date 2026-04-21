@@ -27,6 +27,7 @@ export default function WebEposProductsTablePanel({
   showSourceBlurb = true,
   emptyDetail = null,
   onSelectedBarcodes = null,
+  onSelectedRows = null,
 }) {
   const hasRows = Array.isArray(rows) && rows.length > 0;
   const totalRows = rows.length;
@@ -58,16 +59,35 @@ export default function WebEposProductsTablePanel({
     return rows.slice(start, start + pageSize);
   }, [rows, hasRows, safePage, pageSize]);
 
-  // Notify parent of selected barcodes (deduplicated, barcode extracted)
+  // Notify parent of selected barcodes (deduplicated, barcode extracted) and, when wired, the full
+  // scraped rows (productHref, productName, price, etc.) so audit mode can open each edit page.
   useEffect(() => {
-    if (!onSelectedBarcodes) return;
-    const selected = Array.from(selectedIndices)
-      .sort((a, b) => a - b)
-      .map((idx) => rows[idx]?.barcode)
-      .filter(Boolean)
-      .map(extractBarcode);
-    onSelectedBarcodes(selected);
-  }, [selectedIndices, rows, onSelectedBarcodes]);
+    const sortedIdx = Array.from(selectedIndices).sort((a, b) => a - b);
+    if (onSelectedBarcodes) {
+      const selected = sortedIdx
+        .map((idx) => rows[idx]?.barcode)
+        .filter(Boolean)
+        .map(extractBarcode);
+      onSelectedBarcodes(selected);
+    }
+    if (onSelectedRows) {
+      const selectedRows = sortedIdx
+        .map((idx) => rows[idx])
+        .filter(Boolean)
+        .map((r) => ({
+          barcode: extractBarcode(r.barcode),
+          rawBarcode: r.barcode || '',
+          productHref: r.productHref || null,
+          productName: r.productName || '',
+          price: r.price || '',
+          quantity: r.quantity || '',
+          status: r.status || '',
+          retailUrl: r.retailUrl || null,
+        }))
+        .filter((r) => r.barcode);
+      onSelectedRows(selectedRows);
+    }
+  }, [selectedIndices, rows, onSelectedBarcodes, onSelectedRows]);
 
   // Pivot-range selection — exact same logic as ResearchFormShell handleExcludeClick
   const handleSelectionClick = useCallback((globalIndex) => {

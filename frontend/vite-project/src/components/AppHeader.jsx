@@ -6,6 +6,8 @@ import AttributeConfiguration from '@/pages/buyer/components/AttributeConfigurat
 import OfferSelection from '@/pages/buyer/components/OfferSelection';
 import WorkspacePricingStatCards from '@/pages/buyer/components/WorkspacePricingStatCards';
 import EbayResearchForm from '@/components/forms/EbayResearchForm';
+import CashConvertersResearchForm from '@/components/forms/CashConvertersResearchForm';
+import CashGeneratorResearchForm from '@/components/forms/CashGeneratorResearchForm';
 import CexProductView from '@/pages/buyer/components/CexProductView';
 import { useProductAttributes } from '@/pages/buyer/hooks/useProductAttributes';
 import {
@@ -28,6 +30,11 @@ import WorkspaceCloseButton from '@/components/ui/WorkspaceCloseButton';
 import JewelleryReferencePricesTable from '@/components/jewellery/JewelleryReferencePricesTable';
 import OtherNosposManualAddPanel from '@/components/nospos/OtherNosposManualAddPanel';
 import { useJewelleryScrapWorkspace } from '@/hooks/useJewelleryScrapWorkspace';
+import {
+  EBAY_TOP_LEVEL_CATEGORY,
+  CASH_CONVERTERS_TOP_LEVEL_CATEGORY,
+  CASH_GENERATOR_TOP_LEVEL_CATEGORY,
+} from '@/pages/buyer/constants';
 
 /** Jewellery is only added via the header Jewellery button, not the category tree. */
 function isJewelleryCategoryName(name) {
@@ -118,6 +125,10 @@ const AppHeader = ({
   const [ebayHeaderResearchQuery, setEbayHeaderResearchQuery] = useState('');
   /** Increments on each committed eBay session so the form remounts fresh; never derived from `headerSearch` keystrokes. */
   const [ebayHeaderResearchMountKey, setEbayHeaderResearchMountKey] = useState(0);
+  const [ccHeaderResearchQuery, setCcHeaderResearchQuery] = useState('');
+  const [ccHeaderResearchMountKey, setCcHeaderResearchMountKey] = useState(0);
+  const [cgHeaderResearchQuery, setCgHeaderResearchQuery] = useState('');
+  const [cgHeaderResearchMountKey, setCgHeaderResearchMountKey] = useState(0);
   const [categorySearch, setCategorySearch] = useState('');
   const [availableModels, setAvailableModels] = useState([]);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
@@ -127,7 +138,7 @@ const AppHeader = ({
   const [isLoadingOffers, setIsLoadingOffers] = useState(false);
   const [referenceData, setReferenceData] = useState(null);
   const [ourSalePrice, setOurSalePrice] = useState('');
-  const [workspaceMode, setWorkspaceMode] = useState('builder'); // builder | other | ebay | cex | jewellery
+  const [workspaceMode, setWorkspaceMode] = useState('builder'); // builder | other | ebay | cashConverters | cashGenerator | cex | jewellery
   /** Matches negotiation preview row for CeX workspace (`Negotiation` early NosPos AI). */
   const [cexNegotiationClientLineId, setCexNegotiationClientLineId] = useState(null);
   const popupRef = useRef(null);
@@ -198,6 +209,18 @@ const AppHeader = ({
     setEbayHeaderResearchMountKey((k) => k + 1);
   }, []);
 
+  const beginHeaderCcResearchSession = useCallback((rawQuery) => {
+    const q = String(rawQuery ?? '').trim();
+    setCcHeaderResearchQuery(q);
+    setCcHeaderResearchMountKey((k) => k + 1);
+  }, []);
+
+  const beginHeaderCgResearchSession = useCallback((rawQuery) => {
+    const q = String(rawQuery ?? '').trim();
+    setCgHeaderResearchQuery(q);
+    setCgHeaderResearchMountKey((k) => k + 1);
+  }, []);
+
   /** Full reset: builder UI, top-level picker, workspace mode, marketplace dialog. */
   const resetHeaderWorkspaceChrome = useCallback(() => {
     resetJewelleryScrape();
@@ -210,6 +233,8 @@ const AppHeader = ({
     setWorkspaceMode('builder');
     setMarketplaceSearchDialog(null);
     setEbayHeaderResearchQuery('');
+    setCcHeaderResearchQuery('');
+    setCgHeaderResearchQuery('');
     setHeaderSearch('');
   }, [clearHeaderBuilderState, resetJewelleryScrape]);
 
@@ -335,7 +360,16 @@ const AppHeader = ({
 
   useEffect(() => {
     if (!showBuyerControls || !selectedTopLevel) return;
-    if (String(selectedTopLevel.name || '').toLowerCase() === 'ebay') {
+    const topName = String(selectedTopLevel.name || '').toLowerCase();
+    if (topName === 'ebay') {
+      setActiveTopLevelId(null);
+      return;
+    }
+    if (topName === 'cash converters') {
+      setActiveTopLevelId(null);
+      return;
+    }
+    if (topName === 'cash generator' || topName === 'cashgenerator' || topName.includes('cash generator')) {
       setActiveTopLevelId(null);
       return;
     }
@@ -489,11 +523,32 @@ const AppHeader = ({
     () => categories.find((cat) => String(cat.name || '').toLowerCase() === 'ebay') || null,
     [categories]
   );
+  const cashConvertersTopLevelCategory = useMemo(
+    () =>
+      categories.find((cat) => String(cat.name || '').toLowerCase() === 'cash converters') || null,
+    [categories]
+  );
+  const cashGeneratorTopLevelCategory = useMemo(
+    () =>
+      categories.find((cat) => {
+        const n = String(cat.name || '').toLowerCase();
+        return n === 'cash generator' || n === 'cashgenerator' || n.includes('cash generator');
+      }) || null,
+    [categories]
+  );
+
   const builderTopLevelCategories = useMemo(
     () =>
       categories.filter((cat) => {
         const n = String(cat.name || '').toLowerCase();
-        return n !== 'ebay' && !isJewelleryCategoryName(cat.name);
+        return (
+          n !== 'ebay' &&
+          n !== 'cash converters' &&
+          n !== 'cash generator' &&
+          n !== 'cashgenerator' &&
+          !n.includes('cash generator') &&
+          !isJewelleryCategoryName(cat.name)
+        );
       }),
     [categories]
   );
@@ -709,12 +764,36 @@ const AppHeader = ({
   }, [showBuyerControls, showNegotiationItemBuilder, resetHeaderWorkspaceChrome]);
 
   const handleCategorySelect = (category) => {
-    const path = getCategoryPath(category.category_id, categories);
-    if (!path || !buyerControls?.onCategorySelect) return;
-    if (path[0] && isJewelleryCategoryName(path[0])) return;
+    if (!buyerControls?.onCategorySelect) return;
+
+    let path;
+    let id;
+    let name;
+
+    if (category?.category_id != null && category.category_id !== '') {
+      path = getCategoryPath(category.category_id, categories);
+      if (!path) return;
+      if (path[0] && isJewelleryCategoryName(path[0])) return;
+      id = category.category_id;
+      name = category.name;
+    } else if (
+      category &&
+      Array.isArray(category.path) &&
+      category.path.length > 0 &&
+      category.name != null &&
+      String(category.name).trim() !== ''
+    ) {
+      path = category.path;
+      id = category.id != null && String(category.id).trim() !== '' ? category.id : null;
+      name = category.name;
+      if (path[0] && isJewelleryCategoryName(path[0])) return;
+    } else {
+      return;
+    }
+
     buyerControls.onCategorySelect({
-      id: category.category_id,
-      name: category.name,
+      id,
+      name,
       path,
     });
     setSelectedModel(null);
@@ -735,14 +814,50 @@ const AppHeader = ({
     setMarketplaceSearchDialog(null);
   }, [clearHeaderBuilderState]);
 
-  const openHeaderEbayResearch = useCallback((rawQuery) => {
-    if (!ebayTopLevelCategory) return;
-    prepareHeaderMarketplaceLaunch();
-    handleCategorySelect(ebayTopLevelCategory);
-    beginHeaderEbayResearchSession(rawQuery);
-    setHeaderSearch('');
-    setWorkspaceMode('ebay');
-  }, [ebayTopLevelCategory, prepareHeaderMarketplaceLaunch, beginHeaderEbayResearchSession, categories, buyerControls]);
+  const openHeaderEbayResearch = useCallback(
+    (rawQuery) => {
+      prepareHeaderMarketplaceLaunch();
+      if (ebayTopLevelCategory) {
+        handleCategorySelect(ebayTopLevelCategory);
+      } else {
+        handleCategorySelect(EBAY_TOP_LEVEL_CATEGORY);
+      }
+      beginHeaderEbayResearchSession(rawQuery);
+      setHeaderSearch('');
+      setWorkspaceMode('ebay');
+    },
+    [ebayTopLevelCategory, prepareHeaderMarketplaceLaunch, beginHeaderEbayResearchSession]
+  );
+
+  const openHeaderCashConvertersResearch = useCallback(
+    (rawQuery) => {
+      prepareHeaderMarketplaceLaunch();
+      if (cashConvertersTopLevelCategory) {
+        handleCategorySelect(cashConvertersTopLevelCategory);
+      } else {
+        handleCategorySelect(CASH_CONVERTERS_TOP_LEVEL_CATEGORY);
+      }
+      beginHeaderCcResearchSession(rawQuery);
+      setHeaderSearch('');
+      setWorkspaceMode('cashConverters');
+    },
+    [cashConvertersTopLevelCategory, prepareHeaderMarketplaceLaunch, beginHeaderCcResearchSession]
+  );
+
+  const openHeaderCashGeneratorResearch = useCallback(
+    (rawQuery) => {
+      prepareHeaderMarketplaceLaunch();
+      if (cashGeneratorTopLevelCategory) {
+        handleCategorySelect(cashGeneratorTopLevelCategory);
+      } else {
+        handleCategorySelect(CASH_GENERATOR_TOP_LEVEL_CATEGORY);
+      }
+      beginHeaderCgResearchSession(rawQuery);
+      setHeaderSearch('');
+      setWorkspaceMode('cashGenerator');
+    },
+    [cashGeneratorTopLevelCategory, prepareHeaderMarketplaceLaunch, beginHeaderCgResearchSession]
+  );
 
   const openHeaderCexWorkspace = useCallback(async (rawQuery) => {
     prepareHeaderMarketplaceLaunch();
@@ -1125,6 +1240,34 @@ const AppHeader = ({
                     <button
                       type="button"
                       onClick={() => {
+                        void openHeaderCashConvertersResearch(headerSearch);
+                      }}
+                      className={`h-full min-w-[2.75rem] shrink-0 border-l-2 border-slate-200 px-2 text-[11px] font-extrabold uppercase tracking-wide transition-colors ${
+                        workspaceMode === 'cashConverters'
+                          ? 'bg-brand-orange-hover text-red-700 shadow-inner ring-2 ring-inset ring-red-500/35'
+                          : 'bg-brand-orange text-red-600 hover:bg-brand-orange-hover hover:text-red-700'
+                      }`}
+                      title="Cash Converters"
+                    >
+                      cc
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void openHeaderCashGeneratorResearch(headerSearch);
+                      }}
+                      className={`h-full min-w-[2.75rem] shrink-0 border-l-2 border-slate-200 px-2 text-[11px] font-extrabold uppercase tracking-wide transition-colors ${
+                        workspaceMode === 'cashGenerator'
+                          ? 'bg-brand-blue-hover text-brand-orange shadow-inner ring-2 ring-inset ring-brand-orange/50'
+                          : 'bg-brand-blue text-brand-orange hover:bg-brand-blue-hover'
+                      }`}
+                      title="Cash Generator"
+                    >
+                      cg
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
                         void openHeaderCexWorkspace(headerSearch);
                       }}
                       disabled={buyerControls?.isCeXLoading}
@@ -1325,7 +1468,10 @@ const AppHeader = ({
                     ) : null}
                     <div
                       className={`min-h-0 flex-1 flex flex-col ${
-                        workspaceMode === 'ebay' || workspaceMode === 'jewellery'
+                        workspaceMode === 'ebay' ||
+                        workspaceMode === 'cashConverters' ||
+                        workspaceMode === 'cashGenerator' ||
+                        workspaceMode === 'jewellery'
                           ? 'overflow-hidden p-0'
                           : 'overflow-y-auto'
                       }`}
@@ -1440,7 +1586,7 @@ const AppHeader = ({
                           key={`ebay-header-${ebayHeaderResearchMountKey}`}
                           mode="modal"
                           containModalInParent={true}
-                          category={ebayTopLevelCategory || { name: 'eBay', path: ['eBay'] }}
+                          category={EBAY_TOP_LEVEL_CATEGORY}
                           initialSearchQuery={ebayHeaderResearchQuery || undefined}
                           onComplete={(data) => {
                             if (data?.cancel) {
@@ -1456,6 +1602,54 @@ const AppHeader = ({
                           hideOfferCards={isRepricingWorkspace}
                           useVoucherOffers={useVoucherOffers}
                           onOffersChange={buyerControls?.onHeaderEbayResearchOffersLiveChange}
+                        />
+                      </div>
+                    ) : workspaceMode === 'cashConverters' ? (
+                      <div className="relative h-full min-h-0">
+                        <CashConvertersResearchForm
+                          key={`cc-header-${ccHeaderResearchMountKey}`}
+                          mode="modal"
+                          containModalInParent
+                          category={CASH_CONVERTERS_TOP_LEVEL_CATEGORY}
+                          initialSearchQuery={ccHeaderResearchQuery || undefined}
+                          onComplete={(data) => {
+                            if (data?.cancel) {
+                              resetHeaderWorkspaceChrome();
+                              return;
+                            }
+                            buyerControls?.onCashConvertersResearchComplete?.(data);
+                            resetHeaderWorkspaceChrome();
+                          }}
+                          initialHistogramState={true}
+                          showManualOffer={false}
+                          addActionLabel={isRepricingWorkspace ? addToWorkspaceListLabel : 'Add to Cart'}
+                          hideOfferCards={isRepricingWorkspace}
+                          useVoucherOffers={useVoucherOffers}
+                          onOffersChange={buyerControls?.onHeaderCcResearchOffersLiveChange}
+                        />
+                      </div>
+                    ) : workspaceMode === 'cashGenerator' ? (
+                      <div className="relative h-full min-h-0">
+                        <CashGeneratorResearchForm
+                          key={`cg-header-${cgHeaderResearchMountKey}`}
+                          mode="modal"
+                          containModalInParent
+                          category={CASH_GENERATOR_TOP_LEVEL_CATEGORY}
+                          initialSearchQuery={cgHeaderResearchQuery || undefined}
+                          onComplete={(data) => {
+                            if (data?.cancel) {
+                              resetHeaderWorkspaceChrome();
+                              return;
+                            }
+                            buyerControls?.onCashGeneratorResearchComplete?.(data);
+                            resetHeaderWorkspaceChrome();
+                          }}
+                          initialHistogramState={true}
+                          showManualOffer={false}
+                          addActionLabel={isRepricingWorkspace ? addToWorkspaceListLabel : 'Add to Cart'}
+                          hideOfferCards={isRepricingWorkspace}
+                          useVoucherOffers={useVoucherOffers}
+                          onOffersChange={buyerControls?.onHeaderCgResearchOffersLiveChange}
                         />
                       </div>
                     ) : workspaceMode === 'cex' ? (
@@ -1704,7 +1898,7 @@ const AppHeader = ({
             onClick={() => setMarketplaceSearchDialog(null)}
           />
           <div
-            className="cg-animate-modal-panel relative z-10 w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-2xl"
+            className="cg-animate-modal-panel relative z-10 w-[min(100vw-2rem,56rem)] max-w-[min(100vw-2rem,56rem)] rounded-xl border border-gray-200 bg-white p-6 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <h2 id="marketplace-search-dialog-title" className="text-lg font-extrabold text-gray-900 tracking-tight">
@@ -1714,40 +1908,56 @@ const AppHeader = ({
               Search term:{' '}
               <span className="font-semibold text-gray-900">“{marketplaceSearchDialog}”</span>
             </p>
-            <p className="mt-1 text-xs text-gray-500">Choose eBay to research a search term, or CeX to add a product from CeX to cart.</p>
-            {!ebayTopLevelCategory && (
-              <p className="mt-3 text-xs font-medium text-amber-800">
-                eBay lookup is unavailable until categories load.
-              </p>
-            )}
-            <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-              <button
-                type="button"
-                className="rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-800 hover:bg-gray-50"
-                onClick={() => setMarketplaceSearchDialog(null)}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={!ebayTopLevelCategory}
-                className="rounded-lg border-2 border-emerald-700 bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-                onClick={() => {
-                  void openHeaderEbayResearch(marketplaceSearchDialog);
-                }}
-              >
-                eBay research
-              </button>
-              <button
-                type="button"
-                disabled={buyerControls?.isCeXLoading}
-                className="rounded-lg border-2 border-red-800 bg-red-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
-                onClick={() => {
-                  void openHeaderCexWorkspace(marketplaceSearchDialog);
-                }}
-              >
-                CeX
-              </button>
+            <p className="mt-1 text-xs text-gray-500">
+              Pick a marketplace to open research, or CeX to add from stock.
+            </p>
+            <div className="mt-6 min-w-0 overflow-x-auto">
+              <div className="flex flex-row flex-nowrap items-stretch justify-end gap-2">
+                <button
+                  type="button"
+                  className="shrink-0 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-800 hover:bg-gray-50"
+                  onClick={() => setMarketplaceSearchDialog(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="shrink-0 rounded-lg border-2 border-emerald-700 bg-emerald-600 px-4 py-2.5 text-sm font-bold whitespace-nowrap text-white shadow-sm hover:bg-emerald-700"
+                  onClick={() => {
+                    void openHeaderEbayResearch(marketplaceSearchDialog);
+                  }}
+                >
+                  eBay
+                </button>
+                <button
+                  type="button"
+                  className="shrink-0 rounded-lg border-2 border-red-700 bg-brand-orange px-4 py-2.5 text-sm font-bold whitespace-nowrap text-red-700 shadow-sm hover:bg-brand-orange-hover"
+                  onClick={() => {
+                    void openHeaderCashConvertersResearch(marketplaceSearchDialog);
+                  }}
+                >
+                  Cash Converters
+                </button>
+                <button
+                  type="button"
+                  className="shrink-0 rounded-lg border-2 border-brand-blue bg-brand-blue px-4 py-2.5 text-sm font-bold whitespace-nowrap text-brand-orange shadow-sm hover:bg-brand-blue-hover"
+                  onClick={() => {
+                    void openHeaderCashGeneratorResearch(marketplaceSearchDialog);
+                  }}
+                >
+                  Cash Generator
+                </button>
+                <button
+                  type="button"
+                  disabled={buyerControls?.isCeXLoading}
+                  className="shrink-0 rounded-lg border-2 border-red-800 bg-red-600 px-4 py-2.5 text-sm font-bold whitespace-nowrap text-white shadow-sm hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={() => {
+                    void openHeaderCexWorkspace(marketplaceSearchDialog);
+                  }}
+                >
+                  CeX
+                </button>
+              </div>
             </div>
           </div>
         </div>
