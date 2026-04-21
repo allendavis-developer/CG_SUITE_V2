@@ -1,4 +1,20 @@
-"""Re-export all view functions so pricing.views.X works from urls.py."""
+"""Re-export all view callables so `pricing.urls` can keep using
+``from pricing import views`` + ``views.finish_request`` etc.
+
+After the views_v2 split, every endpoint lives in a domain-specific module:
+
+    - catalogue.py       — product / category / variant read endpoints
+    - customers.py       — customer CRUD
+    - requests.py        — Request lifecycle + items
+    - repricing.py       — RepricingSession + quick-reprice lookup
+    - uploads.py         — UploadSession
+    - pricing_rules.py   — pricing / customer-rule / ebay-margin endpoints
+    - market_stats.py    — variant_prices, cex_product_prices
+    - market_research.py — eBay / CashConverters filter + result fetches
+    - integrations.py    — React shell, address lookup, CG scraper
+    - nospos.py          — NosPos category / field / mapping sync
+    - _shared.py         — cross-domain helpers (do not add new logic here)
+"""
 
 from pricing.views.catalogue import (
     categories_list,
@@ -13,7 +29,11 @@ from pricing.views.market_research import (
     get_cashconverters_filters,
     get_cashconverters_results,
 )
-from pricing.views.integrations import react_app, address_lookup, cash_generator_retail_categories
+from pricing.views.integrations import (
+    react_app,
+    address_lookup,
+    cash_generator_retail_categories,
+)
 from pricing.views.nospos import (
     nospos_category_mappings_view,
     nospos_category_mapping_detail,
@@ -23,10 +43,7 @@ from pricing.views.nospos import (
     nospos_fields_sync,
     nospos_category_fields_sync,
 )
-
-# These large modules remain in views_v2 until fully extracted.
-# Import them here so pricing.views.X still resolves for urls.py.
-from pricing.views_v2 import (
+from pricing.views.requests import (
     requests_view,
     add_request_item,
     request_detail,
@@ -39,17 +56,25 @@ from pricing.views_v2 import (
     finish_request,
     cancel_request,
     complete_request_after_testing,
+)
+from pricing.views.repricing import (
     repricing_sessions_view,
     repricing_session_detail,
+    quick_reprice_lookup,
+)
+from pricing.views.uploads import (
     upload_sessions_view,
     upload_session_detail,
-    quick_reprice_lookup,
-    variant_prices,
-    cex_product_prices,
+)
+from pricing.views.pricing_rules import (
     pricing_rules_view,
     pricing_rule_detail,
     ebay_offer_margins,
     customer_rule_settings_view,
     customer_offer_rules_view,
     customer_offer_rule_detail,
+)
+from pricing.views.market_stats import (
+    variant_prices,
+    cex_product_prices,
 )

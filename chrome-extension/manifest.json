@@ -25,8 +25,8 @@
     "https://webepos.cashgenerator.co.uk/*",
     "https://uk.webuy.com/*",
     "https://www.webuy.com/*",
-    "https://www.\u006d\u0061\u0073\u0074\u0065\u0072\u006d\u0065\u006c\u0074\u0067\u0072\u006f\u0075\u0070.com/*",
-    "https://\u006d\u0061\u0073\u0074\u0065\u0072\u006d\u0065\u006c\u0074\u0067\u0072\u006f\u0075\u0070.com/*",
+    "https://www.mastermeltgroup.com/*",
+    "https://mastermeltgroup.com/*",
     "http://localhost/*",
     "https://localhost/*",
     "http://127.0.0.1/*",
@@ -44,18 +44,21 @@
       "run_at": "document_start"
     },
     {
-      "matches": ["https://www.ebay.co.uk/*", "https://ebay.co.uk/*"],
-      "js": ["shared/dom-utils.js", "shared/constants.js", "content-listings.js"],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": ["https://www.cashconverters.co.uk/*", "https://cashconverters.co.uk/*"],
-      "js": ["shared/dom-utils.js", "shared/constants.js", "content-listings.js"],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": ["https://www.cashgenerator.co.uk/*", "https://cashgenerator.co.uk/*"],
-      "js": ["shared/dom-utils.js", "shared/constants.js", "content-listings.js"],
+      "matches": [
+        "https://www.ebay.co.uk/*",
+        "https://ebay.co.uk/*",
+        "https://www.cashconverters.co.uk/*",
+        "https://cashconverters.co.uk/*",
+        "https://www.cashgenerator.co.uk/*",
+        "https://cashgenerator.co.uk/*"
+      ],
+      "js": [
+        "shared/dom-utils.js",
+        "shared/constants.js",
+        "shared/listings/ebay-filters.js",
+        "shared/listings/ebay-customize.js",
+        "content-listings.js"
+      ],
       "run_at": "document_idle"
     },
     {
@@ -63,6 +66,8 @@
       "js": [
         "shared/dom-utils.js",
         "shared/constants.js",
+        "shared/listings/ebay-filters.js",
+        "shared/listings/ebay-customize.js",
         "content-listings.js",
         "cex-scrape/cex-nav-parser.js",
         "cex-scrape/content-cex-nav-scrape.js"
