@@ -266,17 +266,21 @@ export async function scrapeWebEposCategorySelects(tabIds = []) {
 }
 
 /**
- * Kick off a Web EPOS category scrape. CURRENT BEHAVIOUR (diagnostic step):
- * reads only `#catLevel1` options synchronously and returns them as level-1
- * nodes. Once this end-to-end path is confirmed working we'll layer the
- * recursive deeper-level walk back on.
+ * Kick off a full Web EPOS category-hierarchy scrape. The extension opens
+ * `/products/new`, walks `#catLevel{N}` depth-first over every option, and
+ * streams one progress payload per top-level category as each subtree finishes
+ * (see `onProgress`). Final return is the full node list.
  *
+ * @param {{ onProgress?: (payload: { kind: 'topLevelComplete', index: number, total: number, topLevel: { uuid: string, name: string }, nodes: Array<{ uuid: string, name: string, parent_uuid: string|null, level: number }> }) => void }} [options]
  * @returns {Promise<{ ok: true, nodes: Array<{ uuid: string, name: string, parent_uuid: string|null, level: number }>, log?: string[] } | { ok: false, error?: string, log?: string[] }>}
  */
-export async function scrapeWebeposCategoryHierarchy() {
+export async function scrapeWebeposCategoryHierarchy({ onProgress } = {}) {
   return sendMessage(
     { action: 'scrapeWebeposCategoryHierarchy' },
-    { timeoutMs: 120_000 }, // 2 minutes is plenty for the synchronous level-1 read + tab overhead
+    // 30 min cap — a full combinatorial walk can take 5-15 min depending on
+    // tree depth and React responsiveness. onProgress streams usable data
+    // every few seconds so the UI doesn't feel frozen.
+    { timeoutMs: 30 * 60_000, onProgress },
   );
 }
 

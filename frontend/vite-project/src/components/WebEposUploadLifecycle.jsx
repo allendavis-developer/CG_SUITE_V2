@@ -50,11 +50,16 @@ export default function WebEposUploadLifecycle() {
     return () => window.removeEventListener('message', onMsg);
   }, [navigate, setWebEposWorkerClosedPrompt]);
 
+  // Close the Web EPOS worker only when we transition FROM an upload route to
+  // a non-upload route. Fires once per real transition; no-ops on fresh loads
+  // of non-upload pages (e.g. /data/...) and dodges StrictMode double-effects.
+  const wasOnUploadWorkspaceRef = useRef(null);
   useEffect(() => {
-    const p = location.pathname;
-    if (!pathIsUploadWorkspace(p)) {
+    const isUpload = pathIsUploadWorkspace(location.pathname);
+    if (wasOnUploadWorkspaceRef.current === true && !isUpload) {
       closeWebEposUploadFromApp().catch(() => {});
     }
+    wasOnUploadWorkspaceRef.current = isUpload;
   }, [location.pathname]);
 
   const onReopenWebEpos = () => {

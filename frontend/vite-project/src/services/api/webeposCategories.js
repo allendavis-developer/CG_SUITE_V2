@@ -17,11 +17,13 @@ export async function fetchWebeposCategoriesFlat() {
  * Send the scraped tree back to Django. `nodes` is the flat array returned by
  * the extension walker; parent relationships are expressed via `parent_webepos_uuid`
  * so the Django view can upsert without caring about insertion order.
+ *
+ * `apiFetch` stringifies the body itself (and sets Content-Type + CSRFToken
+ * headers), so pass the raw object, not `JSON.stringify(...)`.
  */
 export async function saveWebeposCategoriesFromScrape(nodes) {
   return apiFetch('/webepos-categories/', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ nodes: Array.isArray(nodes) ? nodes : [] }),
+    body: { nodes: Array.isArray(nodes) ? nodes : [] },
   });
 }

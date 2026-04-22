@@ -37,6 +37,7 @@ from .models_v2 import (
     NosposField,
     NosposCategoryField,
     CGCategory,
+    WebEposCategory,
 )
 
 
@@ -84,6 +85,16 @@ class CGCategoryAdmin(admin.ModelAdmin):
     search_fields = ("name", "collection_slug")
     ordering = ("collection_slug",)
     raw_id_fields = ("parent_category",)
+
+
+@admin.register(WebEposCategory)
+class WebEposCategoryAdmin(admin.ModelAdmin):
+    list_display = ("pk", "name", "level", "parent_category", "webepos_uuid", "last_scraped_at")
+    list_filter = ("level",)
+    search_fields = ("name", "webepos_uuid")
+    ordering = ("level", "name")
+    raw_id_fields = ("parent_category",)
+    readonly_fields = ("last_scraped_at",)
 
 
 @admin.register(ProductCategory)
