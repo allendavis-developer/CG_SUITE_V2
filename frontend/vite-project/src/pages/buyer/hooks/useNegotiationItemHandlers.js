@@ -21,6 +21,7 @@ import {
   fetchNosposCategoryMappings,
   fetchAllCategoriesFlat,
 } from '@/services/api';
+import { persistItemOffer } from '@/negotiation/persistItemOffer';
 import { revokeManualOfferAuthorisationIfSwitchingAway } from '@/utils/customerOfferRules';
 import {
   normalizeCartItemForNegotiation,
@@ -387,17 +388,17 @@ export function useNegotiationItemHandlers({
       });
       setJewelleryWorkspaceLines((prev) => prev.map((l) => (l.id === item.id ? { ...l, weight: cleaned } : l)));
       if (item.request_item_id) {
-        updateRequestItemOffer(item.request_item_id, {
-          selected_offer_id: d.selectedOfferId,
-          manual_offer_used: d.selectedOfferId === 'manual',
-          manual_offer_gbp:
-            d.selectedOfferId === 'manual' && d.manualOffer
-              ? normalizeExplicitSalePrice(parseFloat(String(d.manualOffer).replace(/[£,]/g, '')))
-              : null,
-          our_sale_price_at_negotiation: ourSale ?? null,
-          cash_offers_json: normalizeOffersForApi(d.cashOffers),
-          voucher_offers_json: normalizeOffersForApi(d.voucherOffers),
-        }).catch(() => {});
+        void persistItemOffer(
+          item,
+          {
+            selectedOfferId: d.selectedOfferId,
+            manualOffer: d.manualOffer,
+            ourSalePrice: ourSale,
+            cashOffers: d.cashOffers,
+            voucherOffers: d.voucherOffers,
+          },
+          { manualOfferOnlyWhenSelected: true }
+        );
         const rawPayload = {
           referenceData: {
             ...d.referenceData,
@@ -456,17 +457,17 @@ export function useNegotiationItemHandlers({
       );
       setJewelleryWorkspaceLines((prev) => prev.map((l) => (l.id === item.id ? { ...l, coinUnits: cleaned } : l)));
       if (item.request_item_id) {
-        updateRequestItemOffer(item.request_item_id, {
-          selected_offer_id: d.selectedOfferId,
-          manual_offer_used: d.selectedOfferId === 'manual',
-          manual_offer_gbp:
-            d.selectedOfferId === 'manual' && d.manualOffer
-              ? normalizeExplicitSalePrice(parseFloat(String(d.manualOffer).replace(/[£,]/g, '')))
-              : null,
-          our_sale_price_at_negotiation: ourSale ?? null,
-          cash_offers_json: normalizeOffersForApi(d.cashOffers),
-          voucher_offers_json: normalizeOffersForApi(d.voucherOffers),
-        }).catch(() => {});
+        void persistItemOffer(
+          item,
+          {
+            selectedOfferId: d.selectedOfferId,
+            manualOffer: d.manualOffer,
+            ourSalePrice: ourSale,
+            cashOffers: d.cashOffers,
+            voucherOffers: d.voucherOffers,
+          },
+          { manualOfferOnlyWhenSelected: true }
+        );
         const rawPayload = {
           referenceData: {
             ...d.referenceData,
@@ -882,19 +883,17 @@ export function useNegotiationItemHandlers({
         });
 
         if (isClientLineUpdate && reqItemId) {
-          void updateRequestItemOffer(reqItemId, {
-            selected_offer_id: normalizedItem.selectedOfferId,
-            manual_offer_used: normalizedItem.selectedOfferId === 'manual',
-            manual_offer_gbp:
-              normalizedItem.selectedOfferId === 'manual' && normalizedItem.manualOffer
-                ? normalizeExplicitSalePrice(
-                    parseFloat(String(normalizedItem.manualOffer).replace(/[£,]/g, ''))
-                  )
-                : null,
-            our_sale_price_at_negotiation: resolveOurSalePrice(normalizedItem) ?? null,
-            cash_offers_json: negotiationOffersJsonForApi(normalizedItem.cashOffers),
-            voucher_offers_json: negotiationOffersJsonForApi(normalizedItem.voucherOffers),
-          }).catch(() => {});
+          void persistItemOffer(
+            { request_item_id: reqItemId },
+            {
+              selectedOfferId: normalizedItem.selectedOfferId,
+              manualOffer: normalizedItem.manualOffer,
+              ourSalePrice: resolveOurSalePrice(normalizedItem),
+              cashOffers: normalizedItem.cashOffers,
+              voucherOffers: normalizedItem.voucherOffers,
+            },
+            { manualOfferOnlyWhenSelected: true }
+          );
         }
 
         const existingAiCat = existingLine ? getAiSuggestedNosposStockCategoryFromItem(existingLine) : null;

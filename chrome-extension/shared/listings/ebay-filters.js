@@ -268,7 +268,9 @@ function hasRequiredEbayFilters(url) {
  */
 function enforceEbayFilters() {
   const log = typeof console !== 'undefined' ? console.log.bind(console) : function () {};
-  if (getSiteConfig() !== SITE_CONFIGS.ebay) return false;
+  // `getSiteConfig` lives inside the content-listings.js IIFE so it is NOT visible here.
+  // Gate by hostname, which is cheap and reliable for our match patterns.
+  if (!/(^|\.)ebay\.co\.uk$/.test(window.location.hostname)) return false;
   const filtersOk = hasRequiredEbayFilters(window.location.href);
   const currentSearchKey = getEbaySearchKey(window.location.href);
   const shouldEnforceSortDefault = !hasAppliedEbaySortDefaultForSearch(currentSearchKey);

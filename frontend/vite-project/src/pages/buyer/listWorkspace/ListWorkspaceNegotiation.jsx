@@ -104,6 +104,34 @@ export default function ListWorkspaceNegotiation({ moduleKey = "repricing" }) {
     );
   }
 
+  // Audit-mode: open each selected product in a parallel Web EPOS tab, hold for 2s,
+  // then close. Blocks the workspace chrome until done so the user sees exactly what
+  // step they're on; on completion the barcode intake opens and NosPos lookup begins.
+  if (w.auditWebeposPreviewRunning) {
+    const productCount = w.auditWebeposPreviewCount;
+    const plural = productCount === 1 ? '' : 's';
+    return (
+      <div
+        className="flex min-h-screen flex-col items-center justify-center gap-4"
+        style={{ background: "var(--ui-bg)" }}
+      >
+        <span
+          className="material-symbols-outlined animate-spin text-4xl"
+          style={{ color: "var(--brand-blue)" }}
+          aria-hidden
+        >
+          progress_activity
+        </span>
+        <p className="text-sm font-semibold text-gray-700">
+          Opening {productCount} Web EPOS product{plural}…
+        </p>
+        <p className="text-xs text-gray-500">
+          Each product opens in its own tab for a quick look, then closes before the NosPos check.
+        </p>
+      </div>
+    );
+  }
+
   const {
     features,
     copy,

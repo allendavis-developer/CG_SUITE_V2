@@ -255,9 +255,6 @@ const UploadSessionView = () => {
                           ...(isAuditMode
                             ? {
                                 uploadAuditMode: true,
-                                webeposAuditDetailsBySlotId:
-                                  session.session_data?.webeposAuditDetailsBySlotId || null,
-                                auditRowsByBarcode: session.session_data?.auditRowsByBarcode || null,
                                 auditQueue: session.session_data?.auditQueue || null,
                               }
                             : {}),

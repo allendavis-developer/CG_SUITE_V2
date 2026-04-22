@@ -20,8 +20,6 @@ export function useListWorkspaceNegotiationPersistence({
   uploadBarcodeIntakeDone,
   uploadStockDetailsBySlotId,
   uploadAuditMode,
-  webeposAuditDetailsBySlotId,
-  auditRowsByBarcodeRef,
   auditQueueRef,
   dbSessionId,
   setDbSessionId,
@@ -46,8 +44,6 @@ export function useListWorkspaceNegotiationPersistence({
     uploadBarcodeIntakeDone,
     uploadStockDetailsBySlotId,
     uploadAuditMode: Boolean(uploadAuditMode),
-    webeposAuditDetailsBySlotId: webeposAuditDetailsBySlotId || {},
-    auditRowsByBarcode: auditRowsByBarcodeRef?.current || {},
     auditQueue: Array.isArray(auditQueueRef?.current) ? auditQueueRef.current : [],
   });
 
@@ -111,7 +107,6 @@ export function useListWorkspaceNegotiationPersistence({
     uploadBarcodeIntakeDone,
     uploadStockDetailsBySlotId,
     uploadAuditMode,
-    webeposAuditDetailsBySlotId,
     dbSessionId,
     isLoading,
     isRepricingFinished,

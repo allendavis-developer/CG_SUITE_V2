@@ -375,11 +375,16 @@ async function scrapeWebEposProductsTableInPageWithWait(maxWaitMs) {
 }
 
 /**
- * Web EPOS product `href`s are in-app routes (cold-open product URL → missing `storeId`).
- * Opens `/products` in a new tab in the app window (unfocused), runs list paging + real link click,
- * then focuses that tab only after the click succeeds. On failure the tab is closed.
+ * Core: open a Web EPOS product in a fresh unfocused tab by navigating the list
+ * page and clicking the real link (in-app routing needs `storeId` from the session).
+ * Returns the opened tabId on success so the caller can decide whether to focus
+ * or close it.
+ *
+ * Only used by `navigateWebEposProductInWorkerForBridge`, which is itself the
+ * single canonical opener behind the `navigateWebEposProductInWorker` bridge
+ * action. Keep optimisations here or in that wrapper so every caller benefits.
  */
-async function navigateWebEposProductInWorkerForBridge(appTabId, productHref, barcode) {
+async function openWebEposProductInTab(appTabId, productHref, barcode) {
   const hrefRaw = String(productHref || '').trim();
   const code = String(barcode || '').trim();
   if (!hrefRaw) {
@@ -570,12 +575,7 @@ async function navigateWebEposProductInWorkerForBridge(appTabId, productHref, ba
       };
     }
 
-    const t = await chrome.tabs.get(navTabId);
-    if (t.windowId != null) {
-      await chrome.windows.update(t.windowId, { focused: true }).catch(() => {});
-    }
-    await chrome.tabs.update(navTabId, { active: true }).catch(() => {});
-    return { ok: true };
+    return { ok: true, tabId: navTabId };
   } catch (e) {
     if (navTabId != null) {
       await chrome.tabs.remove(navTabId).catch(() => {});
@@ -585,6 +585,33 @@ async function navigateWebEposProductInWorkerForBridge(appTabId, productHref, ba
       error: e && e.message ? String(e.message) : 'Could not open Web EPOS.',
     };
   }
+}
+
+/**
+ * Bridge-level opener — the one canonical path used by:
+ *  - Click-a-barcode in the Web EPOS products table (focusOnSuccess: true)
+ *  - Audit-mode preview batch (focusOnSuccess: false, caller closes the tab)
+ *
+ * Return shape: `{ ok: true, tabId } | { ok: false, error }`. `tabId` is always
+ * returned on success so batch callers can close it later.
+ *
+ * Keep changes to this function — it's the sole open path, so any speedups here
+ * benefit every caller.
+ */
+async function navigateWebEposProductInWorkerForBridge(appTabId, productHref, barcode, options = {}) {
+  const opened = await openWebEposProductInTab(appTabId, productHref, barcode);
+  if (!opened.ok) return { ok: false, error: opened.error };
+
+  if (options.focusOnSuccess !== false) {
+    try {
+      const t = await chrome.tabs.get(opened.tabId);
+      if (t.windowId != null) {
+        await chrome.windows.update(t.windowId, { focused: true }).catch(() => {});
+      }
+      await chrome.tabs.update(opened.tabId, { active: true }).catch(() => {});
+    } catch (_) { /* tab gone — treat as success; opener already saw the open */ }
+  }
+  return { ok: true, tabId: opened.tabId };
 }
 
 async function scrapeWebEposProductsAndRespond(requestId, appTabId) {

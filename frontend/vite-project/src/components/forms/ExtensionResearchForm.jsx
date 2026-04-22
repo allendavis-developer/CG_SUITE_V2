@@ -551,6 +551,7 @@ function ExtensionResearchForm({
 
   // ─── Data fetching ──────────────────────────────────────────────────────
   const handleGetData = useCallback(async (queryOverride) => {
+    console.log('[research][handleGetData] entry', { source, queryOverride, searchTerm, initialSearchQuery });
     userCancelledRef.current = false;
     setError(null);
     let effective = '';
@@ -561,9 +562,11 @@ function ExtensionResearchForm({
     } else if (initialSearchQuery != null && String(initialSearchQuery).trim() !== '') {
       effective = String(initialSearchQuery).trim();
     }
+    console.log('[research][handleGetData] calling getDataFromListingPage', { source, effective });
     setLoading(true);
     try {
       const result = await getDataFromListingPage(source, effective || undefined, marketComparisonContext);
+      console.log('[research][handleGetData] resolved', { result });
       if (isEbay && userCancelledRef.current) return;
       if (result?.success && Array.isArray(result.results)) {
         setListings(prepareExtensionListingsForShell(source, result.results, config.idPrefix));
@@ -1347,7 +1350,7 @@ function ExtensionResearchForm({
         <p className="text-gray-600 text-center">{config.getDataPrompt}</p>
         <button
           type="button"
-          onClick={() => handleGetData()}
+          onClick={() => { console.log("[research][Get data] button click", { source, loading, readOnly }); handleGetData(); }}
           disabled={loading || readOnly}
           className="px-6 py-3 bg-brand-blue text-white font-semibold rounded-xl shadow-md hover:bg-brand-blue-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >

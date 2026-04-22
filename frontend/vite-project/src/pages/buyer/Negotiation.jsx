@@ -11,6 +11,7 @@ import NegotiationOfferMetricsBar from './components/negotiation/NegotiationOffe
 import NegotiationModalsLayer from './components/negotiation/NegotiationModalsLayer';
 import { useNotification } from '@/contexts/NotificationContext';
 import useAppStore from '@/store/useAppStore';
+import { useNegotiationStore } from '@/negotiation/hooks/useNegotiationStore';
 import { useResearchOverlay } from './hooks/useResearchOverlay';
 import { useNegotiationParkAgreement } from './hooks/useNegotiationParkAgreement';
 import { useNegotiationJewelleryWorkspaceSync } from './hooks/useNegotiationJewelleryWorkspaceSync';
@@ -61,6 +62,7 @@ import {
   peekNosposMappingsCache,
 } from '@/services/api';
 import { normalizeExplicitSalePrice, roundOfferPrice, toVoucherOfferPrice } from '@/utils/helpers';
+import { persistItemOffer } from '@/negotiation/persistItemOffer';
 import JewelleryLineDetailsBlockingModal from '@/components/jewellery/JewelleryLineDetailsBlockingModal';
 import {
   deriveNegotiationJewelleryWeightUpdate,
@@ -87,23 +89,25 @@ function NegotiationBuyer({ mode }) {
   const { requestId: paramsRequestId } = useParams();
   const { showNotification } = useNotification();
 
-  // Read initial data from store (negotiate mode) or location.state (fallback)
-  const storeCartItems = useAppStore((s) => s.cartItems);
-  const storeCustomerData = useAppStore((s) => s.customerData);
-  const storeRequest = useAppStore((s) => s.request);
-  const headerWorkspaceOpen = useAppStore((s) => s.headerWorkspaceOpen);
-  const headerWorkspaceMode = useAppStore((s) => s.headerWorkspaceMode);
-  const selectedCategory = useAppStore((s) => s.selectedCategory);
-  const selectCategory = useAppStore((s) => s.selectCategory);
-  const handleAddFromCeX = useAppStore((s) => s.handleAddFromCeX);
-  const cexLoading = useAppStore((s) => s.cexLoading);
-  const createOrAppendRequestItem = useAppStore((s) => s.createOrAppendRequestItem);
-  const setRequest = useAppStore((s) => s.setRequest);
-  const setCustomerInStore = useAppStore((s) => s.setCustomer);
-  const setStoreTransactionType = useAppStore((s) => s.setTransactionType);
-  const cexProductData = useAppStore((s) => s.cexProductData);
-  const setCexProductData = useAppStore((s) => s.setCexProductData);
-  const clearCexProduct = useAppStore((s) => s.clearCexProduct);
+  // One shallow-compared selector covers the 16 store fields this page reads.
+  const {
+    storeCartItems,
+    storeCustomerData,
+    storeRequest,
+    headerWorkspaceOpen,
+    headerWorkspaceMode,
+    selectedCategory,
+    selectCategory,
+    handleAddFromCeX,
+    cexLoading,
+    createOrAppendRequestItem,
+    setRequest,
+    setCustomerInStore,
+    setStoreTransactionType,
+    cexProductData,
+    setCexProductData,
+    clearCexProduct,
+  } = useNegotiationStore();
 
   const initialCartItems = location.state?.cartItems ?? storeCartItems;
   const initialCustomerData = location.state?.customerData ?? storeCustomerData;
@@ -686,31 +690,17 @@ function NegotiationBuyer({ mode }) {
         return;
       }
       if (jewelleryDerived) {
-        void updateRequestItemOffer(reqId, {
-          selected_offer_id: jewelleryDerived.d.selectedOfferId,
-          manual_offer_used: jewelleryDerived.d.selectedOfferId === 'manual',
-          manual_offer_gbp:
-            jewelleryDerived.d.selectedOfferId === 'manual' && jewelleryDerived.d.manualOffer
-              ? normalizeExplicitSalePrice(
-                  parseFloat(String(jewelleryDerived.d.manualOffer).replace(/[£,]/g, ''))
-                )
-              : null,
-          our_sale_price_at_negotiation: jewelleryDerived.ourSale ?? null,
-          cash_offers_json: !Array.isArray(jewelleryDerived.d.cashOffers)
-            ? []
-            : jewelleryDerived.d.cashOffers.map((o) => ({
-                id: o.id,
-                title: o.title,
-                price: normalizeExplicitSalePrice(o.price),
-              })),
-          voucher_offers_json: !Array.isArray(jewelleryDerived.d.voucherOffers)
-            ? []
-            : jewelleryDerived.d.voucherOffers.map((o) => ({
-                id: o.id,
-                title: o.title,
-                price: normalizeExplicitSalePrice(o.price),
-              })),
-        }).catch(() => {});
+        void persistItemOffer(
+          { request_item_id: reqId },
+          {
+            selectedOfferId: jewelleryDerived.d.selectedOfferId,
+            manualOffer: jewelleryDerived.d.manualOffer,
+            ourSalePrice: jewelleryDerived.ourSale,
+            cashOffers: Array.isArray(jewelleryDerived.d.cashOffers) ? jewelleryDerived.d.cashOffers : [],
+            voucherOffers: Array.isArray(jewelleryDerived.d.voucherOffers) ? jewelleryDerived.d.voucherOffers : [],
+          },
+          { manualOfferOnlyWhenSelected: true }
+        );
       }
 
       setItems((prev) => {
@@ -801,31 +791,17 @@ function NegotiationBuyer({ mode }) {
         return;
       }
       if (jewelleryDerived) {
-        void updateRequestItemOffer(reqId, {
-          selected_offer_id: jewelleryDerived.d.selectedOfferId,
-          manual_offer_used: jewelleryDerived.d.selectedOfferId === 'manual',
-          manual_offer_gbp:
-            jewelleryDerived.d.selectedOfferId === 'manual' && jewelleryDerived.d.manualOffer
-              ? normalizeExplicitSalePrice(
-                  parseFloat(String(jewelleryDerived.d.manualOffer).replace(/[£,]/g, ''))
-                )
-              : null,
-          our_sale_price_at_negotiation: jewelleryDerived.ourSale ?? null,
-          cash_offers_json: !Array.isArray(jewelleryDerived.d.cashOffers)
-            ? []
-            : jewelleryDerived.d.cashOffers.map((o) => ({
-                id: o.id,
-                title: o.title,
-                price: normalizeExplicitSalePrice(o.price),
-              })),
-          voucher_offers_json: !Array.isArray(jewelleryDerived.d.voucherOffers)
-            ? []
-            : jewelleryDerived.d.voucherOffers.map((o) => ({
-                id: o.id,
-                title: o.title,
-                price: normalizeExplicitSalePrice(o.price),
-              })),
-        }).catch(() => {});
+        void persistItemOffer(
+          { request_item_id: reqId },
+          {
+            selectedOfferId: jewelleryDerived.d.selectedOfferId,
+            manualOffer: jewelleryDerived.d.manualOffer,
+            ourSalePrice: jewelleryDerived.ourSale,
+            cashOffers: Array.isArray(jewelleryDerived.d.cashOffers) ? jewelleryDerived.d.cashOffers : [],
+            voucherOffers: Array.isArray(jewelleryDerived.d.voucherOffers) ? jewelleryDerived.d.voucherOffers : [],
+          },
+          { manualOfferOnlyWhenSelected: true }
+        );
       }
 
       let nextItems = applyNosposStockFieldBlobToNegotiationItems(

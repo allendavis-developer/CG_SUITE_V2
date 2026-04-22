@@ -342,3 +342,115 @@ def cash_generator_retail_categories(request):
             'updated': updated,
         }
     )
+
+
+# ─── Web EPOS categories ─────────────────────────────────────────────────
+#
+# Scraped by the Chrome extension from the `/products/new` page's cascading
+# `#catLevel{N}` selects. The extension posts the flat list back here (each
+# node has `webepos_uuid`, `name`, optional `parent_webepos_uuid`, `level`)
+# and we upsert by `webepos_uuid` so repeated scrapes merge cleanly.
+
+
+def _webepos_category_rows(qs) -> list[dict]:
+    return [
+        {
+            'webepos_category_id': obj.pk,
+            'webepos_uuid': obj.webepos_uuid,
+            'name': obj.name,
+            'parent_category_id': obj.parent_category_id,
+            'level': obj.level,
+        }
+        for obj in qs
+    ]
+
+
+@api_view(['GET', 'POST'])
+def webepos_categories_view(request):
+    """
+    GET: flat list of rows from `webepos_categories`.
+    POST: body `{ nodes: [{ webepos_uuid, name, parent_webepos_uuid?, level }] }`
+      → upsert by `webepos_uuid`, setting name/level/parent on each pass. Parents
+      are resolved after all nodes exist so the input order doesn't matter.
+    """
+    from pricing.models_v2 import WebEposCategory
+
+    if request.method == 'GET':
+        qs = WebEposCategory.objects.all().order_by('level', 'name')
+        return Response({'ok': True, 'rows': _webepos_category_rows(qs), 'source': 'database'})
+
+    body = request.data if isinstance(request.data, dict) else {}
+    nodes = body.get('nodes') if isinstance(body.get('nodes'), list) else []
+    if not nodes:
+        return Response(
+            {'ok': False, 'error': 'Expected `{ nodes: [...] }` from the extension.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    added = 0
+    updated = 0
+    parent_uuid_by_child_uuid: dict[str, str] = {}
+
+    with transaction.atomic():
+        for raw in nodes:
+            if not isinstance(raw, dict):
+                continue
+            uuid = str(raw.get('webepos_uuid') or '').strip()
+            name = str(raw.get('name') or '').strip()
+            if not uuid or not name:
+                continue
+            level_raw = raw.get('level')
+            try:
+                level = max(1, int(level_raw)) if level_raw is not None else 1
+            except (TypeError, ValueError):
+                level = 1
+            parent_uuid = str(raw.get('parent_webepos_uuid') or '').strip() or None
+            if parent_uuid:
+                parent_uuid_by_child_uuid[uuid] = parent_uuid
+
+            obj = WebEposCategory.objects.filter(webepos_uuid=uuid).first()
+            if obj is None:
+                WebEposCategory.objects.create(
+                    webepos_uuid=uuid,
+                    name=name,
+                    level=level,
+                    parent_category=None,
+                )
+                added += 1
+            else:
+                changed = False
+                if obj.name != name:
+                    obj.name = name
+                    changed = True
+                if obj.level != level:
+                    obj.level = level
+                    changed = True
+                if changed:
+                    obj.save(update_fields=['name', 'level'])
+                    updated += 1
+
+        # Second pass: wire parents now that every node exists.
+        if parent_uuid_by_child_uuid:
+            pk_by_uuid = dict(
+                WebEposCategory.objects.filter(
+                    webepos_uuid__in=set(parent_uuid_by_child_uuid.keys())
+                    | set(parent_uuid_by_child_uuid.values())
+                ).values_list('webepos_uuid', 'pk')
+            )
+            for child_uuid, parent_uuid in parent_uuid_by_child_uuid.items():
+                child_pk = pk_by_uuid.get(child_uuid)
+                parent_pk = pk_by_uuid.get(parent_uuid)
+                if child_pk is None:
+                    continue
+                WebEposCategory.objects.filter(pk=child_pk).update(parent_category_id=parent_pk)
+
+    qs = WebEposCategory.objects.all().order_by('level', 'name')
+    return Response(
+        {
+            'ok': True,
+            'rows': _webepos_category_rows(qs),
+            'source': 'scrape',
+            'added': added,
+            'updated': updated,
+        }
+    )

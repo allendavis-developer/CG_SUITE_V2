@@ -16,6 +16,7 @@ const EXTENSION_TIMEOUT = 600_000; // 10 minutes – user may take time to find 
  * @param {{ onProgress?: (payload: unknown) => void, timeoutMs?: number }} [options]
  */
 export function sendMessage(message, options = {}) {
+  console.log('[extBridge][sendMessage] entry', { action: message?.action, hasOnProgress: !!options?.onProgress });
   if (typeof window === "undefined") {
     return Promise.reject(
       new Error("Extension client can only run in the browser")
@@ -27,8 +28,10 @@ export function sendMessage(message, options = {}) {
   return new Promise((resolve, reject) => {
     const requestId = crypto.randomUUID?.()
       || Math.random().toString(36).slice(2);
+    console.log('[extBridge][sendMessage] requestId', requestId, 'timeoutMs', timeoutMs);
 
     const timeout = setTimeout(() => {
+      console.log('[extBridge][sendMessage] timeout', requestId);
       cleanup();
       reject(new Error("Extension communication timeout"));
     }, timeoutMs);
@@ -46,6 +49,9 @@ export function sendMessage(message, options = {}) {
     }
 
     function onResponse(event) {
+      if (event.data?.type === "EXTENSION_RESPONSE") {
+        console.log('[extBridge] EXTENSION_RESPONSE observed', { msgReqId: event.data.requestId, myReqId: requestId, matches: event.data.requestId === requestId });
+      }
       if (
         event.data?.type === "EXTENSION_RESPONSE" &&
         event.data.requestId === requestId
@@ -72,6 +78,7 @@ export function sendMessage(message, options = {}) {
     }
 
     // content-bridge.js (injected on this origin) will receive this and forward to background
+    console.log('[extBridge][sendMessage] posting EXTENSION_MESSAGE', requestId, message);
     window.postMessage(
       {
         type: "EXTENSION_MESSAGE",

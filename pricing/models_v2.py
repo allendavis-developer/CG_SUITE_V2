@@ -88,6 +88,46 @@ class CGCategory(models.Model):
         return self.name
 
 
+class WebEposCategory(models.Model):
+    """
+    Web EPOS category hierarchy (scraped from the new-product page's cascading
+    `#catLevel{N}` selects). Mirrors the CGCategory shape: a self-referential
+    parent with `parent_category_id NULL` for top-level rows. The canonical key
+    from Web EPOS is the option `value` (uuid) — we keep it so we can rescrape
+    and merge without duplicates.
+    """
+
+    parent_category = models.ForeignKey(
+        'self',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='children',
+        db_column='parent_category_id',
+        help_text='Parent category. Root categories have this empty.',
+    )
+    name = models.CharField(max_length=255, db_index=True)
+    webepos_uuid = models.CharField(
+        max_length=128,
+        unique=True,
+        db_index=True,
+        help_text='Stable Web EPOS identifier (the option value on `#catLevel{N}`).',
+    )
+    level = models.PositiveIntegerField(
+        default=1,
+        help_text='1-based depth under the implicit All Categories root (1 = top-level).',
+    )
+    last_scraped_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'webepos_categories'
+        verbose_name = 'Web EPOS category'
+        verbose_name_plural = 'Web EPOS categories'
+
+    def __str__(self):
+        return self.name
+
+
 class Manufacturer(models.Model):
     manufacturer_id = models.AutoField(primary_key=True)
     name = models.CharField(max_length=255, unique=True, db_index=True)

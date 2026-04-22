@@ -328,7 +328,9 @@ function detectCustomizeFieldsInCards() {
 async function enforceEbayCustomizeSettings() {
   var log = typeof console !== 'undefined' ? console.log.bind(console) : function () {};
 
-  if (getSiteConfig() !== SITE_CONFIGS.ebay) return false;
+  // `getSiteConfig` lives inside the content-listings.js IIFE so it is NOT visible here.
+  // Gate by hostname, which is cheap and reliable for our match patterns.
+  if (!/(^|\.)ebay\.co\.uk$/.test(window.location.hostname)) return false;
 
   // Guard against infinite reload loops: consume the flag FIRST (before any
   // field detection) so it is always used up on the one reload we triggered,
@@ -440,13 +442,14 @@ function showEbayLoadingOverlay() {
   var overlay = document.createElement('div');
   overlay.id = OVERLAY_ID;
   overlay.setAttribute('aria-hidden', 'true');
+  // Note: `backdrop-filter: blur()` on a full-screen overlay tanks eBay's search
+  // page (many nodes, images) — the GPU re-blurs every paint. A solid dim is
+  // visually similar and cheap; keep it that way.
   overlay.style.cssText = [
     'position: fixed',
     'inset: 0',
     'z-index: 2147483646',
-    'background: rgba(15, 23, 42, 0.75)',
-    'backdrop-filter: blur(8px)',
-    '-webkit-backdrop-filter: blur(8px)',
+    'background: rgba(15, 23, 42, 0.92)',
     'display: flex',
     'align-items: center',
     'justify-content: center',

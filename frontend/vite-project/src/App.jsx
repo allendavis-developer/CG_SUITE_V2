@@ -13,6 +13,8 @@ import RequestsOverview from "./pages/buyer/RequestsOverview";
 import LaunchpadPage from "./pages/launchpad/LaunchpadPage";
 import ReportsPage from "./pages/reports/ReportsPage";
 import PricingRulesPage from "./pages/pricing/PricingRulesPage";
+import DataLandingPage from "./pages/data/DataLandingPage";
+import WebEposCategoriesDataPage from "./pages/data/WebEposCategoriesDataPage";
 import useAppStore from "./store/useAppStore";
 import {
   bootstrapBuyerWorkspaceFromRoute,
@@ -75,7 +77,8 @@ export default function App() {
         <Route path="/upload" element={<RepricingWorkspaceRoute />} />
         <Route path="/upload-negotiation" element={<RepricingWorkspaceRoute />} />
         <Route path="/reports" element={<ReportsPage />} />
-        <Route path="/data" element={<Navigate to="/" replace />} />
+        <Route path="/data" element={<DataLandingPage />} />
+        <Route path="/data/webepos-categories" element={<WebEposCategoriesDataPage />} />
         <Route path="/data/nospos-categories" element={<Navigate to="/" replace />} />
         <Route path="/data/nospos-fields" element={<Navigate to="/" replace />} />
         <Route path="/data/nospos-attributes" element={<Navigate to="/" replace />} />

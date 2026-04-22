@@ -60,16 +60,8 @@ const NEGOTIATION_SESSION_ITEM_KEYS = [
   "upload_session_item_id",
   /** Upload list: optional override for the “Item name & attributes” column / Web EPOS title. */
   "uploadTableItemName",
-  /** Audit mode: direct link to the Web EPOS product's edit page (used on finish to push price/category). */
-  "webeposProductHref",
-  /** Audit mode: Web EPOS product's title when the edit page was first scraped. */
-  "webeposOriginalName",
-  /** Audit mode: Web EPOS product's price when the edit page was first scraped (raw string, may include £). */
-  "webeposOriginalPrice",
-  /** Audit mode: levels `[{uuid,label},…]` read off `#catLevel{N}` on the edit page. */
-  "webeposCategoryLevels",
-  /** Audit mode: CG categoryObject derived from the scraped Web EPOS labels (read-only baseline). */
-  "webeposDerivedCategoryObject",
+  /** Audit mode: product price as shown on the Web EPOS products table when the audit was started. */
+  "webeposRrp",
 ];
 
 export function pickNegotiationItemForSession(item) {
@@ -161,8 +153,6 @@ export function buildNegotiationSessionDataSnapshot(state, useUploadSessions) {
     uploadBarcodeIntakeDone: snapshotIntakeDone,
     uploadStockDetailsBySlotId: snapshotStockDetails,
     uploadAuditMode: snapshotAuditMode,
-    webeposAuditDetailsBySlotId: snapshotWebeposAudit,
-    auditRowsByBarcode: snapshotAuditRowsByBarcode,
     auditQueue: snapshotAuditQueue,
   } = state;
   const derivedUploadPending =
@@ -192,11 +182,6 @@ export function buildNegotiationSessionDataSnapshot(state, useUploadSessions) {
     snapshot.uploadStockDetailsBySlotId = sanitizeUploadStockDetailsMap(snapshotStockDetails || {});
     if (snapshotAuditMode) {
       snapshot.uploadAuditMode = true;
-      snapshot.webeposAuditDetailsBySlotId =
-        snapshotWebeposAudit && typeof snapshotWebeposAudit === 'object' ? snapshotWebeposAudit : {};
-      if (snapshotAuditRowsByBarcode && typeof snapshotAuditRowsByBarcode === 'object') {
-        snapshot.auditRowsByBarcode = snapshotAuditRowsByBarcode;
-      }
       if (Array.isArray(snapshotAuditQueue)) {
         snapshot.auditQueue = snapshotAuditQueue.slice();
       }

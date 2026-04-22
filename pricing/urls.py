@@ -71,6 +71,11 @@ urlpatterns = [
         views.cash_generator_retail_categories,
         name='cash_generator_retail_categories',
     ),
+    path(
+        'webepos-categories/',
+        views.webepos_categories_view,
+        name='webepos_categories',
+    ),
 
     # AI
     path('ai/suggest-category/', ai_views.suggest_nospos_category, name='ai_suggest_nospos_category'),

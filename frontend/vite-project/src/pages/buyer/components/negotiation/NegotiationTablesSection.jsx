@@ -45,9 +45,10 @@ export default function NegotiationTablesSection({
   hideQuantityColumn = false,
   /** When true, hide CeX Voucher and Cash columns; Sell remains (upload workspace). */
   hideCexVoucherCashColumns = false,
-  /** Upload workspace: show NosPos stock-edit fields from the barcode line (buyer, date, cost, RRP). */
+  /** Upload workspace: show NosPos stock-edit fields from the barcode line (buyer, date, cost, RRP)
+   *  AND move Upload RRP + Upload margin to the far right (after CG). */
   showUploadNosposStockColumns = false,
-  /** Audit mode: show the Web EPOS original RRP scraped from the edit page, alongside NosPos RRP. */
+  /** Upload audit mode: show the Current WebEPOS RRP column right after NosPos RRP. */
   showUploadAuditColumns = false,
   /** Upload list: after the barcode column, open a modal with the scraped NosPos “Changes” grid. */
   onOpenUploadNosposChanges = null,
@@ -78,17 +79,18 @@ export default function NegotiationTablesSection({
       : 1;
     if (!hideNosposRequiredColumn) count += 1;
     count += 1; // Item Name
-    if (showUploadNosposStockColumns) count += 4 + 1; // NosPos bought by / date / cost / RRP + Upload margin (after sale price)
-    if (showUploadAuditColumns) count += 1; // Old Web EPOS RRP (audit mode only)
-    if (showUploadNosposStockColumns && renderRowSuffix && onOpenUploadNosposChanges) count += 1; // NosPos changes (after barcode)
-    count += hideCexVoucherCashColumns ? 1 : 3; // CeX Sell (+ optional Voucher + Cash after Sell)
+    if (showUploadNosposStockColumns) count += 4; // NosPos bought by / date / cost / RRP
+    if (showUploadAuditColumns) count += 1; // Current WebEPOS RRP (audit only)
+    count += hideCexVoucherCashColumns ? 1 : 3; // CeX Sell (+ optional Voucher + Cash)
     if (!hideCustomerExpectation) count += 1;
     if (!hideOfferColumns) count += 6; // Offer source + 4 tiers + Manual
-    count += 1; // Our RRP / Sale Price
+    if (!showUploadNosposStockColumns) count += 1; // Sale price — middle slot for non-upload workspaces
     count += 1; // RRP source
     count += 3; // eBay + CC + CG
+    if (showUploadNosposStockColumns) count += 2; // Upload RRP + Upload margin pinned right
     if (researchSandboxBookedView) count += 1; // Skip NosPos
-    if (renderRowSuffix) count += 1; // extra column slot
+    if (renderRowSuffix) count += 1; // Barcode
+    if (showUploadNosposStockColumns && renderRowSuffix && onOpenUploadNosposChanges) count += 1; // NosPos changes
     return count;
   })();
 
@@ -225,9 +227,9 @@ export default function NegotiationTablesSection({
                     {showUploadAuditColumns ? (
                       <th
                         className="w-24 min-w-[5.5rem] text-[10px] font-bold uppercase tracking-wide text-violet-700"
-                        title="Old Web EPOS RRP: price scraped from the product's Web EPOS edit page when audit started"
+                        title="Current Web EPOS RRP — the price shown on the Web EPOS products table when this audit started"
                       >
-                        Old WebEPOS RRP
+                        Current WebEPOS RRP
                       </th>
                     ) : null}
                   </>
@@ -252,19 +254,26 @@ export default function NegotiationTablesSection({
                     <th className="w-36">Manual</th>
                   </>
                 ) : null}
-                <th className="w-24">{salePriceLabel}</th>
-                {showUploadNosposStockColumns ? (
-                  <th
-                    className="w-[5.25rem] min-w-[4.75rem] text-[10px] font-bold uppercase tracking-wide text-slate-600 text-center"
-                    title="Gross margin: (Upload RRP − NosPos cost) ÷ Upload RRP"
-                  >
-                    Upload margin
-                  </th>
+                {/* Upload mode pins Upload RRP + margin to the far right (after CG);
+                    other workspaces keep the sale price here, in its historical slot. */}
+                {!showUploadNosposStockColumns ? (
+                  <th className="w-24">{salePriceLabel}</th>
                 ) : null}
                 <th className="w-[5.5rem] min-w-[5rem] text-[9px] leading-tight">RRP source</th>
                 <th className="w-24 px-1 text-left">eBay</th>
                 <th className="w-24 px-1 text-left">CC</th>
                 <th className="w-24 px-1 text-left">CG</th>
+                {showUploadNosposStockColumns ? (
+                  <>
+                    <th className="w-24">{salePriceLabel}</th>
+                    <th
+                      className="w-[5.25rem] min-w-[4.75rem] text-[10px] font-bold uppercase tracking-wide text-slate-600 text-center"
+                      title="Gross margin: (Upload RRP − NosPos cost) ÷ Upload RRP"
+                    >
+                      Upload margin
+                    </th>
+                  </>
+                ) : null}
                 {researchSandboxBookedView ? (
                   <th className="w-16 text-center text-[10px] font-bold uppercase tracking-wide text-amber-600">
                     Skip NosPos

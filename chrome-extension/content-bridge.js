@@ -11,7 +11,8 @@
  */
 (function () {
   /** Set `true` only when debugging page ↔ extension message flow (very noisy otherwise). */
-  const CG_SUITE_CONTENT_BRIDGE_DEBUG = false;
+  const CG_SUITE_CONTENT_BRIDGE_DEBUG = true;
+  console.log('[CG Suite content-bridge] module loaded', { url: location.href });
 
   const JEWELLERY_SCRAP_TO_PAGE = 'JEWELLERY_SCRAP_PRICES_TO_CONTENT';
   const JEWELLERY_SCRAP_WINDOW = 'JEWELLERY_SCRAP_PRICES';
@@ -80,23 +81,35 @@
   window.addEventListener('message', function (event) {
     if (event.source !== window || event.data?.type !== 'EXTENSION_MESSAGE') return;
     const { requestId, message } = event.data;
-    bridgeLog('EXTENSION_MESSAGE from page → BRIDGE_FORWARD', message?.action, requestId);
-    chrome.runtime.sendMessage({
-      type: 'BRIDGE_FORWARD',
-      requestId,
-      payload: message
-    }, (bridgeResponse) => {
-      // For these actions we don't resolve here; the target page will send data/ready later and background will send EXTENSION_RESPONSE_TO_PAGE to this tab.
-      if (message.action === 'startWaitingForData' || message.action === 'startRefine' || message.action === 'openNosposAndWait' || message.action === 'openWebEposUpload' || message.action === 'reopenWebEposUpload' || message.action === 'scrapeWebEposProducts' || message.action === 'openWebEposProductCreateForUpload' || message.action === 'openNosposForCustomerIntake' || message.action === 'openNosposSiteOnly' || message.action === 'openNosposSiteForFields' || message.action === 'openNosposSiteForCategoryFields' || message.action === 'openNosposSiteForCategoryFieldsBulk' || message.action === 'scrapeCexSuperCategories') {
-        bridgeLog('deferred action – not posting response; waiting for target page', message.action);
-        return;
-      }
+    console.log('[CG Suite content-bridge] EXTENSION_MESSAGE received', { action: message?.action, requestId });
+    try {
+      chrome.runtime.sendMessage({
+        type: 'BRIDGE_FORWARD',
+        requestId,
+        payload: message
+      }, (bridgeResponse) => {
+        const lastErr = chrome.runtime.lastError;
+        console.log('[CG Suite content-bridge] BRIDGE_FORWARD callback', { action: message?.action, requestId, hasResponse: bridgeResponse !== undefined, lastError: lastErr ? lastErr.message : null });
+        // For these actions we don't resolve here; the target page will send data/ready later and background will send EXTENSION_RESPONSE_TO_PAGE to this tab.
+        if (message.action === 'startWaitingForData' || message.action === 'startRefine' || message.action === 'openNosposAndWait' || message.action === 'openWebEposUpload' || message.action === 'reopenWebEposUpload' || message.action === 'scrapeWebEposProducts' || message.action === 'openWebEposProductCreateForUpload' || message.action === 'openNosposForCustomerIntake' || message.action === 'openNosposSiteOnly' || message.action === 'openNosposSiteForFields' || message.action === 'openNosposSiteForCategoryFields' || message.action === 'openNosposSiteForCategoryFieldsBulk' || message.action === 'scrapeCexSuperCategories') {
+          bridgeLog('deferred action – not posting response; waiting for target page', message.action);
+          return;
+        }
+        window.postMessage({
+          type: 'EXTENSION_RESPONSE',
+          requestId,
+          response: bridgeResponse,
+          error: lastErr ? lastErr.message : null
+        }, '*');
+      });
+    } catch (err) {
+      console.log('[CG Suite content-bridge] chrome.runtime.sendMessage threw', err?.message || err);
       window.postMessage({
         type: 'EXTENSION_RESPONSE',
         requestId,
-        response: bridgeResponse,
-        error: chrome.runtime.lastError ? chrome.runtime.lastError.message : null
+        response: null,
+        error: String(err?.message || err)
       }, '*');
-    });
+    }
   });
 })();

@@ -33,6 +33,7 @@ from pricing.views.integrations import (
     react_app,
     address_lookup,
     cash_generator_retail_categories,
+    webepos_categories_view,
 )
 from pricing.views.nospos import (
     nospos_category_mappings_view,

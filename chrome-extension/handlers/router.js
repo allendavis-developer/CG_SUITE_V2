@@ -4,6 +4,7 @@
  */
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  console.log('[CG Suite bg router] onMessage', { type: message?.type, action: message?.payload?.action, fromTab: sender?.tab?.id });
   if (message.type === CG_JEWELLERY_SCRAP.MSG_SCRAPED) {
     const tabId = sender.tab?.id;
     if (tabId == null) {
@@ -21,14 +22,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === 'BRIDGE_FORWARD') {
+    console.log('[CG Suite bg router] dispatching BRIDGE_FORWARD', { action: message?.payload?.action, requestId: message?.requestId });
     handleBridgeForward(message, sender)
-      .then((r) => sendResponse(r))
-      .catch((e) =>
+      .then((r) => {
+        console.log('[CG Suite bg router] BRIDGE_FORWARD resolved', { action: message?.payload?.action, requestId: message?.requestId, result: r });
+        sendResponse(r);
+      })
+      .catch((e) => {
+        console.log('[CG Suite bg router] BRIDGE_FORWARD rejected', { action: message?.payload?.action, requestId: message?.requestId, error: e?.message || String(e) });
         sendResponse({
           ok: false,
           error: e?.message || String(e) || 'Extension bridge handler failed',
-        })
-      );
+        });
+      });
     return true;
   }
 

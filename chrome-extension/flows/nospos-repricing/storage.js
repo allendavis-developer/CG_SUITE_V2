@@ -273,10 +273,3 @@ async function failNosposRequestAndCloseTab(requestId, entry, message) {
     await chrome.tabs.remove(entry.listingTabId).catch(() => {});
   }
 }
-
-const WEB_EPOS_UPLOAD_HOST = 'webepos.cashgenerator.co.uk';
-const WEB_EPOS_LOGIN_PATH = /^\/login(\/|$)/i;
-/** Upload / gate / scrape: [products list](https://webepos.cashgenerator.co.uk/products) (logged-in table). */
-const WEB_EPOS_PRODUCTS_URL = `https://${WEB_EPOS_UPLOAD_HOST}/products`;
-const WEB_EPOS_PRODUCT_NEW_URL = `https://${WEB_EPOS_UPLOAD_HOST}/products/new`;
-const WEB_EPOS_UPLOAD_SESSION_KEY = 'cgWebEposUploadSession';

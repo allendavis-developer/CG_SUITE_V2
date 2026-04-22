@@ -111,9 +111,6 @@ chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
   markNosposParkTabClosed(tabId, removeInfo || null);
 });
 
-/** After opening `/newagreement/agreement/create?…`, NosPos redirects to `/newagreement/{id}/items?…`. */
-const NOSPOS_OPEN_AGREEMENT_ITEMS_URL_WAIT_MS = 120000;
-
 async function waitForNosposNewAgreementItemsTabUrl(
   tabId,
   maxWaitMs = NOSPOS_OPEN_AGREEMENT_ITEMS_URL_WAIT_MS

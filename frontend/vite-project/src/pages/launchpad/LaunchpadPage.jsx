@@ -142,6 +142,13 @@ const LaunchpadPage = () => {
                   onNavigate={handleOpenUpload}
                 />
                 <ModuleCard
+                  icon="database"
+                  title="Data"
+                  description="Reference-data tools: refresh the Web EPOS category mirror and similar imports."
+                  route="/data"
+                  buttonLabel="Open Data"
+                />
+                <ModuleCard
                   icon="summarize"
                   title="Reports"
                   description="View transaction history, performance summaries, and analytics."

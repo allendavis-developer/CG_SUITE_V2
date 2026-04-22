@@ -33,7 +33,7 @@ const nosposActiveParkTabIds = new Set();
 const nosposParkClosedAbortByTabId = new Map();
 
 const NOSPOS_PARK_TAB_CLOSED_ERR = 'NosPos tab was closed — parking failed.';
-const pendingNosposDuplicateChoices = new Map();
+// `pendingNosposDuplicateChoices` is declared in flows/nospos-park/tab-state.js (where the helpers using it live).
 const NOSPOS_OPEN_AGREEMENT_ITEMS_URL_WAIT_MS = 120000;
 const WEB_EPOS_UPLOAD_HOST = 'webepos.cashgenerator.co.uk';
 const WEB_EPOS_LOGIN_PATH = /^\/login(\/|$)/i;

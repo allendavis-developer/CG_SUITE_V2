@@ -89,26 +89,19 @@ export default function WebEposProductsTablePanel({
     }
   }, [selectedIndices, rows, onSelectedBarcodes, onSelectedRows]);
 
-  // Pivot-range selection — exact same logic as ResearchFormShell handleExcludeClick
+  // Pivot-range selection — mirrors ResearchFormShell handleExcludeClick.
+  // Clicking an already-selected row always toggles it off (including the pivot itself),
+  // so a double-click outside an existing multi-select is net-zero instead of clobbering.
   const handleSelectionClick = useCallback((globalIndex) => {
     const isSelected = selectedIndices.has(globalIndex);
 
-    if (isSelected && pivotIdx !== globalIndex) {
-      // Clicking an already-selected non-pivot row → deselect it
+    if (isSelected) {
       setSelectedIndices((prev) => { const s = new Set(prev); s.delete(globalIndex); return s; });
       setPivotIdx(null);
       return;
     }
 
-    if (pivotIdx === globalIndex) {
-      // Clicking the pivot again → select ONLY this item (single select), clear pivot
-      setSelectedIndices(new Set([globalIndex]));
-      setPivotIdx(null);
-      return;
-    }
-
     if (pivotIdx !== null) {
-      // Second click with pivot set → range-select from pivot to this row
       const start = Math.min(pivotIdx, globalIndex);
       const end = Math.max(pivotIdx, globalIndex);
       setSelectedIndices((prev) => {
@@ -120,7 +113,6 @@ export default function WebEposProductsTablePanel({
       return;
     }
 
-    // First click, row not selected → set as pivot
     setPivotIdx(globalIndex);
     setSelectedIndices((prev) => { const s = new Set(prev); s.add(globalIndex); return s; });
   }, [selectedIndices, pivotIdx]);
@@ -233,7 +225,7 @@ export default function WebEposProductsTablePanel({
                             }`}
                             title={
                               isPivot
-                                ? 'Pivot set — click another row to range-select, or click here to select only this one'
+                                ? 'Pivot set — click another row to range-select, or click here to deselect'
                                 : isSelected
                                   ? 'Click to deselect'
                                   : 'Click to set pivot, then click another to range-select'

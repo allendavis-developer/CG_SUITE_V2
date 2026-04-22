@@ -1,95 +1,76 @@
 /**
- * Reverse-map Web EPOS category labels to a CG `categoryObject`.
+ * Map a scraped Web EPOS category path (the selected labels from `#catLevel1`,
+ * `#catLevel2`, …) onto a CG category from `/all-categories/`.
  *
- * Web EPOS categories start at what CG calls the second level — CG paths have "All Categories" as
- * their root, Web EPOS does not. To match, strip "All Categories" from CG paths before comparing.
+ * Mirrors the forward-fill matching strategy in
+ * `chrome-extension/bg/webepos-new-product-fill-page.js`:
+ *   1. Normalise (collapse whitespace, lowercase, decode `&amp;`).
+ *   2. Exact match against the current level's siblings.
+ *   3. Bidirectional substring match as a fallback.
+ *
+ * Walks the tree level by level starting from roots and descends into the
+ * matched child — so "Electronics" → "Mobile Phones" → "Smartphones" resolves
+ * to the deepest node that still matches. Returns the deepest match (may be
+ * less deep than the input when Web EPOS has extra sub-categories that don't
+ * exist on CG). Returns `null` if nothing matches at level 1.
+ *
+ * @param {string[]} webeposLabels - labels from catLevel1..N, in order
+ * @param {Array<{ category_id: number|string, parent_category_id: number|string|null, name: string, path?: string }>} allCategoriesFlat
+ * @returns {{ id: number|string, name: string, path: string[] } | null}
  */
-
-function norm(s) {
-  return String(s ?? '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase()
-    .replace(/&amp;/g, '&');
-}
-
-function parsePathString(raw) {
-  return String(raw || '')
-    .split(' > ')
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
-function stripAllCategoriesRoot(segments) {
-  if (segments.length === 0) return segments;
-  return /^all categories$/i.test(segments[0]) ? segments.slice(1) : segments;
-}
-
-function normalizeWebEposLabels(labels) {
-  if (!Array.isArray(labels)) return [];
-  return labels
-    .map((x) => String(x ?? '').trim())
-    .filter((s) => s && !/^all categories$/i.test(s));
-}
-
-/**
- * @param {{uuid:string,label:string}[] | string[]} webeposLevels — output of `scrapeWebEposEditPageForAudit`
- *   (or an already-extracted labels array)
- * @param {Array<{category_id:number, name:string, path?:string, parent_category_id?:number|null}>} allCategoriesFlat
- * @returns {{ id:number, name:string, path:string[] } | null}
- */
-export function reverseLookupWebEposCategory(webeposLevels, allCategoriesFlat) {
-  if (!Array.isArray(webeposLevels) || webeposLevels.length === 0) return null;
+export function reverseLookupWebEposCategory(webeposLabels, allCategoriesFlat) {
+  if (!Array.isArray(webeposLabels) || webeposLabels.length === 0) return null;
   if (!Array.isArray(allCategoriesFlat) || allCategoriesFlat.length === 0) return null;
 
-  const labels = webeposLevels.every((x) => typeof x === 'string')
-    ? webeposLevels
-    : webeposLevels.map((lvl) => lvl?.label ?? '');
-  const webLabels = normalizeWebEposLabels(labels);
-  if (webLabels.length === 0) return null;
-
-  const webNormed = webLabels.map(norm);
-
-  let exact = null;
-  let prefix = null;
-
+  const childrenByParent = new Map();
   for (const row of allCategoriesFlat) {
-    if (!row || row.category_id == null) continue;
-    const pathSegs = stripAllCategoriesRoot(parsePathString(row.path));
-    if (pathSegs.length === 0) continue;
-    const rowNormed = pathSegs.map(norm);
-
-    if (rowNormed.length === webNormed.length && rowNormed.every((s, i) => s === webNormed[i])) {
-      exact = { row, path: pathSegs };
-      break;
-    }
-
-    if (
-      !prefix &&
-      rowNormed.length >= webNormed.length &&
-      webNormed.every((s, i) => s === rowNormed[i])
-    ) {
-      // Web EPOS label chain is a prefix of a CG path — accept if no full match found.
-      prefix = { row, path: pathSegs.slice(0, webNormed.length) };
-    }
+    const id = row.category_id ?? row.id;
+    if (id == null) continue;
+    const parentKey = row.parent_category_id ?? null;
+    if (!childrenByParent.has(parentKey)) childrenByParent.set(parentKey, []);
+    childrenByParent.get(parentKey).push(row);
   }
 
-  const match = exact || prefix;
-  if (!match) return null;
+  let parentKey = null;
+  let deepest = null;
+  const pathNames = [];
 
+  for (const rawLabel of webeposLabels) {
+    const want = normalize(rawLabel);
+    if (!want) break;
+
+    const siblings = childrenByParent.get(parentKey) || [];
+    const matched = pickMatch(siblings, want);
+    if (!matched) break;
+
+    deepest = matched;
+    pathNames.push(matched.name);
+    parentKey = matched.category_id ?? matched.id ?? null;
+  }
+
+  if (!deepest) return null;
   return {
-    id: match.row.category_id,
-    name: match.path[match.path.length - 1],
-    path: ['All Categories', ...match.path],
+    id: deepest.category_id ?? deepest.id,
+    name: deepest.name,
+    path: pathNames,
   };
 }
 
-/**
- * Inverse: given a CG `categoryObject` (path rooted at "All Categories"), produce the Web EPOS
- * category labels the fill script will match against `#catLevel{N}` option text.
- */
-export function cgCategoryObjectToWebEposLabels(categoryObject) {
-  if (!categoryObject) return [];
-  const path = Array.isArray(categoryObject.path) ? categoryObject.path : [];
-  return stripAllCategoriesRoot(path.map((x) => String(x ?? '').trim()).filter(Boolean));
+function pickMatch(candidates, wantNorm) {
+  for (const c of candidates) {
+    if (normalize(c.name) === wantNorm) return c;
+  }
+  for (const c of candidates) {
+    const cn = normalize(c.name);
+    if (cn && (cn.includes(wantNorm) || wantNorm.includes(cn))) return c;
+  }
+  return null;
+}
+
+function normalize(s) {
+  return String(s || '')
+    .replace(/&amp;/g, '&')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
 }

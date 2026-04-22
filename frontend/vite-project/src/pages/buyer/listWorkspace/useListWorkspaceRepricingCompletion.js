@@ -186,27 +186,42 @@ export function useListWorkspaceRepricingCompletion({
   useEffect(() => {
     if (!activeCartKey) return;
     let cancelled = false;
+    let timerId = null;
+
+    // Poll fast while a matching NosPos job is live; back off hard when idle
+    // (upload module usually has no active job — was burning a call every 1.5s).
+    const ACTIVE_INTERVAL_MS = 1500;
+    const IDLE_INTERVAL_MS = 20000;
 
     const syncLiveStatus = async () => {
+      let matched = false;
       try {
         const response = await getNosposRepricingStatus();
         const payload = response?.ok ? response.payload : null;
-        if (cancelled || !payload || payload.cartKey !== activeCartKey) return;
-        setRepricingJob((prev) => {
-          const existingLogs = prev?.logs || [];
-          const incomingLogs = payload.logs || [];
-          const existingTs = new Set(existingLogs.map((l) => l.timestamp));
-          const newLogs = incomingLogs.filter((l) => !existingTs.has(l.timestamp));
-          const mergedLogs = newLogs.length ? [...existingLogs, ...newLogs] : existingLogs;
-          if (payload.step !== 'webEposUpload' && prev?.step === 'webEposUpload') return prev;
-          if (payload.step !== 'webEposUpload') {
-            return { ...payload, logs: mergedLogs, completedBarcodeCount: prev?.completedBarcodeCount ?? 0, totalBarcodes: prev?.totalBarcodes ?? payload.totalBarcodes };
-          }
-          return { ...payload, logs: mergedLogs };
-        });
-        setCompletedBarcodes(payload.completedBarcodes || {});
-        setCompletedItems(payload.completedItems || []);
-      } catch {}
+        if (cancelled) return;
+        if (payload && payload.cartKey === activeCartKey) {
+          matched = true;
+          setRepricingJob((prev) => {
+            const existingLogs = prev?.logs || [];
+            const incomingLogs = payload.logs || [];
+            const existingTs = new Set(existingLogs.map((l) => l.timestamp));
+            const newLogs = incomingLogs.filter((l) => !existingTs.has(l.timestamp));
+            const mergedLogs = newLogs.length ? [...existingLogs, ...newLogs] : existingLogs;
+            if (payload.step !== 'webEposUpload' && prev?.step === 'webEposUpload') return prev;
+            if (payload.step !== 'webEposUpload') {
+              return { ...payload, logs: mergedLogs, completedBarcodeCount: prev?.completedBarcodeCount ?? 0, totalBarcodes: prev?.totalBarcodes ?? payload.totalBarcodes };
+            }
+            return { ...payload, logs: mergedLogs };
+          });
+          setCompletedBarcodes(payload.completedBarcodes || {});
+          setCompletedItems(payload.completedItems || []);
+        }
+      } catch {
+        /* swallow: transient bridge errors shouldn't kill the poll loop */
+      }
+      if (!cancelled) {
+        timerId = window.setTimeout(syncLiveStatus, matched ? ACTIVE_INTERVAL_MS : IDLE_INTERVAL_MS);
+      }
     };
 
     const checkForCompletedResult = async () => {
@@ -214,18 +229,19 @@ export function useListWorkspaceRepricingCompletion({
         const response = await getLastRepricingResult();
         if (cancelled || !response?.ok || !response.payload) return;
         await persistCompletedRepricing(response.payload);
-      } catch {}
+      } catch {
+        /* swallow: retried on next focus / visibility change */
+      }
     };
 
     syncLiveStatus();
     checkForCompletedResult();
-    const intervalId = window.setInterval(syncLiveStatus, 1500);
     window.addEventListener("focus", checkForCompletedResult);
     document.addEventListener("visibilitychange", checkForCompletedResult);
 
     return () => {
       cancelled = true;
-      window.clearInterval(intervalId);
+      if (timerId != null) window.clearTimeout(timerId);
       window.removeEventListener("focus", checkForCompletedResult);
       document.removeEventListener("visibilitychange", checkForCompletedResult);
     };

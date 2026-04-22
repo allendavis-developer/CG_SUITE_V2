@@ -6,6 +6,7 @@ import {
 } from '@/components/jewellery/jewelleryWorkspaceMapping';
 import { normalizeExplicitSalePrice } from '@/utils/helpers';
 import { updateRequestItemOffer, updateRequestItemRawData } from '@/services/api';
+import { buildItemOfferPayload } from '@/negotiation/persistItemOffer';
 import { getJewelleryNosposWeightSyncPlan } from '@/pages/buyer/utils/nosposAgreementFirstItemFill';
 import {
   buildMergedNosposStockFieldValuesBlob,
@@ -51,32 +52,18 @@ export function useNegotiationJewelleryWorkspaceSync({
       if (!line?.request_item_id) return;
       const d = getJewelleryWorkspaceDerivedState(line, useVoucherOffers, customerOfferRulesData?.settings);
       const itemName = line.itemName || line.categoryLabel || line.variantTitle || null;
-      const ceRaw = String(line.customerExpectation ?? '').replace(/[£,]/g, '').trim();
-      let customerExpectationForApi = undefined;
-      if (ceRaw === '') {
-        customerExpectationForApi = null;
-      } else {
-        const ceNum = parseFloat(ceRaw);
-        if (Number.isFinite(ceNum) && ceNum >= 0) {
-          customerExpectationForApi = normalizeExplicitSalePrice(ceNum);
-        }
-      }
-      const payload = {
-        selected_offer_id: d.selectedOfferId,
-        manual_offer_used: d.selectedOfferId === 'manual',
-        manual_offer_gbp:
-          d.selectedOfferId === 'manual' && d.manualOffer
-            ? normalizeExplicitSalePrice(parseFloat(String(d.manualOffer).replace(/[£,]/g, '')))
-            : null,
-        senior_mgmt_approved_by: line.selectedOfferTierAuthBy || line.manualOfferAuthBy || null,
-        our_sale_price_at_negotiation:
-          d.ourSalePrice != null && d.ourSalePrice > 0 ? d.ourSalePrice : null,
-        cash_offers_json: normalizeOffersForApi(d.cashOffers),
-        voucher_offers_json: normalizeOffersForApi(d.voucherOffers),
-        ...(customerExpectationForApi !== undefined
-          ? { customer_expectation_gbp: customerExpectationForApi }
-          : {}),
-      };
+      const payload = buildItemOfferPayload(
+        {
+          selectedOfferId: d.selectedOfferId,
+          manualOffer: d.manualOffer,
+          ourSalePrice: d.ourSalePrice,
+          cashOffers: d.cashOffers,
+          voucherOffers: d.voucherOffers,
+          customerExpectation: line.customerExpectation,
+          seniorMgmtApprovedBy: line.selectedOfferTierAuthBy || line.manualOfferAuthBy || null,
+        },
+        { manualOfferOnlyWhenSelected: true }
+      );
       await updateRequestItemOffer(line.request_item_id, payload).catch(() => {});
       const cats = Array.isArray(nosposCategoriesResults) ? nosposCategoriesResults : [];
       const maps = Array.isArray(nosposCategoryMappings) ? nosposCategoryMappings : [];

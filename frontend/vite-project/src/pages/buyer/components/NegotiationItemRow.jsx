@@ -18,6 +18,21 @@ import { isBlockedForItem, offerIdToSlot, manualSlotCommitRequiresAuthorisation 
 import TestingPassedCell from './TestingPassedCell';
 import NosposRequiredFieldsColumnCell, { NosposRequiredFieldsEditorTriggerButton } from './NosposRequiredFieldsColumnCell';
 
+// ─── Small upload-cell formatters (module-level: allocation-stable across rows) ──
+
+/** "£12.99" / "12.99" / null → "£12.99" or "—". */
+function fmtUploadMoney(v) {
+  if (v == null || String(v).trim() === '') return '—';
+  const s = String(v).trim();
+  return s.startsWith('£') ? s : `£${s}`;
+}
+
+/** Any text, trimmed; empty → "—". */
+function fmtUploadText(v) {
+  if (v == null || String(v).trim() === '') return '—';
+  return String(v).trim();
+}
+
 // ─── Reusable offer cell (1st / 2nd / 3rd / 4th) ─────────────────────────────
 
 function OfferCell({ offer, item, quantity, mode, isSelected, onSelect, ourSalePrice, onContextMenu, blockedOfferSlots, onBlockedOfferClick }) {
@@ -149,9 +164,9 @@ export default function NegotiationItemRow({
   hideNosposCategoryColumn = false,
   hideQuantityColumn = false,
   hideCexVoucherCashColumns = false,
-  /** Upload workspace: NosPos stock columns after item name + Upload margin column after sale price. */
+  /** Upload workspace: NosPos stock columns after item name. Also moves the Upload RRP + margin cells to the far right (after CG). */
   showUploadNosposStockColumns = false,
-  /** Audit mode: render the Old Web EPOS RRP cell next to the NosPos RRP cell. */
+  /** Upload audit mode: renders the Current WebEPOS RRP cell right after NosPos RRP (the price shown on the products table at audit start). */
   showUploadAuditColumns = false,
   /** When false, Category + NosPos cells collapse to one narrow placeholder (default expanded for single-callers). */
   categoryColumnsExpanded = true,
@@ -239,17 +254,84 @@ export default function NegotiationItemRow({
   const cgCategoryBreadcrumb = getCgCategoryHierarchyLabelFromItem(item);
 
   const uploadStock = item.uploadNosposStockFromBarcode || null;
-  const fmtUploadMoney = (v) => {
-    if (v == null || String(v).trim() === '') return '—';
-    const s = String(v).trim();
-    return s.startsWith('£') ? s : `£${s}`;
-  };
-  const fmtUploadText = (v) => {
-    if (v == null || String(v).trim() === '') return '—';
-    return String(v).trim();
-  };
-
   const uploadMarginPct = showUploadNosposStockColumns ? resolveUploadMarginPct(item) : null;
+
+  // ─── Extracted cells ────────────────────────────────────────────────────
+  // Placed as named JSX constants so the <tr> body stays readable while still
+  // letting us render each cell in upload-mode-vs-other column orders.
+
+  /** Per-module sale price: "Our RRP" / "New Sale Price" / "Upload RRP". Per-unit retail. */
+  const salePriceCell = (
+    <td className="font-medium text-red-700" onContextMenu={ctxRemoveOnly}>
+      {isViewMode ? (
+        perUnitOurPrice != null ? (
+          <div>
+            <div>£{(perUnitOurPrice * quantity).toFixed(2)}</div>
+            {quantity > 1 && <div className="text-[9px] opacity-70">(£{perUnitOurPrice.toFixed(2)} × {quantity})</div>}
+          </div>
+        ) : '—'
+      ) : (
+        <div>
+          <input
+            className="w-full h-full border-0 text-xs font-semibold text-center px-3 py-2 focus:outline-none focus:ring-0 bg-white rounded"
+            placeholder="£0.00"
+            type="text"
+            value={salePriceInputValue}
+            onChange={(e) => onOurSalePriceChange(item.id, e.target.value.replace(/[£,]/g, '').trim())}
+            onBlur={() => onOurSalePriceBlur(item)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                e.currentTarget.blur();
+              }
+            }}
+            onFocus={() => {
+              if (item.ourSalePriceInput === undefined && salePriceInputValue !== '') {
+                onOurSalePriceFocus(item.id, salePriceInputValue);
+              }
+            }}
+          />
+          {!isEditingRowTotal && totalOurPrice != null && !Number.isNaN(totalOurPrice) && (
+            <div className="text-[9px] opacity-70 mt-0.5">
+              £{totalOurPrice.toFixed(2)}
+              {quantity > 1 && (
+                <span>{` ( £${perUnitOurPrice != null && !Number.isNaN(perUnitOurPrice) ? perUnitOurPrice.toFixed(2) : '0.00'} × ${quantity} )`}</span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </td>
+  );
+
+  /** Upload-mode only: (Upload RRP − NosPos cost) ÷ Upload RRP. */
+  const uploadMarginCell = showUploadNosposStockColumns ? (
+    <td
+      className="align-top text-center text-[11px] font-semibold tabular-nums text-slate-800"
+      onContextMenu={ctxRemoveOnly}
+      title="(Upload RRP − NosPos cost) ÷ Upload RRP"
+    >
+      {uploadMarginPct != null && Number.isFinite(uploadMarginPct) ? (
+        <span style={{ color: uploadMarginPct >= 0 ? 'var(--brand-blue)' : '#dc2626' }}>
+          {uploadMarginPct >= 0 ? '+' : ''}
+          {uploadMarginPct.toFixed(1)}%
+        </span>
+      ) : (
+        '—'
+      )}
+    </td>
+  ) : null;
+
+  /** Audit-mode only: product "Price" shown on the Web EPOS products table at audit start. */
+  const currentWebeposRrpCell = showUploadAuditColumns ? (
+    <td
+      className="align-top text-[11px] font-semibold text-violet-800"
+      onContextMenu={ctxRemoveOnly}
+      title={item.webeposRrp ? `Current Web EPOS RRP: ${item.webeposRrp}` : 'No Web EPOS RRP recorded for this row'}
+    >
+      {item.webeposRrp ? fmtUploadMoney(item.webeposRrp) : <span className="text-slate-400">—</span>}
+    </td>
+  ) : null;
 
   return (
     <tr
@@ -442,21 +524,7 @@ export default function NegotiationItemRow({
           <td className="align-top text-[11px] text-slate-800" onContextMenu={ctxRemoveOnly}>
             {fmtUploadMoney(uploadStock?.retailPrice)}
           </td>
-          {showUploadAuditColumns ? (
-            <td
-              className="align-top text-[11px] text-violet-800 font-semibold"
-              onContextMenu={ctxRemoveOnly}
-              title={
-                item.webeposOriginalPrice
-                  ? `Old Web EPOS RRP: ${item.webeposOriginalPrice}`
-                  : 'Web EPOS RRP not read yet for this row'
-              }
-            >
-              {item.webeposOriginalPrice
-                ? fmtUploadMoney(item.webeposOriginalPrice)
-                : <span className="text-slate-400">—</span>}
-            </td>
-          ) : null}
+          {currentWebeposRrpCell}
         </>
       ) : null}
 
@@ -644,64 +712,9 @@ export default function NegotiationItemRow({
         </>
       ) : null}
 
-      {/* Per-module sale price column (Our RRP / New Sale Price / Upload RRP); per-unit retail */}
-      <td className="font-medium text-red-700" onContextMenu={ctxRemoveOnly}>
-        {isViewMode ? (
-          perUnitOurPrice != null ? (
-            <div>
-              <div>£{(perUnitOurPrice * quantity).toFixed(2)}</div>
-              {quantity > 1 && <div className="text-[9px] opacity-70">(£{perUnitOurPrice.toFixed(2)} × {quantity})</div>}
-            </div>
-          ) : '—'
-        ) : (
-          <div>
-            <input
-              className="w-full h-full border-0 text-xs font-semibold text-center px-3 py-2 focus:outline-none focus:ring-0 bg-white rounded"
-              placeholder="£0.00"
-              type="text"
-              value={salePriceInputValue}
-              onChange={(e) => onOurSalePriceChange(item.id, e.target.value.replace(/[£,]/g, '').trim())}
-              onBlur={() => onOurSalePriceBlur(item)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  e.currentTarget.blur();
-                }
-              }}
-              onFocus={() => {
-                if (item.ourSalePriceInput === undefined && salePriceInputValue !== '') {
-                  onOurSalePriceFocus(item.id, salePriceInputValue);
-                }
-              }}
-            />
-            {!isEditingRowTotal && totalOurPrice != null && !Number.isNaN(totalOurPrice) && (
-              <div className="text-[9px] opacity-70 mt-0.5">
-                £{totalOurPrice.toFixed(2)}
-                {quantity > 1 && (
-                  <span>{` ( £${perUnitOurPrice != null && !Number.isNaN(perUnitOurPrice) ? perUnitOurPrice.toFixed(2) : '0.00'} × ${quantity} )`}</span>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-      </td>
-
-      {showUploadNosposStockColumns ? (
-        <td
-          className="align-top text-center text-[11px] font-semibold tabular-nums text-slate-800"
-          onContextMenu={ctxRemoveOnly}
-          title="(Upload RRP − NosPos cost) ÷ Upload RRP"
-        >
-          {uploadMarginPct != null && Number.isFinite(uploadMarginPct) ? (
-            <span style={{ color: uploadMarginPct >= 0 ? 'var(--brand-blue)' : '#dc2626' }}>
-              {uploadMarginPct >= 0 ? '+' : ''}
-              {uploadMarginPct.toFixed(1)}%
-            </span>
-          ) : (
-            '—'
-          )}
-        </td>
-      ) : null}
+      {/* Upload mode pins Upload RRP + margin to the far right (after CG); other modes keep
+          the sale price in its historical slot after the offer columns. */}
+      {!showUploadNosposStockColumns ? salePriceCell : null}
 
       <NegotiationPriceSourcePickerCell
         mode={mode}
@@ -866,6 +879,10 @@ export default function NegotiationItemRow({
           </div>
         )}
       </td>
+
+      {/* Upload mode: Upload RRP + Upload margin pinned to the far right, after CG. */}
+      {showUploadNosposStockColumns ? salePriceCell : null}
+      {uploadMarginCell}
 
       {showNosposAction ? (
         <td className="align-top">

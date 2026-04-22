@@ -15,6 +15,13 @@ import {
   getAiSuggestedNosposStockCategoryFromItem,
   getAiSuggestedNosposStockFieldValuesFromItem,
 } from '@/utils/nosposCategoryMappings';
+import { MARKETPLACE_DESCRIPTORS } from '@/marketplace/descriptors';
+import {
+  mergeResearchDataIntoItem,
+  applyResearchCommittedPricingToItem,
+  applyResearchToItem,
+} from '@/marketplace/research';
+import { getDisplayOffers } from '@/negotiation/offerMath';
 
 // ─── Pure helper functions for Negotiation page ─────────────────────────────
 
@@ -278,49 +285,62 @@ const UPLOAD_QUEUE_MERGE_SKIP_KEYS = new Set([
   'uploadNosposStockFromBarcode',
   'isUploadBarcodeQueuePlaceholder',
   'uploadTableItemName',
+  'webeposRrp',
 ]);
 
 /**
- * One upload table row right after barcode intake: id matches the pending slot id, NosPos barcodes embedded,
- * optional stock-edit snapshot from the extension scrape.
+ * Generic barcode → value lookup for audit intake maps. Tries each typed barcode
+ * in order and returns the first hit. Used by `resolveWebeposRrpForSlot` and
+ * `resolveCgCategoryForSlot` — both are seeded when the user enters audit mode
+ * from the hub and are empty for fresh uploads.
+ */
+function resolveAuditMapValue(mapByBarcode, typedCodes) {
+  if (!mapByBarcode) return null;
+  for (const code of typedCodes) {
+    const key = String(code ?? '').trim();
+    if (key && mapByBarcode[key] != null) return mapByBarcode[key];
+  }
+  return null;
+}
+
+const resolveWebeposRrpForSlot = resolveAuditMapValue;
+const resolveCgCategoryForSlot = resolveAuditMapValue;
+
+/**
+ * One upload table row right after barcode intake: id matches the pending slot id,
+ * NosPos barcodes embedded, optional NosPos stock-edit snapshot, optional Web EPOS
+ * RRP (audit-only), optional CG categoryObject reverse-derived from the Web EPOS
+ * product's `#catLevel{N}` selects (audit-only).
  */
 export function buildUploadBarcodeQueuePlaceholderItem(slotId, {
   barcodes,
   nosposLookups,
   uploadStockDetailsBySlotId,
-  webeposAuditDetailsBySlotId,
+  webeposRrpByBarcode = null,
+  cgCategoryByBarcode = null,
 }) {
   const lk = nosposLookups[`${slotId}_0`];
   const typedCodes = barcodes[slotId] || [];
   const stockBarcode = String(lk?.stockBarcode || typedCodes[0] || '').trim();
+
   let nosposBarcodes = [];
   if (lk?.status === 'selected' && stockBarcode) {
-    nosposBarcodes = [
-      {
-        barserial: stockBarcode,
-        href: (lk.stockUrl || '').replace(/^https:\/\/nospos\.com/i, '') || '',
-        name: lk?.stockName || '',
-      },
-    ];
+    nosposBarcodes = [{
+      barserial: stockBarcode,
+      href: (lk.stockUrl || '').replace(/^https:\/\/nospos\.com/i, '') || '',
+      name: lk?.stockName || '',
+    }];
   } else if (typedCodes[0]) {
     nosposBarcodes = [{ barserial: String(typedCodes[0]).trim(), href: '', name: '' }];
   }
-  const scraped = uploadStockDetailsBySlotId[slotId];
-  const snap = uploadNosposStockSnapshotFromScrape(scraped);
+
+  const nosposStockSnapshot = uploadNosposStockSnapshotFromScrape(uploadStockDetailsBySlotId[slotId]);
+  const webeposRrp = resolveWebeposRrpForSlot(webeposRrpByBarcode, typedCodes);
+  const cgCategory = resolveCgCategoryForSlot(cgCategoryByBarcode, typedCodes);
   const titleFromNos = (lk?.stockName || '').trim();
-  const webepos = webeposAuditDetailsBySlotId?.[slotId] || null;
   const title =
     titleFromNos ||
-    (webepos?.originalTitle || '').trim() ||
     (stockBarcode ? `Add product (${stockBarcode})` : 'Add product from header');
-
-  // Audit mode: prefill ourSalePrice with the current Web EPOS price so the user sees the
-  // baseline and can edit from there. A numeric parse of "£12.99" or "12.99".
-  let ourSalePriceInitial = null;
-  if (webepos?.originalPrice) {
-    const parsed = Number.parseFloat(String(webepos.originalPrice).replace(/[£,\s]/g, ''));
-    if (Number.isFinite(parsed) && parsed > 0) ourSalePriceInitial = parsed;
-  }
 
   return withUploadListRrpSourceDefaults({
     id: slotId,
@@ -328,8 +348,8 @@ export function buildUploadBarcodeQueuePlaceholderItem(slotId, {
     title,
     subtitle: '',
     quantity: 1,
-    category: '',
-    categoryObject: webepos?.derivedCategoryObject || null,
+    category: cgCategory?.name || '',
+    categoryObject: cgCategory || null,
     offers: [],
     cashOffers: [],
     voucherOffers: [],
@@ -348,20 +368,12 @@ export function buildUploadBarcodeQueuePlaceholderItem(slotId, {
     attributeValues: {},
     condition: null,
     image: null,
-    ourSalePrice: ourSalePriceInitial,
+    ourSalePrice: null,
     nosposBarcodes,
     isRemoved: false,
     isCustomCeXItem: false,
-    ...(snap ? { uploadNosposStockFromBarcode: snap } : {}),
-    ...(webepos
-      ? {
-          webeposProductHref: webepos.productHref || null,
-          webeposOriginalPrice: webepos.originalPrice || null,
-          webeposOriginalName: webepos.originalTitle || null,
-          webeposCategoryLevels: Array.isArray(webepos.categoryLevels) ? webepos.categoryLevels : [],
-          webeposDerivedCategoryObject: webepos.derivedCategoryObject || null,
-        }
-      : {}),
+    ...(nosposStockSnapshot ? { uploadNosposStockFromBarcode: nosposStockSnapshot } : {}),
+    ...(webeposRrp != null ? { webeposRrp } : {}),
   });
 }
 
@@ -1192,260 +1204,38 @@ export function applyRrpAndOffersFromPriceSource(item, zone, useVoucherOffers) {
   }
 }
 
-export function getDisplayOffers(item, useVoucherOffers) {
-  // Prefer non-empty typed arrays so an accidental [] does not mask aligned `offers`,
-  // and CeX-backed rows still resolve to real tier offers when cash/voucher stayed in sync.
-  if (useVoucherOffers) {
-    if (item.voucherOffers?.length) return item.voucherOffers;
-    return item.offers || [];
-  }
-  if (item.cashOffers?.length) return item.cashOffers;
-  return item.offers || [];
-}
+// Barrel re-exports — implementations moved to focused modules.
+export {
+  getDisplayOffers,
+  sumOfferMinMaxForNegotiationItems,
+  offerMinMaxFromCexProductData,
+  offerMinMaxFromResearchBuyOffers,
+  offerMinMaxFromWorkspaceOfferRows,
+  calculateItemTargetContribution,
+  calculateTotalOfferPrice,
+  calculateJewelleryOfferTotal,
+  calculateNonJewelleryOfferTotal,
+} from '@/negotiation/offerMath';
 
-/**
- * Lowest/highest tier totals across the given lines (same construction as the negotiation Offer Min / Max bar).
- * @returns {{ offerMin: number|null, offerMax: number|null }}
- */
-export function sumOfferMinMaxForNegotiationItems(items, useVoucherOffers) {
-  const list = Array.isArray(items) ? items.filter((i) => i && !i.isRemoved) : [];
-  if (list.length === 0) return { offerMin: null, offerMax: null };
-  let min = 0;
-  let max = 0;
-  for (const item of list) {
-    const qty = item.quantity || 1;
-    const displayOffers = getDisplayOffers(item, useVoucherOffers);
-    const prices = displayOffers.map((o) => Number(o.price)).filter((p) => !Number.isNaN(p) && p >= 0);
-    if (prices.length > 0) {
-      min += Math.min(...prices) * qty;
-      max += Math.max(...prices) * qty;
-    }
-  }
-  return { offerMin: min, offerMax: max };
-}
+export {
+  isNegotiationJewelleryLine,
+  isNegotiationCexWorkspaceLine,
+  isNegotiationBuilderWorkspaceLine,
+  isNegotiationMarketplaceWorkspaceLine,
+  isNegotiationEbayWorkspaceLine,
+  isNegotiationCashConvertersWorkspaceLine,
+  isNegotiationCashGeneratorWorkspaceLine,
+} from '@/negotiation/lineTypes';
 
-/**
- * Offer min/max for the CeX browser workspace product blob (store), qty 1 — same tiers as a negotiation line.
- * Used when the workspace is open so the metrics bar matches only the loaded listing, not every CeX line in cart.
- */
-export function offerMinMaxFromCexProductData(cexProductData, useVoucherOffers) {
-  if (!cexProductData) return { offerMin: null, offerMax: null };
-  const cashOffers = slimCexNegotiationOfferRows(cexProductData.cash_offers || []);
-  const voucherOffers = slimCexNegotiationOfferRows(cexProductData.voucher_offers || []);
-  const synthetic = {
-    isRemoved: false,
-    quantity: 1,
-    cashOffers,
-    voucherOffers,
-    offers: cashOffers.length ? cashOffers : voucherOffers,
-  };
-  const display = getDisplayOffers(synthetic, useVoucherOffers);
-  if (!display.length) return { offerMin: null, offerMax: null };
-  return sumOfferMinMaxForNegotiationItems([synthetic], useVoucherOffers);
-}
-
-/**
- * Offer min/max from eBay / Cash Converters research grid tiers (`calculateBuyOffers` rows), qty 1.
- * Matches the offer rows built when adding a custom eBay line from the header research workspace.
- */
-export function offerMinMaxFromResearchBuyOffers(buyOffers, useVoucherOffers) {
-  const rows = Array.isArray(buyOffers) ? buyOffers : [];
-  if (rows.length === 0) return { offerMin: null, offerMax: null };
-  const cashOffers = rows.map((o, idx) => ({
-    id: `research-cash-${idx + 1}`,
-    title: titleForEbayCcOfferIndex(idx),
-    price: Number(formatOfferPrice(o.price)),
-  }));
-  const voucherOffers = cashOffers.map((co) => ({
-    id: `research-voucher-${co.id}`,
-    title: co.title,
-    price: Number(formatOfferPrice(co.price * 1.1)),
-  }));
-  const synthetic = {
-    isRemoved: false,
-    quantity: 1,
-    cashOffers,
-    voucherOffers,
-    offers: cashOffers.length ? cashOffers : voucherOffers,
-  };
-  return sumOfferMinMaxForNegotiationItems([synthetic], useVoucherOffers);
-}
-
-/**
- * Offer min/max from header builder (or MainContent) CeX tier rows already in negotiation shape
- * (`id`, `title`, `price`), quantity 1 — same bar semantics as other workspaces scoped to the open picker.
- */
-export function offerMinMaxFromWorkspaceOfferRows(offers, useVoucherOffers) {
-  const rows = Array.isArray(offers) ? offers : [];
-  if (rows.length === 0) return { offerMin: null, offerMax: null };
-  return sumOfferMinMaxForNegotiationItems(
-    [
-      {
-        isRemoved: false,
-        quantity: 1,
-        cashOffers: useVoucherOffers ? [] : rows,
-        voucherOffers: useVoucherOffers ? rows : [],
-        offers: rows,
-      },
-    ],
-    useVoucherOffers
-  );
-}
-
-/** Jewellery negotiation rows (upper workspace table). */
-export function isNegotiationJewelleryLine(item) {
-  return Boolean(item && !item.isRemoved && item.isJewelleryItem === true);
-}
-
-/**
- * Main-table lines from CeX browser workspace / UK webuy custom path (`isCustomCeXItem`).
- * Excludes jewellery (in the jewellery table).
- */
-export function isNegotiationCexWorkspaceLine(item) {
-  if (!item || item.isRemoved || item.isJewelleryItem === true) return false;
-  return item.isCustomCeXItem === true;
-}
-
-/**
- * Main-table catalogue / builder lines — not jewellery and not the CeX-browser-only custom SKU shape.
- */
-export function isNegotiationBuilderWorkspaceLine(item) {
-  if (!item || item.isRemoved || item.isJewelleryItem === true) return false;
-  return item.isCustomCeXItem !== true;
-}
-
-/**
- * Lines where eBay tiers apply: custom eBay rows or saved eBay research with listings/filters.
- * Excludes jewellery and CeX-browser-only rows.
- */
-export function isNegotiationEbayWorkspaceLine(item) {
-  if (!item || item.isRemoved || item.isJewelleryItem === true) return false;
-  if (item.isCustomCeXItem === true) return false;
-  if (item.isCustomEbayItem === true) return true;
-  const st = item.ebayResearchData?.stats;
-  const filters = item.ebayResearchData?.selectedFilters;
-  return Boolean(st && filters);
-}
-
-/** Cash Converters–primary rows (custom CC lines or merged CC research with stats + filters). */
-export function isNegotiationCashConvertersWorkspaceLine(item) {
-  if (!item || item.isRemoved || item.isJewelleryItem === true) return false;
-  if (item.isCustomCeXItem === true) return false;
-  if (item.isCustomCashConvertersItem === true) return true;
-  const st = item.cashConvertersResearchData?.stats;
-  const filters = item.cashConvertersResearchData?.selectedFilters;
-  return Boolean(st && filters);
-}
-
-/** Cash Generator–primary rows (custom CG lines or merged CG research with stats + filters). */
-export function isNegotiationCashGeneratorWorkspaceLine(item) {
-  if (!item || item.isRemoved || item.isJewelleryItem === true) return false;
-  if (item.isCustomCeXItem === true) return false;
-  if (item.isCustomCashGeneratorItem === true) return true;
-  const st = item.cgResearchData?.stats;
-  const filters = item.cgResearchData?.selectedFilters;
-  return Boolean(st && filters);
-}
-
-function getItemOfferTotal(item, useVoucherOffers) {
-  if (item.isRemoved) return 0;
-  const qty = item.quantity || 1;
-  if (item.selectedOfferId === 'manual' && item.manualOffer) {
-    return (parseFloat(item.manualOffer.replace(/[£,]/g, '')) || 0) * qty;
-  }
-  const selected = getDisplayOffers(item, useVoucherOffers)?.find(o => o.id === item.selectedOfferId);
-  return selected ? selected.price * qty : 0;
-}
-
-export function calculateItemTargetContribution(itemId, items, targetOffer, useVoucherOffers) {
-  const parsedTarget = parseFloat(targetOffer);
-  if (!parsedTarget || parsedTarget <= 0) return null;
-  const otherTotal = items
-    .filter(i => !i.isRemoved && i.id !== itemId)
-    .reduce((sum, i) => sum + getItemOfferTotal(i, useVoucherOffers), 0);
-  return parsedTarget - otherTotal;
-}
-
-export function calculateTotalOfferPrice(items, useVoucherOffers) {
-  return items.reduce((sum, item) => sum + getItemOfferTotal(item, useVoucherOffers), 0);
-}
-
-/** Sum of selected/manual offers for jewellery lines only (for negotiation totals breakdown). */
-export function calculateJewelleryOfferTotal(items, useVoucherOffers) {
-  return items
-    .filter((i) => !i.isRemoved && i.isJewelleryItem === true)
-    .reduce((sum, item) => sum + getItemOfferTotal(item, useVoucherOffers), 0);
-}
-
-/** Sum for non-jewellery lines (catalogue / CeX / eBay etc.). */
-export function calculateNonJewelleryOfferTotal(items, useVoucherOffers) {
-  return items
-    .filter((i) => !i.isRemoved && i.isJewelleryItem !== true)
-    .reduce((sum, item) => sum + getItemOfferTotal(item, useVoucherOffers), 0);
-}
-
-// ─── Payload builders ──────────────────────────────────────────────────────
-
-/** Header eBay workspace: pending customer expectation before the line exists in cart. */
-export const HEADER_EBAY_CUSTOMER_EXPECTATION_KEY = '__header_ebay__';
-
-/** Header Cash Converters / Cash Generator marketplace workspace (same pattern as eBay). */
-export const HEADER_CC_CUSTOMER_EXPECTATION_KEY = '__header_cc__';
-export const HEADER_CG_CUSTOMER_EXPECTATION_KEY = '__header_cg__';
-
-/** Header Other (NosPos manual) workspace: pending expectation before the line is added. */
-export const HEADER_OTHER_CUSTOMER_EXPECTATION_KEY = '__header_other__';
-
-/**
- * Negotiation table line to scope metrics to while the Other workspace is open (last added if several).
- * @returns {object | null}
- */
-export function getNegotiationOtherNosposScopeLine(items) {
-  const active = (Array.isArray(items) ? items : []).filter(
-    (i) => i && !i.isRemoved && i.isOtherNosposManualItem === true
-  );
-  if (active.length === 0) return null;
-  return active[active.length - 1];
-}
-
-/**
- * Strip / metrics bar draft to apply on add — tries CeX placeholder, line id, then header Other / eBay session keys.
- * @returns {{ value: string | null, consumeKeys: string[] }}
- */
-export function resolveCustomerExpectationDraftForAdd(cartItem, pendingByTarget) {
-  if (!cartItem || !pendingByTarget || typeof pendingByTarget !== 'object') {
-    return { value: null, consumeKeys: [] };
-  }
-  const tryKeys = [];
-  const pid = cartItem.cexSku ?? cartItem.cexProductData?.id;
-  if (pid != null && pid !== '') tryKeys.push(`__cex__${pid}`);
-  if (cartItem.id != null) tryKeys.push(cartItem.id);
-  tryKeys.push(HEADER_OTHER_CUSTOMER_EXPECTATION_KEY);
-  tryKeys.push(HEADER_EBAY_CUSTOMER_EXPECTATION_KEY);
-  tryKeys.push(HEADER_CC_CUSTOMER_EXPECTATION_KEY);
-  tryKeys.push(HEADER_CG_CUSTOMER_EXPECTATION_KEY);
-  const seen = new Set();
-  for (const k of tryKeys) {
-    if (k == null || seen.has(k)) continue;
-    seen.add(k);
-    const raw = pendingByTarget[k];
-    if (raw != null && String(raw).trim() !== '') {
-      return { value: String(raw).trim(), consumeKeys: [k] };
-    }
-  }
-  return { value: null, consumeKeys: [] };
-}
-
-/** Formatted sum of per-line customer expectations for the metrics strip (idle / view). */
-export function formatSumLineCustomerExpectations(items) {
-  const active = (items || []).filter((i) => !i.isRemoved);
-  if (active.length === 0) return '';
-  const sum = active.reduce((acc, i) => {
-    const v = parseFloat(String(i.customerExpectation ?? '').replace(/[£,]/g, '').trim());
-    return acc + (Number.isFinite(v) && v >= 0 ? v : 0);
-  }, 0);
-  return sum.toFixed(2);
-}
+export {
+  HEADER_EBAY_CUSTOMER_EXPECTATION_KEY,
+  HEADER_CC_CUSTOMER_EXPECTATION_KEY,
+  HEADER_CG_CUSTOMER_EXPECTATION_KEY,
+  HEADER_OTHER_CUSTOMER_EXPECTATION_KEY,
+  getNegotiationOtherNosposScopeLine,
+  resolveCustomerExpectationDraftForAdd,
+  formatSumLineCustomerExpectations,
+} from '@/negotiation/customerExpectation';
 
 export function buildFinishPayload(
   items,
@@ -1827,401 +1617,39 @@ export function normalizeCartItemForNegotiation(item, useVoucherOffers = false) 
  * Does not change cashOffers / voucherOffers / offers / selectedOfferId / manualOffer.
  */
 export function mergeEbayResearchDataIntoItem(item, updatedState) {
-  const aiNos = updatedState?.aiSuggestedNosposStockCategory;
-  const hasAiNosposHint =
-    aiNos &&
-    typeof aiNos === 'object' &&
-    (aiNos.nosposId != null ||
-      (aiNos.fullName != null && String(aiNos.fullName).trim() !== '') ||
-      (Array.isArray(aiNos.pathSegments) && aiNos.pathSegments.length > 0));
-
-  const nextItem = {
-    ...item,
-    ebayResearchData: updatedState,
-    ...(updatedState.resolvedCategory ? { categoryObject: updatedState.resolvedCategory } : {}),
-    ...(hasAiNosposHint
-      ? {
-          aiSuggestedNosposStockCategory: aiNos,
-          rawData:
-            item.rawData != null && typeof item.rawData === 'object'
-              ? { ...item.rawData, aiSuggestedNosposStockCategory: aiNos }
-              : { aiSuggestedNosposStockCategory: aiNos },
-        }
-      : {}),
-  };
-  logCategoryRuleDecision({
-    context: 'ebay-research-complete',
-    item: nextItem,
-    categoryObject: nextItem.categoryObject,
-    rule: {
-      source: 'ebay-offer-margins',
-      margins: Array.isArray(updatedState?.buyOffers) ? 'buyOffers-computed' : null,
-    },
-  });
-  return nextItem;
+  return mergeResearchDataIntoItem(item, updatedState, MARKETPLACE_DESCRIPTORS.ebay);
 }
 
-/**
- * Rebuild tier offers + selection from research result, using the row as it was before this
- * research session for classification (`preMergeItem`).
- */
-export function applyEbayResearchCommittedPricingToItem(
-  preMergeItem,
-  mergedItem,
-  updatedState,
-  useVoucherOffers
-) {
-  const item = preMergeItem;
-  const cexBacked = isCeXBackedNegotiationItem(item);
-  const isEbayOnlyItem =
-    item.isCustomEbayItem === true ||
-    (!cexBacked && item.ebayResearchData?.stats && item.ebayResearchData?.selectedFilters);
-
-  let newCashOffers = item.cashOffers || [];
-  let newVoucherOffers = item.voucherOffers || [];
-
-  const useEbayOfferTiers =
-    resolveOffersSource(item) === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY &&
-    updatedState.buyOffers &&
-    updatedState.buyOffers.length > 0;
-
-  if (useEbayOfferTiers) {
-    newCashOffers = updatedState.buyOffers.slice(0, 4).map((o, idx) => ({
-      id: `ebay-rrp_${idx + 1}`,
-      title: titleForEbayCcOfferIndex(idx),
-      price: roundOfferPrice(Number(o.price)),
-    }));
-    newVoucherOffers = newCashOffers.map((offer) => ({
-      id: `ebay-rrp-v-${offer.id}`,
-      title: offer.title,
-      price: toVoucherOfferPrice(offer.price),
-    }));
-  } else if (updatedState.buyOffers && updatedState.buyOffers.length > 0) {
-    if (isEbayOnlyItem) {
-      newCashOffers = updatedState.buyOffers.map((o, idx) => ({
-        id: `ebay-cash_${idx + 1}`,
-        title: titleForEbayCcOfferIndex(idx),
-        price: roundOfferPrice(o.price),
-      }));
-      newVoucherOffers = newCashOffers.map((offer) => ({
-        id: `ebay-voucher-${offer.id}`,
-        title: offer.title,
-        price: toVoucherOfferPrice(offer.price),
-      }));
-    } else if (!cexBacked) {
-      const hasExistingOffers =
-        (item.cashOffers?.length > 0) || (item.voucherOffers?.length > 0) || (item.offers?.length > 0);
-      if (!hasExistingOffers) {
-        newCashOffers = updatedState.buyOffers.map((o, idx) => ({
-          id: `ebay-cash_${idx + 1}`,
-          title: titleForEbayCcOfferIndex(idx),
-          price: roundOfferPrice(o.price),
-        }));
-        newVoucherOffers = newCashOffers.map((offer) => ({
-          id: `ebay-voucher-${offer.id}`,
-          title: offer.title,
-          price: toVoucherOfferPrice(offer.price),
-        }));
-      }
-    }
-  }
-
-  const displayOffers = useVoucherOffers ? newVoucherOffers : newCashOffers;
-  let newSelectedOfferId = item.selectedOfferId;
-  let newManualOffer = item.manualOffer;
-
-  if (updatedState.selectedOfferIndex !== undefined && updatedState.selectedOfferIndex !== null) {
-    if (updatedState.selectedOfferIndex === 'manual') {
-      newSelectedOfferId = 'manual';
-      newManualOffer = updatedState.manualOffer || item.manualOffer;
-    } else if (typeof updatedState.selectedOfferIndex === 'number') {
-      const selectedOffer = displayOffers[updatedState.selectedOfferIndex];
-      if (selectedOffer) {
-        newSelectedOfferId = selectedOffer.id;
-        newManualOffer = '';
-      }
-    }
-  } else {
-    if (updatedState.manualOffer !== undefined) newManualOffer = updatedState.manualOffer;
-    const prevOffers = getDisplayOffers(item, useVoucherOffers);
-    const prevIdx = prevOffers?.findIndex((o) => o.id === item.selectedOfferId);
-    if (prevIdx >= 0 && displayOffers[prevIdx]) newSelectedOfferId = displayOffers[prevIdx].id;
-  }
-
-  let next = {
-    ...mergedItem,
-    cashOffers: newCashOffers,
-    voucherOffers: newVoucherOffers,
-    offers: displayOffers,
-    manualOffer: newManualOffer,
-    selectedOfferId: newSelectedOfferId,
-  };
-
-  if (item.rrpOffersSource === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_EBAY) {
-    const rrp = resolveSuggestedRetailFromResearchStats(updatedState.stats);
-    if (rrp != null && rrp > 0) {
-      next = {
-        ...next,
-        ourSalePrice: formatOfferPrice(rrp),
-        useResearchSuggestedPrice: false,
-      };
-    }
-  }
-
-  return next;
+export function applyEbayResearchCommittedPricingToItem(preMergeItem, mergedItem, updatedState, useVoucherOffers) {
+  return applyResearchCommittedPricingToItem(preMergeItem, mergedItem, updatedState, useVoucherOffers, MARKETPLACE_DESCRIPTORS.ebay);
 }
 
-/**
- * Apply ebay research results to a negotiation item (saved research + committed tiers).
- */
 export function applyEbayResearchToItem(item, updatedState, useVoucherOffers) {
-  const merged = mergeEbayResearchDataIntoItem(item, updatedState);
-  return applyEbayResearchCommittedPricingToItem(item, merged, updatedState, useVoucherOffers);
+  return applyResearchToItem(item, updatedState, useVoucherOffers, MARKETPLACE_DESCRIPTORS.ebay);
 }
 
-/**
- * Persist CC research payload; does not change offers or selection.
- */
 export function mergeCashConvertersResearchDataIntoItem(item, updatedState) {
-  const nextItem = {
-    ...item,
-    cashConvertersResearchData: updatedState,
-    ...(updatedState.resolvedCategory ? { categoryObject: updatedState.resolvedCategory } : {}),
-  };
-  logCategoryRuleDecision({
-    context: 'cashconverters-research-complete',
-    item: nextItem,
-    categoryObject: nextItem.categoryObject,
-    rule: {
-      source: 'category-based-margins',
-      margins: Array.isArray(updatedState?.buyOffers) ? 'buyOffers-computed' : null,
-    },
-  });
-  return nextItem;
+  return mergeResearchDataIntoItem(item, updatedState, MARKETPLACE_DESCRIPTORS.cashConverters);
 }
 
-/**
- * Apply CC tier offers + selection from research (row classification from `preMergeItem`).
- */
-export function applyCashConvertersResearchCommittedPricingToItem(
-  preMergeItem,
-  mergedItem,
-  updatedState,
-  useVoucherOffers
-) {
-  const item = preMergeItem;
-
-  const hasExistingOffers =
-    (item.cashOffers?.length > 0) || (item.voucherOffers?.length > 0) || (item.offers?.length > 0);
-
-  let newCashOffers = item.cashOffers || [];
-  let newVoucherOffers = item.voucherOffers || [];
-
-  const useCcOfferTiers =
-    resolveOffersSource(item) === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS &&
-    updatedState.buyOffers?.length > 0;
-
-  if (useCcOfferTiers) {
-    newCashOffers = updatedState.buyOffers.slice(0, 4).map((o, idx) => ({
-      id: `cc-rrp_${idx + 1}`,
-      title: titleForEbayCcOfferIndex(idx),
-      price: roundOfferPrice(Number(o.price)),
-    }));
-    newVoucherOffers = newCashOffers.map((offer) => ({
-      id: `cc-rrp-v-${offer.id}`,
-      title: offer.title,
-      price: toVoucherOfferPrice(offer.price),
-    }));
-  } else if (
-    !isCeXBackedNegotiationItem(item) &&
-    !hasExistingOffers &&
-    updatedState.buyOffers?.length > 0
-  ) {
-    newCashOffers = updatedState.buyOffers.map((o, idx) => ({
-      id: `cc-cash_${idx + 1}`,
-      title: titleForEbayCcOfferIndex(idx),
-      price: Number(o.price),
-    }));
-    newVoucherOffers = newCashOffers.map((offer) => ({
-      id: `cc-voucher-${offer.id}`,
-      title: offer.title,
-      price: toVoucherOfferPrice(offer.price),
-    }));
-  }
-
-  const displayOffers = useVoucherOffers ? newVoucherOffers : newCashOffers;
-
-  let newSelectedOfferId = item.selectedOfferId;
-  let newManualOffer = item.manualOffer;
-
-  if (updatedState.selectedOfferIndex !== undefined && updatedState.selectedOfferIndex !== null) {
-    if (updatedState.selectedOfferIndex === 'manual') {
-      newManualOffer = updatedState.manualOffer || item.manualOffer;
-      newSelectedOfferId = 'manual';
-    } else if (typeof updatedState.selectedOfferIndex === 'number') {
-      const selectedOffer = displayOffers[updatedState.selectedOfferIndex];
-      if (selectedOffer) {
-        newSelectedOfferId = selectedOffer.id;
-        newManualOffer = '';
-      }
-    }
-  } else {
-    if (updatedState.manualOffer !== undefined) newManualOffer = updatedState.manualOffer;
-    const prevOffers = getDisplayOffers(item, useVoucherOffers);
-    const prevIdx = prevOffers?.findIndex((o) => o.id === item.selectedOfferId);
-    if (prevIdx >= 0 && displayOffers[prevIdx]) newSelectedOfferId = displayOffers[prevIdx].id;
-  }
-
-  let next = {
-    ...mergedItem,
-    cashOffers: newCashOffers,
-    voucherOffers: newVoucherOffers,
-    offers: displayOffers,
-    manualOffer: newManualOffer,
-    selectedOfferId: newSelectedOfferId,
-  };
-
-  if (item.rrpOffersSource === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_CONVERTERS) {
-    const rrp = resolveSuggestedRetailFromResearchStats(updatedState.stats);
-    if (rrp != null && rrp > 0) {
-      next = {
-        ...next,
-        ourSalePrice: formatOfferPrice(rrp),
-        useResearchSuggestedPrice: false,
-      };
-    }
-  }
-
-  return next;
+export function applyCashConvertersResearchCommittedPricingToItem(preMergeItem, mergedItem, updatedState, useVoucherOffers) {
+  return applyResearchCommittedPricingToItem(preMergeItem, mergedItem, updatedState, useVoucherOffers, MARKETPLACE_DESCRIPTORS.cashConverters);
 }
 
-/**
- * Apply Cash Converters research results to a negotiation item (full).
- */
 export function applyCashConvertersResearchToItem(item, updatedState, useVoucherOffers) {
-  const merged = mergeCashConvertersResearchDataIntoItem(item, updatedState);
-  return applyCashConvertersResearchCommittedPricingToItem(item, merged, updatedState, useVoucherOffers);
+  return applyResearchToItem(item, updatedState, useVoucherOffers, MARKETPLACE_DESCRIPTORS.cashConverters);
 }
 
-/**
- * Persist Cash Generator research payload (same shape as CC / extension research).
- */
 export function mergeCashGeneratorResearchDataIntoItem(item, updatedState) {
-  const nextItem = {
-    ...item,
-    cgResearchData: updatedState,
-    ...(updatedState.resolvedCategory ? { categoryObject: updatedState.resolvedCategory } : {}),
-  };
-  logCategoryRuleDecision({
-    context: 'cashgenerator-research-complete',
-    item: nextItem,
-    categoryObject: nextItem.categoryObject,
-    rule: {
-      source: 'category-based-margins',
-      margins: Array.isArray(updatedState?.buyOffers) ? 'buyOffers-computed' : null,
-    },
-  });
-  return nextItem;
+  return mergeResearchDataIntoItem(item, updatedState, MARKETPLACE_DESCRIPTORS.cashGenerator);
 }
 
-/**
- * Apply Cash Generator tier offers + selection from research (same rules as CC).
- */
-export function applyCashGeneratorResearchCommittedPricingToItem(
-  preMergeItem,
-  mergedItem,
-  updatedState,
-  useVoucherOffers
-) {
-  const item = preMergeItem;
-
-  const hasExistingOffers =
-    (item.cashOffers?.length > 0) || (item.voucherOffers?.length > 0) || (item.offers?.length > 0);
-
-  let newCashOffers = item.cashOffers || [];
-  let newVoucherOffers = item.voucherOffers || [];
-
-  const useCgOfferTiers =
-    resolveOffersSource(item) === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_GENERATOR &&
-    updatedState.buyOffers?.length > 0;
-
-  if (useCgOfferTiers) {
-    newCashOffers = updatedState.buyOffers.slice(0, 4).map((o, idx) => ({
-      id: `cg-rrp_${idx + 1}`,
-      title: titleForEbayCcOfferIndex(idx),
-      price: roundOfferPrice(Number(o.price)),
-    }));
-    newVoucherOffers = newCashOffers.map((offer) => ({
-      id: `cg-rrp-v-${offer.id}`,
-      title: offer.title,
-      price: toVoucherOfferPrice(offer.price),
-    }));
-  } else if (
-    !isCeXBackedNegotiationItem(item) &&
-    !hasExistingOffers &&
-    updatedState.buyOffers?.length > 0
-  ) {
-    newCashOffers = updatedState.buyOffers.map((o, idx) => ({
-      id: `cg-cash_${idx + 1}`,
-      title: titleForEbayCcOfferIndex(idx),
-      price: Number(o.price),
-    }));
-    newVoucherOffers = newCashOffers.map((offer) => ({
-      id: `cg-voucher-${offer.id}`,
-      title: offer.title,
-      price: toVoucherOfferPrice(offer.price),
-    }));
-  }
-
-  const displayOffers = useVoucherOffers ? newVoucherOffers : newCashOffers;
-
-  let newSelectedOfferId = item.selectedOfferId;
-  let newManualOffer = item.manualOffer;
-
-  if (updatedState.selectedOfferIndex !== undefined && updatedState.selectedOfferIndex !== null) {
-    if (updatedState.selectedOfferIndex === 'manual') {
-      newManualOffer = updatedState.manualOffer || item.manualOffer;
-      newSelectedOfferId = 'manual';
-    } else if (typeof updatedState.selectedOfferIndex === 'number') {
-      const selectedOffer = displayOffers[updatedState.selectedOfferIndex];
-      if (selectedOffer) {
-        newSelectedOfferId = selectedOffer.id;
-        newManualOffer = '';
-      }
-    }
-  } else {
-    if (updatedState.manualOffer !== undefined) newManualOffer = updatedState.manualOffer;
-    const prevOffers = getDisplayOffers(item, useVoucherOffers);
-    const prevIdx = prevOffers?.findIndex((o) => o.id === item.selectedOfferId);
-    if (prevIdx >= 0 && displayOffers[prevIdx]) newSelectedOfferId = displayOffers[prevIdx].id;
-  }
-
-  let next = {
-    ...mergedItem,
-    cashOffers: newCashOffers,
-    voucherOffers: newVoucherOffers,
-    offers: displayOffers,
-    manualOffer: newManualOffer,
-    selectedOfferId: newSelectedOfferId,
-  };
-
-  if (item.rrpOffersSource === NEGOTIATION_ROW_CONTEXT.PRICE_SOURCE_CASH_GENERATOR) {
-    const rrp = resolveSuggestedRetailFromResearchStats(updatedState.stats);
-    if (rrp != null && rrp > 0) {
-      next = {
-        ...next,
-        ourSalePrice: formatOfferPrice(rrp),
-        useResearchSuggestedPrice: false,
-      };
-    }
-  }
-
-  return next;
+export function applyCashGeneratorResearchCommittedPricingToItem(preMergeItem, mergedItem, updatedState, useVoucherOffers) {
+  return applyResearchCommittedPricingToItem(preMergeItem, mergedItem, updatedState, useVoucherOffers, MARKETPLACE_DESCRIPTORS.cashGenerator);
 }
 
 export function applyCashGeneratorResearchToItem(item, updatedState, useVoucherOffers) {
-  const merged = mergeCashGeneratorResearchDataIntoItem(item, updatedState);
-  return applyCashGeneratorResearchCommittedPricingToItem(item, merged, updatedState, useVoucherOffers);
+  return applyResearchToItem(item, updatedState, useVoucherOffers, MARKETPLACE_DESCRIPTORS.cashGenerator);
 }
 
 /**

@@ -17,6 +17,7 @@ import { JEWELLERY_SCRAP_OPEN_TAB_ACTION } from '@/constants/jewelleryScrapBridg
  */
 export async function getDataFromListingPage(competitor, searchQuery, marketComparisonContext) {
   const competitorVal = ['CashConverters', 'CashGenerator', 'CeX'].includes(competitor) ? competitor : 'eBay';
+  console.log('[extClient][getDataFromListingPage] sending', { competitor: competitorVal, searchQuery });
   return sendMessage({
     action: 'startWaitingForData',
     competitor: competitorVal,
@@ -219,60 +220,63 @@ export function openWebEposProductCreateForUploadWithTimeout(options = {}) {
 }
 
 /**
- * Audit mode intake: open a single Web EPOS product edit page in the upload worker tab and read
- * its current title, price, and category levels. The category levels let the app reverse-map the
- * CG category from Web EPOS labels.
- *
- * @returns {{ ok: true, details: { title: string, price: string, categoryLevels: {uuid:string,label:string}[] } } | { ok: false, error: string }}
- */
-export async function scrapeWebEposEditPageForAudit({ productHref } = {}) {
-  return sendMessage(
-    { action: 'scrapeWebEposEditPage', productHref: productHref || '' },
-    { timeoutMs: 180_000 }
-  );
-}
-
-/**
- * Audit mode finish: edit each existing Web EPOS product in place. Each entry must include
- * `productHref`; optional fields are `price`, `categoryLevelUuids`, `categoryLevelLabels`. Entries
- * with no changed fields are dropped by the extension side.
- */
-export async function editWebEposProductsForAudit(options = {}) {
-  const list = Array.isArray(options.webEposEditList) ? options.webEposEditList : [];
-  const uploadProgressCartKey = String(options.uploadProgressCartKey || '').trim();
-  return sendMessage({
-    action: 'editWebEposProductsForAudit',
-    webEposEditList: list,
-    ...(uploadProgressCartKey ? { uploadProgressCartKey } : {}),
-  });
-}
-
-export function editWebEposProductsForAuditWithTimeout(options = {}) {
-  const n = Array.isArray(options?.webEposEditList) ? options.webEposEditList.length : 0;
-  const extra = Math.max(0, n || 1) * 130000;
-  const ms = Math.min(WEB_EPOS_UPLOAD_CLIENT_TIMEOUT_MS + extra, 900000);
-  return withExtensionCallTimeout(
-    editWebEposProductsForAudit(options),
-    ms,
-    WEB_EPOS_UPLOAD_TIMEOUT_MESSAGE
-  );
-}
-
-/**
  * Opens Web EPOS `/products` in a new tab (same window as CG Suite, unfocused), finds the row,
- * and clicks the real list link so routing stays in-session. Focuses that tab only after success.
+ * and clicks the real list link so routing stays in-session. Focuses that tab only after success
+ * (unless `focusOnSuccess: false` is passed, in which case the caller gets the `tabId` back and
+ * is responsible for closing it). The audit-mode preview uses the no-focus variant.
  *
- * @param {{ productHref: string, barcode?: string }} params
- * @returns {Promise<{ ok: true } | { ok: false, error?: string }>}
+ * This is the ONE canonical path for opening a product — both the products-table click and the
+ * audit preview go through here, so any future performance work is picked up automatically.
+ *
+ * @param {{ productHref: string, barcode?: string, focusOnSuccess?: boolean }} params
+ * @returns {Promise<{ ok: true, tabId?: number } | { ok: false, error?: string }>}
  */
-export async function navigateWebEposProductInWorkerTab({ productHref, barcode } = {}) {
+export async function navigateWebEposProductInWorkerTab({
+  productHref,
+  barcode,
+  focusOnSuccess = true,
+} = {}) {
   return sendMessage(
     {
       action: 'navigateWebEposProductInWorker',
       productHref: productHref || '',
       barcode: barcode || '',
+      focusOnSuccess,
     },
     { timeoutMs: 180_000 }
+  );
+}
+
+/** Close a list of tabs by id (best-effort; per-tab failures are swallowed by the extension). */
+export async function closeTabsByIds(tabIds = []) {
+  const ids = Array.isArray(tabIds) ? tabIds.filter((n) => Number.isFinite(Number(n))) : [];
+  return sendMessage({ action: 'closeTabs', tabIds: ids }, { timeoutMs: 30_000 });
+}
+
+/**
+ * Read `#catLevel1..N` selected labels from each tab (e.g. an open Web EPOS product
+ * edit page). Used by the audit preview to reverse-map Web EPOS categories onto CG
+ * categories without the user picking one manually.
+ *
+ * @returns {Promise<{ ok: true, byTabId: Record<number, { labels: string[], uuids: string[], error?: string }> } | { ok: false, error?: string }>}
+ */
+export async function scrapeWebEposCategorySelects(tabIds = []) {
+  const ids = Array.isArray(tabIds) ? tabIds.filter((n) => Number.isFinite(Number(n))) : [];
+  return sendMessage({ action: 'scrapeWebEposCategorySelects', tabIds: ids }, { timeoutMs: 60_000 });
+}
+
+/**
+ * Kick off a Web EPOS category scrape. CURRENT BEHAVIOUR (diagnostic step):
+ * reads only `#catLevel1` options synchronously and returns them as level-1
+ * nodes. Once this end-to-end path is confirmed working we'll layer the
+ * recursive deeper-level walk back on.
+ *
+ * @returns {Promise<{ ok: true, nodes: Array<{ uuid: string, name: string, parent_uuid: string|null, level: number }>, log?: string[] } | { ok: false, error?: string, log?: string[] }>}
+ */
+export async function scrapeWebeposCategoryHierarchy() {
+  return sendMessage(
+    { action: 'scrapeWebeposCategoryHierarchy' },
+    { timeoutMs: 120_000 }, // 2 minutes is plenty for the synchronous level-1 read + tab overhead
   );
 }
 
