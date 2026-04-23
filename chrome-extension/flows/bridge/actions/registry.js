@@ -49,6 +49,7 @@ const BRIDGE_ACTIONS = {
   closeWebEposUploadSession: handleBridgeAction_closeWebEposUploadSession,
   scrapeWebEposProducts: handleBridgeAction_scrapeWebEposProducts,
   openWebEposProductCreateForUpload: handleBridgeAction_openWebEposProductCreateForUpload,
+  updateWebEposProductPrices: handleBridgeAction_updateWebEposProductPrices,
   navigateWebEposProductInWorker: handleBridgeAction_navigateWebEposProductInWorker,
   scrapeWebEposCategorySelects: handleBridgeAction_scrapeWebEposCategorySelects,
   scrapeWebeposCategoryHierarchy: handleBridgeAction_scrapeWebeposCategoryHierarchy,

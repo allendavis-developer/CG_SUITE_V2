@@ -21,6 +21,8 @@ export function useListWorkspaceNegotiationPersistence({
   uploadStockDetailsBySlotId,
   uploadAuditMode,
   auditQueueRef,
+  auditWebeposProductHrefByBarcodeRef,
+  auditWebeposRrpByBarcodeRef,
   dbSessionId,
   setDbSessionId,
   isRepricingFinished,
@@ -45,6 +47,14 @@ export function useListWorkspaceNegotiationPersistence({
     uploadStockDetailsBySlotId,
     uploadAuditMode: Boolean(uploadAuditMode),
     auditQueue: Array.isArray(auditQueueRef?.current) ? auditQueueRef.current : [],
+    auditWebeposProductHrefByBarcode:
+      auditWebeposProductHrefByBarcodeRef?.current && typeof auditWebeposProductHrefByBarcodeRef.current === 'object'
+        ? auditWebeposProductHrefByBarcodeRef.current
+        : {},
+    auditWebeposRrpByBarcode:
+      auditWebeposRrpByBarcodeRef?.current && typeof auditWebeposRrpByBarcodeRef.current === 'object'
+        ? auditWebeposRrpByBarcodeRef.current
+        : {},
   });
 
   const latestStateRef = useRef(buildLatestState());

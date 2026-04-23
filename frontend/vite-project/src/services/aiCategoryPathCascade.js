@@ -4,7 +4,7 @@
  */
 
 import { suggestNosposCategory } from './aiCategoryService';
-import { fetchAllCategoriesFlat, fetchNosposCategories, fetchCashGeneratorRetailCategories } from './api';
+import { fetchAllCategoriesFlat, fetchNosposCategories, fetchWebeposCategoriesFlat } from './api';
 import { flatCategoriesToNestedRoots } from '@/utils/categoryPickerTree';
 
 /**
@@ -495,7 +495,7 @@ export function cgFlatRowsToAiTreeRoots(rows) {
 }
 
 /**
- * Walk CG retail categories (cg_categories) with the same per-level AI as NosPos stock.
+ * Walk Webepos categories (webepos_categories) with the same per-level AI as NosPos stock.
  *
  * @param {object} params
  * @param {import('./aiCategoryService').ItemSummary} params.itemSummary
@@ -510,9 +510,27 @@ export async function runCgStockCategoryAiMatchBackground({
   const cascade = await runAiCategoryCascadeArrayTreeWithRetries({
     itemSummary,
     async loadRootNodes() {
-      const data = await fetchCashGeneratorRetailCategories();
+      const data = await fetchWebeposCategoriesFlat();
       const rowList = Array.isArray(data?.rows) ? data.rows : [];
-      return cgFlatRowsToAiTreeRoots(rowList);
+      const byId = new Map(rowList.map((r) => [r.webepos_category_id, r]));
+      const adapted = rowList.map((r) => {
+        const names = [];
+        const seen = new Set();
+        let cur = r;
+        while (cur && !seen.has(cur.webepos_category_id)) {
+          seen.add(cur.webepos_category_id);
+          names.push(cur.name);
+          cur = cur.parent_category_id ? byId.get(cur.parent_category_id) : null;
+        }
+        const trail = names.reverse().join(' › ');
+        return {
+          cgCategoryId: r.webepos_category_id,
+          categoryName: r.name,
+          categoryPath: trail ? `All Categories › ${trail}` : 'All Categories',
+          parentCategoryId: r.parent_category_id,
+        };
+      });
+      return cgFlatRowsToAiTreeRoots(adapted);
     },
     logTag,
     maxAttempts: CATEGORY_AI_MAX_ATTEMPTS,

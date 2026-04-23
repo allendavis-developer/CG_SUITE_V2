@@ -161,9 +161,9 @@ export default function NegotiationTablesSection({
                             hideNosposCategoryColumn && !showCgCategoryColumn
                               ? 'Hide Category column'
                               : hideNosposCategoryColumn
-                                ? 'Hide Category and CG columns'
+                                ? 'Hide Category and Webepos columns'
                                 : showCgCategoryColumn
-                                  ? 'Hide Category, NosPos, and CG columns'
+                                  ? 'Hide Category, NosPos, and Webepos columns'
                                   : 'Hide Category and NosPos columns'
                           }
                         >
@@ -176,7 +176,7 @@ export default function NegotiationTablesSection({
                       <th className="min-w-[160px] max-w-[240px]">NosPos category</th>
                     ) : null}
                     {showCgCategoryColumn ? (
-                      <th className="min-w-[160px] max-w-[240px]">CG category</th>
+                      <th className="min-w-[160px] max-w-[240px]">Webepos category</th>
                     ) : null}
                   </>
                 ) : (
@@ -190,9 +190,9 @@ export default function NegotiationTablesSection({
                         hideNosposCategoryColumn && !showCgCategoryColumn
                           ? 'Show Category column'
                           : hideNosposCategoryColumn
-                            ? 'Show Category and CG columns'
+                            ? 'Show Category and Webepos columns'
                             : showCgCategoryColumn
-                              ? 'Show Category, NosPos, and CG columns'
+                              ? 'Show Category, NosPos, and Webepos columns'
                               : 'Show Category and NosPos columns'
                       }
                     >

@@ -10,6 +10,44 @@ async function scrapeWebEposProductsTableInPageWithWait(maxWaitMs) {
   const globalDeadline = Date.now() + ms;
   const MAX_PAGES = 200;
 
+  /**
+   * Event-driven wait: fires as soon as `predicate()` returns truthy after a DOM mutation.
+   * Uses MutationObserver because `setTimeout`/`setInterval`/`requestAnimationFrame` are all
+   * heavily throttled in minimized/background windows (clamp to ≥1s), while MO callbacks are
+   * not — that's why focusing the window makes results arrive immediately.
+   */
+  function waitForDomCondition(predicate, timeoutMs) {
+    return new Promise((resolve) => {
+      try {
+        if (predicate()) return resolve(true);
+      } catch (_) {}
+      let done = false;
+      const obs = new MutationObserver(() => {
+        if (done) return;
+        try {
+          if (predicate()) {
+            done = true;
+            obs.disconnect();
+            clearTimeout(to);
+            resolve(true);
+          }
+        } catch (_) {}
+      });
+      obs.observe(document.documentElement, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+        attributes: true,
+      });
+      const to = setTimeout(() => {
+        if (done) return;
+        done = true;
+        obs.disconnect();
+        resolve(false);
+      }, Math.max(100, timeoutMs));
+    });
+  }
+
   function rowLooksLikeProduct(tr) {
     const cells = tr.querySelectorAll('td');
     if (cells.length < 5) return false;
@@ -271,11 +309,10 @@ async function scrapeWebEposProductsTableInPageWithWait(maxWaitMs) {
   }
 
   let table = null;
-  while (Date.now() < globalDeadline) {
+  await waitForDomCondition(() => {
     table = findProductsTable();
-    if (table && scoreProductRows(table) > 0) break;
-    await sleep(350);
-  }
+    return table && scoreProductRows(table) > 0;
+  }, globalDeadline - Date.now());
   if (!table || scoreProductRows(table) === 0) {
     return { ok: false, error: 'Products table not found on this page.' };
   }
@@ -317,43 +354,37 @@ async function scrapeWebEposProductsTableInPageWithWait(maxWaitMs) {
 
     /**
      * Pager text ("page 2 of 2") often updates before tbody rows swap; do not treat meta alone as done.
-     * Wait until product barcode signature changes, then re-read once so React has committed.
+     * Wait (event-driven) until the product-row barcode signature changes — MO fires on the row swap
+     * even in a minimized window, so we move on immediately instead of waiting for a throttled timer.
      */
-    let navOk = false;
-    while (Date.now() < globalDeadline) {
-      await sleep(400);
+    let nextTable = null;
+    const sigChanged = await waitForDomCondition(() => {
       const t2 = findProductsTable();
-      if (!t2 || scoreProductRows(t2) === 0) continue;
+      if (!t2 || scoreProductRows(t2) === 0) return false;
       const sig2 = tableBarcodeSignature(t2);
-      if (!sig2 || sig2 === prevSig) continue;
-      await sleep(180);
-      const t3 = findProductsTable();
-      if (!t3 || scoreProductRows(t3) === 0) continue;
-      const sig3 = tableBarcodeSignature(t3);
-      if (sig3 === sig2) {
-        table = t3;
-        navOk = true;
-        break;
-      }
-    }
+      if (!sig2 || sig2 === prevSig) return false;
+      nextTable = t2;
+      return true;
+    }, globalDeadline - Date.now());
 
-    if (!navOk && prevPage != null && metaAfter.total != null && prevPage < metaAfter.total) {
+    let navOk = false;
+    if (sigChanged && nextTable) {
+      table = nextTable;
+      navOk = true;
+    } else if (prevPage != null && metaAfter.total != null && prevPage < metaAfter.total) {
       tryJumpToPageNum(prevPage + 1, pagingRoot);
-      while (Date.now() < globalDeadline) {
-        await sleep(400);
+      nextTable = null;
+      const jumpChanged = await waitForDomCondition(() => {
         const t3 = findProductsTable();
-        if (!t3 || scoreProductRows(t3) === 0) continue;
+        if (!t3 || scoreProductRows(t3) === 0) return false;
         const sig3 = tableBarcodeSignature(t3);
-        if (!sig3 || sig3 === prevSig) continue;
-        await sleep(180);
-        const t4 = findProductsTable();
-        if (!t4 || scoreProductRows(t4) === 0) continue;
-        const sig4 = tableBarcodeSignature(t4);
-        if (sig4 === sig3) {
-          table = t4;
-          navOk = true;
-          break;
-        }
+        if (!sig3 || sig3 === prevSig) return false;
+        nextTable = t3;
+        return true;
+      }, globalDeadline - Date.now());
+      if (jumpChanged && nextTable) {
+        table = nextTable;
+        navOk = true;
       }
     }
 
@@ -448,8 +479,50 @@ async function openWebEposProductInTab(appTabId, productHref, barcode) {
     const injected = await chrome.scripting.executeScript({
       target: { tabId: navTabId },
       func: async (fullHref, barcodeText) => {
-        const sleep = (t) => new Promise((r) => setTimeout(r, t));
         const MAX_PAGES = 200;
+
+        /**
+         * Event-driven wait — unthrottled in minimized windows (MutationObserver beats setTimeout
+         * which clamps to ≥1s when the window isn't focused).
+         */
+        function waitForDomCondition(predicate, timeoutMs) {
+          return new Promise((resolve) => {
+            try {
+              if (predicate()) return resolve(true);
+            } catch (_) {}
+            let done = false;
+            const obs = new MutationObserver(() => {
+              if (done) return;
+              try {
+                if (predicate()) {
+                  done = true;
+                  obs.disconnect();
+                  clearTimeout(to);
+                  resolve(true);
+                }
+              } catch (_) {}
+            });
+            obs.observe(document.documentElement, {
+              childList: true,
+              subtree: true,
+              characterData: true,
+              attributes: true,
+            });
+            const to = setTimeout(() => {
+              if (done) return;
+              done = true;
+              obs.disconnect();
+              resolve(false);
+            }, Math.max(100, timeoutMs));
+          });
+        }
+
+        function firstProductTbodyRowBarcode() {
+          const tr = document.querySelector('tbody tr');
+          if (!tr) return '';
+          const cell = tr.querySelector('td');
+          return cell ? String(cell.textContent || '').trim().replace(/\s+/g, ' ') : '';
+        }
 
         function normPath(h) {
           try {
@@ -534,13 +607,23 @@ async function openWebEposProductInTab(appTabId, productHref, barcode) {
           try {
             inp.focus();
           } catch (_) {}
+          const beforeBc = firstProductTbodyRowBarcode();
           inp.value = '1';
           inp.dispatchEvent(new Event('input', { bubbles: true }));
           inp.dispatchEvent(new Event('change', { bubbles: true }));
           try {
             go.click();
           } catch (_) {}
-          await sleep(650);
+          /**
+           * Wait for rows to actually swap — but cap short. If we're already on page 1 the
+           * "go" click is a no-op and the barcode never changes; without a cap we'd sit here
+           * until the 120s deadline. 1500ms covers a real re-render while staying snappy on
+           * the common already-on-page-1 path.
+           */
+          await waitForDomCondition(() => {
+            const bc = firstProductTbodyRowBarcode();
+            return bc && bc !== beforeBc;
+          }, 1500);
           return true;
         }
 
@@ -552,8 +635,18 @@ async function openWebEposProductInTab(appTabId, productHref, barcode) {
           }
           const nextBtn = pickNextButton();
           if (!nextBtn) break;
+          const beforeBc = firstProductTbodyRowBarcode();
           nextBtn.click();
-          await sleep(500);
+          /**
+           * Per-page cap: real paginations settle well inside this window; a silently
+           * no-op click (button disabled mid-transition, race with React) returns control
+           * quickly so the next iteration re-reads the DOM instead of stalling.
+           */
+          const changed = await waitForDomCondition(() => {
+            const bc = firstProductTbodyRowBarcode();
+            return bc && bc !== beforeBc;
+          }, 6000);
+          if (!changed) break;
         }
 
         return { ok: false, error: 'NOT_FOUND' };

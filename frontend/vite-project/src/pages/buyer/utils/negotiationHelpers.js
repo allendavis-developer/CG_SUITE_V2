@@ -309,8 +309,13 @@ const resolveCgCategoryForSlot = resolveAuditMapValue;
 /**
  * One upload table row right after barcode intake: id matches the pending slot id,
  * NosPos barcodes embedded, optional NosPos stock-edit snapshot, optional Web EPOS
- * RRP (audit-only), optional CG categoryObject reverse-derived from the Web EPOS
- * product's `#catLevel{N}` selects (audit-only).
+ * RRP and a Webepos category hint reverse-derived from the product's `#catLevel{N}`
+ * selects (audit-only).
+ *
+ * The category hint lives on `aiSuggestedCgStockCategory` so the Webepos category
+ * column (which reads via `getCgCategoryHierarchyLabelFromItem`) picks it up
+ * automatically — same field the manual picker writes to, so the two paths stay
+ * aligned.
  */
 export function buildUploadBarcodeQueuePlaceholderItem(slotId, {
   barcodes,
@@ -336,7 +341,7 @@ export function buildUploadBarcodeQueuePlaceholderItem(slotId, {
 
   const nosposStockSnapshot = uploadNosposStockSnapshotFromScrape(uploadStockDetailsBySlotId[slotId]);
   const webeposRrp = resolveWebeposRrpForSlot(webeposRrpByBarcode, typedCodes);
-  const cgCategory = resolveCgCategoryForSlot(cgCategoryByBarcode, typedCodes);
+  const webeposAiHint = resolveCgCategoryForSlot(cgCategoryByBarcode, typedCodes);
   const titleFromNos = (lk?.stockName || '').trim();
   const title =
     titleFromNos ||
@@ -348,13 +353,19 @@ export function buildUploadBarcodeQueuePlaceholderItem(slotId, {
     title,
     subtitle: '',
     quantity: 1,
-    category: cgCategory?.name || '',
-    categoryObject: cgCategory || null,
+    category: webeposAiHint?.categoryName || '',
+    categoryObject: webeposAiHint
+      ? {
+          id: webeposAiHint.cgCategoryId,
+          name: webeposAiHint.categoryName,
+          path: Array.isArray(webeposAiHint.pathSegments) ? webeposAiHint.pathSegments : [],
+        }
+      : null,
     offers: [],
     cashOffers: [],
     voucherOffers: [],
     selectedOfferId: null,
-    ebayResearchData: null,
+    ebayResearchData: webeposAiHint ? { aiSuggestedCgStockCategory: webeposAiHint } : null,
     cashConvertersResearchData: null,
     cgResearchData: null,
     referenceData: null,
@@ -374,6 +385,7 @@ export function buildUploadBarcodeQueuePlaceholderItem(slotId, {
     isCustomCeXItem: false,
     ...(nosposStockSnapshot ? { uploadNosposStockFromBarcode: nosposStockSnapshot } : {}),
     ...(webeposRrp != null ? { webeposRrp } : {}),
+    ...(webeposAiHint ? { aiSuggestedCgStockCategory: webeposAiHint } : {}),
   });
 }
 

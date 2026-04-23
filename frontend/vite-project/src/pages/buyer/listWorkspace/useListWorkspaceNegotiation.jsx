@@ -13,6 +13,7 @@ import {
   scrapeWebEposCategorySelects,
   searchNosposBarcode,
   scrapeNosposStockEditForUpload,
+  updateWebEposProductPricesWithTimeout,
 } from "@/services/extensionClient";
 import { reverseLookupWebEposCategory } from "@/utils/webeposCategoryReverseLookup";
 import {
@@ -21,7 +22,7 @@ import {
   saveUploadSession,
   updateUploadSession,
   fetchUploadSessionDetail,
-  fetchCashGeneratorRetailCategories,
+  fetchWebeposCategoriesFlat,
   fetchProductCategories,
   fetchAllCategoriesFlat,
 } from "@/services/api";
@@ -87,70 +88,106 @@ import { useListWorkspaceNegotiationBootstrap } from "./useListWorkspaceNegotiat
 import { useListWorkspaceRepricingCompletion } from "./useListWorkspaceRepricingCompletion";
 import { ListWorkspaceBarcodeCell } from "./ListWorkspaceBarcodeCell";
 
-const AUDIT_WEBEPOS_PREVIEW_HOLD_MS = 2000;
-
 /**
- * Audit preview: open every selected product via the exact same SDK call the
- * products-table barcode click uses (`navigateWebEposProductInWorkerTab`), in
- * parallel, with `focusOnSuccess: false` so the tabs stay passive. Any future
- * speedup to that opener benefits both paths automatically.
+ * Audit preview: each product runs its OWN open → scrape → close pipeline in parallel,
+ * so a slow product never blocks the fast ones and its categories are scraped the moment
+ * its edit page is ready — no global "hold then read once" hack.
  *
- * Once the hold elapses — by which point the Web EPOS React app has populated
- * the product's `#catLevel{N}` selects — we scrape the selected labels from each
- * tab, then close the tabs. The caller gets back `{ [barcode]: string[] }` which
- * can be reverse-looked-up to a CG categoryObject and stamped onto the row.
+ * Uses the same SDK call the products-table barcode click uses
+ * (`navigateWebEposProductInWorkerTab`). The scrape itself polls the edit page's
+ * `#catLevel{N}` selects from inside the extension, so we don't need a caller-side
+ * delay — scrape simply returns when the page's category selects populate.
  *
- * Non-blocking failures (extension unavailable, login required, per-tab open
- * or scrape errors) are logged and skipped — the NosPos flow does not depend
- * on this preview.
+ * `onLog(entry)` receives one log entry per step (`opening`, `opened`, `scraped`,
+ * `missing`, `failed`, `closed`). The audit preview screen renders these live so the
+ * user can see exactly which product the system is on.
+ *
+ * Non-blocking failures are logged and skipped — the NosPos flow doesn't depend on this.
  */
-async function runAuditWebeposPreview(items, holdMs = AUDIT_WEBEPOS_PREVIEW_HOLD_MS) {
+/**
+ * Max parallel product pipelines. Each opens a Web EPOS tab that walks the `/products`
+ * pagination to find its row, so firing every item at once would slam the server and
+ * slow everyone down. 4-at-a-time keeps wall time low without thrashing.
+ */
+const AUDIT_WEBEPOS_PREVIEW_MAX_CONCURRENCY = 4;
+
+async function runAuditWebeposPreview(items, { onLog } = {}) {
+  const log = (message, extra = {}) => {
+    try {
+      onLog?.({
+        timestamp: new Date().toISOString(),
+        message: String(message || ''),
+        level: extra.level || 'info',
+        barcode: extra.barcode,
+        labels: extra.labels,
+      });
+    } catch {}
+  };
+
   if (!Array.isArray(items) || items.length === 0) return { labelsByBarcode: {} };
 
-  const openResults = await Promise.all(
-    items.map((it) =>
-      navigateWebEposProductInWorkerTab({
-        productHref: it.productHref,
-        barcode: it.barcode,
-        focusOnSuccess: false,
-      })
-        .then((r) => ({ ...(r || {}), barcode: it.barcode }))
-        .catch((err) => {
-          console.warn('[CG Suite] Audit preview: open failed for', it?.barcode, err);
-          return null;
-        })
-    )
-  );
-
-  const openedPairs = openResults
-    .filter((r) => r && r.ok === true && Number.isFinite(Number(r.tabId)))
-    .map((r) => ({ tabId: Number(r.tabId), barcode: String(r.barcode || '').trim() }));
-
-  await new Promise((resolve) => setTimeout(resolve, holdMs));
-
   const labelsByBarcode = {};
-  if (openedPairs.length > 0) {
+  const queue = [...items];
+
+  const runOne = async (it) => {
+    const barcode = String(it?.barcode || '').trim();
+    const displayName = String(it?.productName || it?.title || barcode || 'product').trim();
+
+    log(`Opening ${displayName} (${barcode || 'no barcode'})…`, { barcode });
+
+    let tabId = null;
     try {
-      const res = await scrapeWebEposCategorySelects(openedPairs.map((p) => p.tabId));
-      if (res && res.ok && res.byTabId) {
-        for (const { tabId, barcode } of openedPairs) {
-          const row = res.byTabId[tabId];
-          const labels = Array.isArray(row?.labels) ? row.labels.filter(Boolean) : [];
-          if (barcode && labels.length > 0) labelsByBarcode[barcode] = labels;
-        }
+      const res = await navigateWebEposProductInWorkerTab({
+        productHref: it.productHref,
+        barcode,
+        focusOnSuccess: false,
+      });
+      if (!res?.ok || !Number.isFinite(Number(res?.tabId))) {
+        log(`Could not open ${displayName}: ${res?.error || 'unknown error'}`, { level: 'warn', barcode });
+        return;
+      }
+      tabId = Number(res.tabId);
+      log(`Opened ${displayName} — waiting for categories to load…`, { barcode });
+    } catch (err) {
+      log(`Could not open ${displayName}: ${err?.message || err}`, { level: 'warn', barcode });
+      return;
+    }
+
+    try {
+      const scr = await scrapeWebEposCategorySelects([tabId]);
+      const row = scr?.byTabId?.[tabId];
+      const labels = Array.isArray(row?.labels) ? row.labels.filter(Boolean) : [];
+      if (labels.length > 0) {
+        if (barcode) labelsByBarcode[barcode] = labels;
+        log(`Scraped ${displayName}: ${labels.join(' › ')}`, { level: 'success', barcode, labels });
+      } else if (row?.error) {
+        log(`Scrape failed for ${displayName}: ${row.error}`, { level: 'warn', barcode });
+      } else {
+        /** Product loaded fine, it just has no category assigned on Web EPOS. */
+        log(`No Web EPOS category set on ${displayName}`, { level: 'info', barcode });
       }
     } catch (err) {
-      console.warn('[CG Suite] Audit preview: category scrape failed', err);
+      log(`Scrape failed for ${displayName}: ${err?.message || err}`, { level: 'warn', barcode });
     }
-  }
 
-  if (openedPairs.length > 0) {
     try {
-      await closeTabsByIds(openedPairs.map((p) => p.tabId));
+      await closeTabsByIds([tabId]);
     } catch (err) {
       console.warn('[CG Suite] Audit preview: close failed', err);
     }
-  }
+  };
+
+  /** Bounded-concurrency worker: each worker pulls the next item off the shared queue. */
+  const worker = async () => {
+    while (queue.length > 0) {
+      const next = queue.shift();
+      if (!next) break;
+      await runOne(next);
+    }
+  };
+
+  const workerCount = Math.min(AUDIT_WEBEPOS_PREVIEW_MAX_CONCURRENCY, items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
 
   return { labelsByBarcode };
 }
@@ -169,6 +206,25 @@ function buildWebeposRrpByBarcode(auditRowList) {
     const price = row?.price;
     if (barcode && price != null && String(price).trim() !== '') {
       out[barcode] = price;
+    }
+  }
+  return out;
+}
+
+/**
+ * Build a `{ barcode: productHref }` map from the same audit rows. Needed at
+ * audit-mode Update time so the extension can reopen each existing Web EPOS
+ * product via the canonical products-table opener (a direct URL won't work
+ * — Web EPOS needs the in-session click from the list page).
+ */
+function buildWebeposProductHrefByBarcode(auditRowList) {
+  if (!Array.isArray(auditRowList)) return {};
+  const out = {};
+  for (const row of auditRowList) {
+    const barcode = String(row?.barcode || '').trim();
+    const href = String(row?.productHref || '').trim();
+    if (barcode && href) {
+      out[barcode] = href;
     }
   }
   return out;
@@ -238,12 +294,16 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
   const auditQueueRef = useRef([]);
   /** Audit mode: barcode → Web EPOS price captured from the hub's products table (no live scrape). */
   const auditWebeposRrpByBarcodeRef = useRef({});
+  /** Audit mode: barcode → Web EPOS product link (from the hub's products table). The Update button uses this to reopen each product via the canonical list-click opener. */
+  const auditWebeposProductHrefByBarcodeRef = useRef({});
   /** Audit mode: barcode → CG categoryObject reverse-derived from the open product's `#catLevel{N}` selects. */
   const auditCgCategoryByBarcodeRef = useRef({});
   /** Audit mode: while true, we're opening all selected products in parallel tabs before NosPos lookup begins. */
   const [auditWebeposPreviewRunning, setAuditWebeposPreviewRunning] = useState(false);
   /** Audit mode: count of products included in the in-flight preview (for spinner copy). */
   const [auditWebeposPreviewCount, setAuditWebeposPreviewCount] = useState(0);
+  /** Audit mode: live log entries streamed from `runAuditWebeposPreview` so the preview screen shows per-product progress. */
+  const [auditWebeposPreviewLogs, setAuditWebeposPreviewLogs] = useState([]);
   /** Wired after {@link useListWorkspaceNegotiationPersistence} so CG/NosPos AI can flush draft to DB immediately. */
   const flushNegotiationSaveRef = useRef(null);
 
@@ -284,9 +344,28 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
     let cancelled = false;
     (async () => {
       try {
-        const d = await fetchCashGeneratorRetailCategories();
+        const d = await fetchWebeposCategoriesFlat();
         if (cancelled) return;
-        setCgCategoryRows(Array.isArray(d?.rows) ? d.rows : []);
+        const raw = Array.isArray(d?.rows) ? d.rows : [];
+        const byId = new Map(raw.map((r) => [r.webepos_category_id, r]));
+        const adapted = raw.map((r) => {
+          const names = [];
+          const seen = new Set();
+          let cur = r;
+          while (cur && !seen.has(cur.webepos_category_id)) {
+            seen.add(cur.webepos_category_id);
+            names.push(cur.name);
+            cur = cur.parent_category_id ? byId.get(cur.parent_category_id) : null;
+          }
+          const trail = names.reverse().join(' › ');
+          return {
+            cgCategoryId: r.webepos_category_id,
+            categoryName: r.name,
+            categoryPath: trail ? `All Categories › ${trail}` : 'All Categories',
+            parentCategoryId: r.parent_category_id,
+          };
+        });
+        setCgCategoryRows(adapted);
       } catch {
         if (!cancelled) setCgCategoryRows([]);
       }
@@ -538,6 +617,8 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
     uploadStockDetailsBySlotId,
     uploadAuditMode,
     auditQueueRef,
+    auditWebeposProductHrefByBarcodeRef,
+    auditWebeposRrpByBarcodeRef,
     dbSessionId,
     setDbSessionId,
     isRepricingFinished,
@@ -576,6 +657,8 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
     enterUploadMainFlowWithAuditBarcodesRef,
     setUploadAuditMode,
     auditQueueRef,
+    auditWebeposProductHrefByBarcodeRef,
+    auditWebeposRrpByBarcodeRef,
   });
 
   useEffect(() => {
@@ -713,7 +796,7 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
         prev.map((it) => (it.id !== item.id ? it : mergeCgAiOntoNegotiationRow(it, aiSuggestedCgStockCategory)))
       );
       setCgCategoryPickerModal(null);
-      showNotification('CG category updated.', 'success');
+      showNotification('Webepos category updated.', 'success');
       if (useUploadSessions) {
         setTimeout(() => flushNegotiationSaveRef.current?.(), 0);
       }
@@ -1648,6 +1731,37 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
     }
 
     if (useUploadSessions) {
+      /**
+       * Block Update when two items resolved to the SAME NosPos stock.
+       *
+       * A user can scan two different CG barcodes that both auto-match a single NosPos
+       * stock (fuzzy search, or an accidental duplicate scan). The workspace shows each
+       * item's typed barcode so the collision is invisible — but at repricing time each
+       * item submits the same stock_barcode, so the saved upload session ends up with
+       * two distinct items sharing one NosPos stock, which then breaks the next audit
+       * because both rows match the same barcode.
+       *
+       * Detecting it here (rather than silently deduping server-side) forces the user
+       * to retype or pick a different NosPos result so the underlying mix-up is fixed
+       * before anything else runs.
+       */
+      const stockBarcodeFirstItem = new Map();
+      for (const item of activeItems) {
+        const lk = nosposLookups[`${item.id}_0`];
+        if (lk?.status !== 'selected') continue;
+        const sb = String(lk.stockBarcode || '').trim();
+        if (!sb) continue;
+        const prior = stockBarcodeFirstItem.get(sb);
+        if (prior) {
+          showNotification(
+            `Two items resolved to the same NosPos stock (${sb}): "${prior.title}" and "${item.title || 'Unknown Item'}". Re-type one of their barcodes or pick a different NosPos result before continuing.`,
+            'error'
+          );
+          return;
+        }
+        stockBarcodeFirstItem.set(sb, { title: item.title || 'Unknown Item' });
+      }
+
       setUploadPostWebEposComplete(false);
       showNotification(
         uploadAuditMode ? 'Syncing audit items on NosPos…' : copy.uploadOpeningWebEposNewProduct,
@@ -1745,20 +1859,102 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
               .map((item) => buildWebEposProductCreatePayloadFromUploadRow(item, getVerifiedBarcodesForItem(item.id)))
               .filter(Boolean);
 
-        if (activeAuditMode && cleanedRepricingData.length === 0) {
-          showNotification('Nothing to sync — NosPos has no changes for these items.', 'info');
+        /**
+         * Audit-mode Web EPOS price edits: for each row whose target sale price differs
+         * from the Web EPOS RRP captured when the audit started, queue an edit. The
+         * productHref map was seeded from the hub's scraped audit rows (see
+         * `enterUploadMainFlowWithAuditBarcodes`) — a direct URL won't work because
+         * Web EPOS needs session-scoped routing through the list-page click.
+         */
+        const auditWebeposPriceUpdateList = activeAuditMode
+          ? allRepricingDataUnfiltered
+              .map((r) => {
+                const item = r.__item;
+                const typed = (barcodes[item.id] || []).map((b) => String(b || '').trim()).filter(Boolean);
+                const productHref = typed
+                  .map((code) => auditWebeposProductHrefByBarcodeRef.current[code])
+                  .find(Boolean) || '';
+                if (!productHref) return null;
+                const targetPrice = Number(r.salePrice);
+                if (!Number.isFinite(targetPrice)) return null;
+                const rawWebeposRrp = item?.webeposRrp;
+                const currentWebeposRrp = rawWebeposRrp
+                  ? Number.parseFloat(String(rawWebeposRrp).replace(/[£,\s]/g, ''))
+                  : null;
+                const priceUnchanged =
+                  Number.isFinite(currentWebeposRrp) &&
+                  Math.abs(targetPrice - currentWebeposRrp) <= 0.005;
+                if (priceUnchanged) return null;
+                return {
+                  productHref,
+                  price: targetPrice,
+                  barcode: typed[0] || '',
+                  title: r.title || '',
+                };
+              })
+              .filter(Boolean)
+          : [];
+
+        /** Mark the upload session complete, save the draft, and navigate to the report — shared by audit and non-audit success paths. */
+        const completeUploadSession = async () => {
+          try {
+            await flushNegotiationSaveRef.current?.();
+            if (dbSessionId) {
+              await updateUploadSession(dbSessionId, {
+                status: 'COMPLETED',
+                ...(activeAuditMode ? { mode: 'AUDIT' } : {}),
+              });
+            }
+          } catch (persistErr) {
+            console.warn(copy.saveFailLog, persistErr);
+          }
+          useAppStore.getState().clearRepricingSessionDraft();
+          setIsRepricingFinished(true);
+          setRepricingJob((prev) =>
+            prev && prev.cartKey === activeCartKey
+              ? { ...prev, running: false, done: true, step: 'completed', message: copy.jobCompletedMessage }
+              : prev
+          );
+          setUploadCompletionStatus('savingToDB');
           try {
             if (dbSessionId) {
-              await updateUploadSession(dbSessionId, { status: 'COMPLETED', mode: 'AUDIT' });
+              await fetchUploadSessionDetail(dbSessionId);
+              setUploadCompletionStatus('completed');
+              setTimeout(() => {
+                navigate(`/upload-sessions/${dbSessionId}/view`);
+              }, 300);
             }
-          } catch (_) {}
-          if (dbSessionId) {
-            setTimeout(() => navigate(`/upload-sessions/${dbSessionId}/view`), 300);
+          } catch (fetchErr) {
+            console.warn('Failed to fetch completed session:', fetchErr);
+            setUploadCompletionStatus(null);
           }
+        };
+
+        if (activeAuditMode && cleanedRepricingData.length === 0 && auditWebeposPriceUpdateList.length === 0) {
+          showNotification('Nothing to sync — no NosPos or Web EPOS changes for these items.', 'info');
+          await completeUploadSession();
           return;
         }
 
-        // After NosPos pass: non-audit uploads create new Web EPOS products; audit mode finishes here.
+        /**
+         * Run the Web EPOS price edits for the audit batch. Called either from the rrpComplete
+         * callback (after NosPos) or directly below when NosPos has nothing to do.
+         */
+        const runAuditWebEposPriceUpdates = async () => {
+          if (auditWebeposPriceUpdateList.length === 0) return;
+          const n = auditWebeposPriceUpdateList.length;
+          showNotification(`Updating ${n} Web EPOS price${n !== 1 ? 's' : ''}…`, 'info');
+          await updateWebEposProductPricesWithTimeout({
+            updateList: auditWebeposPriceUpdateList,
+            uploadProgressCartKey: activeCartKey,
+          });
+          showNotification('Web EPOS prices updated for audit items.', 'success');
+        };
+
+        /**
+         * After NosPos pass: non-audit uploads create new Web EPOS products;
+         * audit mode edits the price on each existing Web EPOS product instead.
+         */
         rrpCompleteCallbackRef.current = async () => {
           try {
             if (!activeAuditMode) {
@@ -1773,39 +1969,12 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
                   : copy.uploadWebEposNewProductOpened;
               showNotification(successMsg, 'success');
             } else {
-              showNotification('NosPos updated for audit items.', 'success');
-            }
-            try {
-              await flushNegotiationSaveRef.current?.();
-              if (dbSessionId) {
-                await updateUploadSession(dbSessionId, {
-                  status: 'COMPLETED',
-                  ...(activeAuditMode ? { mode: 'AUDIT' } : {}),
-                });
+              if (cleanedRepricingData.length > 0) {
+                showNotification('NosPos updated for audit items.', 'success');
               }
-            } catch (persistErr) {
-              console.warn(copy.saveFailLog, persistErr);
+              await runAuditWebEposPriceUpdates();
             }
-            useAppStore.getState().clearRepricingSessionDraft();
-            setIsRepricingFinished(true);
-            setRepricingJob((prev) =>
-              prev && prev.cartKey === activeCartKey
-                ? { ...prev, running: false, done: true, step: 'completed', message: copy.jobCompletedMessage }
-                : prev
-            );
-            setUploadCompletionStatus('savingToDB');
-            try {
-              if (dbSessionId) {
-                await fetchUploadSessionDetail(dbSessionId);
-                setUploadCompletionStatus('completed');
-                setTimeout(() => {
-                  navigate(`/upload-sessions/${dbSessionId}/view`);
-                }, 300);
-              }
-            } catch (fetchErr) {
-              console.warn('Failed to fetch completed session:', fetchErr);
-              setUploadCompletionStatus(null);
-            }
+            await completeUploadSession();
           } catch (webeposErr) {
             setRepricingJob((prev) =>
               prev && prev.cartKey === activeCartKey
@@ -1815,6 +1984,39 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
             showNotification(webeposErr?.message || copy.webEposOpenFailed, 'error');
           }
         };
+
+        /**
+         * Seed per-phase totals so both progress bars render immediately. The extension's
+         * REPRICING_PROGRESS payloads top these up with `completedBarcodeCount` as the phase
+         * ticks (see `mergeRepricingProgress`). Phases with total 0 stay hidden.
+         */
+        const nosposTotalForBars = cleanedRepricingData.length;
+        const webEposTotalForBars = activeAuditMode
+          ? auditWebeposPriceUpdateList.length
+          : webEposProductCreateList.length;
+
+        /** Audit + only Web EPOS has changes: skip NosPos entirely and run the callback directly. */
+        if (activeAuditMode && cleanedRepricingData.length === 0) {
+          setRepricingJob({
+            cartKey: activeCartKey,
+            running: true,
+            done: false,
+            step: 'webEposAuditPriceUpdate',
+            message: `Updating ${webEposTotalForBars} Web EPOS price${webEposTotalForBars !== 1 ? 's' : ''}…`,
+            currentBarcode: '',
+            currentItemId: '',
+            currentItemTitle: auditWebeposPriceUpdateList[0]?.title || '',
+            totalBarcodes: webEposTotalForBars,
+            completedBarcodeCount: 0,
+            completedBarcodes: {},
+            completedItems: [],
+            nosposProgress: { completed: 0, total: 0 },
+            webEposProgress: { completed: 0, total: webEposTotalForBars },
+            logs: [{ timestamp: new Date().toISOString(), level: 'info', message: copy.jobLogStart }],
+          });
+          await rrpCompleteCallbackRef.current();
+          return;
+        }
 
         const totalItems = cleanedRepricingData.length;
         showNotification(`Syncing ${totalItems} item${totalItems !== 1 ? 's' : ''} on NosPos…`, 'info');
@@ -1831,6 +2033,8 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
           completedBarcodeCount: 0,
           completedBarcodes: {},
           completedItems: [],
+          nosposProgress: { completed: 0, total: nosposTotalForBars },
+          webEposProgress: { completed: 0, total: webEposTotalForBars },
           logs: [{ timestamp: new Date().toISOString(), level: 'info', message: copy.jobLogStart }],
         });
 
@@ -2005,6 +2209,7 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
     }
     auditQueueRef.current = [...auditBarcodeList];
     auditWebeposRrpByBarcodeRef.current = buildWebeposRrpByBarcode(auditRowList);
+    auditWebeposProductHrefByBarcodeRef.current = buildWebeposProductHrefByBarcode(auditRowList);
     setUploadAuditMode(true);
     setUploadScanSlotIds([]);
     setBarcodes({});
@@ -2023,25 +2228,55 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
     // so each audit row is pre-filled without the user picking a category manually.
     const previewItems = (Array.isArray(auditRowList) ? auditRowList : [])
       .filter((r) => r && r.productHref && r.barcode)
-      .map((r) => ({ productHref: r.productHref, barcode: r.barcode }));
+      .map((r) => ({
+        productHref: r.productHref,
+        barcode: r.barcode,
+        productName: r.productName || '',
+      }));
 
     if (previewItems.length > 0) {
       setAuditWebeposPreviewCount(previewItems.length);
+      setAuditWebeposPreviewLogs([]);
       setAuditWebeposPreviewRunning(true);
       try {
-        const { labelsByBarcode } = await runAuditWebeposPreview(previewItems);
+        const { labelsByBarcode } = await runAuditWebeposPreview(previewItems, {
+          onLog: (entry) => setAuditWebeposPreviewLogs((prev) => [...prev, entry]),
+        });
         const barcodesWithLabels = Object.keys(labelsByBarcode);
         if (barcodesWithLabels.length > 0) {
           try {
-            const flat = await fetchAllCategoriesFlat();
-            const cgByBarcode = {};
+            /**
+             * The scraped labels come straight from Web EPOS's `#catLevel{N}` selects, so
+             * matching them against webepos_categories (the same table the manual picker
+             * now uses) is a direct name-by-name match — no CG-side translation needed.
+             * The earlier CG-tree lookup lost matches when Web EPOS used category names
+             * that don't exist on the CG side, which is why "scraped" rows still showed
+             * an empty column.
+             */
+            const wepRes = await fetchWebeposCategoriesFlat();
+            const rawRows = Array.isArray(wepRes?.rows) ? wepRes.rows : [];
+            const wepTree = rawRows.map((r) => ({
+              category_id: r.webepos_category_id,
+              parent_category_id: r.parent_category_id,
+              name: r.name,
+            }));
+            const aiByBarcode = {};
             for (const barcode of barcodesWithLabels) {
-              const resolved = reverseLookupWebEposCategory(labelsByBarcode[barcode], flat);
-              if (resolved) cgByBarcode[barcode] = resolved;
+              const resolved = reverseLookupWebEposCategory(labelsByBarcode[barcode], wepTree);
+              if (!resolved) continue;
+              const trail = Array.isArray(resolved.path) ? resolved.path.filter(Boolean) : [];
+              aiByBarcode[barcode] = {
+                cgCategoryId: Number(resolved.id),
+                categoryName: resolved.name,
+                categoryPath: trail.length ? `All Categories › ${trail.join(' › ')}` : 'All Categories',
+                pathSegments: trail,
+                manuallySelected: false,
+                savedAt: new Date().toISOString(),
+              };
             }
-            auditCgCategoryByBarcodeRef.current = cgByBarcode;
+            auditCgCategoryByBarcodeRef.current = aiByBarcode;
           } catch (err) {
-            console.warn('[CG Suite] Audit reverse-lookup: fetch /all-categories/ failed', err);
+            console.warn('[CG Suite] Audit reverse-lookup: fetch /webepos-categories/ failed', err);
           }
         }
       } finally {
@@ -2066,6 +2301,7 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
     uploadAuditMode,
     auditWebeposPreviewRunning,
     auditWebeposPreviewCount,
+    auditWebeposPreviewLogs,
     uploadListMissingRrp,
     webEposProductsSnapshot,
     webEposProductsScrapeError,

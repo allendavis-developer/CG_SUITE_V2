@@ -80,6 +80,7 @@ importScripts(
   'flows/bridge/actions/open-nospos-site-only.js',
   'flows/bridge/actions/open-url.js',
   'flows/bridge/actions/open-web-epos-product-create-for-upload.js',
+  'flows/bridge/actions/update-web-epos-product-prices.js',
   'flows/bridge/actions/open-web-epos-upload.js',
   'flows/bridge/actions/patch-nospos-agreement-field.js',
   'flows/bridge/actions/reopen-web-epos-upload.js',

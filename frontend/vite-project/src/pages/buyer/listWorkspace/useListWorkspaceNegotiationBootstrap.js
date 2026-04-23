@@ -36,6 +36,8 @@ export function useListWorkspaceNegotiationBootstrap({
   enterUploadMainFlowWithAuditBarcodesRef,
   setUploadAuditMode,
   auditQueueRef,
+  auditWebeposProductHrefByBarcodeRef,
+  auditWebeposRrpByBarcodeRef,
 }) {
   const hasInitialized = useRef(false);
 
@@ -56,10 +58,25 @@ export function useListWorkspaceNegotiationBootstrap({
     // Resume audit mode from a saved session (Continue button → route state passes these).
     const resumeAuditMode = location.state?.uploadAuditMode === true;
     const resumeAuditQueue = location.state?.auditQueue || null;
+    const resumeAuditHrefs = location.state?.auditWebeposProductHrefByBarcode || null;
+    const resumeAuditRrps = location.state?.auditWebeposRrpByBarcode || null;
     if (resumeAuditMode) {
       if (typeof setUploadAuditMode === 'function') setUploadAuditMode(true);
       if (auditQueueRef && Array.isArray(resumeAuditQueue)) {
         auditQueueRef.current = [...resumeAuditQueue];
+      }
+      /**
+       * Restore per-barcode Web EPOS productHref + RRP maps. Without these on resume,
+       * `auditWebeposPriceUpdateList` comes out empty (every row gets filtered by the
+       * `if (!productHref) return null` guard) and the workspace either early-exits with
+       * "Nothing to sync" or — before this fix — fell through to the create flow and
+       * turned On Sale off on live products.
+       */
+      if (auditWebeposProductHrefByBarcodeRef && resumeAuditHrefs && typeof resumeAuditHrefs === 'object') {
+        auditWebeposProductHrefByBarcodeRef.current = { ...resumeAuditHrefs };
+      }
+      if (auditWebeposRrpByBarcodeRef && resumeAuditRrps && typeof resumeAuditRrps === 'object') {
+        auditWebeposRrpByBarcodeRef.current = { ...resumeAuditRrps };
       }
     }
 

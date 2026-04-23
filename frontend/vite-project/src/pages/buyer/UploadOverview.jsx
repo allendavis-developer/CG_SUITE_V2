@@ -59,12 +59,12 @@ const UploadOverview = () => {
     [sessions]
   );
 
-  const getItemSummary = (session) => {
+  const getItemsSummary = (session) => {
     const items = session.session_data?.items;
-    if (!Array.isArray(items) || items.length === 0) return null;
-    const first = items[0]?.title || 'Untitled';
-    if (items.length === 1) return first;
-    return `${first} +${items.length - 1} more`;
+    if (!Array.isArray(items) || items.length === 0) return '';
+    return items
+      .map((it) => String(it?.title ?? '').trim() || 'Untitled')
+      .join(', ');
   };
 
   /** Build React Router state for the upload workspace (`/upload`). */
@@ -85,6 +85,21 @@ const UploadOverview = () => {
           uploadStockDetailsBySlotId: sd.uploadStockDetailsBySlotId ?? null,
         }
       : {};
+    /**
+     * Audit sessions need the audit flag to ride on every `/upload` nav or the workspace
+     * falls back to the create-new-product flow and overwrites live Web EPOS items
+     * (including forcing On Sale off). UploadSessionView already does this; mirror it here
+     * so clicking an in-progress audit tile (or Redo) doesn't lose the flag.
+     */
+    const isAudit = String(session.mode || '').toUpperCase() === 'AUDIT';
+    const auditExtras = isAudit
+      ? {
+          uploadAuditMode: true,
+          auditQueue: sd.auditQueue ?? null,
+          auditWebeposProductHrefByBarcode: sd.auditWebeposProductHrefByBarcode ?? null,
+          auditWebeposRrpByBarcode: sd.auditWebeposRrpByBarcode ?? null,
+        }
+      : {};
 
     if (hasWorkspace) {
       if (Array.isArray(sd.items) && sd.items.length > 0) {
@@ -102,6 +117,7 @@ const UploadOverview = () => {
           uploadPendingSlotIds,
           uploadBarcodeIntakeDone,
           ...resumeExtras,
+          ...auditExtras,
         };
       }
       return {
@@ -110,6 +126,7 @@ const UploadOverview = () => {
         sessionBarcodes: sd.barcodes ?? null,
         sessionNosposLookups: sd.nosposLookups ?? null,
         ...resumeExtras,
+        ...auditExtras,
       };
     }
 
@@ -127,6 +144,7 @@ const UploadOverview = () => {
         sessionNosposLookups: sd.nosposLookups ?? null,
         uploadPendingSlotIds,
         uploadBarcodeIntakeDone,
+        ...auditExtras,
       };
     }
     if (uploadPendingSlotIds.length > 0) {
@@ -137,6 +155,7 @@ const UploadOverview = () => {
         sessionNosposLookups: sd.nosposLookups ?? null,
         uploadPendingSlotIds,
         uploadBarcodeIntakeDone,
+        ...auditExtras,
       };
     }
     if (uploadScanSlotIds.length > 0) {
@@ -147,6 +166,7 @@ const UploadOverview = () => {
         sessionNosposLookups: sd.nosposLookups ?? null,
         uploadScanSlotIds,
         uploadBarcodeIntakeDone: false,
+        ...auditExtras,
       };
     }
     return null;
@@ -317,9 +337,8 @@ const UploadOverview = () => {
                   <tr>
                     <th className="w-24">Session</th>
                     <th className="w-32">Status</th>
-                    <th className="min-w-[200px]">Items</th>
+                    <th className="min-w-[220px] max-w-[380px]">Items</th>
                     <th className="w-20">Count</th>
-                    <th className="w-24">Barcodes</th>
                     <th className="w-40">Created</th>
                     <th className="w-40">Last Updated</th>
                     <th className="w-32">Actions</th>
@@ -329,7 +348,7 @@ const UploadOverview = () => {
                   {filteredSessions.map((session) => {
                     const isInProgress = session.status === 'IN_PROGRESS';
                     const isAudit = String(session.mode || '').toUpperCase() === 'AUDIT';
-                    const itemSummary = getItemSummary(session);
+                    const itemsSummary = getItemsSummary(session);
                     const hasSessionItems =
                       Array.isArray(session.session_data?.items) &&
                       session.session_data.items.length > 0;
@@ -367,15 +386,16 @@ const UploadOverview = () => {
                             )}
                           </div>
                         </td>
-                        <td>
-                          {itemSummary ? (
-                            <span className="text-slate-700 font-medium text-xs">{itemSummary}</span>
+                        <td className="max-w-[380px]" title={itemsSummary || undefined}>
+                          {itemsSummary ? (
+                            <span className="line-clamp-2 break-words text-xs text-slate-700 font-medium leading-snug">
+                              {itemsSummary}
+                            </span>
                           ) : (
                             <span className="text-slate-400 italic text-xs">No item data</span>
                           )}
                         </td>
                         <td className="font-semibold text-slate-700 tabular-nums">{session.item_count || 0}</td>
-                        <td className="font-semibold text-slate-700 tabular-nums">{session.barcode_count || 0}</td>
                         <td className="text-slate-500 tabular-nums">
                           {new Date(session.created_at).toLocaleString('en-GB', {
                             day: '2-digit',

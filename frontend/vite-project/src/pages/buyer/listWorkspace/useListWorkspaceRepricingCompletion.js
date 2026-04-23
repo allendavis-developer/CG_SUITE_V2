@@ -10,6 +10,43 @@ import {
 } from "./listWorkspaceUtils";
 
 /**
+ * Step prefix that belongs to the Web EPOS phase. NosPos phase uses `search` /
+ * `verifying` / `saving` / `finalizing` / `completed`, so anything else is NosPos.
+ */
+export const isWebEposProgressStep = (step) => String(step || '').startsWith('webEpos');
+
+/**
+ * Merge an incoming progress payload onto the previous job state. Keeps per-phase
+ * progress sticky (NosPos totals don't get overwritten when Web EPOS starts ticking,
+ * and vice versa) and always appends new log entries without clobbering the stack.
+ */
+export function mergeRepricingProgress(prev, payload) {
+  const existingLogs = prev?.logs || [];
+  const incomingLogs = payload?.logs || [];
+  const existingTs = new Set(existingLogs.map((l) => l.timestamp));
+  const newLogs = incomingLogs.filter((l) => !existingTs.has(l.timestamp));
+  const mergedLogs = newLogs.length ? [...existingLogs, ...newLogs] : existingLogs;
+
+  const isWebEpos = isWebEposProgressStep(payload?.step);
+  const completed = Number(payload?.completedBarcodeCount) || 0;
+  const total = Number(payload?.totalBarcodes) || 0;
+
+  const nosposProgress = isWebEpos
+    ? (prev?.nosposProgress ?? { completed: 0, total: 0 })
+    : { completed, total };
+  const webEposProgress = isWebEpos
+    ? { completed, total }
+    : (prev?.webEposProgress ?? { completed: 0, total: 0 });
+
+  return {
+    ...payload,
+    logs: mergedLogs,
+    nosposProgress,
+    webEposProgress,
+  };
+}
+
+/**
  * Extension / polling completion flow + deduped persistence for repricing & upload workspaces.
  */
 export function useListWorkspaceRepricingCompletion({
@@ -152,21 +189,7 @@ export function useListWorkspaceRepricingCompletion({
         if (msgCartKey && msgCartKey === activeCartKey) {
           setCompletedBarcodes(cb || {});
           setCompletedItems(ci || []);
-          setRepricingJob((prev) => {
-            // Always merge logs so the stack never gets cleared between phases.
-            const existingLogs = prev?.logs || [];
-            const incomingLogs = payload.logs || [];
-            const existingTs = new Set(existingLogs.map((l) => l.timestamp));
-            const newLogs = incomingLogs.filter((l) => !existingTs.has(l.timestamp));
-            const mergedLogs = newLogs.length ? [...existingLogs, ...newLogs] : existingLogs;
-            // During NosPos phase keep the product count stable (it's barcode-level progress,
-            // not product-level). The product count only advances during webEposUpload.
-            if (payload.step !== 'webEposUpload' && prev?.step === 'webEposUpload') return prev;
-            if (payload.step !== 'webEposUpload') {
-              return { ...payload, logs: mergedLogs, completedBarcodeCount: prev?.completedBarcodeCount ?? 0, totalBarcodes: prev?.totalBarcodes ?? payload.totalBarcodes };
-            }
-            return { ...payload, logs: mergedLogs };
-          });
+          setRepricingJob((prev) => mergeRepricingProgress(prev, payload));
         }
       }
     };
@@ -201,18 +224,7 @@ export function useListWorkspaceRepricingCompletion({
         if (cancelled) return;
         if (payload && payload.cartKey === activeCartKey) {
           matched = true;
-          setRepricingJob((prev) => {
-            const existingLogs = prev?.logs || [];
-            const incomingLogs = payload.logs || [];
-            const existingTs = new Set(existingLogs.map((l) => l.timestamp));
-            const newLogs = incomingLogs.filter((l) => !existingTs.has(l.timestamp));
-            const mergedLogs = newLogs.length ? [...existingLogs, ...newLogs] : existingLogs;
-            if (payload.step !== 'webEposUpload' && prev?.step === 'webEposUpload') return prev;
-            if (payload.step !== 'webEposUpload') {
-              return { ...payload, logs: mergedLogs, completedBarcodeCount: prev?.completedBarcodeCount ?? 0, totalBarcodes: prev?.totalBarcodes ?? payload.totalBarcodes };
-            }
-            return { ...payload, logs: mergedLogs };
-          });
+          setRepricingJob((prev) => mergeRepricingProgress(prev, payload));
           setCompletedBarcodes(payload.completedBarcodes || {});
           setCompletedItems(payload.completedItems || []);
         }

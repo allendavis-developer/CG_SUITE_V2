@@ -361,6 +361,270 @@ async function openWebEposProductCreateMinimizedAndRespond(requestId, appTabId, 
 }
 
 /**
+ * Audit-mode price edit on existing Web EPOS products.
+ *
+ * For each item in `updateListRaw`:
+ *   1. Reuse `openWebEposProductInTab` (the "quick look" opener defined in scrape.js) —
+ *      this is the same canonical path the products-table barcode click and the audit
+ *      preview both use, so we get fresh-session /products navigation + pagination walk
+ *      + correct link click for free.
+ *   2. Inject the shared new-product fill SDK (`bg/webepos-new-product-fill-page.js`).
+ *      `__CG_WEB_EPOS_FILL_RUN({ price })` only sets `#price` because other spec fields
+ *      are absent — the edit page uses the same `id` attributes as `/products/new`, so
+ *      reusing that SDK keeps every Web EPOS form selector in one file.
+ *   3. Click Save/Update via `__CG_WEB_EPOS_FINISH_EDIT_PRODUCT` (sibling helper added to
+ *      the same SDK file) and wait for the busy state to clear.
+ *   4. Close the per-item tab and move on.
+ *
+ * Progress broadcasting mirrors `openWebEposProductCreateMinimizedAndRespond` so the
+ * audit UI picks the updates up on the same `broadcastRepricingStatus` channel.
+ */
+function sanitizeWebEposPriceUpdateSpec(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const productHref = String(raw.productHref || '').trim();
+  const priceNum = Number.parseFloat(String(raw.price ?? '').replace(/[£,\s]/g, ''));
+  if (!productHref || !Number.isFinite(priceNum) || priceNum < 0) return null;
+  return {
+    productHref,
+    price: priceNum.toFixed(2),
+    barcode: String(raw.barcode || '').trim(),
+    title: String(raw.title || '').trim(),
+  };
+}
+
+async function injectWebEposEditProductFinishSave(tabId) {
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    files: ['bg/webepos-new-product-fill-page.js'],
+  });
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func: () => {
+      const fn = window.__CG_WEB_EPOS_FINISH_EDIT_PRODUCT;
+      if (typeof fn !== 'function') {
+        return Promise.reject(new Error('Web EPOS edit finish helper not available'));
+      }
+      return fn();
+    },
+  });
+  const inj = results && results[0];
+  if (inj?.error) {
+    throw new Error(inj.error.message || String(inj.error));
+  }
+}
+
+/**
+ * Resolve once the edit-page form has actually mounted (i.e. `#price` is in the DOM).
+ * Replaces a blind fixed-duration wait — we proceed the instant the input exists.
+ * The 20s cap here is just a safety net for a genuinely broken page load.
+ */
+async function injectWebEposWaitForEditFormReady(tabId) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func: async () => {
+      if (document.getElementById('price')) return { ok: true };
+      return await new Promise((resolve) => {
+        const deadline = Date.now() + 20000;
+        const obs = new MutationObserver(() => {
+          if (document.getElementById('price')) {
+            obs.disconnect();
+            resolve({ ok: true });
+          }
+        });
+        obs.observe(document.documentElement, { childList: true, subtree: true });
+        /** Poll fallback in case a mutation happens before the observer wires up. */
+        const iv = setInterval(() => {
+          if (document.getElementById('price')) {
+            obs.disconnect();
+            clearInterval(iv);
+            resolve({ ok: true });
+          } else if (Date.now() > deadline) {
+            obs.disconnect();
+            clearInterval(iv);
+            resolve({ ok: false, error: 'price input never appeared' });
+          }
+        }, 50);
+      });
+    },
+  });
+  const inj = results && results[0];
+  if (inj?.error) {
+    throw new Error(inj.error.message || String(inj.error));
+  }
+  const payload = inj?.result;
+  if (payload && payload.ok === false) {
+    throw new Error(payload.error || 'Edit form never mounted');
+  }
+}
+
+async function updateWebEposProductPricesAndRespond(requestId, appTabId, updateListRaw, uploadProgressCartKey) {
+  const respondErr = async (msg) => {
+    if (!appTabId) return;
+    chrome.tabs
+      .sendMessage(appTabId, {
+        type: 'EXTENSION_RESPONSE_TO_PAGE',
+        requestId,
+        error: msg,
+      })
+      .catch(() => {});
+    await focusAppTab(appTabId);
+  };
+
+  const rawList = Array.isArray(updateListRaw) ? updateListRaw : [];
+  const updateList = rawList.map(sanitizeWebEposPriceUpdateSpec).filter(Boolean).slice(0, 50);
+
+  if (updateList.length === 0) {
+    await notifyAppExtensionResponse(appTabId, requestId, { ok: true, tabsUpdated: 0 });
+    if (appTabId) await focusAppTab(appTabId);
+    return;
+  }
+
+  const cartKey = String(uploadProgressCartKey || '').trim();
+  let progressData = {
+    cartKey,
+    done: false,
+    repricingData: [],
+    completedBarcodes: {},
+    completedItems: [],
+    logs: [],
+    step: 'webEposAuditPriceUpdate',
+    message: '',
+  };
+
+  const emitProgress = async (patch) => {
+    if (!cartKey || !appTabId) return;
+    const { logMessage, ...dataPatch } = patch;
+    progressData = { ...progressData, ...dataPatch };
+    progressData = appendRepricingLog(
+      progressData,
+      logMessage != null ? String(logMessage) : String(patch.message || '').trim() || '…'
+    );
+    await broadcastRepricingStatus(appTabId, progressData, {
+      ...dataPatch,
+      logs: progressData.logs,
+      totalBarcodes: updateList.length,
+    });
+  };
+
+  if (cartKey && appTabId) {
+    progressData = appendRepricingLog(
+      progressData,
+      `Starting Web EPOS price update (${updateList.length} item${updateList.length === 1 ? '' : 's'}).`
+    );
+    await broadcastRepricingStatus(appTabId, progressData, {
+      running: true,
+      done: false,
+      message: 'Opening Web EPOS',
+      currentBarcode: updateList[0]?.barcode || '',
+      currentItemTitle: updateList[0]?.title || '',
+      completedBarcodeCount: 0,
+      totalBarcodes: updateList.length,
+      logs: progressData.logs,
+    });
+  }
+
+  for (let i = 0; i < updateList.length; i++) {
+    const spec = updateList[i];
+    let workerTabId = null;
+    try {
+      if (cartKey && appTabId) {
+        await emitProgress({
+          running: true,
+          done: false,
+          message: `Opening product ${i + 1} of ${updateList.length}…`,
+          currentBarcode: spec.barcode,
+          currentItemTitle: spec.title,
+          completedBarcodeCount: i,
+          logMessage: `Item ${i + 1}/${updateList.length}: opening ${spec.title || spec.barcode || 'product'} on Web EPOS.`,
+        });
+      }
+
+      const opened = await openWebEposProductInTab(appTabId, spec.productHref, spec.barcode);
+      if (!opened.ok) {
+        throw new Error(opened.error || 'Could not open product on Web EPOS.');
+      }
+      workerTabId = opened.tabId;
+
+      /** Wait for the edit-page form to mount (signal-based, not a fixed delay). */
+      await injectWebEposWaitForEditFormReady(workerTabId);
+
+      if (cartKey && appTabId) {
+        await emitProgress({
+          message: `Updating price — product ${i + 1} of ${updateList.length}`,
+          logMessage: `Item ${i + 1}/${updateList.length}: setting price to £${spec.price}.`,
+        });
+      }
+
+      /**
+       * editOnly: true tells the shared fill runner not to touch anything beyond
+       * the fields we supply. In particular: do NOT toggle Off Sale, do NOT set
+       * fulfilmentOption/storeId defaults, do NOT re-fill categories. Any of those
+       * side effects can cause Web EPOS to auto-assign RRP Source to eBay.
+       */
+      await injectWebEposNewProductFill(workerTabId, { price: spec.price, editOnly: true });
+
+      if (cartKey && appTabId) {
+        await emitProgress({
+          message: `Saving product ${i + 1} of ${updateList.length}…`,
+          logMessage: `Item ${i + 1}/${updateList.length}: clicking Save/Update.`,
+        });
+      }
+
+      await injectWebEposEditProductFinishSave(workerTabId);
+
+      if (cartKey && appTabId) {
+        await emitProgress({
+          message: `Updated product ${i + 1} of ${updateList.length} ✓`,
+          completedBarcodeCount: i + 1,
+          logMessage: `Item ${i + 1}/${updateList.length}: price saved (${spec.barcode || 'no barcode'}).`,
+        });
+      }
+    } catch (e) {
+      const errMsg = e?.message || 'Failed to update price on Web EPOS.';
+      if (workerTabId != null) await chrome.tabs.remove(workerTabId).catch(() => {});
+      await respondErr(errMsg);
+      if (cartKey && appTabId) {
+        progressData = appendRepricingLog(progressData, `Error on item ${i + 1}: ${errMsg}`);
+        await broadcastRepricingStatus(appTabId, progressData, {
+          running: false,
+          done: true,
+          message: 'Web EPOS price update stopped due to an error',
+          completedBarcodeCount: i,
+          totalBarcodes: updateList.length,
+          logs: progressData.logs,
+        });
+      }
+      return;
+    }
+
+    if (workerTabId != null) {
+      await chrome.tabs.remove(workerTabId).catch(() => {});
+    }
+  }
+
+  if (cartKey && appTabId) {
+    progressData = appendRepricingLog(progressData, 'Web EPOS price update finished for all items.');
+    await broadcastRepricingStatus(appTabId, progressData, {
+      running: false,
+      done: true,
+      message: 'Web EPOS price update complete',
+      completedBarcodeCount: updateList.length,
+      totalBarcodes: updateList.length,
+      logs: progressData.logs,
+    });
+  }
+
+  await notifyAppExtensionResponse(appTabId, requestId, {
+    ok: true,
+    tabsUpdated: updateList.length,
+  });
+  if (appTabId) await focusAppTab(appTabId);
+}
+
+/**
  * After opening Web EPOS for upload: fail fast if the site lands on /login (not logged in),
  * otherwise resolve the bridge promise so the app can continue. Product-create upload closes the tab when finished.
  */

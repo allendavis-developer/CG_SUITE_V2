@@ -27,7 +27,7 @@ export default function CgCategoryPickerModal({ open, rows, currentCgCategoryId,
   if (!open) return null;
 
   return (
-    <TinyModal title="CG retail category" onClose={onClose} panelClassName="max-w-lg">
+    <TinyModal title="Webepos category" onClose={onClose} panelClassName="max-w-lg">
       <div className="mb-3">
         <input
           type="search"

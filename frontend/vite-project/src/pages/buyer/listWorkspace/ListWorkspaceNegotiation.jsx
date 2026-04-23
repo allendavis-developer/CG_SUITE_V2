@@ -104,15 +104,17 @@ export default function ListWorkspaceNegotiation({ moduleKey = "repricing" }) {
     );
   }
 
-  // Audit-mode: open each selected product in a parallel Web EPOS tab, hold for 2s,
-  // then close. Blocks the workspace chrome until done so the user sees exactly what
-  // step they're on; on completion the barcode intake opens and NosPos lookup begins.
+  // Audit-mode: each product opens in its own Web EPOS tab, its categories are scraped
+  // the moment the edit page's `#catLevel{N}` selects populate, and the tab is closed —
+  // all in parallel, independently per product. Logs stream live below the spinner so
+  // the user sees which product the system is on and when a scrape succeeds or fails.
   if (w.auditWebeposPreviewRunning) {
     const productCount = w.auditWebeposPreviewCount;
     const plural = productCount === 1 ? '' : 's';
+    const logs = Array.isArray(w.auditWebeposPreviewLogs) ? w.auditWebeposPreviewLogs : [];
     return (
       <div
-        className="flex min-h-screen flex-col items-center justify-center gap-4"
+        className="flex min-h-screen flex-col items-center justify-center gap-4 px-4 py-8"
         style={{ background: "var(--ui-bg)" }}
       >
         <span
@@ -126,8 +128,30 @@ export default function ListWorkspaceNegotiation({ moduleKey = "repricing" }) {
           Opening {productCount} Web EPOS product{plural}…
         </p>
         <p className="text-xs text-gray-500">
-          Each product opens in its own tab for a quick look, then closes before the NosPos check.
+          Each product opens in its own tab. Categories are scraped as soon as the edit page renders, then the tab closes.
         </p>
+        {logs.length > 0 && (
+          <div className="mt-4 w-full max-w-2xl rounded-2xl border overflow-hidden" style={{ borderColor: 'var(--brand-blue-alpha-10)' }}>
+            <div className="px-4 py-2 bg-slate-50 border-b" style={{ borderColor: 'var(--brand-blue-alpha-08)' }}>
+              <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Live scrape log</p>
+            </div>
+            <ul className="max-h-[45vh] overflow-y-auto buyer-panel-scroll divide-y divide-slate-100 bg-white">
+              {logs.slice(-80).map((entry, index) => {
+                const color =
+                  entry.level === 'success'
+                    ? 'text-emerald-700'
+                    : entry.level === 'warn'
+                      ? 'text-amber-700'
+                      : 'text-slate-700';
+                return (
+                  <li key={`${entry.timestamp || 'log'}-${index}`} className={`px-3 py-1.5 text-[11px] leading-snug ${color}`}>
+                    {entry.message}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
       </div>
     );
   }

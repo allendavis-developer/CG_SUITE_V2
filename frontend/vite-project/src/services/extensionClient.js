@@ -220,6 +220,36 @@ export function openWebEposProductCreateForUploadWithTimeout(options = {}) {
 }
 
 /**
+ * Audit-mode Update: for each `{ productHref, price, barcode?, title? }`, open the
+ * existing Web EPOS product page via the canonical products-table opener (same path
+ * the audit preview uses — not a direct URL, because Web EPOS needs session-scoped
+ * routing through the list), set the price field, click Save.
+ *
+ * @param {{ updateList?: Array<{ productHref: string, price: number|string, barcode?: string, title?: string }>, uploadProgressCartKey?: string }} [options]
+ */
+export async function updateWebEposProductPrices(options = {}) {
+  const list = Array.isArray(options.updateList) ? options.updateList : [];
+  const uploadProgressCartKey = String(options.uploadProgressCartKey || '').trim();
+  return sendMessage({
+    action: 'updateWebEposProductPrices',
+    updateList: list,
+    ...(uploadProgressCartKey ? { uploadProgressCartKey } : {}),
+  });
+}
+
+export function updateWebEposProductPricesWithTimeout(options = {}) {
+  const n = Array.isArray(options?.updateList) ? options.updateList.length : 0;
+  /** Per item: open /products, walk pagination to click row, settle, fill, save. Budget like upload. */
+  const extra = Math.max(0, n || 1) * 130000;
+  const ms = Math.min(WEB_EPOS_UPLOAD_CLIENT_TIMEOUT_MS + extra, 900000);
+  return withExtensionCallTimeout(
+    updateWebEposProductPrices(options),
+    ms,
+    WEB_EPOS_UPLOAD_TIMEOUT_MESSAGE
+  );
+}
+
+/**
  * Opens Web EPOS `/products` in a new tab (same window as CG Suite, unfocused), finds the row,
  * and clicks the real list link so routing stays in-session. Focuses that tab only after success
  * (unless `focusOnSuccess: false` is passed, in which case the caller gets the `tabId` back and

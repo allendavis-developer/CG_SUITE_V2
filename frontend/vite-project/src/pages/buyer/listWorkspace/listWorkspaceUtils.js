@@ -154,6 +154,8 @@ export function buildNegotiationSessionDataSnapshot(state, useUploadSessions) {
     uploadStockDetailsBySlotId: snapshotStockDetails,
     uploadAuditMode: snapshotAuditMode,
     auditQueue: snapshotAuditQueue,
+    auditWebeposProductHrefByBarcode: snapshotAuditHrefs,
+    auditWebeposRrpByBarcode: snapshotAuditRrps,
   } = state;
   const derivedUploadPending =
     useUploadSessions && Array.isArray(snapshotItems)
@@ -184,6 +186,18 @@ export function buildNegotiationSessionDataSnapshot(state, useUploadSessions) {
       snapshot.uploadAuditMode = true;
       if (Array.isArray(snapshotAuditQueue)) {
         snapshot.auditQueue = snapshotAuditQueue.slice();
+      }
+      /**
+       * Persist the per-barcode Web EPOS productHref and RRP maps seeded at audit
+       * entry. Without these, a resumed audit loses its link back to the live Web
+       * EPOS products and the price-update flow silently no-ops — or, worse,
+       * falls through to the new-product create path which clobbers live items.
+       */
+      if (snapshotAuditHrefs && typeof snapshotAuditHrefs === 'object') {
+        snapshot.auditWebeposProductHrefByBarcode = { ...snapshotAuditHrefs };
+      }
+      if (snapshotAuditRrps && typeof snapshotAuditRrps === 'object') {
+        snapshot.auditWebeposRrpByBarcode = { ...snapshotAuditRrps };
       }
     }
   }

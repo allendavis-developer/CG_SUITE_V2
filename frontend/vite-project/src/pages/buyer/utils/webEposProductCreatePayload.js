@@ -93,11 +93,15 @@ export function buildWebEposProductCreatePayloadFromUploadRow(item, verifiedBarc
   const grade = item.uploadGrade || (condition === 'used' ? 'B' : undefined);
   const conditionText = item.uploadConditionText || '';
 
+  /**
+   * wasPrice intentionally omitted. Writing any value into `#wasPrice` on Web EPOS
+   * causes the RRP Source dropdown to auto-default to eBay. Leave it blank so the
+   * product's RRP fields stay empty, matching manual entry.
+   */
   const payload = {
     title,
     price,
     costPrice: costStr,
-    wasPrice: '0',
     quantity: 1,
     condition,
     barcode,

@@ -1,5 +1,30 @@
 import React from 'react';
 
+/**
+ * One progress bar. Hidden by the parent when total is 0, so the user only sees bars
+ * for phases that actually have work (e.g. audit mode can run NosPos-only, Web-EPOS-
+ * only, or both depending on which items changed).
+ */
+function PhaseProgressBar({ label, completed, total, unit }) {
+  const pct = total > 0 ? Math.min(100, (completed / total) * 100) : 0;
+  return (
+    <div className="rounded-2xl border bg-slate-50 p-4" style={{ borderColor: 'var(--brand-blue-alpha-10)' }}>
+      <div className="flex items-center justify-between gap-3 mb-2">
+        <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">{label}</p>
+        <p className="text-xs font-bold text-slate-600">
+          {completed} / {total} {unit}
+        </p>
+      </div>
+      <div className="h-3 rounded-full bg-slate-200 overflow-hidden">
+        <div
+          className="h-full rounded-full transition-all duration-500"
+          style={{ width: `${pct}%`, background: 'var(--brand-blue)' }}
+        />
+      </div>
+    </div>
+  );
+}
+
 export default function RepricingJobOverlay({
   workspace = 'repricing',
   repricingJob,
@@ -14,6 +39,15 @@ export default function RepricingJobOverlay({
   const subline = isUpload
     ? 'The rest of this screen is locked while a minimised Web EPOS tab fills each product, saves it, and moves to the next line.'
     : 'The rest of this screen is locked while the hidden NoSpos worker is running so the process stays consistent.';
+
+  const nosposProgress = repricingJob?.nosposProgress || { completed: 0, total: 0 };
+  const webEposProgress = repricingJob?.webEposProgress || { completed: 0, total: 0 };
+  const showNosposBar = (nosposProgress.total || 0) > 0;
+  const showWebEposBar = (webEposProgress.total || 0) > 0;
+  /** Fallback for jobs that predate the two-phase payloads. */
+  const legacyTotal = repricingJob?.totalBarcodes || 0;
+  const legacyCompleted = repricingJob?.completedBarcodeCount || 0;
+  const showLegacyBar = !showNosposBar && !showWebEposBar && legacyTotal > 0;
 
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
@@ -53,24 +87,30 @@ export default function RepricingJobOverlay({
             </p>
           </div>
 
-          <div className="rounded-2xl border bg-slate-50 p-4" style={{ borderColor: 'var(--brand-blue-alpha-10)' }}>
-            <div className="flex items-center justify-between gap-3 mb-2">
-              <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Progress</p>
-              <p className="text-xs font-bold text-slate-600">
-                {repricingJob?.completedBarcodeCount || 0} / {repricingJob?.totalBarcodes || 0}{' '}
-                {isUpload ? 'products completed' : 'barcodes completed'}
-              </p>
-            </div>
-            <div className="h-3 rounded-full bg-slate-200 overflow-hidden">
-              <div
-                className="h-full rounded-full transition-all duration-500"
-                style={{
-                  width: `${repricingJob?.totalBarcodes ? Math.min(100, ((repricingJob.completedBarcodeCount || 0) / repricingJob.totalBarcodes) * 100) : 0}%`,
-                  background: 'var(--brand-blue)'
-                }}
-              />
-            </div>
-          </div>
+          {showNosposBar && (
+            <PhaseProgressBar
+              label="NosPos progress"
+              completed={nosposProgress.completed}
+              total={nosposProgress.total}
+              unit="barcodes completed"
+            />
+          )}
+          {showWebEposBar && (
+            <PhaseProgressBar
+              label="Web EPOS progress"
+              completed={webEposProgress.completed}
+              total={webEposProgress.total}
+              unit="products completed"
+            />
+          )}
+          {showLegacyBar && (
+            <PhaseProgressBar
+              label="Progress"
+              completed={legacyCompleted}
+              total={legacyTotal}
+              unit={isUpload ? 'products completed' : 'barcodes completed'}
+            />
+          )}
 
           <div className="rounded-2xl border overflow-hidden" style={{ borderColor: 'var(--brand-blue-alpha-10)' }}>
             <div className="px-4 py-3 bg-slate-50 border-b" style={{ borderColor: 'var(--brand-blue-alpha-08)' }}>

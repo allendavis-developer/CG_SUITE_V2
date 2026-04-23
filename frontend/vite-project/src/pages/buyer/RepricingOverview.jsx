@@ -54,12 +54,12 @@ const RepricingOverview = () => {
     [sessions]
   );
 
-  const getItemSummary = (session) => {
+  const getItemsSummary = (session) => {
     const items = session.session_data?.items;
-    if (!Array.isArray(items) || items.length === 0) return null;
-    const first = items[0]?.title || 'Untitled';
-    if (items.length === 1) return first;
-    return `${first} +${items.length - 1} more`;
+    if (!Array.isArray(items) || items.length === 0) return '';
+    return items
+      .map((it) => String(it?.title ?? '').trim() || 'Untitled')
+      .join(', ');
   };
 
   /** Build React Router state for the main repricing workspace (`/repricing`). */
@@ -248,9 +248,8 @@ const RepricingOverview = () => {
                   <tr>
                     <th className="w-24">Session</th>
                     <th className="w-32">Status</th>
-                    <th className="min-w-[200px]">Items</th>
+                    <th className="min-w-[220px] max-w-[380px]">Items</th>
                     <th className="w-20">Count</th>
-                    <th className="w-24">Barcodes</th>
                     <th className="w-40">Created</th>
                     <th className="w-40">Last Updated</th>
                     <th className="w-32">Actions</th>
@@ -259,7 +258,7 @@ const RepricingOverview = () => {
                 <tbody>
                   {filteredSessions.map((session) => {
                     const isInProgress = session.status === 'IN_PROGRESS';
-                    const itemSummary = getItemSummary(session);
+                    const itemsSummary = getItemsSummary(session);
                     const hasSessionItems =
                       Array.isArray(session.session_data?.items) &&
                       session.session_data.items.length > 0;
@@ -286,15 +285,16 @@ const RepricingOverview = () => {
                             </span>
                           )}
                         </td>
-                        <td>
-                          {itemSummary ? (
-                            <span className="text-slate-700 font-medium text-xs">{itemSummary}</span>
+                        <td className="max-w-[380px]" title={itemsSummary || undefined}>
+                          {itemsSummary ? (
+                            <span className="line-clamp-2 break-words text-xs text-slate-700 font-medium leading-snug">
+                              {itemsSummary}
+                            </span>
                           ) : (
                             <span className="text-slate-400 italic text-xs">No item data</span>
                           )}
                         </td>
                         <td className="font-semibold text-slate-700 tabular-nums">{session.item_count || 0}</td>
-                        <td className="font-semibold text-slate-700 tabular-nums">{session.barcode_count || 0}</td>
                         <td className="text-slate-500 tabular-nums">
                           {new Date(session.created_at).toLocaleString('en-GB', {
                             day: '2-digit',

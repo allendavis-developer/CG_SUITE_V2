@@ -131,6 +131,92 @@
     }
   }
 
+  /**
+   * Mirror of `ensureOnSaleOff` — used in audit price-edit saves where the product is
+   * already live and On Sale must NEVER flip to off as a side effect of our form fill.
+   * Web EPOS has been observed resetting the switch after a price change, so we defensively
+   * re-toggle it on right before clicking Save/Update.
+   */
+  async function ensureOnSaleOn() {
+    await sleep(150);
+    for (var attempt = 0; attempt < 8; attempt++) {
+      var root = findOnSaleSwitchRoot();
+      if (!root) {
+        await sleep(200);
+        continue;
+      }
+      if (reactSwitchHandleIsOn(root)) {
+        return;
+      }
+      var handle = root.querySelector('.react-switch-handle[role="checkbox"]');
+      var bg = root.querySelector('.react-switch-bg');
+      if (handle) {
+        handle.focus();
+        handle.click();
+      } else if (bg) {
+        bg.click();
+      }
+      await sleep(500);
+      if (reactSwitchHandleIsOn(root)) {
+        return;
+      }
+      if (bg && handle) {
+        bg.click();
+        await sleep(500);
+        if (reactSwitchHandleIsOn(root)) {
+          return;
+        }
+      }
+    }
+  }
+
+  /**
+   * Force the "RRP Source" dropdown back to its empty/default option if Web EPOS has
+   * auto-selected a value (e.g. eBay) as a side effect of editing price/wasPrice.
+   * Search order: common ids/names, then `.form-group` whose label reads "RRP Source".
+   */
+  function clearRrpSourceField() {
+    function clearSelect(sel) {
+      if (!sel || sel.tagName !== 'SELECT') return false;
+      var opts = Array.prototype.slice.call(sel.options || []);
+      var emptyOpt =
+        opts.find(function (o) {
+          return o.value === '' || o.value == null;
+        }) ||
+        opts.find(function (o) {
+          var t = normText(o.textContent || '');
+          return t === '' || t === 'none' || t === 'select' || t === '-' || t === '--';
+        });
+      setNativeValue(sel, emptyOpt ? emptyOpt.value : '');
+      return true;
+    }
+    var byId =
+      document.getElementById('rrpSource') ||
+      document.getElementById('rrp_source') ||
+      document.querySelector('select[name="rrpSource"]') ||
+      document.querySelector('select[name="rrp_source"]') ||
+      document.querySelector('select[name*="rrpSource" i]') ||
+      document.querySelector('select[name*="rrp-source" i]');
+    if (byId && clearSelect(byId)) return true;
+    var groups = document.querySelectorAll('.form-group');
+    for (var gi = 0; gi < groups.length; gi++) {
+      var g = groups[gi];
+      var labels = g.querySelectorAll('label');
+      var matched = false;
+      for (var li = 0; li < labels.length; li++) {
+        var t = normText(labels[li].textContent || '');
+        if (t.indexOf('rrp') !== -1 && t.indexOf('source') !== -1) {
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) continue;
+      var sel = g.querySelector('select');
+      if (sel && clearSelect(sel)) return true;
+    }
+    return false;
+  }
+
   async function fillCategoryLabels(labels) {
     var cleaned = (labels || [])
       .map(function (s) {
@@ -182,7 +268,14 @@
   async function run(spec) {
     if (!spec || typeof spec !== 'object') return;
     await sleep(350);
-    await ensureOnSaleOff();
+    /**
+     * Edit mode (audit): only touch fields explicitly present on spec.
+     * Skip On Sale toggling, fulfilmentOption/storeId defaults, and category fills
+     * — any of those change page state that the audit flow must not disturb
+     * (e.g. causing Web EPOS to auto-assign RRP Source or flip Off Sale).
+     */
+    var editOnly = spec.editOnly === true;
+    if (!editOnly) await ensureOnSaleOff();
 
     if (spec.title != null) setNativeValue(document.getElementById('title'), String(spec.title).slice(0, 150));
     if (spec.quantity != null) setNativeValue(document.getElementById('quantity'), String(spec.quantity));
@@ -214,22 +307,30 @@
       }
     }
 
-    var fulfil = spec.fulfilmentOption || 'anyfulfilment';
-    setSelectById('fulfilmentOption', fulfil);
+    if (!editOnly) {
+      var fulfil = spec.fulfilmentOption || 'anyfulfilment';
+      setSelectById('fulfilmentOption', fulfil);
 
-    if (spec.storeId) {
-      setSelectById('storeId', String(spec.storeId));
-    } else {
-      pickFirstNonEmptyStore();
+      if (spec.storeId) {
+        setSelectById('storeId', String(spec.storeId));
+      } else {
+        pickFirstNonEmptyStore();
+      }
+
+      if (Array.isArray(spec.categoryLevelUuids) && spec.categoryLevelUuids.length) {
+        await fillCategoryUuids(spec.categoryLevelUuids);
+      } else if (Array.isArray(spec.categoryPathLabels) && spec.categoryPathLabels.length) {
+        await fillCategoryLabels(spec.categoryPathLabels);
+      }
+
+      await ensureOnSaleOff();
     }
 
-    if (Array.isArray(spec.categoryLevelUuids) && spec.categoryLevelUuids.length) {
-      await fillCategoryUuids(spec.categoryLevelUuids);
-    } else if (Array.isArray(spec.categoryPathLabels) && spec.categoryPathLabels.length) {
-      await fillCategoryLabels(spec.categoryPathLabels);
-    }
-
-    await ensureOnSaleOff();
+    /**
+     * Final pass: Web EPOS auto-selects "eBay" for RRP Source when price/wasPrice change.
+     * Clear it last so any React-driven defaults set during the fill don't linger at save.
+     */
+    clearRrpSourceField();
   }
 
   /**
@@ -238,6 +339,7 @@
   async function finishNewProductAfterFill() {
     await sleep(250);
     await ensureOnSaleOff();
+    clearRrpSourceField();
     var btn = Array.prototype.slice
       .call(document.querySelectorAll('button.btn'))
       .find(function (b) {
@@ -259,7 +361,46 @@
     throw new Error('Timed out waiting for Web EPOS to finish saving the product');
   }
 
+  /**
+   * Edit-page save: mirrors `finishNewProductAfterFill` — click the save button, then
+   * watch for the URL path to leave the current edit page (Web EPOS redirects back to
+   * `/products` on a successful save). We accept either "Save Product" or "Update
+   * Product" button text so a future Web EPOS copy change doesn't silently break this.
+   *
+   * Assumes the caller has already set `#price` (or other form fields) via
+   * __CG_WEB_EPOS_FILL_RUN. See `run()` above for the shared field setter.
+   *
+   * Audit invariant: this runs on live products, so On Sale must stay on. We force it
+   * back on right before save — Web EPOS was observed flipping it to off as a side
+   * effect of the price change otherwise.
+   */
+  async function finishEditProductAfterChange() {
+    clearRrpSourceField();
+    await ensureOnSaleOn();
+    var btn = Array.prototype.slice
+      .call(document.querySelectorAll('button.btn'))
+      .find(function (b) {
+        var t = String(b.textContent || '').replace(/\s+/g, ' ').trim();
+        return /^(save|update)(\s+product)?$/i.test(t);
+      });
+    if (!btn) {
+      throw new Error('Save/Update button not found on Web EPOS edit page');
+    }
+    var startPath = location.pathname || '';
+    btn.click();
+    var deadline = Date.now() + 60000;
+    while (Date.now() < deadline) {
+      await sleep(500);
+      var p = location.pathname || '';
+      if (p !== startPath) {
+        return;
+      }
+    }
+    throw new Error('Timed out waiting for Web EPOS to finish saving the edit');
+  }
+
   window.__CG_WEB_EPOS_FILL_RUN = run;
   window.__CG_WEB_EPOS_FINISH_NEW_PRODUCT = finishNewProductAfterFill;
+  window.__CG_WEB_EPOS_FINISH_EDIT_PRODUCT = finishEditProductAfterChange;
   window.__CG_WEB_EPOS_ENSURE_ON_SALE_OFF = ensureOnSaleOff;
 })();

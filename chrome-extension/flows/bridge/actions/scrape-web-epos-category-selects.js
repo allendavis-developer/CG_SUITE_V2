@@ -25,19 +25,96 @@ async function handleBridgeAction_scrapeWebEposCategorySelects({ payload }) {
         const injected = await chrome.scripting.executeScript({
           target: { tabId },
           world: 'MAIN',
-          func: () => {
-            const labels = [];
-            const uuids = [];
+          /**
+           * Event-driven read. Web EPOS populates `#catLevel{N}` selects asynchronously
+           * — product detail fetch, category tree fetch, and React's cascade each
+           * update the DOM at different moments. A MutationObserver fires the moment
+           * any of those writes land, so we read exactly when there's something to
+           * read (no polling interval, no fixed caller-side delay).
+           *
+           * Resolution rule: the levels are "stable" when reading them returns the
+           * same chain twice across consecutive mutations AND no further levels are
+           * appearing. The outer safety cap is the only time-based thing here and it
+           * exists purely so a genuinely broken page doesn't hang the scrape forever.
+           */
+          func: async () => {
             const MAX_LEVELS = 10;
-            for (let level = 1; level <= MAX_LEVELS; level += 1) {
-              const sel = document.getElementById(`catLevel${level}`);
-              if (!sel) break;
-              const opt = sel.selectedIndex >= 0 ? sel.options[sel.selectedIndex] : null;
-              if (!opt || !opt.value) break;
-              labels.push(String(opt.textContent || '').trim());
-              uuids.push(String(opt.value || '').trim());
-            }
-            return { labels, uuids };
+            const SAFETY_CAP_MS = 15000;
+            const STABILITY_MS = 250;
+
+            const readAll = () => {
+              const out = { labels: [], uuids: [] };
+              for (let level = 1; level <= MAX_LEVELS; level += 1) {
+                const sel = document.getElementById(`catLevel${level}`);
+                if (!sel) break;
+                const opt = sel.selectedIndex >= 0 ? sel.options[sel.selectedIndex] : null;
+                if (!opt || !opt.value) break;
+                out.labels.push(String(opt.textContent || '').trim());
+                out.uuids.push(String(opt.value || '').trim());
+              }
+              return out;
+            };
+
+            /**
+             * Has the product detail finished loading? We use `#price` having a value as
+             * the signal: Web EPOS fills every form field from the same product payload,
+             * so once the price is populated the category state is final — either a real
+             * selection has been applied (cascade rendered children) or the product genuinely
+             * has no category set (catLevel1 stays on the "Select…" placeholder, no catLevel2
+             * is ever rendered). This lets us return "no category" immediately for products
+             * without one, instead of burning the 15s safety cap.
+             */
+            const productLoaded = () => {
+              const price = document.getElementById('price');
+              if (!price) return false;
+              return String(price.value || '').trim().length > 0;
+            };
+
+            return await new Promise((resolve) => {
+              let settled = false;
+              const finish = (result) => {
+                if (settled) return;
+                settled = true;
+                obs.disconnect();
+                clearTimeout(cap);
+                if (settleTimer) clearTimeout(settleTimer);
+                resolve(result);
+              };
+
+              let lastChain = '';
+              let settleTimer = null;
+              const check = () => {
+                if (!productLoaded()) return;
+
+                const out = readAll();
+                const chain = out.uuids.join('|');
+
+                if (chain === lastChain) {
+                  /** Same chain (or still empty) — arm the quiet-window settle. Empty is a
+                   * valid final state meaning "no Web EPOS category set" for this product. */
+                  if (!settleTimer) settleTimer = setTimeout(() => finish(out), STABILITY_MS);
+                  return;
+                }
+                lastChain = chain;
+                if (settleTimer) {
+                  clearTimeout(settleTimer);
+                  settleTimer = null;
+                }
+                settleTimer = setTimeout(() => finish(out), STABILITY_MS);
+              };
+
+              const obs = new MutationObserver(check);
+              obs.observe(document.documentElement, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: ['value', 'selected'],
+              });
+              const cap = setTimeout(() => finish(readAll()), SAFETY_CAP_MS);
+
+              /** Initial read in case the DOM is already populated by the time we attach. */
+              check();
+            });
           },
         });
         const out = injected && injected[0] ? injected[0].result : null;

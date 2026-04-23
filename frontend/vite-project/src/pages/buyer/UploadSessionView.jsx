@@ -256,6 +256,10 @@ const UploadSessionView = () => {
                             ? {
                                 uploadAuditMode: true,
                                 auditQueue: session.session_data?.auditQueue || null,
+                                auditWebeposProductHrefByBarcode:
+                                  session.session_data?.auditWebeposProductHrefByBarcode || null,
+                                auditWebeposRrpByBarcode:
+                                  session.session_data?.auditWebeposRrpByBarcode || null,
                               }
                             : {}),
                         },

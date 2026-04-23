@@ -399,8 +399,8 @@ export default function NegotiationItemRow({
                 breadcrumb={cgCategoryBreadcrumb}
                 categoriesLoading={cgCategoriesResults == null || item.cgCategoryAiPending === true}
                 onOpenPicker={onOpenCgCategoryPicker}
-                pickerTitle="CG category"
-                emptyCta="No CG category set"
+                pickerTitle="Webepos category"
+                emptyCta="No Webepos category set"
               />
             </td>
           ) : null}
@@ -415,7 +415,7 @@ export default function NegotiationItemRow({
               : [
                   `Category: ${resolvedLeafCategory}`,
                   !hideNosposCategoryColumn ? `NosPos: ${nosposCategoryBreadcrumb || '—'}` : null,
-                  showCgCategoryColumn ? `CG: ${cgCategoryBreadcrumb || '—'}` : null,
+                  showCgCategoryColumn ? `Webepos: ${cgCategoryBreadcrumb || '—'}` : null,
                 ]
                   .filter(Boolean)
                   .join('\n')
@@ -440,7 +440,7 @@ export default function NegotiationItemRow({
             cgCategoriesResults != null ? (
               <span
                 className="inline-block h-2 w-2 shrink-0 rounded-full bg-amber-400"
-                title="CG category not set — expand columns to edit"
+                title="Webepos category not set — expand columns to edit"
               />
             ) : null}
           </div>
