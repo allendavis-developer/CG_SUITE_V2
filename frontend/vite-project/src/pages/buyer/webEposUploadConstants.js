@@ -19,3 +19,14 @@ export const WEB_EPOS_PRODUCTS_SNAPSHOT_KEY = 'cgUploadWebEposProductsSnapshot';
 
 /** After the worker was closed, reopen flow stores the last URL here for the next gate run. */
 export const WEB_EPOS_REOPEN_URL_KEY = 'cgWebEposReopenUrl';
+
+/**
+ * Web EPOS barcodes sometimes arrive as `barserial-<timestamp>` (the suffix is how Web EPOS
+ * disambiguates relisted items). NosPos only stores the base barserial, so callers that need a
+ * NosPos-matchable value must strip the trailing `-…`. Plain barcodes (no dash) round-trip unchanged.
+ */
+export function extractWebEposBarserial(barcode) {
+  if (!barcode) return '';
+  const match = String(barcode).match(/^([^-]+)/);
+  return match ? match[1].trim() : String(barcode).trim();
+}

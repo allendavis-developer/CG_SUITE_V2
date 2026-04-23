@@ -157,8 +157,12 @@ function parseNosposStockEditPageDetails(html) {
   var createdAt = detailForLabel('Created');
   var costM = html.match(/id="stock-cost_price"[^>]*\bvalue="([^"]*)"/i);
   var retailM = html.match(/id="stock-retail_price"[^>]*\bvalue="([^"]*)"/i);
+  var quantityM =
+    html.match(/id="stock-quantity"[^>]*\bvalue="([^"]*)"/i) ||
+    html.match(/<input[^>]+name="Stock\[quantity\]"[^>]*\bvalue="([^"]*)"/i);
   var costPrice = decodeNosposHtmlText(costM ? costM[1] : '');
   var retailPrice = decodeNosposHtmlText(retailM ? retailM[1] : '');
+  var quantity = decodeNosposHtmlText(quantityM ? quantityM[1] : '');
   var name = getStockNameFromEditHtml(html);
   var changeLog = parseNosposStockEditPageChangeLog(html);
   return {
@@ -167,6 +171,7 @@ function parseNosposStockEditPageDetails(html) {
     createdAt: createdAt || '',
     costPrice: costPrice || '',
     retailPrice: retailPrice || '',
+    quantity: quantity || '',
     changeLog: changeLog,
   };
 }

@@ -277,6 +277,24 @@ export async function navigateWebEposProductInWorkerTab({
   );
 }
 
+/**
+ * On an already-opened Web EPOS product edit tab (via `navigateWebEposProductInWorkerTab`
+ * with `focusOnSuccess: false`), toggle the product's "On Sale" switch to off and click
+ * Save/Update. Caller is responsible for closing the tab afterwards (`closeTabsByIds`).
+ *
+ * Reuses the shared fill-page injection helpers — every Web EPOS form selector lives in
+ * `chrome-extension/bg/webepos-new-product-fill-page.js`, so no DOM knowledge leaks here.
+ *
+ * @param {number} tabId Tab id returned by `navigateWebEposProductInWorkerTab`.
+ * @returns {Promise<{ ok: true } | { ok: false, error?: string }>}
+ */
+export async function setWebEposProductOnSaleOff(tabId) {
+  return sendMessage(
+    { action: 'setWebEposProductOnSaleOff', tabId: Number(tabId) },
+    { timeoutMs: 60_000 },
+  );
+}
+
 /** Close a list of tabs by id (best-effort; per-tab failures are swallowed by the extension). */
 export async function closeTabsByIds(tabIds = []) {
   const ids = Array.isArray(tabIds) ? tabIds.filter((n) => Number.isFinite(Number(n))) : [];
@@ -337,7 +355,8 @@ export async function searchNosposBarcode(barcode) {
 /**
  * Upload workspace: open stock edit in a minimised NosPos window (when invoked from app tab),
  * fetch the edit page with session cookies, return { ok, details } where details is
- * { name, boughtBy, createdAt, costPrice, retailPrice, changeLog? } where changeLog is
+ * { name, boughtBy, createdAt, costPrice, retailPrice, quantity, changeLog? } where quantity is the
+ * current free-stock quantity (`#stock-quantity` / `Stock[quantity]`) and changeLog is
  * `{ changeEntryId, columnName, oldValue, newValue, changedAt, changedBy }[]` from the stock edit Changes grid.
  */
 export async function scrapeNosposStockEditForUpload(stockUrl) {

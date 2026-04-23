@@ -90,6 +90,7 @@ importScripts(
   'flows/bridge/actions/scrape-web-epos-category-selects.js',
   'flows/bridge/actions/scrape-web-epos-products.js',
   'flows/bridge/actions/scrape-webepos-category-hierarchy.js',
+  'flows/bridge/actions/set-web-epos-on-sale-off.js',
   'flows/bridge/actions/search-nospos-barcode.js',
   'flows/bridge/actions/start-refine.js',
   'flows/bridge/actions/start-waiting-for-data.js',

@@ -1,15 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { SPREADSHEET_TABLE_STYLES } from '@/styles/spreadsheetTableStyles';
-import { WEB_EPOS_PRODUCTS_URL } from '@/pages/buyer/webEposUploadConstants';
+import {
+  WEB_EPOS_PRODUCTS_URL,
+  extractWebEposBarserial as extractBarcode,
+} from '@/pages/buyer/webEposUploadConstants';
 import { navigateWebEposProductInWorkerTab } from '@/services/extensionClient';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 250];
-
-function extractBarcode(barcode) {
-  if (!barcode) return '';
-  const match = String(barcode).match(/^([^-]+)/);
-  return match ? match[1].trim() : String(barcode).trim();
-}
 
 /**
  * Paginated Web EPOS products grid (shared by full products page and upload hub).
@@ -28,6 +25,11 @@ export default function WebEposProductsTablePanel({
   emptyDetail = null,
   onSelectedBarcodes = null,
   onSelectedRows = null,
+  /**
+   * Map<barserial, { reason?: string }> — when present, renders a danger badge on the row's
+   * barcode cell. Keys are the extracted barserial (same value we emit to `onSelectedBarcodes`).
+   */
+  dangerByBarcode = null,
 }) {
   const hasRows = Array.isArray(rows) && rows.length > 0;
   const totalRows = rows.length;
@@ -207,6 +209,8 @@ export default function WebEposProductsTablePanel({
                     const globalIndex = (safePage - 1) * pageSize + ri;
                     const isSelected = selectedIndices.has(globalIndex);
                     const isPivot = pivotIdx === globalIndex;
+                    const rowBarserial = extractBarcode(row.barcode);
+                    const danger = dangerByBarcode && rowBarserial ? dangerByBarcode[rowBarserial] : null;
                     return (
                       <tr
                         key={`${row.barcode}-${globalIndex}`}
@@ -237,6 +241,14 @@ export default function WebEposProductsTablePanel({
                           </button>
                         </td>
                         <td className="font-mono text-xs">
+                          {danger ? (
+                            <span
+                              className="mr-1.5 inline-flex items-center align-middle rounded-full bg-red-100 px-1.5 py-0.5 text-red-700"
+                              title={danger.reason || 'Flagged: free-stock quantity is below 1'}
+                            >
+                              <span className="material-symbols-outlined text-[14px] leading-none">warning</span>
+                            </span>
+                          ) : null}
                           {row.productHref ? (
                             <button
                               type="button"

@@ -69,6 +69,7 @@ import { useResearchOverlay } from '../hooks/useResearchOverlay';
 import { useMarketplaceSearchPrefetch } from '../hooks/useMarketplaceSearchPrefetch';
 import { useRefreshCexRowData } from '../hooks/useRefreshCexRowData';
 import { handlePriceSourceAsRrpOffersSource } from '../utils/priceSourceAsRrpOffers';
+import { runWithConcurrency } from '../utils/runWithConcurrency';
 import { useWebEposUploadWorkspace } from '../hooks/useWebEposUploadWorkspace';
 import {
   barcodeCap,
@@ -127,7 +128,6 @@ async function runAuditWebeposPreview(items, { onLog } = {}) {
   if (!Array.isArray(items) || items.length === 0) return { labelsByBarcode: {} };
 
   const labelsByBarcode = {};
-  const queue = [...items];
 
   const runOne = async (it) => {
     const barcode = String(it?.barcode || '').trim();
@@ -177,17 +177,7 @@ async function runAuditWebeposPreview(items, { onLog } = {}) {
     }
   };
 
-  /** Bounded-concurrency worker: each worker pulls the next item off the shared queue. */
-  const worker = async () => {
-    while (queue.length > 0) {
-      const next = queue.shift();
-      if (!next) break;
-      await runOne(next);
-    }
-  };
-
-  const workerCount = Math.min(AUDIT_WEBEPOS_PREVIEW_MAX_CONCURRENCY, items.length);
-  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  await runWithConcurrency(items, runOne, AUDIT_WEBEPOS_PREVIEW_MAX_CONCURRENCY);
 
   return { labelsByBarcode };
 }
