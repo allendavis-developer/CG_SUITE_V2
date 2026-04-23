@@ -1175,44 +1175,45 @@ export default function ResearchFormShell({
 
       {/* Stats + offers — right aligned with listing-card edge */}
       <div className="flex-1 min-w-0 flex items-center gap-3 justify-end">
-        {activeStats && (
+        {showCustomUploadSalePrice && !readOnly && activeStats && (
           <>
             <div className="w-px h-8 bg-gray-200 shrink-0" />
-            <StatsDisplay />
-            {showCustomUploadSalePrice && !readOnly && (
-              <>
-                <div className="w-px h-8 bg-gray-200 shrink-0" />
-                <div className="flex flex-col gap-0.5 shrink-0 items-end">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
-                    Custom sale price
-                  </span>
-                  <div className="flex items-baseline gap-0.5">
-                    <span className="text-lg font-extrabold text-gray-400">£</span>
-                    <input
-                      type="text"
-                      className="text-lg font-extrabold text-brand-blue bg-transparent outline-none w-24 border-b-2 border-brand-blue/20 focus:border-brand-blue/40 leading-tight"
-                      placeholder=""
-                      aria-label="Custom upload sale price"
-                      value={customUploadSalePrice}
-                      onChange={(e) => {
-                        const cleaned = sanitizeManualOfferInput(e.target.value);
-                        onCustomUploadSalePriceChange?.(cleaned);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key !== 'Enter') return;
-                        e.preventDefault();
-                        handleComplete();
-                      }}
-                    />
-                  </div>
-                </div>
-              </>
-            )}
+            <div className="flex flex-col gap-0.5 shrink-0 items-end">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                Custom sale price
+              </span>
+              <div className="flex items-baseline gap-0.5">
+                <span className="text-lg font-extrabold text-gray-400">£</span>
+                <input
+                  type="text"
+                  className="text-lg font-extrabold text-brand-blue bg-transparent outline-none w-24 border-b-2 border-brand-blue/20 focus:border-brand-blue/40 leading-tight"
+                  placeholder=""
+                  aria-label="Custom upload sale price"
+                  value={customUploadSalePrice}
+                  onChange={(e) => {
+                    const cleaned = sanitizeManualOfferInput(e.target.value);
+                    onCustomUploadSalePriceChange?.(cleaned);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter') return;
+                    e.preventDefault();
+                    handleComplete();
+                  }}
+                />
+              </div>
+            </div>
           </>
         )}
 
         {/* Offer cards (includes its own leading separator) */}
         {BuyOffersDisplay}
+
+        {activeStats && (
+          <>
+            <div className="w-px h-8 bg-gray-200 shrink-0" />
+            <StatsDisplay />
+          </>
+        )}
       </div>
     </div>
   );

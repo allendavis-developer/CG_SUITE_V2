@@ -1771,32 +1771,26 @@ const AppHeader = ({
                           </div>
                           {variant && (
                             <>
-                              <WorkspacePricingStatCards
-                                referenceData={referenceData}
-                                ourSalePrice={ourSalePrice}
-                                hideBuyInPrice={isRepricingWorkspace}
-                                cexOutOfStock={referenceData?.cex_out_of_stock ?? false}
-                              />
                               {!isRepricingWorkspace &&
                                 (isLoadingOffers ? (
                                   <>
                                     <div
-                                      className="mx-1 hidden w-px shrink-0 self-stretch rounded-full bg-gray-200/70 sm:block"
+                                      className="hidden w-px shrink-0 self-stretch rounded-full bg-gray-200/70 sm:block"
                                       aria-hidden
                                     />
-                                    <p className="flex min-w-0 flex-1 basis-full items-center self-stretch text-sm text-gray-500 sm:basis-0">
+                                    <p className="flex items-center self-stretch text-sm text-gray-500">
                                       Loading offers…
                                     </p>
                                   </>
                                 ) : (
                                   <>
                                     <div
-                                      className="mx-1 hidden w-px shrink-0 self-stretch rounded-full bg-gray-200/70 sm:block"
+                                      className="hidden w-px shrink-0 self-stretch rounded-full bg-gray-200/70 sm:block"
                                       aria-hidden
                                     />
-                                    <div className="flex min-w-0 w-full flex-1 basis-full flex-col justify-center self-stretch sm:basis-0">
+                                    <div className="flex min-w-0 flex-col justify-center self-stretch">
                                       <OfferSelection
-                                        className="min-w-0 w-full"
+                                        className="min-w-0"
                                         variant={variant}
                                         offers={offers}
                                         referenceData={referenceData}
@@ -1804,7 +1798,7 @@ const AppHeader = ({
                                         onAddToCart={handleAddNegotiationItem}
                                         blockedOfferSlots={buyerControls?.blockedOfferSlots}
                                         toolbarLayout
-                                        toolbarFillWidth
+                                        toolbarFillWidth={false}
                                         hideSectionHeader
                                         onBlockedOfferClick={(slot, offer, blockedSelectionArg) => {
                                           const blockedItem = buildWorkspaceNegotiationItem(
@@ -1821,6 +1815,33 @@ const AppHeader = ({
                                     </div>
                                   </>
                                 ))}
+                              <div
+                                className="hidden w-px shrink-0 self-stretch rounded-full bg-gray-200/70 sm:block"
+                                aria-hidden
+                              />
+                              <WorkspacePricingStatCards
+                                referenceData={referenceData}
+                                ourSalePrice={ourSalePrice}
+                                hideBuyInPrice={isRepricingWorkspace}
+                                cexOutOfStock={referenceData?.cex_out_of_stock ?? false}
+                              />
+                              {!isRepricingWorkspace && (
+                                <>
+                                  <div
+                                    className="hidden w-px shrink-0 self-stretch rounded-full bg-gray-200/70 sm:block"
+                                    aria-hidden
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={handleAddNegotiationItem}
+                                    title="Add to cart"
+                                    aria-label="Add to cart"
+                                    className="flex min-h-[56px] shrink-0 cursor-pointer items-center justify-center rounded-lg bg-brand-orange px-4 text-brand-blue shadow-lg shadow-brand-orange/30 transition-all hover:bg-brand-orange-hover active:scale-[0.99]"
+                                  >
+                                    <span className="material-symbols-outlined text-[22px]">add_shopping_cart</span>
+                                  </button>
+                                </>
+                              )}
                             </>
                           )}
                         </div>

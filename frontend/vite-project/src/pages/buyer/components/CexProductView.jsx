@@ -123,22 +123,12 @@ export default function CexProductView({
               />
             </div>
           </div>
-          <div className="flex min-w-0 w-full flex-1 flex-col gap-3 self-stretch sm:flex-row sm:items-stretch">
-            <WorkspacePricingStatCards
-              referenceData={refData}
-              ourSalePrice={resolvedOurSalePrice}
-              hideBuyInPrice={isRepricing}
-              cexOutOfStock={item.cexProductData?.isOutOfStock || item.cexOutOfStock}
-            />
+          <div className="flex min-w-0 flex-wrap items-stretch gap-3 self-stretch">
             {!isRepricing && displayOffers.length > 0 ? (
               <>
-                <div
-                  className="mx-1 hidden w-px shrink-0 self-stretch rounded-full bg-gray-200/70 sm:block"
-                  aria-hidden
-                />
-                <div className="flex min-w-0 w-full flex-1 flex-col justify-center self-stretch">
+                <div className="flex min-w-0 flex-col justify-center self-stretch">
                 <OfferSelection
-                  className="min-w-0 w-full"
+                  className="min-w-0"
                   variant="cex"
                   offers={displayOffers}
                   referenceData={refWithOurSale}
@@ -148,12 +138,39 @@ export default function CexProductView({
                   onAddToCart={onSelectOfferForCartItem}
                   showAddActionCard={false}
                   toolbarLayout
-                  toolbarFillWidth
+                  toolbarFillWidth={false}
                   hideSectionHeader
                 />
                 </div>
+                <div
+                  className="hidden w-px shrink-0 self-stretch rounded-full bg-gray-200/70 sm:block"
+                  aria-hidden
+                />
               </>
             ) : null}
+            <WorkspacePricingStatCards
+              referenceData={refData}
+              ourSalePrice={resolvedOurSalePrice}
+              hideBuyInPrice={isRepricing}
+              cexOutOfStock={item.cexProductData?.isOutOfStock || item.cexOutOfStock}
+            />
+            {!isRepricing && displayOffers.length > 0 && (
+              <>
+                <div
+                  className="hidden w-px shrink-0 self-stretch rounded-full bg-gray-200/70 sm:block"
+                  aria-hidden
+                />
+                <button
+                  type="button"
+                  onClick={() => onSelectOfferForCartItem?.(item?.selectedOfferId ?? null)}
+                  title="Add to cart"
+                  aria-label="Add to cart"
+                  className="flex min-h-[56px] shrink-0 cursor-pointer items-center justify-center rounded-lg bg-brand-orange px-4 text-brand-blue shadow-lg shadow-brand-orange/30 transition-all hover:bg-brand-orange-hover active:scale-[0.99]"
+                >
+                  <span className="material-symbols-outlined text-[22px]">add_shopping_cart</span>
+                </button>
+              </>
+            )}
           </div>
         </div>
         <div className="p-8 space-y-8">
@@ -324,22 +341,12 @@ export default function CexProductView({
               aiFromCascade={data.aiInternalCategoryFromCascade === true}
             />
           </div>
-          <div className="flex min-w-0 flex-1 flex-col gap-3 self-stretch sm:flex-row sm:items-stretch">
-            <WorkspacePricingStatCards
-              referenceData={refData}
-              ourSalePrice={cexBasedRounded != null ? String(cexBasedRounded) : ''}
-              hideBuyInPrice={isRepricing}
-              cexOutOfStock={data.isOutOfStock ?? false}
-            />
+          <div className="flex min-w-0 flex-wrap items-stretch gap-3 self-stretch">
             {!isRepricing && offers.length > 0 ? (
               <>
-                <div
-                  className="mx-1 hidden w-px shrink-0 self-stretch rounded-full bg-gray-200/70 sm:block"
-                  aria-hidden
-                />
-                <div className="flex min-w-0 flex-1 flex-col justify-center self-stretch">
+                <div className="flex min-w-0 flex-col justify-center self-stretch">
                 <OfferSelection
-                  className="min-w-0 w-full"
+                  className="min-w-0"
                   variant="cex"
                   offers={offers}
                   referenceData={refWithOurSale}
@@ -348,14 +355,41 @@ export default function CexProductView({
                   blockedOfferSlots={blockedOfferSlots}
                   onBlockedOfferClick={onBlockedOfferClick}
                   toolbarLayout
-                  toolbarFillWidth
+                  toolbarFillWidth={false}
                   hideSectionHeader
                 />
                 </div>
+                <div
+                  className="hidden w-px shrink-0 self-stretch rounded-full bg-gray-200/70 sm:block"
+                  aria-hidden
+                />
               </>
             ) : null}
+            <WorkspacePricingStatCards
+              referenceData={refData}
+              ourSalePrice={cexBasedRounded != null ? String(cexBasedRounded) : ''}
+              hideBuyInPrice={isRepricing}
+              cexOutOfStock={data.isOutOfStock ?? false}
+            />
+            {!isRepricing && offers.length > 0 && (
+              <>
+                <div
+                  className="hidden w-px shrink-0 self-stretch rounded-full bg-gray-200/70 sm:block"
+                  aria-hidden
+                />
+                <button
+                  type="button"
+                  onClick={() => handleAdd(null)}
+                  title="Add to cart"
+                  aria-label="Add to cart"
+                  className="flex min-h-[56px] shrink-0 cursor-pointer items-center justify-center rounded-lg bg-brand-orange px-4 text-brand-blue shadow-lg shadow-brand-orange/30 transition-all hover:bg-brand-orange-hover active:scale-[0.99]"
+                >
+                  <span className="material-symbols-outlined text-[22px]">add_shopping_cart</span>
+                </button>
+              </>
+            )}
             {(onCancelCeXProduct || onClearCeXProduct) && (
-              <div className="flex shrink-0 items-center sm:self-center">
+              <div className="flex shrink-0 items-center self-stretch">
                 <WorkspaceCloseButton
                   title="Close CeX product"
                   onClick={onCancelCeXProduct ?? onClearCeXProduct}
