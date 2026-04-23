@@ -256,38 +256,41 @@ def _replace_market_research(
             "upload_session_item": None,
         }
 
+    if not payload or not isinstance(payload, dict):
+        MarketResearchSession.objects.filter(**session_filter).delete()
+        return
+    if not _is_market_research_dict(payload):
+        MarketResearchSession.objects.filter(**session_filter).delete()
+        return
     prev_adv = (
         MarketResearchSession.objects.filter(**session_filter)
         .values_list("advanced_filter_state", flat=True)
         .first()
     )
-    MarketResearchSession.objects.filter(**session_filter).delete()
-    if not payload or not isinstance(payload, dict):
-        return
-    if not _is_market_research_dict(payload):
-        return
     stats = payload.get("stats") or {}
     sel = payload.get("selectedFilters")
     filt_opts = payload.get("filterOptions")
     filter_state = None
     if sel is not None or filt_opts is not None:
         filter_state = {"selectedFilters": sel, "filterOptions": filt_opts}
-    session = MarketResearchSession.objects.create(
-        **owner_fields,
-        platform=platform,
-        search_term=str(payload.get("searchTerm") or "")[:500],
-        listing_page_url=str(payload.get("listingPageUrl") or "")[:2000],
-        show_histogram=bool(payload.get("showHistogram")),
-        manual_offer_text=str(payload.get("manualOffer") or "")[:64],
-        selected_offer_index=_parse_selected_offer_index(payload.get("selectedOfferIndex")),
-        stat_average_gbp=_dec(stats.get("average")),
-        stat_median_gbp=_dec(stats.get("median")),
-        stat_suggested_sale_gbp=_dec(stats.get("suggestedPrice")),
-        advanced_filter_state=_merge_advanced_filter_state(
-            prev_adv, payload.get("advancedFilterState")
-        ),
-        filter_state_json=filter_state,
-        buy_offers_json=payload.get("buyOffers"),
+    session, created = MarketResearchSession.objects.update_or_create(
+        defaults={
+            **owner_fields,
+            "search_term": str(payload.get("searchTerm") or "")[:500],
+            "listing_page_url": str(payload.get("listingPageUrl") or "")[:2000],
+            "show_histogram": bool(payload.get("showHistogram")),
+            "manual_offer_text": str(payload.get("manualOffer") or "")[:64],
+            "selected_offer_index": _parse_selected_offer_index(payload.get("selectedOfferIndex")),
+            "stat_average_gbp": _dec(stats.get("average")),
+            "stat_median_gbp": _dec(stats.get("median")),
+            "stat_suggested_sale_gbp": _dec(stats.get("suggestedPrice")),
+            "advanced_filter_state": _merge_advanced_filter_state(
+                prev_adv, payload.get("advancedFilterState")
+            ),
+            "filter_state_json": filter_state,
+            "buy_offers_json": payload.get("buyOffers"),
+        },
+        **session_filter,
     )
     for idx, level in enumerate(payload.get("drillHistory") or []):
         if not isinstance(level, dict):

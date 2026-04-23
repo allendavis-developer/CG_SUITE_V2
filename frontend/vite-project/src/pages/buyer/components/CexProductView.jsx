@@ -136,7 +136,7 @@ export default function CexProductView({
                   initialSelectedOfferId={item?.selectedOfferId ?? null}
                   syncKey={`${item?.id ?? 'cex'}:${useVoucherOffers ? 'voucher' : 'cash'}`}
                   onAddToCart={onSelectOfferForCartItem}
-                  showAddActionCard={false}
+                  showAddActionCard={true}
                   toolbarLayout
                   toolbarFillWidth={false}
                   hideSectionHeader
@@ -154,23 +154,6 @@ export default function CexProductView({
               hideBuyInPrice={isRepricing}
               cexOutOfStock={item.cexProductData?.isOutOfStock || item.cexOutOfStock}
             />
-            {!isRepricing && displayOffers.length > 0 && (
-              <>
-                <div
-                  className="hidden w-px shrink-0 self-stretch rounded-full bg-gray-200/70 sm:block"
-                  aria-hidden
-                />
-                <button
-                  type="button"
-                  onClick={() => onSelectOfferForCartItem?.(item?.selectedOfferId ?? null)}
-                  title="Add to cart"
-                  aria-label="Add to cart"
-                  className="flex min-h-[56px] shrink-0 cursor-pointer items-center justify-center rounded-lg bg-brand-orange px-4 text-brand-blue shadow-lg shadow-brand-orange/30 transition-all hover:bg-brand-orange-hover active:scale-[0.99]"
-                >
-                  <span className="material-symbols-outlined text-[22px]">add_shopping_cart</span>
-                </button>
-              </>
-            )}
           </div>
         </div>
         <div className="p-8 space-y-8">
@@ -371,23 +354,6 @@ export default function CexProductView({
               hideBuyInPrice={isRepricing}
               cexOutOfStock={data.isOutOfStock ?? false}
             />
-            {!isRepricing && offers.length > 0 && (
-              <>
-                <div
-                  className="hidden w-px shrink-0 self-stretch rounded-full bg-gray-200/70 sm:block"
-                  aria-hidden
-                />
-                <button
-                  type="button"
-                  onClick={() => handleAdd(null)}
-                  title="Add to cart"
-                  aria-label="Add to cart"
-                  className="flex min-h-[56px] shrink-0 cursor-pointer items-center justify-center rounded-lg bg-brand-orange px-4 text-brand-blue shadow-lg shadow-brand-orange/30 transition-all hover:bg-brand-orange-hover active:scale-[0.99]"
-                >
-                  <span className="material-symbols-outlined text-[22px]">add_shopping_cart</span>
-                </button>
-              </>
-            )}
             {(onCancelCeXProduct || onClearCeXProduct) && (
               <div className="flex shrink-0 items-center self-stretch">
                 <WorkspaceCloseButton
