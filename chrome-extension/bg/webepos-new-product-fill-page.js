@@ -399,8 +399,73 @@
     throw new Error('Timed out waiting for Web EPOS to finish saving the edit');
   }
 
+  /**
+   * Edit-page save that keeps On Sale OFF — mirror of {@link finishEditProductAfterChange}
+   * but with `ensureOnSaleOff` instead of `ensureOnSaleOn`, and reusing the same dirty-form
+   * trick the new-product save pipeline relies on.
+   *
+   * Why this exists as a separate helper:
+   *   - `finishEditProductAfterChange` (audit price-edit flow) calls `ensureOnSaleOn` right
+   *     before click so a live product never accidentally goes off sale. If a flow that
+   *     wants On Sale OFF calls it, the switch is flipped back ON the moment we save —
+   *     that's the "toggles off then immediately back on" bug.
+   *   - `finishNewProductAfterFill` calls `ensureOnSaleOff` right before click, which is
+   *     exactly the guarantee we need. But it only runs after `run(spec)` has touched the
+   *     form fields — React then treats the form as user-modified and stops re-syncing On
+   *     Sale from the loaded product JSON. On the edit page we haven't filled anything, so
+   *     we replicate the dirty-form signal by re-assigning `#price` to its own value
+   *     (native setter + input/change events — same mechanism `setNativeValue` uses).
+   *
+   * Sequence: dirty the form, ensure on-sale off (repeat immediately before click so no
+   * replay lands between toggle and save), clear RRP Source, click Save/Update, wait for
+   * Web EPOS to redirect away from the edit URL.
+   */
+  async function finishEditProductOffSale() {
+    await sleep(250);
+
+    // Dirty-form signal: poke #price so React marks the form as user-modified and stops
+    // resyncing On Sale from the hydrated product state. Pure no-op for the user — the
+    // native value setter + input/change events fire, but the visible value is unchanged.
+    var priceEl = document.getElementById('price');
+    if (priceEl) {
+      setNativeValue(priceEl, String(priceEl.value || ''));
+    }
+
+    await ensureOnSaleOff();
+    clearRrpSourceField();
+    await ensureOnSaleOff();
+
+    var btn = Array.prototype.slice
+      .call(document.querySelectorAll('button.btn'))
+      .find(function (b) {
+        var t = String(b.textContent || '').replace(/\s+/g, ' ').trim();
+        return /^(save|update)(\s+product)?$/i.test(t);
+      });
+    if (!btn) {
+      throw new Error('Save/Update button not found on Web EPOS edit page');
+    }
+
+    // Final guard: one more ensureOnSaleOff the instant before the click, so nothing can
+    // land between the check and the submit. ensureOnSaleOff is idempotent (no-ops when the
+    // switch already reads off), so the redundant calls are essentially free.
+    await ensureOnSaleOff();
+
+    var startPath = location.pathname || '';
+    btn.click();
+    var deadline = Date.now() + 60000;
+    while (Date.now() < deadline) {
+      await sleep(500);
+      var p = location.pathname || '';
+      if (p !== startPath) {
+        return;
+      }
+    }
+    throw new Error('Timed out waiting for Web EPOS to finish saving the edit');
+  }
+
   window.__CG_WEB_EPOS_FILL_RUN = run;
   window.__CG_WEB_EPOS_FINISH_NEW_PRODUCT = finishNewProductAfterFill;
   window.__CG_WEB_EPOS_FINISH_EDIT_PRODUCT = finishEditProductAfterChange;
+  window.__CG_WEB_EPOS_FINISH_EDIT_PRODUCT_OFF_SALE = finishEditProductOffSale;
   window.__CG_WEB_EPOS_ENSURE_ON_SALE_OFF = ensureOnSaleOff;
 })();

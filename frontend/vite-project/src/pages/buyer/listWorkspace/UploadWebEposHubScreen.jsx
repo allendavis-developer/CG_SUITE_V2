@@ -24,6 +24,7 @@ export default function UploadWebEposHubScreen({
   const [soldCheckOpen, setSoldCheckOpen] = useState(false);
   const [soldCheckQueue, setSoldCheckQueue] = useState([]);
   const [flaggedByBarserial, setFlaggedByBarserial] = useState({});
+  const [closedBarserials, setClosedBarserials] = useState(() => new Set());
   const { showNotification } = useNotification();
 
   const handleAudit = () => {
@@ -53,6 +54,16 @@ export default function UploadWebEposHubScreen({
     setSoldCheckQueue(queue);
     setSoldCheckOpen(true);
   }, [rows, selectedRows, showNotification]);
+
+  /** Merge each successful close into the running set so re-runs additively flag more rows as Closed. */
+  const handleClosedChange = useCallback((set) => {
+    if (!set) return;
+    setClosedBarserials((prev) => {
+      const next = new Set(prev);
+      set.forEach((b) => next.add(b));
+      return next;
+    });
+  }, []);
 
   const dangerByBarcode = useMemo(() => {
     // CloseListingsSoldCheckModal reports flagged rows keyed by barserial; the table panel
@@ -162,6 +173,7 @@ export default function UploadWebEposHubScreen({
           onSelectedBarcodes={setSelectedBarcodes}
           onSelectedRows={setSelectedRows}
           dangerByBarcode={dangerByBarcode}
+          closedByBarcode={closedBarserials.size > 0 ? closedBarserials : null}
           emptyDetail={
             scrapeError && !hasRows ? (
               <p>{copy.uploadHubEmptyAfterError}</p>
@@ -177,6 +189,7 @@ export default function UploadWebEposHubScreen({
           rows={soldCheckQueue}
           onClose={() => setSoldCheckOpen(false)}
           onFlaggedChange={setFlaggedByBarserial}
+          onClosedChange={handleClosedChange}
           showNotification={showNotification}
         />
       ) : null}

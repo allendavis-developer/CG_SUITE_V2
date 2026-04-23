@@ -75,6 +75,35 @@ async function injectWebEposEnsureOnSaleOff(tabId) {
   });
 }
 
+/**
+ * Edit-page save that guarantees On Sale is OFF at the moment of click — wraps the
+ * `__CG_WEB_EPOS_FINISH_EDIT_PRODUCT_OFF_SALE` helper. Mirror of
+ * {@link injectWebEposEditProductFinishSave} for flows that want the listing closed
+ * (e.g. "Close listings for sold items"), not kept live like the audit price-edit flow.
+ */
+async function injectWebEposEditProductFinishSaveOffSale(tabId) {
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    files: ['bg/webepos-new-product-fill-page.js'],
+  });
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func: () => {
+      const fn = window.__CG_WEB_EPOS_FINISH_EDIT_PRODUCT_OFF_SALE;
+      if (typeof fn !== 'function') {
+        return Promise.reject(new Error('Web EPOS off-sale save helper not available'));
+      }
+      return fn();
+    },
+  });
+  const inj = results && results[0];
+  if (inj?.error) {
+    throw new Error(inj.error.message || String(inj.error));
+  }
+}
+
 async function injectWebEposNewProductFill(tabId, spec) {
   await chrome.scripting.executeScript({
     target: { tabId },
@@ -457,6 +486,61 @@ async function injectWebEposWaitForEditFormReady(tabId) {
   const payload = inj?.result;
   if (payload && payload.ok === false) {
     throw new Error(payload.error || 'Edit form never mounted');
+  }
+}
+
+/**
+ * Resolve once the product JSON has actually hydrated the edit page — signalled by `#price`
+ * having a non-empty value. This is the same readiness rule `scrape-web-epos-category-selects`
+ * uses to know the page has finished loading. Needed for any mutation that could race against
+ * React's initial state hydration (e.g. toggling the On Sale switch): if we flip a control before
+ * the product data arrives, React will replay the loaded state and undo our change.
+ */
+async function injectWebEposWaitForProductLoaded(tabId) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func: async () => {
+      const isLoaded = () => {
+        const price = document.getElementById('price');
+        if (!price) return false;
+        return String(price.value || '').trim().length > 0;
+      };
+      if (isLoaded()) return { ok: true };
+      return await new Promise((resolve) => {
+        const deadline = Date.now() + 20000;
+        const obs = new MutationObserver(() => {
+          if (isLoaded()) {
+            obs.disconnect();
+            clearInterval(iv);
+            resolve({ ok: true });
+          }
+        });
+        obs.observe(document.documentElement, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ['value'],
+        });
+        const iv = setInterval(() => {
+          if (isLoaded()) {
+            obs.disconnect();
+            clearInterval(iv);
+            resolve({ ok: true });
+          } else if (Date.now() > deadline) {
+            obs.disconnect();
+            clearInterval(iv);
+            /** Soft-fail: proceed anyway so a genuinely empty `#price` (e.g. brand-new product,
+             * no RRP yet) doesn't stall the whole close-flagged run. Callers re-verify the switch. */
+            resolve({ ok: false });
+          }
+        }, 80);
+      });
+    },
+  });
+  const inj = results && results[0];
+  if (inj?.error) {
+    throw new Error(inj.error.message || String(inj.error));
   }
 }
 

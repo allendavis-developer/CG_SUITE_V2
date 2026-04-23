@@ -26,11 +26,23 @@ export default function WebEposProductsTablePanel({
   onSelectedBarcodes = null,
   onSelectedRows = null,
   /**
-   * Map<barserial, { reason?: string }> — when present, renders a danger badge on the row's
-   * barcode cell. Keys are the extracted barserial (same value we emit to `onSelectedBarcodes`).
+   * Map<barserial, { reason?: string, quantity?: number|null }> — when present, renders a danger
+   * badge with the NosPos quantity on the row's barcode cell. Keys are the extracted barserial
+   * (same value we emit to `onSelectedBarcodes`).
    */
   dangerByBarcode = null,
+  /**
+   * Set or Map of barserials whose Web EPOS listing has been closed (On Sale toggled off) — the
+   * Status cell is overridden with a "Closed" badge so the table reflects the post-run state.
+   */
+  closedByBarcode = null,
 }) {
+  /** Membership check that accepts either a Set or a plain map. */
+  const isClosed = (barserial) => {
+    if (!closedByBarcode || !barserial) return false;
+    if (typeof closedByBarcode.has === 'function') return closedByBarcode.has(barserial);
+    return Boolean(closedByBarcode[barserial]);
+  };
   const hasRows = Array.isArray(rows) && rows.length > 0;
   const totalRows = rows.length;
 
@@ -211,6 +223,13 @@ export default function WebEposProductsTablePanel({
                     const isPivot = pivotIdx === globalIndex;
                     const rowBarserial = extractBarcode(row.barcode);
                     const danger = dangerByBarcode && rowBarserial ? dangerByBarcode[rowBarserial] : null;
+                    const dangerQty = danger?.quantity;
+                    const dangerReason =
+                      danger?.reason ||
+                      (dangerQty != null
+                        ? `Free-stock quantity on NosPos is ${dangerQty} (less than 1) — the item has likely been sold.`
+                        : 'Free-stock quantity on NosPos is less than 1 — the item has likely been sold.');
+                    const closed = isClosed(rowBarserial);
                     return (
                       <tr
                         key={`${row.barcode}-${globalIndex}`}
@@ -241,14 +260,6 @@ export default function WebEposProductsTablePanel({
                           </button>
                         </td>
                         <td className="font-mono text-xs">
-                          {danger ? (
-                            <span
-                              className="mr-1.5 inline-flex items-center align-middle rounded-full bg-red-100 px-1.5 py-0.5 text-red-700"
-                              title={danger.reason || 'Flagged: free-stock quantity is below 1'}
-                            >
-                              <span className="material-symbols-outlined text-[14px] leading-none">warning</span>
-                            </span>
-                          ) : null}
                           {row.productHref ? (
                             <button
                               type="button"
@@ -283,11 +294,34 @@ export default function WebEposProductsTablePanel({
                           ) : (
                             row.barcode
                           )}
+                          {danger ? (
+                            <span
+                              className="ml-1.5 inline-flex items-center gap-1 align-middle rounded-full bg-red-100 px-1.5 py-0.5 text-red-700"
+                              title={dangerReason}
+                            >
+                              <span className="material-symbols-outlined text-[14px] leading-none">warning</span>
+                              {dangerQty != null ? (
+                                <span className="text-[10px] font-bold tabular-nums">Qty {dangerQty}</span>
+                              ) : null}
+                            </span>
+                          ) : null}
                         </td>
                         <td className="max-w-[320px]">{row.productName}</td>
                         <td className="whitespace-nowrap">{row.price}</td>
                         <td className="whitespace-nowrap">{row.quantity}</td>
-                        <td className="whitespace-nowrap text-xs">{row.status}</td>
+                        <td className="whitespace-nowrap text-xs">
+                          {closed ? (
+                            <span
+                              className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-wide text-emerald-700"
+                              title="Web EPOS listing closed (On Sale toggled off) by Close listings for sold items."
+                            >
+                              <span className="material-symbols-outlined text-[12px] leading-none">check_circle</span>
+                              Closed
+                            </span>
+                          ) : (
+                            row.status
+                          )}
+                        </td>
                         <td className="whitespace-nowrap">
                           {row.retailUrl ? (
                             <a

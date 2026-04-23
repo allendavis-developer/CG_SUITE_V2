@@ -57,6 +57,8 @@ export default function CloseListingsSoldCheckModal({
   rows,
   onClose,
   onFlaggedChange,
+  /** Called with the set of barserials whose Web EPOS listing was successfully closed. */
+  onClosedChange,
   showNotification,
 }) {
   const queue = useMemo(
@@ -280,6 +282,12 @@ export default function CloseListingsSoldCheckModal({
     );
 
     const items = flaggedEntries.map(([barserial, meta]) => ({ barserial, ...meta }));
+    /**
+     * Track barserials whose Web EPOS toggle save returned `ok: true`. We collect them
+     * here (not in component state) so we can hand the parent the final set in a single
+     * `onClosedChange(set)` call after the run, instead of streaming N re-renders.
+     */
+    const closedBarserials = new Set();
 
     await runWithConcurrency(
       items,
@@ -311,6 +319,7 @@ export default function CloseListingsSoldCheckModal({
             appendLog('warn', `Save failed for ${display}: ${toggle?.error || 'unknown error'}`);
           } else {
             appendLog('success', `Closed ${display} ✓`);
+            closedBarserials.add(item.barserial);
           }
         } catch (err) {
           appendLog('warn', `Failed to close ${display}: ${err?.message || err}`);
@@ -330,7 +339,8 @@ export default function CloseListingsSoldCheckModal({
 
     appendLog('success', 'Web EPOS close-flagged run complete.');
     setPhase('closed');
-  }, [appendLog, flaggedCount, flaggedEntries]);
+    onClosedChange?.(closedBarserials);
+  }, [appendLog, flaggedCount, flaggedEntries, onClosedChange]);
 
   return (
     <TinyModal
@@ -391,6 +401,7 @@ export default function CloseListingsSoldCheckModal({
                   <col />
                   <col className="w-24" />
                   <col className="w-56" />
+                  <col className="w-32" />
                 </colgroup>
                 <thead className="sticky top-0 bg-slate-50 text-[10.5px] font-bold uppercase tracking-wide text-slate-500">
                   <tr>
@@ -398,6 +409,7 @@ export default function CloseListingsSoldCheckModal({
                     <th className="px-3 py-1.5">Product</th>
                     <th className="px-3 py-1.5 text-right">NosPos qty</th>
                     <th className="px-3 py-1.5 text-right">Status</th>
+                    <th className="px-3 py-1.5 text-right">NosPos ID</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -407,6 +419,10 @@ export default function CloseListingsSoldCheckModal({
                     const meta = STATUS_LABEL[key] || STATUS_LABEL.pending;
                     const isActive = idx === activeIdx && !lookupFinished;
                     const qtyDisplay = s?.quantity != null ? String(s.quantity) : '—';
+                    // Prefer the barserial from the NosPos match (authoritative); fall back
+                    // to the current picker's first result, else just blank. Only single-match
+                    // / selected lookups have a definitive `stockBarcode`.
+                    const nosposId = s?.stockBarcode || s?.results?.[0]?.barserial || null;
                     return (
                       <tr key={row.barserial} className={isActive ? 'bg-brand-blue/5' : ''}>
                         <td className="px-3 py-1.5 font-mono font-semibold text-brand-blue">
@@ -437,6 +453,22 @@ export default function CloseListingsSoldCheckModal({
                             </span>
                             {meta.label}
                           </span>
+                        </td>
+                        <td className="px-3 py-1.5 text-right font-mono">
+                          {nosposId && s?.stockUrl ? (
+                            <a
+                              href={s.stockUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1 text-brand-blue hover:underline"
+                              title={`Open ${nosposId} on NosPos`}
+                            >
+                              {nosposId}
+                              <span className="material-symbols-outlined text-[12px] leading-none">open_in_new</span>
+                            </a>
+                          ) : (
+                            <span className="text-slate-300">—</span>
+                          )}
                         </td>
                       </tr>
                     );
