@@ -117,6 +117,8 @@ export function useNegotiationItemHandlers({
   setCexPencilRrpSourceModal = null,
 }) {
   const jewelleryNosposEarlyAiStartedRef = useRef(new Set());
+  /** Cached category_id for "Jewellery" so we don't re-fetch the whole catalog on every keystroke. */
+  const jewelleryCategoryIdCacheRef = useRef(null);
   const handleQuantityChange = useCallback((itemId, newQty) => {
     setItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, quantity: newQty } : i)));
   }, [setItems]);
@@ -1113,40 +1115,51 @@ export function useNegotiationItemHandlers({
     }
   }, [jewelleryWorkspaceLines]);
 
+  /** Auto-commit draft jewellery lines so NosPos category AI can start early.
+   *  Skipped for Other-grade lines (their total is typed by the buyer — don't auto-commit mid-type),
+   *  and the catalog is only fetched when at least one pending line is actually missing
+   *  jewelleryDbCategoryId. Without these guards every keystroke re-fetches the whole catalog. */
   useEffect(() => {
     if (mode !== 'negotiate') return;
     if (!headerWorkspaceOpen || headerWorkspaceMode !== 'jewellery') return;
     if (!Array.isArray(jewelleryWorkspaceLines) || jewelleryWorkspaceLines.length === 0) return;
 
+    const pending = jewelleryWorkspaceLines.filter((line) => {
+      if (!line?.id || line.request_item_id) return false;
+      if (jewelleryNosposEarlyAiStartedRef.current.has(line.id)) return false;
+      if (line.materialGrade === 'Other') return false;
+      try {
+        return computeWorkspaceLineTotal(line) > 0;
+      } catch {
+        return false;
+      }
+    });
+    if (pending.length === 0) return;
+
     let cancelled = false;
     void (async () => {
-      let fallbackJewelleryCategoryId = null;
-      try {
-        const jewCat = await fetchJewelleryCatalog();
-        fallbackJewelleryCategoryId = jewCat?.category_id ?? null;
-      } catch {
-        /* best effort */
-      }
-      if (cancelled) return;
-
-      for (const line of jewelleryWorkspaceLines) {
-        if (!line?.id || line.request_item_id) continue;
-        if (jewelleryNosposEarlyAiStartedRef.current.has(line.id)) continue;
-        let total = 0;
+      let fallbackCategoryId = jewelleryCategoryIdCacheRef.current;
+      const needsFallback = fallbackCategoryId == null
+        && pending.some((l) => l.jewelleryDbCategoryId == null);
+      if (needsFallback) {
         try {
-          total = computeWorkspaceLineTotal(line);
+          const jewCat = await fetchJewelleryCatalog();
+          fallbackCategoryId = jewCat?.category_id ?? null;
+          jewelleryCategoryIdCacheRef.current = fallbackCategoryId;
         } catch {
-          continue;
+          /* best effort */
         }
-        if (!Number.isFinite(total) || total <= 0) continue;
+        if (cancelled) return;
+      }
 
+      for (const line of pending) {
         jewelleryNosposEarlyAiStartedRef.current.add(line.id);
         try {
           const cartItem = buildJewelleryNegotiationCartItem(
             line,
             useVoucherOffers,
             customerOfferRulesData?.settings,
-            fallbackJewelleryCategoryId
+            fallbackCategoryId
           );
           const add = handleAddNegotiationItemRef.current;
           if (!add) continue;

@@ -173,13 +173,18 @@ export function rebuildJewelleryOffersForNegotiationItem(item, useVoucherOffers,
   };
 }
 
-/** Matches DB/reference labels (Gold Coins rows + `Coin` product). */
+/** Lines priced per unit (coinUnits × unitPrice) instead of per gram. Covers:
+ *    - coin grades: Full/Half Sovereign, Krugerrand (in any branch, though the picker only
+ *      offers them under Coins);
+ *    - the Coin DB product paired with Silver, which uses the per-troy-oz scrap reference
+ *      (see {@link isJewelleryCoinSilverOzLine}).
+ *  Anything else under the Coin product (9ct gold, Platinum, etc.) is a normal weight line. */
 export function isJewelleryCoinLine(line) {
   if (!line || typeof line !== 'object') return false;
-  const prod = String(line.productName ?? line.product_name ?? '').trim().toLowerCase();
-  if (prod === 'coin') return true;
   const mg = String(line.materialGrade ?? line.material_grade ?? '').toLowerCase().trim();
-  return mg === 'full sovereign' || mg === 'half sovereign' || mg === 'krugerrand';
+  if (mg === 'full sovereign' || mg === 'half sovereign' || mg === 'krugerrand') return true;
+  const prod = String(line.productName ?? line.product_name ?? '').trim().toLowerCase();
+  return prod === 'coin' && mg === 'silver';
 }
 
 /** Coin + Silver: one workspace unit = 1 troy oz (reference £/oz). */
@@ -191,6 +196,9 @@ export function isJewelleryCoinSilverOzLine(line) {
 }
 
 export function computeWorkspaceLineTotal(line) {
+  /** "Other" material-grade lines carry a buyer-entered total that bypasses weight×rate. */
+  const override = line.overrideReferenceTotal;
+  if (override != null && Number.isFinite(override) && override >= 0) return override;
   if (line.sourceKind === 'UNIT') {
     const n = isJewelleryCoinLine(line) ? effectiveJewelleryCoinUnitsCount(line) : effectiveJewelleryWeightNumeric(line);
     return Math.round(n * (line.unitPrice || 0) * 100) / 100;
@@ -232,6 +240,7 @@ function buildJewelleryReferencePayload(line, total) {
     weight: coin ? '1' : line.weight != null ? String(line.weight) : '0',
     weight_unit: coin ? 'each' : line.weightUnit,
     jewellery_coin_units: coin && coinUnitsPersist >= 1 ? coinUnitsPersist : null,
+    override_reference_total: line.overrideReferenceTotal ?? null,
     computed_total_gbp: total,
   };
 }

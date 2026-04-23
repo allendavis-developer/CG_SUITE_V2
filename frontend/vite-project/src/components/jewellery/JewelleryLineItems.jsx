@@ -22,6 +22,7 @@ import {
 } from '@/components/jewellery/jewelleryNegotiationCart';
 import { troyOzSilverReferenceFromCatalog } from '@/components/jewellery/jewellerySilverCoinReference';
 import { fetchJewelleryCatalog } from '@/services/api';
+import { materialGradesForLeaf, OTHER_MATERIAL_GRADE } from '@/services/api/jewellery';
 import useAppStore from '@/store/useAppStore';
 import { getBlockedOfferSlots, isBlockedForItem } from '@/utils/customerOfferRules';
 const PICKER_PAGE_SIZE = 20;
@@ -29,21 +30,32 @@ const PICKER_PAGE_SIZE = 20;
 /** Survives unmount when leaving the jewellery workspace so we do not re-open the picker on remount. */
 let lastJewelleryPickerOpenNonceHandled = 0;
 
-const BULLION_GOLD_PRODUCT_NAME = 'Bullion (gold)';
-const GOLD_ONLY_MATERIAL_GRADES = new Set([
-  '9ct gold',
-  '14ct gold',
-  '18ct gold',
-  '22ct gold',
-  '24ct gold',
-]);
+/** Reference entry for lines with no scrap price (i.e. "Other" material grade). Kept as
+ *  a PER_G line so the Weight column still shows a g/kg selector; the line's total is driven
+ *  by the buyer-entered `overrideReferenceTotal`, not weight × rate. */
+const OTHER_REFERENCE_ENTRY = Object.freeze({
+  catalogId: 'synth:other',
+  sectionTitle: 'Other',
+  displayName: 'Other',
+  sourceKind: 'PER_G',
+  ratePerGram: null,
+  unitPrice: null,
+});
 
+/**
+ * A single-step scrollable list with search + pagination. Callers either:
+ *  - pass `isBranch` (treats items as a NosPos tree — renders smartphone/folder icons
+ *    + a chevron_right only for branches), or
+ *  - omit `isBranch` (flat list — no leading icon, trailing chevron on every row).
+ * "Other*" labels are always pinned to the bottom, even after search filtering.
+ */
 function JewelleryPickerList({
   items,
   isLoading = false,
   onSelect,
   getLabel,
   getKey,
+  isBranch = null,
   searchPlaceholder,
   statsHeading,
   entitySingular,
@@ -69,8 +81,14 @@ function JewelleryPickerList({
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter((m) => getLabel(m).toLowerCase().includes(q));
+    const matches = q ? items.filter((m) => getLabel(m).toLowerCase().includes(q)) : items;
+    /** "Other" (and "Other (…)") always sinks to the bottom of any list it appears in. */
+    const nonOther = [];
+    const other = [];
+    for (const it of matches) {
+      (getLabel(it).toLowerCase().startsWith('other') ? other : nonOther).push(it);
+    }
+    return [...nonOther, ...other];
   }, [items, query, getLabel]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PICKER_PAGE_SIZE));
@@ -176,20 +194,37 @@ function JewelleryPickerList({
         ) : (
           <table className="w-full border-collapse text-sm">
             <tbody>
-              {pageItems.map((row, i) => (
-                <tr
-                  key={getKey(row)}
-                  onClick={() => onSelect(row)}
-                  className={`cursor-pointer border-b border-gray-200/80 transition-colors hover:bg-brand-blue/5 hover:text-brand-blue ${
-                    i % 2 === 0 ? 'bg-white' : 'bg-brand-blue/10'
-                  }`}
-                >
-                  <td className="px-4 py-3 font-medium text-gray-900">{getLabel(row)}</td>
-                  <td className="w-10 px-4 py-3 text-right">
-                    <span className="material-symbols-outlined align-middle text-[20px] text-gray-400">chevron_right</span>
-                  </td>
-                </tr>
-              ))}
+              {pageItems.map((row, i) => {
+                /** `branch` is tri-state: true → folder row, false → smartphone row, null → flat list (no icons). */
+                const branch = isBranch ? isBranch(row) : null;
+                const leadingIcon = branch == null ? null : branch ? 'folder' : 'smartphone';
+                const showTrailingChevron = branch == null || branch;
+                return (
+                  <tr
+                    key={getKey(row)}
+                    onClick={() => onSelect(row)}
+                    className={`cursor-pointer border-b border-gray-200/80 transition-colors hover:bg-brand-blue/5 hover:text-brand-blue ${
+                      i % 2 === 0 ? 'bg-white' : 'bg-brand-blue/10'
+                    }`}
+                  >
+                    {leadingIcon ? (
+                      <td className="w-10 pl-4 pr-1 py-3 text-left">
+                        <span className="material-symbols-outlined align-middle text-[20px] text-gray-500">
+                          {leadingIcon}
+                        </span>
+                      </td>
+                    ) : null}
+                    <td className="px-4 py-3 font-medium text-gray-900">{getLabel(row)}</td>
+                    <td className="w-10 px-4 py-3 text-right">
+                      {showTrailingChevron ? (
+                        <span className="material-symbols-outlined align-middle text-[20px] text-gray-400">
+                          chevron_right
+                        </span>
+                      ) : null}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
@@ -409,6 +444,46 @@ function bestReferenceEntry(catalog, materialGrade, productName) {
   return ranked[0] ?? catalog[0] ?? null;
 }
 
+/** Scrap reference for a picked variant. "Other" gets a null-priced placeholder so the line
+ *  still renders cleanly and the buyer enters Manual £. */
+function referenceEntryForVariant(catalog, variant) {
+  if (variant.material_grade === OTHER_MATERIAL_GRADE) return OTHER_REFERENCE_ENTRY;
+  return bestReferenceEntry(catalog, variant.material_grade, variant.product_name);
+}
+
+/** Assemble one workspace-table row from a chosen variant + resolved scrap reference. */
+function buildJewelleryWorkspaceLine({ variant, reference, categoryLabel, jewelleryDbCategoryId }) {
+  const coin = isJewelleryCoinLine({ productName: variant.product_name, materialGrade: variant.material_grade });
+  const isUnitLine = reference.sourceKind === 'UNIT';
+  /** Weight is the per-unit multiplier for UNIT lines and the gram count for weight lines.
+   *  Coins use the coinUnits field instead and leave weight locked at '1'. */
+  const defaultWeight = coin || isUnitLine ? '1' : '';
+  return {
+    id: crypto.randomUUID?.() ?? `jewellery-item-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    request_item_id: null,
+    jewelleryDbCategoryId,
+    variantId: variant.variant_id,
+    variantTitle: variant.title,
+    categoryLabel,
+    itemName: categoryLabel,
+    productName: variant.product_name,
+    materialGrade: variant.material_grade,
+    referenceEntry: reference,
+    sourceKind: reference.sourceKind,
+    ratePerGram: reference.ratePerGram,
+    unitPrice: reference.unitPrice,
+    weightUnit: isUnitLine ? 'each' : defaultWeightUnit(reference.sourceKind),
+    weight: defaultWeight,
+    ...(coin ? { coinUnits: '' } : {}),
+    selectedOfferTierPct: null,
+    manualOfferInput: '',
+    manualOfferAuthBy: null,
+    selectedOfferTierAuthBy: null,
+    authorisedOfferSlots: [],
+    customerExpectation: '',
+  };
+}
+
 function JewelleryTierOfferCell({ referenceTotalGbp, marginPct, isSelected, onSelect, blocked = false, approvedBy = null }) {
   const metricDisplay = useOfferMetricDisplay();
   const metricLabel = metricDisplay === 'pctOfSale' ? '% sale' : '% margin';
@@ -493,9 +568,14 @@ export default function JewelleryLineItems({
   const controlled = linesProp != null && typeof onLinesChange === 'function';
   const lines = controlled ? linesProp : internalLines;
   const setLines = controlled ? onLinesChange : setInternalLines;
-  const [modalOpen, setModalOpen] = useState(false);
-  const [step, setStep] = useState('product');
-  const [selectedProductId, setSelectedProductId] = useState(null);
+  /**
+   * Single source of truth for the picker. `null` when closed; otherwise `{ step, parent, leaf }`:
+   *   step 'product'     — browsing the top-level NosPos tree (parent=null, leaf=null)
+   *   step 'subcategory' — drilled into a branch (parent=branchProduct, leaf=null)
+   *   step 'variant'     — picking a material grade (leaf set; parent set iff drilled via subcategory)
+   */
+  const [picker, setPicker] = useState(null);
+  const modalOpen = picker !== null;
   const [jewelleryContextMenu, setJewelleryContextMenu] = useState(null);
   const [syncMarginsOpen, setSyncMarginsOpen] = useState(false);
   const [syncMarginInput, setSyncMarginInput] = useState('');
@@ -552,21 +632,31 @@ export default function JewelleryLineItems({
     };
   }, []);
 
+  /** Material-step list for the current leaf. The grade list is defined by NosPos rules
+   *  (see materialGradesForLeaf); real DB variants are reused where a grade matches, otherwise
+   *  we synthesise so every leaf offers the same set of choices including "Other". */
   const variantsForProduct = useMemo(() => {
-    if (!dbCatalog?.variants || selectedProductId == null) return [];
-    let list = dbCatalog.variants.filter((v) => v.product_id === selectedProductId);
-    const product = dbCatalog.products?.find((p) => p.product_id === selectedProductId);
-    if (product?.name === BULLION_GOLD_PRODUCT_NAME) {
-      list = list.filter((v) => GOLD_ONLY_MATERIAL_GRADES.has(v.material_grade));
-    }
-    return list;
-  }, [dbCatalog, selectedProductId]);
+    const leaf = picker?.leaf;
+    if (!dbCatalog || !leaf) return [];
+    return materialGradesForLeaf(leaf).map((grade) => {
+      const dbVariant = leaf.dbProductId != null
+        ? dbCatalog.variants.find((v) => v.product_id === leaf.dbProductId && v.material_grade === grade)
+        : null;
+      return dbVariant ?? {
+        variant_id: null,
+        product_id: leaf.dbProductId,
+        product_name: leaf.dbName ?? leaf.name,
+        material_grade: grade,
+        title: `${leaf.name} — ${grade}`,
+        cex_sku: null,
+      };
+    });
+  }, [dbCatalog, picker]);
 
   const openPickerModal = useCallback(() => {
-    setStep('product');
-    setSelectedProductId(null);
-    setModalOpen(true);
+    setPicker({ step: 'product', parent: null, leaf: null });
   }, []);
+  const closePicker = useCallback(() => setPicker(null), []);
 
   useEffect(() => {
     const nonce = jewelleryPickerOpenNonce;
@@ -581,45 +671,51 @@ export default function JewelleryLineItems({
     lastJewelleryPickerOpenNonceHandled = nonce;
   }, [jewelleryPickerOpenNonce, modalOpen, scrapSectionsCatalog, dbCatalog, openPickerModal]);
 
-  const pickProduct = (product) => {
-    setSelectedProductId(product.product_id);
-    setStep('variant');
+  /** Advances the picker by one step. Top-level branches go to subcategory; everything else
+   *  short-circuits to the material-grade list, using the picked item as the leaf. */
+  const handlePickerSelect = (item) => {
+    setPicker((prev) => {
+      if (!prev) return prev;
+      if (prev.step === 'product') {
+        return item.children?.length
+          ? { step: 'subcategory', parent: item, leaf: null }
+          : { step: 'variant', parent: null, leaf: item };
+      }
+      if (prev.step === 'subcategory') {
+        return { step: 'variant', parent: prev.parent, leaf: item };
+      }
+      return prev;
+    });
   };
 
-  const addLineForVariant = (v) => {
-    const ref = bestReferenceEntry(scrapSectionsCatalog, v.material_grade, v.product_name);
-    if (!ref) return;
-    const wu = defaultWeightUnit(ref.sourceKind);
-    const id = crypto.randomUUID?.() ?? `jewellery-item-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const coin = isJewelleryCoinLine({ productName: v.product_name, materialGrade: v.material_grade });
-    setLines((prev) => [
-      ...prev,
-      {
-        id,
-        request_item_id: null,
-        jewelleryDbCategoryId: dbCatalog?.category_id ?? null,
-        variantId: v.variant_id,
-        variantTitle: v.title,
-        categoryLabel: v.title,
-        itemName: v.title,
-        productName: v.product_name,
-        materialGrade: v.material_grade,
-        referenceEntry: ref,
-        sourceKind: ref.sourceKind,
-        ratePerGram: ref.ratePerGram,
-        unitPrice: ref.unitPrice,
-        weightUnit: ref.sourceKind === 'UNIT' ? 'each' : wu,
-        weight: coin ? '1' : '',
-        ...(coin ? { coinUnits: '' } : {}),
-        selectedOfferTierPct: null,
-        manualOfferInput: '',
-        manualOfferAuthBy: null,
-        selectedOfferTierAuthBy: null,
-        authorisedOfferSlots: [],
-        customerExpectation: '',
-      },
-    ]);
-    setModalOpen(false);
+  const handlePickerBack = () => {
+    setPicker((prev) => {
+      if (!prev) return prev;
+      if (prev.step === 'subcategory') return { step: 'product', parent: null, leaf: null };
+      if (prev.step === 'variant') {
+        return prev.parent
+          ? { step: 'subcategory', parent: prev.parent, leaf: null }
+          : { step: 'product', parent: null, leaf: null };
+      }
+      return prev;
+    });
+  };
+
+  const addLineForVariant = (variant) => {
+    const reference = referenceEntryForVariant(scrapSectionsCatalog, variant);
+    if (!reference) return;
+    /** When a subcategory was drilled into, label the line "Parent > Child"; top-level picks keep v.title. */
+    const categoryLabel = picker?.parent && picker?.leaf
+      ? `${picker.parent.name} > ${picker.leaf.name}`
+      : variant.title;
+    const line = buildJewelleryWorkspaceLine({
+      variant,
+      reference,
+      categoryLabel,
+      jewelleryDbCategoryId: dbCatalog?.category_id ?? null,
+    });
+    setLines((prev) => [...prev, line]);
+    closePicker();
   };
 
   const removeLine = (id) => {
@@ -794,11 +890,7 @@ export default function JewelleryLineItems({
             {modalOpen ? (
               <button
                 type="button"
-                onClick={() => {
-                  setModalOpen(false);
-                  setStep('product');
-                  setSelectedProductId(null);
-                }}
+                onClick={closePicker}
                 className="inline-flex min-h-[2.75rem] w-full flex-1 items-center justify-center gap-2 rounded-xl border-2 border-gray-300 bg-white px-4 py-3 text-sm font-extrabold uppercase tracking-wide text-gray-800 shadow-sm transition-all hover:bg-gray-50 sm:w-auto sm:min-w-[200px] sm:flex-initial"
               >
                 <span className="material-symbols-outlined text-[24px] leading-none">close</span>
@@ -845,30 +937,28 @@ export default function JewelleryLineItems({
         <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 px-3 pb-3 pt-2">
           <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-gray-100 pb-2">
             <p className="text-xs font-black uppercase tracking-wider text-brand-blue">Add jewellery item</p>
-            {step === 'variant' ? (
+            {picker.step === 'product' ? (
+              <span className="text-[11px] font-medium text-gray-500">Step 1 — choose item type</span>
+            ) : (
               <button
                 type="button"
                 className="inline-flex items-center gap-1 text-xs font-bold text-brand-blue hover:underline"
-                onClick={() => {
-                  setStep('product');
-                  setSelectedProductId(null);
-                }}
+                onClick={handlePickerBack}
               >
                 <span className="material-symbols-outlined text-[16px]">arrow_back</span>
-                Back to types
+                {picker.step === 'variant' && picker.parent ? `Back to ${picker.parent.name}` : 'Back to types'}
               </button>
-            ) : (
-              <span className="text-[11px] font-medium text-gray-500">Step 1 of 2 — choose item type</span>
             )}
           </div>
-          {step === 'product' ? (
+          {picker.step === 'product' ? (
             <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white">
               <JewelleryPickerList
                 items={dbCatalog?.products || []}
                 isLoading={catalogLoading}
-                onSelect={pickProduct}
+                onSelect={handlePickerSelect}
                 getLabel={(p) => p.name}
                 getKey={(p) => p.product_id}
+                isBranch={(p) => Boolean(p.children?.length)}
                 searchPlaceholder="Search types…"
                 statsHeading="Types in catalogue"
                 entitySingular="type"
@@ -876,11 +966,40 @@ export default function JewelleryLineItems({
               />
             </div>
           ) : null}
-          {step === 'variant' ? (
+          {picker.step === 'subcategory' ? (
             <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white">
               <div className="shrink-0 border-b border-gray-100 bg-gray-50/80 px-4 py-2">
                 <p className="text-[11px] font-semibold text-gray-600">
-                  Step 2 of 2 — <span className="text-gray-900">Material / grade</span>
+                  Step 2 — <span className="text-gray-900">{picker.parent.name}</span> subcategory
+                </p>
+              </div>
+              <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+                <JewelleryPickerList
+                  items={picker.parent.children || []}
+                  onSelect={handlePickerSelect}
+                  getLabel={(c) => c.name}
+                  getKey={(c) => c.product_id}
+                  isBranch={() => false}
+                  searchPlaceholder={`Search ${picker.parent.name.toLowerCase()}…`}
+                  statsHeading={`${picker.parent.name} subcategories`}
+                  entitySingular="subcategory"
+                  entityPlural="subcategories"
+                />
+              </div>
+            </div>
+          ) : null}
+          {picker.step === 'variant' ? (
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white">
+              <div className="shrink-0 border-b border-gray-100 bg-gray-50/80 px-4 py-2">
+                <p className="text-[11px] font-semibold text-gray-600">
+                  {picker.parent ? (
+                    <>
+                      Step 3 — <span className="text-gray-900">Material / grade</span>
+                      <span className="ml-2 text-gray-500">({picker.parent.name} › {picker.leaf.name})</span>
+                    </>
+                  ) : (
+                    <>Step 2 — <span className="text-gray-900">Material / grade</span></>
+                  )}
                 </p>
               </div>
               <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -949,7 +1068,7 @@ export default function JewelleryLineItems({
                   Manual £
                 </th>
                 <th scope="col" className="w-28">
-                  Total
+                  RRP Total
                 </th>
               </tr>
             </thead>
@@ -1123,7 +1242,36 @@ export default function JewelleryLineItems({
                         aria-label="Manual offer GBP"
                       />
                     </td>
-                    <td className="font-semibold tabular-nums text-gray-900">£{formatOfferPrice(total)}</td>
+                    <td className="font-semibold tabular-nums text-gray-900">
+                      {line.materialGrade === OTHER_MATERIAL_GRADE ? (
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={line.rrpTotalInput ?? (line.overrideReferenceTotal != null ? String(line.overrideReferenceTotal) : '')}
+                          onChange={(e) => {
+                            /** Raw string preserves in-progress decimals ("5."); overrideReferenceTotal is
+                             *  the parsed number consumed by computeWorkspaceLineTotal + tier offers + persistence. */
+                            const raw = String(e.target.value ?? '').replace(/[^0-9.]/g, '');
+                            const n = parseFloat(raw);
+                            updateLine(line.id, {
+                              rrpTotalInput: raw,
+                              overrideReferenceTotal: Number.isFinite(n) && n >= 0 ? n : null,
+                            });
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              e.currentTarget.blur();
+                            }
+                          }}
+                          placeholder="£"
+                          className="h-8 w-full rounded border border-gray-300 px-2 font-semibold tabular-nums text-gray-900 placeholder:text-gray-400 focus:border-brand-blue focus:outline-none focus:ring-1 focus:ring-brand-blue/30"
+                          aria-label="RRP total GBP"
+                        />
+                      ) : (
+                        <>£{formatOfferPrice(total)}</>
+                      )}
+                    </td>
                   </tr>
                 );
               })}

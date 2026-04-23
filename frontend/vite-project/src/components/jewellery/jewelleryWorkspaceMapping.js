@@ -80,6 +80,9 @@ export function negotiationJewelleryItemToWorkspaceLine(item) {
     sourceKind: ref.reference_price_source_kind,
     ratePerGram: ref.rate_per_gram != null ? Number(ref.rate_per_gram) : null,
     unitPrice: ref.unit_price != null ? Number(ref.unit_price) : null,
+    /** Buyer-entered total for "Other" material-grade lines (see computeWorkspaceLineTotal). */
+    overrideReferenceTotal: ref.override_reference_total != null ? Number(ref.override_reference_total) : null,
+    rrpTotalInput: ref.override_reference_total != null ? String(Number(ref.override_reference_total)) : undefined,
     weight: coin ? '1' : ref.weight != null && String(ref.weight).trim() !== '' ? String(ref.weight) : '0',
     weightUnit: coin ? 'each' : ref.weight_unit || 'g',
     ...(coin ? { coinUnits } : {}),
