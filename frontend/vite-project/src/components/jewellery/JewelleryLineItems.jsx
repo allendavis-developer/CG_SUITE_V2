@@ -7,7 +7,8 @@ import {
   SPREADSHEET_TABLE_STYLES,
   SPREADSHEET_TABLE_WORKSPACE_PERF_STYLES,
 } from '@/styles/spreadsheetTableStyles';
-import { formatOfferPrice, roundOfferPrice } from '@/utils/helpers';
+import { formatOfferPrice, roundOfferPrice, calculatePctOfSale } from '@/utils/helpers';
+import { useOfferMetricDisplay } from '@/store/useAppStore';
 import JewelleryLineDetailsBlockingModal from '@/components/jewellery/JewelleryLineDetailsBlockingModal';
 import {
   tierOfferGbpFromReference,
@@ -409,6 +410,8 @@ function bestReferenceEntry(catalog, materialGrade, productName) {
 }
 
 function JewelleryTierOfferCell({ referenceTotalGbp, marginPct, isSelected, onSelect, blocked = false, approvedBy = null }) {
+  const metricDisplay = useOfferMetricDisplay();
+  const metricLabel = metricDisplay === 'pctOfSale' ? '% sale' : '% margin';
   if (!Number.isFinite(referenceTotalGbp) || referenceTotalGbp <= 0) {
     return (
       <td className="align-top text-[13px] text-gray-400" aria-label={`Offer tier ${marginPct}%`}>
@@ -419,6 +422,8 @@ function JewelleryTierOfferCell({ referenceTotalGbp, marginPct, isSelected, onSe
   const offerAmt = tierOfferGbpFromReference(referenceTotalGbp, marginPct);
   /** Margin vs reference (RRP) from rounded offer — not the nominal tier %, which ignores £2/£5 rounding. */
   const marginFromRoundedOfferPct = ((referenceTotalGbp - offerAmt) / referenceTotalGbp) * 100;
+  const pctOfSaleFromRoundedOffer = calculatePctOfSale(offerAmt, referenceTotalGbp);
+  const metricValue = metricDisplay === 'pctOfSale' ? pctOfSaleFromRoundedOffer : marginFromRoundedOfferPct;
   return (
     <td
       role="button"
@@ -435,7 +440,7 @@ function JewelleryTierOfferCell({ referenceTotalGbp, marginPct, isSelected, onSe
               }
             : { fontWeight: 600, color: '#111827' }
       }
-      aria-label={`${marginFromRoundedOfferPct.toFixed(1)}% margin on rounded offer${isSelected ? ', selected' : ''}`}
+      aria-label={`${metricDisplay === 'pctOfSale' ? `${metricValue}% sale` : `${marginFromRoundedOfferPct.toFixed(1)}% margin`} on rounded offer${isSelected ? ', selected' : ''}`}
       aria-pressed={isSelected}
       title={blocked ? 'Blocked — requires senior management authorisation' : undefined}
       onClick={onSelect}
@@ -451,8 +456,9 @@ function JewelleryTierOfferCell({ referenceTotalGbp, marginPct, isSelected, onSe
         <div
           className={`text-[9px] font-medium ${blocked ? 'text-gray-400' : isSelected ? 'text-green-800' : 'text-brand-blue'}`}
         >
-          {marginFromRoundedOfferPct >= 0 ? '+' : ''}
-          {marginFromRoundedOfferPct.toFixed(1)}% margin
+          {metricDisplay === 'pctOfSale'
+            ? `${metricValue}${metricLabel}`
+            : `${metricValue >= 0 ? '+' : ''}${Number(metricValue).toFixed(1)}${metricLabel}`}
         </div>
         {isSelected && approvedBy && (
           <div className={`text-[9px] mt-1 font-semibold ${blocked ? 'text-gray-400' : 'text-red-700'}`}>

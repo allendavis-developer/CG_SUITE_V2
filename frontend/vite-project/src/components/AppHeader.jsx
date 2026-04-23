@@ -1799,7 +1799,7 @@ const AppHeader = ({
                                         blockedOfferSlots={buyerControls?.blockedOfferSlots}
                                         toolbarLayout
                                         toolbarFillWidth={false}
-                                        showAddActionCard={!isRepricingWorkspace}
+                                        showAddActionCard={false}
                                         hideSectionHeader
                                         onBlockedOfferClick={(slot, offer, blockedSelectionArg) => {
                                           const blockedItem = buildWorkspaceNegotiationItem(
@@ -1826,6 +1826,23 @@ const AppHeader = ({
                                 hideBuyInPrice={isRepricingWorkspace}
                                 cexOutOfStock={referenceData?.cex_out_of_stock ?? false}
                               />
+                              {!isRepricingWorkspace && (
+                                <>
+                                  <div
+                                    className="hidden w-px shrink-0 self-stretch rounded-full bg-gray-200/70 sm:block"
+                                    aria-hidden
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={handleAddNegotiationItem}
+                                    title="Add to cart"
+                                    aria-label="Add to cart"
+                                    className="flex min-h-[56px] shrink-0 cursor-pointer items-center justify-center rounded-lg bg-brand-orange px-6 text-brand-blue shadow-lg shadow-brand-orange/30 transition-all hover:bg-brand-orange-hover active:scale-[0.99]"
+                                  >
+                                    <span className="material-symbols-outlined text-[22px]">add_shopping_cart</span>
+                                  </button>
+                                </>
+                              )}
                             </>
                           )}
                         </div>

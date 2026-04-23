@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { OfferCard, Icon } from '@/components/ui/components';
-import { formatGBP, calculateMargin, formatOfferPrice, normalizeExplicitSalePrice } from '@/utils/helpers';
+import { formatGBP, calculateMargin, calculatePctOfSale, formatOfferPrice, normalizeExplicitSalePrice } from '@/utils/helpers';
+import { useOfferMetricDisplay } from '@/store/useAppStore';
 
 /**
  * Offer selection component.
@@ -83,14 +84,18 @@ const OfferSelection = ({
   const showAddAction = showAddToCart && showAddActionCard;
   const useToolbarLayout = toolbarLayout && !editMode;
   const showInlineManualOffer = showAddToCart;
+  const metricDisplay = useOfferMetricDisplay();
+  const metricLabel = metricDisplay === 'pctOfSale' ? '% sale' : '% margin';
 
-  const manualPctOfSale = useMemo(() => {
+  const manualMetric = useMemo(() => {
     const sale = Number(ourSalePrice);
     if (!Number.isFinite(sale) || sale <= 0 || !manualOfferInput) return null;
     const clean = parseFloat(String(manualOfferInput).replace(/[£,]/g, ''));
     if (!Number.isFinite(clean) || clean <= 0) return null;
-    return Math.round((clean / sale) * 100);
-  }, [ourSalePrice, manualOfferInput]);
+    return metricDisplay === 'pctOfSale'
+      ? calculatePctOfSale(clean, sale)
+      : calculateMargin(clean, sale);
+  }, [ourSalePrice, manualOfferInput, metricDisplay]);
 
   const handleOfferClick = (offerId) => {
     const slot = offerId ? `offer${String(offerId).match(/_(\d)$/)?.[1] || ''}` : null;
@@ -187,6 +192,11 @@ const OfferSelection = ({
           const recalculatedMargin = ourSalePrice
             ? calculateMargin(displayPrice, ourSalePrice)
             : null;
+          const recalculatedMetric = ourSalePrice
+            ? (metricDisplay === 'pctOfSale'
+                ? calculatePctOfSale(displayPrice, ourSalePrice)
+                : recalculatedMargin)
+            : null;
           const isHighlighted = offer.id === selectedOfferId;
           const slotMatch = String(offer.id || '').match(/_(\d)$/);
           const slot = slotMatch ? `offer${slotMatch[1]}` : null;
@@ -248,8 +258,8 @@ const OfferSelection = ({
                   />
                 </div>
                 <div className="flex items-center justify-center gap-1.5">
-                  <span className="text-[10px] font-bold text-gray-500 uppercase">Margin</span>
-                  <span className="text-xs font-extrabold text-brand-orange">{recalculatedMargin}%</span>
+                  <span className="text-[10px] font-bold text-gray-500 uppercase">{metricDisplay === 'pctOfSale' ? '% Sale' : 'Margin'}</span>
+                  <span className="text-xs font-extrabold text-brand-orange">{recalculatedMetric}%</span>
                 </div>
               </div>
             );
@@ -266,8 +276,8 @@ const OfferSelection = ({
                 <span className="text-lg font-extrabold leading-tight text-inherit">
                   £{displayPrice}
                 </span>
-                {recalculatedMargin != null ? (
-                  <span className="text-[10px] font-bold text-brand-orange-hover">{recalculatedMargin}% sale</span>
+                {recalculatedMetric != null ? (
+                  <span className="text-[10px] font-bold text-brand-orange-hover">{recalculatedMetric}{metricLabel}</span>
                 ) : null}
               </>
             );
@@ -385,8 +395,8 @@ const OfferSelection = ({
                   aria-label="Manual offer amount"
                 />
               </div>
-              {manualPctOfSale != null ? (
-                <span className="text-[10px] font-bold text-brand-orange-hover">{manualPctOfSale}% sale</span>
+              {manualMetric != null ? (
+                <span className="text-[10px] font-bold text-brand-orange-hover">{manualMetric}{metricLabel}</span>
               ) : null}
             </div>
           </>
@@ -437,8 +447,8 @@ const OfferSelection = ({
                   aria-label="Manual offer amount"
                 />
               </div>
-              {manualPctOfSale != null ? (
-                <span className="mt-1 text-[10px] font-bold text-brand-orange-hover">{manualPctOfSale}% sale</span>
+              {manualMetric != null ? (
+                <span className="mt-1 text-[10px] font-bold text-brand-orange-hover">{manualMetric}{metricLabel}</span>
               ) : null}
             </div>
           </div>

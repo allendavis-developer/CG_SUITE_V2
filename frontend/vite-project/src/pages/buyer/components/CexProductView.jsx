@@ -136,7 +136,7 @@ export default function CexProductView({
                   initialSelectedOfferId={item?.selectedOfferId ?? null}
                   syncKey={`${item?.id ?? 'cex'}:${useVoucherOffers ? 'voucher' : 'cash'}`}
                   onAddToCart={onSelectOfferForCartItem}
-                  showAddActionCard={true}
+                  showAddActionCard={false}
                   toolbarLayout
                   toolbarFillWidth={false}
                   hideSectionHeader
@@ -154,6 +154,23 @@ export default function CexProductView({
               hideBuyInPrice={isRepricing}
               cexOutOfStock={item.cexProductData?.isOutOfStock || item.cexOutOfStock}
             />
+            {!isRepricing && displayOffers.length > 0 && (
+              <>
+                <div
+                  className="hidden w-px shrink-0 self-stretch rounded-full bg-gray-200/70 sm:block"
+                  aria-hidden
+                />
+                <button
+                  type="button"
+                  onClick={() => onSelectOfferForCartItem?.(item?.selectedOfferId ?? null)}
+                  title="Add to cart"
+                  aria-label="Add to cart"
+                  className="flex min-h-[56px] shrink-0 cursor-pointer items-center justify-center rounded-lg bg-brand-orange px-6 text-brand-blue shadow-lg shadow-brand-orange/30 transition-all hover:bg-brand-orange-hover active:scale-[0.99]"
+                >
+                  <span className="material-symbols-outlined text-[22px]">add_shopping_cart</span>
+                </button>
+              </>
+            )}
           </div>
         </div>
         <div className="p-8 space-y-8">
@@ -324,38 +341,58 @@ export default function CexProductView({
               aiFromCascade={data.aiInternalCategoryFromCascade === true}
             />
           </div>
-          <div className="flex min-w-0 flex-wrap items-stretch gap-3 self-stretch">
-            {!isRepricing && offers.length > 0 ? (
-              <>
-                <div className="flex min-w-0 flex-col justify-center self-stretch">
-                <OfferSelection
-                  className="min-w-0"
-                  variant="cex"
-                  offers={offers}
-                  referenceData={refWithOurSale}
-                  offerType={useVoucherOffers ? 'voucher' : 'cash'}
-                  onAddToCart={handleAdd}
-                  blockedOfferSlots={blockedOfferSlots}
-                  onBlockedOfferClick={onBlockedOfferClick}
-                  toolbarLayout
-                  toolbarFillWidth={false}
-                  hideSectionHeader
-                />
-                </div>
-                <div
-                  className="hidden w-px shrink-0 self-stretch rounded-full bg-gray-200/70 sm:block"
-                  aria-hidden
-                />
-              </>
-            ) : null}
-            <WorkspacePricingStatCards
-              referenceData={refData}
-              ourSalePrice={cexBasedRounded != null ? String(cexBasedRounded) : ''}
-              hideBuyInPrice={isRepricing}
-              cexOutOfStock={data.isOutOfStock ?? false}
-            />
+          <div className="flex flex-1 flex-col gap-4 self-stretch lg:flex-row lg:items-stretch">
+            <div className="flex min-w-0 flex-wrap items-stretch gap-3 self-stretch">
+              {!isRepricing && offers.length > 0 ? (
+                <>
+                  <div className="flex min-w-0 flex-col justify-center self-stretch">
+                  <OfferSelection
+                    className="min-w-0"
+                    variant="cex"
+                    offers={offers}
+                    referenceData={refWithOurSale}
+                    offerType={useVoucherOffers ? 'voucher' : 'cash'}
+                    onAddToCart={handleAdd}
+                    blockedOfferSlots={blockedOfferSlots}
+                    onBlockedOfferClick={onBlockedOfferClick}
+                    toolbarLayout
+                    toolbarFillWidth={false}
+                    showAddActionCard={false}
+                    hideSectionHeader
+                  />
+                  </div>
+                  <div
+                    className="hidden w-px shrink-0 self-stretch rounded-full bg-gray-200/70 sm:block"
+                    aria-hidden
+                  />
+                </>
+              ) : null}
+              <WorkspacePricingStatCards
+                referenceData={refData}
+                ourSalePrice={cexBasedRounded != null ? String(cexBasedRounded) : ''}
+                hideBuyInPrice={isRepricing}
+                cexOutOfStock={data.isOutOfStock ?? false}
+              />
+              {!isRepricing && offers.length > 0 && (
+                <>
+                  <div
+                    className="hidden w-px shrink-0 self-stretch rounded-full bg-gray-200/70 sm:block"
+                    aria-hidden
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleAdd(null)}
+                    title="Add to cart"
+                    aria-label="Add to cart"
+                    className="flex min-h-[56px] shrink-0 cursor-pointer items-center justify-center rounded-lg bg-brand-orange px-6 text-brand-blue shadow-lg shadow-brand-orange/30 transition-all hover:bg-brand-orange-hover active:scale-[0.99]"
+                  >
+                    <span className="material-symbols-outlined text-[22px]">add_shopping_cart</span>
+                  </button>
+                </>
+              )}
+            </div>
             {(onCancelCeXProduct || onClearCeXProduct) && (
-              <div className="flex shrink-0 items-center self-stretch">
+              <div className="flex shrink-0 items-center self-stretch lg:ml-auto">
                 <WorkspaceCloseButton
                   title="Close CeX product"
                   onClick={onCancelCeXProduct ?? onClearCeXProduct}

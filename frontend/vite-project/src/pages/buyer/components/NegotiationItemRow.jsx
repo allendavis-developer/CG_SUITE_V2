@@ -1,5 +1,6 @@
 import React from 'react';
-import { normalizeExplicitSalePrice, roundSalePrice } from '@/utils/helpers';
+import { normalizeExplicitSalePrice, roundSalePrice, calculatePctOfSale } from '@/utils/helpers';
+import { useOfferMetricDisplay } from '@/store/useAppStore';
 import { getNosposCategoryHierarchyLabelFromItem } from '@/utils/nosposCategoryMappings';
 import { getCgCategoryHierarchyLabelFromItem } from '@/utils/cgCategoryMappings';
 import MirroredStockCategoryColumnCell from '@/components/negotiation/MirroredStockCategoryColumnCell';
@@ -36,7 +37,11 @@ function fmtUploadText(v) {
 // ─── Reusable offer cell (1st / 2nd / 3rd / 4th) ─────────────────────────────
 
 function OfferCell({ offer, item, quantity, mode, isSelected, onSelect, ourSalePrice, onContextMenu, blockedOfferSlots, onBlockedOfferClick }) {
+  const metricDisplay = useOfferMetricDisplay();
   const margin = ourSalePrice && offer ? ((ourSalePrice - offer.price) / ourSalePrice) * 100 : null;
+  const pctOfSale = ourSalePrice && offer ? calculatePctOfSale(offer.price, ourSalePrice) : null;
+  const metricValue = metricDisplay === 'pctOfSale' ? pctOfSale : margin;
+  const metricLabel = metricDisplay === 'pctOfSale' ? '% sale' : '% margin';
   const slot = offer ? offerIdToSlot(offer.id) : null;
   const isBlocked = isBlockedForItem(slot, blockedOfferSlots, item);
   const authorisedSlots = Array.isArray(item?.authorisedOfferSlots) ? item.authorisedOfferSlots : [];
@@ -71,9 +76,11 @@ function OfferCell({ offer, item, quantity, mode, isSelected, onSelect, ourSaleP
     >
       <div className={isBlocked ? 'opacity-60' : ''}>
         <div>£{(offer.price * quantity).toFixed(2)}</div>
-        {margin !== null && (
-          <div className="text-[9px] font-medium" style={{ color: isBlocked ? '#9ca3af' : margin >= 0 ? 'var(--brand-blue)' : '#dc2626' }}>
-            {margin >= 0 ? '+' : ''}{margin.toFixed(1)}% margin
+        {metricValue !== null && (
+          <div className="text-[9px] font-medium" style={{ color: isBlocked ? '#9ca3af' : metricValue >= 0 ? 'var(--brand-blue)' : '#dc2626' }}>
+            {metricDisplay === 'pctOfSale'
+              ? `${metricValue}${metricLabel}`
+              : `${metricValue >= 0 ? '+' : ''}${Number(metricValue).toFixed(1)}${metricLabel}`}
           </div>
         )}
         {quantity > 1 && (

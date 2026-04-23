@@ -113,9 +113,32 @@ export function getCSRFToken() {
 export const calculateMargin = (offerPrice, salePrice) => {
   const salePriceNum = parseFloat(salePrice);
   const offerPriceNum = parseFloat(offerPrice);
-  
+
   if (!salePriceNum || salePriceNum <= 0) return 0;
-  
+
   const margin = ((salePriceNum - offerPriceNum) / salePriceNum) * 100;
   return Math.round(margin);
+};
+
+/**
+ * % of sale: how much of the sale price the offer represents (offer / sale * 100).
+ */
+export const calculatePctOfSale = (offerPrice, salePrice) => {
+  const salePriceNum = parseFloat(salePrice);
+  const offerPriceNum = parseFloat(offerPrice);
+  if (!salePriceNum || salePriceNum <= 0) return 0;
+  if (!Number.isFinite(offerPriceNum)) return 0;
+  return Math.round((offerPriceNum / salePriceNum) * 100);
+};
+
+/**
+ * Return { value: number, label: string } for a given metric mode.
+ * - 'margin' → { value: margin%, label: '% margin' }
+ * - 'pctOfSale' → { value: pct%, label: '% sale' }
+ */
+export const formatOfferMetric = (offerPrice, salePrice, mode = 'margin') => {
+  if (mode === 'pctOfSale') {
+    return { value: calculatePctOfSale(offerPrice, salePrice), label: '% sale' };
+  }
+  return { value: calculateMargin(offerPrice, salePrice), label: '% margin' };
 };

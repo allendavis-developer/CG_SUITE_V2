@@ -63,6 +63,11 @@ const useAppStore = create(
       webEposWorkerClosedPrompt: null,
       setWebEposWorkerClosedPrompt: (payload) => set({ webEposWorkerClosedPrompt: payload }),
 
+      /** Global toggle: 'margin' shows "% margin" under offers; 'pctOfSale' shows "% sale". */
+      offerMetricDisplay: 'margin',
+      setOfferMetricDisplay: (mode) =>
+        set({ offerMetricDisplay: mode === 'pctOfSale' ? 'pctOfSale' : 'margin' }),
+
       bumpRepricingWorkspace: () =>
         set((s) => ({ repricingWorkspaceNonce: s.repricingWorkspaceNonce + 1 })),
 
@@ -536,6 +541,7 @@ export const useIsRepricing = () => useAppStore((s) => s.mode === 'repricing');
 export const useIsUploadWorkspace = () =>
   useAppStore((s) => s.mode === 'repricing' && s.repricingWorkspaceKind === 'upload');
 export const useUseVoucherOffers = () => useAppStore((s) => s.customerData?.transactionType === 'store_credit');
+export const useOfferMetricDisplay = () => useAppStore((s) => s.offerMetricDisplay);
 export const useEbayOfferMargins = (categoryId) =>
   useAppStore((s) => {
     if (categoryId && s._ebayMarginsByCategory[categoryId]) {

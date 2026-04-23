@@ -13,7 +13,7 @@ import { DualRangeSlider, DualDateRangeSlider, formatSoldDateMs } from './slider
 import ListingCard from './ListingCard';
 import PriceHistogram from './PriceHistogram';
 import { formatDrillBreadcrumbLabel, formatDrillBreadcrumbShortLabel } from './researchDrillUtils';
-import useAppStore from '@/store/useAppStore';
+import useAppStore, { useOfferMetricDisplay } from '@/store/useAppStore';
 import { getBlockedOfferSlots, manualSlotCommitRequiresAuthorisation } from '@/utils/customerOfferRules';
 import { CUSTOMER_TYPE_LABELS, getCustomerType } from '@/utils/customerOfferRules';
 
@@ -27,6 +27,14 @@ function displayPctOfSaleForOffer(offer, suggestedPrice) {
     if (Number.isFinite(p) && p > 0) return Math.round((p / sp) * 100);
   }
   return null;
+}
+
+/** Resolve display value/label pair for offer badge based on the global metric toggle. */
+function displayOfferMetric(offer, suggestedPrice, metricMode) {
+  const pct = displayPctOfSaleForOffer(offer, suggestedPrice);
+  if (pct == null) return null;
+  if (metricMode === 'pctOfSale') return { value: pct, label: '% sale' };
+  return { value: 100 - pct, label: '% margin' };
 }
 
 /** Repricing rail vs upload module — same CeX/eBay “add to list” control, different label text. */
@@ -235,6 +243,9 @@ export default function ResearchFormShell({
   }, [researchBlockedSlots, lineItemContext, onBlockedOfferClick]);
 
   const [blockedAuthModal, setBlockedAuthModal] = useState(null); // { idx, price }
+
+  const metricDisplay = useOfferMetricDisplay();
+  const metricLabel = metricDisplay === 'pctOfSale' ? '% sale' : '% margin';
 
   // ─── Existing state ───────────────────────────────────────────────────────
   const [selectedOfferIndex, setSelectedOfferIndex] = useState(null);
@@ -727,8 +738,9 @@ export default function ResearchFormShell({
     if (isNaN(cleanManual) || cleanManual <= 0) return null;
     const salePrice = activeStats.suggestedPrice;
     if (salePrice <= 0) return null;
-    return Math.round((cleanManual / salePrice) * 100);
-  }, [activeStats, manualOffer]);
+    const pct = Math.round((cleanManual / salePrice) * 100);
+    return metricDisplay === 'pctOfSale' ? pct : 100 - pct;
+  }, [activeStats, manualOffer, metricDisplay]);
 
   // ─── Exclude handlers ─────────────────────────────────────────────────────
   const handleExcludeClick = useCallback((sortedIdx) => {
@@ -873,7 +885,7 @@ export default function ResearchFormShell({
           {!hideOfferCards && buyOffers.map((offer, idx) => {
             const { price: rawPrice } = offer;
             const price = useVoucherOffers ? toVoucherOfferPrice(rawPrice) : rawPrice;
-            const pctOfSale = displayPctOfSaleForOffer(offer, activeStats?.suggestedPrice);
+            const metricBadge = displayOfferMetric(offer, activeStats?.suggestedPrice, metricDisplay);
             const isSelected = showManualOffer && selectedOfferIndex === idx;
 
             const inner = (
@@ -882,8 +894,8 @@ export default function ResearchFormShell({
                 <span className="text-lg font-extrabold leading-tight text-inherit">
                   £{formatStat(price)}
                 </span>
-                {pctOfSale != null && (
-                  <span className="text-[10px] font-bold text-brand-orange-hover">{pctOfSale}% sale</span>
+                {metricBadge != null && (
+                  <span className="text-[10px] font-bold text-brand-orange-hover">{metricBadge.value}{metricBadge.label}</span>
                 )}
               </>
             );
@@ -1013,35 +1025,16 @@ export default function ResearchFormShell({
                   />
                 </div>
                 {manualOfferPctOfSale !== null && (
-                  <span className="text-[10px] font-bold text-brand-orange-hover">{manualOfferPctOfSale}% sale</span>
+                  <span className="text-[10px] font-bold text-brand-orange-hover">{manualOfferPctOfSale}{metricLabel}</span>
                 )}
               </div>
             </>
           )}
 
-          {useAddWithOfferFlow && showInlineOfferAction && !hidePrimaryAddAction && (
-            <>
-              {buyOffers.length > 0 && !showManualOfferCard && <div className="w-px h-8 bg-gray-200" />}
-              {showManualOfferCard && showInlineCartManual && <div className="w-px h-8 bg-gray-200 shrink-0" />}
-              <button
-                type="button"
-                onClick={handleInlineAddToCartClick}
-                className={`flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-extrabold uppercase tracking-wide text-brand-blue transition-all shrink-0 ${
-                  disableAddAction
-                    ? 'bg-gray-300 text-gray-600 cursor-not-allowed shadow-none ring-0'
-                    : `bg-brand-orange hover:bg-brand-orange-hover cursor-pointer ${prominentAddClass}`
-                }`}
-                disabled={disableAddAction}
-              >
-                <Icon name={isWorkspaceListAddActionLabel(addActionLabel) ? 'sell' : 'add_shopping_cart'} className="text-[22px]" />
-                {addActionLabel}
-              </button>
-            </>
-          )}
         </div>
       </React.Fragment>
     );
-  }, [buyOffers, showManualOffer, selectedOfferIndex, hoveredOfferIndex, manualOffer, manualOfferPctOfSale, onManualOfferChange, readOnly, handleOfferClick, handleManualOfferCardClick, handleManualOfferChange, onAddToCartWithOffer, formatStat, hideOfferCards, addActionLabel, disableAddAction, useVoucherOffers, activeStats?.suggestedPrice, showInlineOfferAction, prominentAddClass, hidePrimaryAddAction, handleComplete, onBlockedOfferClick, researchBlockedIndices, useAddWithOfferFlow, requestManualOfferAuthorisationIfNeeded, handleInlineAddToCartClick]);
+  }, [buyOffers, showManualOffer, selectedOfferIndex, hoveredOfferIndex, manualOffer, manualOfferPctOfSale, onManualOfferChange, readOnly, handleOfferClick, handleManualOfferCardClick, handleManualOfferChange, onAddToCartWithOffer, formatStat, hideOfferCards, addActionLabel, disableAddAction, useVoucherOffers, activeStats?.suggestedPrice, showInlineOfferAction, prominentAddClass, hidePrimaryAddAction, handleComplete, onBlockedOfferClick, researchBlockedIndices, useAddWithOfferFlow, requestManualOfferAuthorisationIfNeeded, handleInlineAddToCartClick, metricDisplay, metricLabel]);
 
   // ─── Action buttons (shared between banners) ──────────────────────────────
   const othersPanelOpen = Boolean(
@@ -1212,6 +1205,23 @@ export default function ResearchFormShell({
           <>
             <div className="w-px h-8 bg-gray-200 shrink-0" />
             <StatsDisplay />
+          </>
+        )}
+        {useAddWithOfferFlow && showInlineOfferAction && !hidePrimaryAddAction && (
+          <>
+            <div className="w-px h-8 bg-gray-200 shrink-0" />
+            <button
+              type="button"
+              onClick={handleInlineAddToCartClick}
+              className={`flex min-h-[56px] items-center justify-center rounded-lg px-6 transition-all shrink-0 ${
+                disableAddAction
+                  ? 'bg-gray-300 text-gray-600 cursor-not-allowed shadow-none'
+                  : 'bg-brand-orange text-brand-blue shadow-lg shadow-brand-orange/30 hover:bg-brand-orange-hover cursor-pointer active:scale-[0.99]'
+              }`}
+              disabled={disableAddAction}
+            >
+              <Icon name={isWorkspaceListAddActionLabel(addActionLabel) ? 'sell' : 'add_shopping_cart'} className="text-[22px]" />
+            </button>
           </>
         )}
       </div>

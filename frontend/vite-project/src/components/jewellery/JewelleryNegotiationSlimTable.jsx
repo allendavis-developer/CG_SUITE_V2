@@ -5,7 +5,8 @@ import {
   resolveOurSalePrice,
 } from '@/pages/buyer/utils/negotiationHelpers';
 import { NEGOTIATION_ROW_CONTEXT } from '@/pages/buyer/rowContextZones';
-import { formatOfferPrice } from '@/utils/helpers';
+import { formatOfferPrice, calculatePctOfSale } from '@/utils/helpers';
+import { useOfferMetricDisplay } from '@/store/useAppStore';
 import {
   finalizeJewelleryCoinUnitsInput,
   isJewelleryCoinLine,
@@ -112,7 +113,11 @@ function SlimOfferCell({
   blockedOfferSlots,
   onBlockedOfferClick,
 }) {
+  const metricDisplay = useOfferMetricDisplay();
   const margin = ourSalePrice && offer ? ((ourSalePrice - offer.price) / ourSalePrice) * 100 : null;
+  const pctOfSale = ourSalePrice && offer ? calculatePctOfSale(offer.price, ourSalePrice) : null;
+  const metricValue = metricDisplay === 'pctOfSale' ? pctOfSale : margin;
+  const metricLabel = metricDisplay === 'pctOfSale' ? '% sale' : '% margin';
   const isView = mode === 'view';
   const slot = offer ? offerIdToSlot(offer.id) : null;
   const isBlocked = isBlockedForItem(slot, blockedOfferSlots, item);
@@ -149,12 +154,13 @@ function SlimOfferCell({
     >
       <div className={isBlocked ? 'opacity-60' : ''}>
         <div>£{formatOfferPrice((offer.price ?? 0) * quantity)}</div>
-        {margin != null && (
+        {metricValue != null && (
           <div
             className={`text-[9px] font-medium ${isBlocked ? 'text-gray-400' : isSelected ? 'text-green-800' : 'text-brand-blue'}`}
           >
-            {margin >= 0 ? '+' : ''}
-            {margin.toFixed(1)}% margin
+            {metricDisplay === 'pctOfSale'
+              ? `${metricValue}${metricLabel}`
+              : `${metricValue >= 0 ? '+' : ''}${Number(metricValue).toFixed(1)}${metricLabel}`}
           </div>
         )}
         {isAuthorisedSelected && (
@@ -206,6 +212,8 @@ export default function JewelleryNegotiationSlimTable({
 }) {
   const showParkExclude = parkExcludedItems != null && typeof onToggleParkExcludeItem === 'function';
   const isView = mode === 'view';
+  const tableMetricDisplay = useOfferMetricDisplay();
+  const tableMetricLabel = tableMetricDisplay === 'pctOfSale' ? '% sale' : '% margin';
 
   const openRowContext = (e, item, zone) => {
     e.preventDefault();
@@ -333,6 +341,12 @@ export default function JewelleryNegotiationSlimTable({
               manualValue != null && !Number.isNaN(manualValue) && ourSalePrice
                 ? ((ourSalePrice - manualValue) / ourSalePrice) * 100
                 : null;
+            const manualPctOfSale =
+              manualValue != null && !Number.isNaN(manualValue) && ourSalePrice
+                ? calculatePctOfSale(manualValue, ourSalePrice)
+                : null;
+            const manualMetricValue =
+              tableMetricDisplay === 'pctOfSale' ? manualPctOfSale : manualMargin;
             const manualExceedsSale =
               ourSalePrice && manualValue != null && !Number.isNaN(manualValue) && manualValue > ourSalePrice;
             const nosposAction = getNosposAction?.(item) || null;
@@ -602,13 +616,14 @@ export default function JewelleryNegotiationSlimTable({
                           (£{formatOfferPrice(manualValue || 0)} × {quantity})
                         </div>
                       )}
-                      {manualMargin != null && (
+                      {manualMetricValue != null && (
                         <div
                           className="text-[9px] font-semibold mt-0.5"
-                          style={{ color: manualMargin >= 0 ? 'var(--brand-blue)' : '#dc2626' }}
+                          style={{ color: manualMetricValue >= 0 ? 'var(--brand-blue)' : '#dc2626' }}
                         >
-                          {manualMargin >= 0 ? '+' : ''}
-                          {manualMargin.toFixed(1)}% margin
+                          {tableMetricDisplay === 'pctOfSale'
+                            ? `${manualMetricValue}${tableMetricLabel}`
+                            : `${manualMetricValue >= 0 ? '+' : ''}${Number(manualMetricValue).toFixed(1)}${tableMetricLabel}`}
                           {ourSalePrice &&
                             ` (£${formatOfferPrice(Math.abs(ourSalePrice - (manualValue || 0)))})`}
                         </div>

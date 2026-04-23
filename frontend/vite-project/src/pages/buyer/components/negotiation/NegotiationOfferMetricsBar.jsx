@@ -2,6 +2,7 @@ import React from 'react';
 import { TRANSACTION_OPTIONS, TRANSACTION_META } from '@/utils/transactionConstants';
 import { formatOfferPrice } from '@/utils/helpers';
 import NegotiationHeaderTransactionDropdown from './NegotiationHeaderTransactionDropdown';
+import OfferMetricToggle from '@/components/ui/OfferMetricToggle';
 
 const LABEL_COL =
   'flex shrink-0 items-center self-stretch border-r border-white/25 bg-white/10 px-2.5';
@@ -170,6 +171,8 @@ export default function NegotiationOfferMetricsBar({
             </span>
           </div>
         </StripField>
+
+        <OfferMetricToggle variant="dark" size="sm" />
 
         <div className="ml-auto flex min-w-0 items-center gap-2">
           {showJewelleryReferenceCta ? (
