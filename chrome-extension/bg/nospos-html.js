@@ -14,13 +14,23 @@ var NOSPOS_HTML_FETCH_HEADERS = {
 
 function nosposHtmlFetchIndicatesNotLoggedIn(response, finalUrl) {
   var url = (finalUrl || response?.url || '').toLowerCase();
-  if (!response?.ok) return true;
-  return (
+  // Auth signals only:
+  //   - URL was redirected to a NosPos login/2FA page
+  //   - HTTP 401/403
+  // Everything else (5xx, 429 throttling, transient network) is NOT a login problem and
+  // must propagate as a normal error so callers can retry instead of nagging the user to
+  // re-log in. The previous "any non-2xx → loginRequired" rule turned every NosPos
+  // throttle into a fake "log in to NosPos first" message after ~10 rapid searches.
+  if (
     url.includes('/login') ||
     url.includes('/signin') ||
     url.includes('/site/standard-login') ||
     url.includes('/twofactor')
-  );
+  ) {
+    return true;
+  }
+  var status = Number(response?.status);
+  return status === 401 || status === 403;
 }
 
 function decodeNosposHtmlText(value) {

@@ -1231,7 +1231,12 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
     });
 
     if (newSlotIdsOnly.length > 0) {
-      showNotification('Add CeX products from the header — each line fills the table from the top down.', 'success');
+      // In audit mode the buyer is editing existing Web EPOS rows — there is no "add from
+      // CeX" workflow happening on the header, so the tip is just noise the moment they
+      // hit Continue to products. Skip it for audits; keep it for fresh upload sessions.
+      if (!uploadAuditMode) {
+        showNotification('Add CeX products from the header — each line fills the table from the top down.', 'success');
+      }
     } else {
       showNotification(copy.uploadIntakeMergedExistingOnly, 'success');
     }
@@ -1247,6 +1252,7 @@ export function useListWorkspaceNegotiation(moduleKey = 'repricing') {
     scheduleCgAiForUploadLine,
     maxBarcodesPerItem,
     items,
+    uploadAuditMode,
   ]);
 
   const openAddMoreUploadBarcodeIntake = useCallback(() => {
