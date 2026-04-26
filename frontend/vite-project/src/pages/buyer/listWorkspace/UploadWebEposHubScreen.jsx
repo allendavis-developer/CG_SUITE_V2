@@ -3,6 +3,7 @@ import AppHeader from '@/components/AppHeader';
 import NegotiationDocumentHead from '@/pages/buyer/components/negotiation/NegotiationDocumentHead';
 import WebEposProductsTablePanel from '@/pages/buyer/components/WebEposProductsTablePanel';
 import CloseListingsSoldCheckModal from '@/pages/buyer/components/CloseListingsSoldCheckModal';
+import SyncListedNosposToWebEposModal from '@/pages/buyer/components/SyncListedNosposToWebEposModal';
 import { extractWebEposBarserial } from '@/pages/buyer/webEposUploadConstants';
 import { useNotification } from '@/contexts/NotificationContext';
 
@@ -25,12 +26,17 @@ export default function UploadWebEposHubScreen({
   const [soldCheckQueue, setSoldCheckQueue] = useState([]);
   const [flaggedByBarserial, setFlaggedByBarserial] = useState({});
   const [closedBarserials, setClosedBarserials] = useState(() => new Set());
+  const [syncListedOpen, setSyncListedOpen] = useState(false);
   const { showNotification } = useNotification();
 
   const handleAudit = () => {
     if (selectedBarcodes.length === 0 || !onAuditBarcodes) return;
     onAuditBarcodes(selectedBarcodes, selectedRows);
   };
+
+  const handleSyncListedToWebEpos = useCallback(() => {
+    setSyncListedOpen(true);
+  }, []);
 
   /**
    * Build the close-listings queue: prefer the current selection, else every scraped row.
@@ -117,6 +123,15 @@ export default function UploadWebEposHubScreen({
                   </span>
                 ) : null}
               </button>
+              <button
+                type="button"
+                onClick={handleSyncListedToWebEpos}
+                title="Sync items listed on NosPos to WebEpos"
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-1 text-xl font-semibold text-brand-blue transition-colors hover:bg-brand-blue/5 sm:text-2xl dark:border-slate-600 dark:bg-slate-800/40"
+              >
+                <span className="material-symbols-outlined text-[22px] sm:text-[26px]">sync</span>
+                Sync listed on NosPos to WebEpos
+              </button>
             </div>
             <p className="cg-section-subtitle text-sm text-slate-600">{copy.uploadHubSubtitle}</p>
           </div>
@@ -190,6 +205,14 @@ export default function UploadWebEposHubScreen({
           onClose={() => setSoldCheckOpen(false)}
           onFlaggedChange={setFlaggedByBarserial}
           onClosedChange={handleClosedChange}
+          showNotification={showNotification}
+        />
+      ) : null}
+
+      {syncListedOpen ? (
+        <SyncListedNosposToWebEposModal
+          webEposRows={rows}
+          onClose={() => setSyncListedOpen(false)}
           showNotification={showNotification}
         />
       ) : null}

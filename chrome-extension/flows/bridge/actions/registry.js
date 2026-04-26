@@ -20,6 +20,7 @@ const BRIDGE_ACTIONS = {
   cancelRequest: handleBridgeAction_cancelRequest,
   searchNosposBarcode: handleBridgeAction_searchNosposBarcode,
   scrapeNosposStockEditForUpload: handleBridgeAction_scrapeNosposStockEditForUpload,
+  scrapeNosposListedStockPage: handleBridgeAction_scrapeNosposListedStockPage,
   getParkAgreementLog: handleBridgeAction_getParkAgreementLog,
   checkNosposCustomerBuyingSession: handleBridgeAction_checkNosposCustomerBuyingSession,
   clearNosposParkAgreementUi: handleBridgeAction_clearNosposParkAgreementUi,

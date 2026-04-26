@@ -353,6 +353,27 @@ export async function searchNosposBarcode(barcode) {
 }
 
 /**
+ * Walk every page of NosPos /stock/search/index with `Manually Listed = Yes`
+ * (`StockSearchAndFilter[externally_listed]=1`) via a credentialed background
+ * fetch. Hard cap of 500 pages.
+ *
+ * Rows are streamed page-by-page through `onProgress` so the UI can render
+ * them as they land — the resolved promise just confirms completion.
+ *
+ * @param {{ onProgress?: (p: { page: number, rows: Array<{ barserial: string, href: string, name: string, costPrice: string, retailPrice: string, quantity: string }>, hasMore: boolean }) => void }} [options]
+ * @returns {Promise<{ ok: true, pages: number }
+ *   | { ok: false, loginRequired: true }
+ *   | { ok: false, error: string, pages?: number }>}
+ */
+export async function scrapeNosposListedStockPage({ onProgress } = {}) {
+  return sendMessage(
+    { action: 'scrapeNosposListedStockPage' },
+    // 500 pages × ~500ms per fetch (plus retry headroom for 429s) ≈ 5 min cap.
+    { timeoutMs: 5 * 60_000, onProgress }
+  );
+}
+
+/**
  * Upload workspace: open stock edit in a minimised NosPos window (when invoked from app tab),
  * fetch the edit page with session cookies, return { ok, details } where details is
  * { name, boughtBy, createdAt, costPrice, retailPrice, quantity, changeLog? } where quantity is the

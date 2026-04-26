@@ -87,6 +87,7 @@ importScripts(
   'flows/bridge/actions/resolve-nospos-park-agreement-line.js',
   'flows/bridge/actions/scrape-cex-super-categories.js',
   'flows/bridge/actions/scrape-nospos-stock-edit-for-upload.js',
+  'flows/bridge/actions/scrape-nospos-listed-stock-page.js',
   'flows/bridge/actions/scrape-web-epos-category-selects.js',
   'flows/bridge/actions/scrape-web-epos-products.js',
   'flows/bridge/actions/scrape-webepos-category-hierarchy.js',

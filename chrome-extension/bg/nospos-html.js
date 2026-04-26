@@ -1,16 +1,104 @@
 /**
  * NosPos HTML fetch, parse, and login detection utilities.
  * Globals: NOSPOS_HTML_FETCH_HEADERS, nosposHtmlFetchIndicatesNotLoggedIn,
- *          decodeNosposHtmlText, getStockNameFromEditHtml,
- *          parseNosposSearchResults, parseNosposStockEditResult,
+ *          nosposCredentialedHtmlFetch, decodeNosposHtmlText,
+ *          getStockNameFromEditHtml, parseNosposSearchResults,
+ *          parseNosposStockEditResult, parseNosposPaginationNextHref,
  *          normalizeNosposStockEditUrl, parseNosposStockEditPageDetails,
- *          parseNosposStockEditPageChangeLog,
- *          handleFetchAddressSuggestions
+ *          parseNosposStockEditPageChangeLog, handleFetchAddressSuggestions
  */
 
 var NOSPOS_HTML_FETCH_HEADERS = {
   Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
 };
+
+/**
+ * Credentialed background fetch of a NosPos page with the standard retry/backoff
+ * policy used everywhere we read NosPos HTML (search results, stock edit pages,
+ * pagination walks). Hardened against transient 429 / 5xx so callers don't have
+ * to re-implement the same loop.
+ *
+ *   429 / 5xx / network error → retry up to 3 attempts with exponential backoff
+ *     (400ms, 900ms, 1600ms) plus jitter. Honour `Retry-After` when sent.
+ *   401 / 403 / login-redirect → stop immediately; `loginRequired: true`.
+ *   Other 4xx → stop with `error: "NosPos returned 4xx"`.
+ *
+ * @param {string} url Absolute NosPos URL to fetch.
+ * @returns {Promise<{ ok: true, html: string, finalUrl: string }
+ *   | { ok: false, loginRequired: true }
+ *   | { ok: false, error: string }>}
+ */
+var NOSPOS_HTML_FETCH_RETRY_DELAYS_MS = [400, 900, 1600];
+
+function nosposHtmlFetchParseRetryAfter(headerValue) {
+  if (!headerValue) return null;
+  var raw = String(headerValue).trim();
+  if (!raw) return null;
+  var asInt = Number.parseInt(raw, 10);
+  if (Number.isFinite(asInt) && String(asInt) === raw) {
+    return Math.min(Math.max(asInt * 1000, 0), 10000);
+  }
+  var ts = Date.parse(raw);
+  if (Number.isFinite(ts)) {
+    return Math.min(Math.max(ts - Date.now(), 0), 10000);
+  }
+  return null;
+}
+
+function nosposHtmlFetchSleep(ms) {
+  return new Promise(function (r) { setTimeout(r, ms); });
+}
+
+async function nosposCredentialedHtmlFetch(url) {
+  var lastError = null;
+  for (var attempt = 0; attempt <= NOSPOS_HTML_FETCH_RETRY_DELAYS_MS.length; attempt += 1) {
+    var response;
+    try {
+      response = await fetch(url, {
+        credentials: 'include',
+        headers: NOSPOS_HTML_FETCH_HEADERS,
+      });
+    } catch (e) {
+      lastError = e?.message || 'Network error';
+      if (attempt < NOSPOS_HTML_FETCH_RETRY_DELAYS_MS.length) {
+        var base = NOSPOS_HTML_FETCH_RETRY_DELAYS_MS[attempt];
+        await nosposHtmlFetchSleep(base + Math.floor(Math.random() * 200));
+        continue;
+      }
+      return { ok: false, error: lastError };
+    }
+
+    var finalUrl = response.url || url;
+    if (nosposHtmlFetchIndicatesNotLoggedIn(response, finalUrl)) {
+      return { ok: false, loginRequired: true };
+    }
+
+    if (response.status === 429 || response.status >= 500) {
+      lastError = 'NosPos returned ' + response.status;
+      if (attempt < NOSPOS_HTML_FETCH_RETRY_DELAYS_MS.length) {
+        var hinted = nosposHtmlFetchParseRetryAfter(response.headers?.get?.('Retry-After'));
+        var baseDelay = NOSPOS_HTML_FETCH_RETRY_DELAYS_MS[attempt];
+        var delay = hinted != null ? Math.max(hinted, baseDelay) : baseDelay + Math.floor(Math.random() * 200);
+        await nosposHtmlFetchSleep(delay);
+        continue;
+      }
+      return { ok: false, error: lastError };
+    }
+
+    if (!response.ok) {
+      return { ok: false, error: 'NosPos returned ' + response.status };
+    }
+
+    try {
+      var html = await response.text();
+      return { ok: true, html: html, finalUrl: finalUrl };
+    } catch (e) {
+      return { ok: false, error: e?.message || 'Read failed' };
+    }
+  }
+
+  return { ok: false, error: lastError || 'Fetch failed' };
+}
 
 function nosposHtmlFetchIndicatesNotLoggedIn(response, finalUrl) {
   var url = (finalUrl || response?.url || '').toLowerCase();
@@ -84,6 +172,34 @@ function parseNosposSearchResults(html) {
     }
   }
   return results;
+}
+
+/**
+ * Pull the `<li class="next">` href out of a NosPos pagination block.
+ * NosPos paginators wrap the next-page link in `<li class="next">`; the same
+ * `<li>` carries `disabled` once you reach the last page (then the inner
+ * element is a `<span>` instead of an `<a>`).
+ *
+ * @param {string} html Page HTML containing a NosPos pagination `<ul>`.
+ * @param {string} [baseUrl] URL the pagination href is relative to (e.g. the page's `finalUrl`).
+ * @returns {string|null} Absolute next-page URL, or null when there's no next page.
+ */
+function parseNosposPaginationNextHref(html, baseUrl) {
+  if (!html) return null;
+  var nextLiRe = /<li\b[^>]*class="([^"]*\bnext\b[^"]*)"[^>]*>([\s\S]*?)<\/li>/i;
+  var m = html.match(nextLiRe);
+  if (!m) return null;
+  var cls = m[1] || '';
+  if (/\bdisabled\b/i.test(cls)) return null;
+  var aMatch = (m[2] || '').match(/<a\b[^>]*\bhref="([^"]+)"/i);
+  if (!aMatch) return null;
+  var href = aMatch[1].replace(/&amp;/g, '&').trim();
+  if (!href || href === '#') return null;
+  try {
+    return new URL(href, baseUrl || 'https://nospos.com').toString();
+  } catch (_) {
+    return null;
+  }
 }
 
 /** Ensure `/stock/{id}/edit` URL for credentialed fetch of cost/retail + detail rows. */
